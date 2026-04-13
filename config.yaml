@@ -1,0 +1,100 @@
+models:
+  spacy_model: pl_core_news_md
+  sentence_transformer_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+  stanza_coref_model_path: models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.patched.pt
+
+keywords:
+  - powołany
+  - powołana
+  - nominacja
+  - odwołany
+  - odwołana
+  - odwołano
+  - dymisja
+  - stanowisko
+  - rada nadzorcza
+  - zarząd
+  - spółka skarbu państwa
+  - spółka miejska
+  - polityk
+  - partia
+  - znajomy
+  - rodzina
+
+party_aliases:
+  PO: Platforma Obywatelska
+  Platforma Obywatelska: Platforma Obywatelska
+  PiS: Prawo i Sprawiedliwość
+  Prawo i Sprawiedliwość: Prawo i Sprawiedliwość
+  PSL: Polskie Stronnictwo Ludowe
+  Lewica: Lewica
+  KO: Koalicja Obywatelska
+  Konfederacja: Konfederacja
+
+patterns:
+  appointment_verbs:
+    - został powołany
+    - została powołana
+    - powołano
+    - objął stanowisko
+    - objęła stanowisko
+    - trafił do rady nadzorczej
+    - trafiła do rady nadzorczej
+    - został prezesem
+    - została prezeską
+  dismissal_verbs:
+    - odwołano
+    - został odwołany
+    - została odwołana
+    - zrezygnował
+    - zrezygnowała
+  board_terms:
+    - rada nadzorcza
+    - zarząd
+    - członek zarządu
+    - prezes
+    - wiceprezes
+  party_markers:
+    - z pis
+    - z po
+    - polityk
+    - działacz
+    - radny
+    - poseł
+    - senator
+  kinship_terms:
+    - syn
+    - córka
+    - żona
+    - mąż
+    - brat
+    - siostra
+    - kuzyn
+    - szwagier
+    - znajomy
+  state_company_markers:
+    - skarbu państwa
+    - spółka miejska
+    - urząd miasta
+    - państwowy
+    - gmina
+    - samorząd
+    - holding
+    - miejska spółka
+  qualification_markers:
+    - bez doświadczenia
+    - bez kwalifikacji
+    - brak kompetencji
+    - nie ma doświadczenia
+
+score_weights:
+  political_tie: 0.25
+  family_tie: 0.35
+  board_position: 0.2
+  state_company: 0.15
+  qualification_gap: 0.2
+  dismissal_signal: 0.1
+
+registry:
+  sqlite_path: output/entity_registry.sqlite3
+  similarity_threshold: 0.92

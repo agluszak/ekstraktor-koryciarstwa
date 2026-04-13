@@ -1,0 +1,115 @@
+{
+  "document_id": "2026-04-13:mariusz-antoni-kaminski",
+  "source_url": "https://i.pl/mariusz-antoni-kaminski-szefem-w-polskim-hodingu-obronnym/ar/c3-9380984",
+  "title": "Mariusz Antoni Kamiński szefem w Polskim Holdingu Obronnym",
+  "publication_date": "2026-04-13",
+  "relevance": {
+    "is_relevant": true,
+    "score": 0.8,
+    "reasons": [
+      "keyword hits: powołany, zarząd, rada nadzorcza",
+      "contains person-like full name",
+      "contains company or board marker"
+    ]
+  },
+  "entities": [
+    {
+      "entity_id": "person_123",
+      "entity_type": "Person",
+      "canonical_name": "Mariusz Antoni Kamiński",
+      "normalized_name": "Mariusz Antoni Kamiński",
+      "aliases": [
+        "Mariusz Antoni Kamiński"
+      ],
+      "attributes": {
+        "registry_id": "person_registry_123"
+      },
+      "evidence": []
+    },
+    {
+      "entity_id": "org_123",
+      "entity_type": "Organization",
+      "canonical_name": "Polski Holding Obronny",
+      "normalized_name": "Polski Holding Obronny",
+      "aliases": [
+        "Polski Holding Obronny"
+      ],
+      "attributes": {},
+      "evidence": []
+    }
+  ],
+  "relations": [
+    {
+      "relation_type": "APPOINTED_TO",
+      "source_entity_id": "person_123",
+      "target_entity_id": "org_123",
+      "confidence": 0.82,
+      "evidence": {
+        "text": "Mariusz Antoni Kamiński został powołany do zarządu Polskiego Holdingu Obronnego.",
+        "sentence_index": 0,
+        "paragraph_index": 0,
+        "start_char": 0,
+        "end_char": 86
+      },
+      "attributes": {}
+    }
+  ],
+  "events": [
+    {
+      "event_id": "event_123",
+      "event_type": "appointment",
+      "person_entity_id": "person_123",
+      "organization_entity_id": "org_123",
+      "position_entity_id": null,
+      "event_date": "2026-04-13",
+      "confidence": 0.8,
+      "evidence": {
+        "text": "Mariusz Antoni Kamiński został powołany do zarządu Polskiego Holdingu Obronnego.",
+        "sentence_index": 0,
+        "paragraph_index": 0,
+        "start_char": 0,
+        "end_char": 86
+      },
+      "attributes": {}
+    }
+  ],
+  "score": {
+    "value": 0.6,
+    "reasons": [
+      "detected board appointment",
+      "organization looks state-owned or municipal"
+    ]
+  },
+  "graph": {
+    "nodes": [
+      {
+        "node_id": "person_123",
+        "label": "Person",
+        "properties": {
+          "canonical_name": "Mariusz Antoni Kamiński",
+          "normalized_name": "Mariusz Antoni Kamiński",
+          "registry_id": "person_registry_123"
+        }
+      },
+      {
+        "node_id": "org_123",
+        "label": "Organization",
+        "properties": {
+          "canonical_name": "Polski Holding Obronny",
+          "normalized_name": "Polski Holding Obronny"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "edge_id": "edge_123",
+        "edge_type": "APPOINTED_TO",
+        "source": "person_123",
+        "target": "org_123",
+        "properties": {
+          "confidence": 0.82
+        }
+      }
+    ]
+  }
+}

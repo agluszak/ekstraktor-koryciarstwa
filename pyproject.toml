@@ -1,0 +1,43 @@
+[project]
+name = "extractor"
+version = "0.1.0"
+description = "Multi-stage Polish political nepotism extraction pipeline"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "beautifulsoup4>=4.12.3",
+  "peft>=0.17.1",
+  "pyyaml>=6.0.2",
+  "sentence-transformers>=4.1.0",
+  "spacy>=3.8.5",
+  "stanza>=1.11.1",
+  "trafilatura>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.5",
+  "ruff>=0.13.0",
+  "ty>=0.0.1a19",
+]
+
+[project.scripts]
+extractor = "pipeline.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pipeline"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+]

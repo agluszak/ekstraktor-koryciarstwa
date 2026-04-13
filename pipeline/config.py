@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+
+@dataclass(slots=True)
+class ModelConfig:
+    spacy_model: str
+    sentence_transformer_model: str
+    stanza_coref_model_path: str
+
+
+@dataclass(slots=True)
+class PatternConfig:
+    appointment_verbs: list[str]
+    dismissal_verbs: list[str]
+    board_terms: list[str]
+    party_markers: list[str]
+    kinship_terms: list[str]
+    state_company_markers: list[str]
+    qualification_markers: list[str]
+
+
+@dataclass(slots=True)
+class ScoreConfig:
+    political_tie: float
+    family_tie: float
+    board_position: float
+    state_company: float
+    qualification_gap: float
+    dismissal_signal: float
+
+
+@dataclass(slots=True)
+class RegistryConfig:
+    sqlite_path: str
+    similarity_threshold: float
+
+
+@dataclass(slots=True)
+class PipelineConfig:
+    models: ModelConfig
+    keywords: list[str]
+    party_aliases: dict[str, str]
+    patterns: PatternConfig
+    score_weights: ScoreConfig
+    registry: RegistryConfig
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> "PipelineConfig":
+        payload = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        return cls(
+            models=ModelConfig(**payload["models"]),
+            keywords=payload["keywords"],
+            party_aliases=payload["party_aliases"],
+            patterns=PatternConfig(**payload["patterns"]),
+            score_weights=ScoreConfig(**payload["score_weights"]),
+            registry=RegistryConfig(**payload["registry"]),
+        )

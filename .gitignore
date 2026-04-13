@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.coverage
+.pytest_cache/
+.ruff_cache/
+.ty/
+
+# Virtual environments
+.venv
+
+# Local outputs and downloaded artifacts
+output/
+models/
+article_*.html
+
+# Editor and OS files
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
