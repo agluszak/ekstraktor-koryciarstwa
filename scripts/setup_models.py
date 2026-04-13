@@ -9,6 +9,7 @@ import spacy.cli
 import stanza
 import torch
 
+SPACY_MODEL = "pl_core_news_lg"
 COREf_URL = "https://huggingface.co/stanfordnlp/stanza-pl/resolve/v1.12.0/models/coref/udcoref_xlm-roberta-lora.pt"
 RAW_COREF_PATH = Path("models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.pt")
 PATCHED_COREF_PATH = Path("models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.patched.pt")
@@ -25,13 +26,13 @@ def sha256_file(path: Path) -> str:
 
 def ensure_spacy_model() -> None:
     try:
-        spacy.load("pl_core_news_md")
+        spacy.load(SPACY_MODEL)
     except OSError:
-        spacy.cli.download("pl_core_news_md")
+        spacy.cli.download(SPACY_MODEL)
 
 
-def ensure_stanza_tokenizer() -> None:
-    stanza.download("pl", processors="tokenize", verbose=True)
+def ensure_stanza_models() -> None:
+    stanza.download("pl", processors="tokenize,mwt,pos,lemma,depparse", verbose=True)
 
 
 def download_coref_model() -> None:
@@ -52,7 +53,7 @@ def patch_coref_model() -> None:
 
 def main() -> int:
     ensure_spacy_model()
-    ensure_stanza_tokenizer()
+    ensure_stanza_models()
     download_coref_model()
     patch_coref_model()
     print(

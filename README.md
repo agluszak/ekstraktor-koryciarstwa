@@ -9,6 +9,10 @@ uv sync
 uv run python scripts/setup_models.py
 ```
 
+The setup script installs `pl_core_news_lg`, downloads the Stanza Polish
+`tokenize,mwt,pos,lemma,depparse` models, and downloads plus patches the pinned
+Polish coref model artifact.
+
 ## Run
 
 ```powershell

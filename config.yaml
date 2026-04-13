@@ -1,5 +1,5 @@
 models:
-  spacy_model: pl_core_news_md
+  spacy_model: pl_core_news_lg
   sentence_transformer_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
   stanza_coref_model_path: models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.patched.pt
 

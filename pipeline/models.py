@@ -44,6 +44,21 @@ class Relation:
 
 
 @dataclass(slots=True)
+class Fact:
+    fact_id: str
+    fact_type: str
+    subject_entity_id: str
+    object_entity_id: str | None
+    value_text: str | None
+    value_normalized: str | None
+    time_scope: str
+    event_date: str | None
+    confidence: float
+    evidence: EvidenceSpan
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class Event:
     event_id: str
     event_type: str
@@ -126,9 +141,13 @@ class ArticleDocument:
     publication_date: str | None
     cleaned_text: str
     paragraphs: list[str]
+    lead_text: str | None = None
+    content_source: str = "trafilatura"
+    content_quality_flags: list[str] = field(default_factory=list)
     sentences: list[SentenceFragment] = field(default_factory=list)
     entities: list[Entity] = field(default_factory=list)
     mentions: list[Mention] = field(default_factory=list)
+    facts: list[Fact] = field(default_factory=list)
     relations: list[Relation] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
@@ -143,6 +162,7 @@ class ExtractionResult:
     publication_date: str | None
     relevance: RelevanceDecision
     entities: list[Entity]
+    facts: list[Fact]
     relations: list[Relation]
     events: list[Event]
     score: ScoreResult | None

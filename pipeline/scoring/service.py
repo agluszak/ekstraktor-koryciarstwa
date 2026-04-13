@@ -28,6 +28,12 @@ class RuleBasedNepotismScorer(Scorer):
         if "MEMBER_OF_BOARD" in relation_types:
             score += self.config.score_weights.board_position
             reasons.append("detected board appointment")
+        if "RECEIVES_COMPENSATION" in relation_types:
+            score += 0.15
+            reasons.append("detected public-money compensation signal")
+        if "FUNDED_BY" in relation_types:
+            score += 0.2
+            reasons.append("detected public funding relation")
         if any(marker in lowered for marker in self.config.patterns.state_company_markers):
             score += self.config.score_weights.state_company
             reasons.append("organization looks state-owned or municipal")
