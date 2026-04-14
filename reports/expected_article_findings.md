@@ -666,3 +666,111 @@ Important text cues:
 
 Expected comparison standard:
 - This should yield at least one or two board exit facts (dismissal/resignation), a kinship fact (wife/spouse), and a party affiliation.
+
+## 17. Głos Wielkopolski: Nowy prezes WTC Poznań, spółki podległej MTP, wybrany bez konkursu
+
+Source:
+- https://gloswielkopolski.pl/nowy-prezes-wtc-poznan-spolki-podleglej-mtp-wybrany-bez-konkursu-ma-dyplom-collegium-humanum/ar/c1p2-27186205
+
+Archived source:
+- https://web.archive.org/web/20250120123235/https://gloswielkopolski.pl/nowy-prezes-wtc-poznan-spolki-podleglej-mtp-wybrany-bez-konkursu-ma-dyplom-collegium-humanum/ar/c1p2-27186205
+
+Fetch note:
+- use the archived source above as the canonical benchmark reference for this case
+- the live page is currently paid-access / anti-bot protected in this repo environment
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a municipal / city-linked patronage article about the appointment of a new president of `WTC Poznań`, a company subordinate to `Międzynarodowe Targi Poznańskie`, without an open competition process.
+- It is also a qualification-risk article because of the `Collegium Humanum` cue in the title.
+
+Expected core entities:
+- Jarosław Nowak
+- WTC Poznań
+- World Trade Center Poznań
+- Międzynarodowe Targi Poznańskie
+- MTP
+- Jacek Jaśkowiak
+- Platforma Obywatelska / PO
+- Lena Bretes-Dorożała
+
+Expected relations and events:
+- Jarosław Nowak -> `APPOINTED_TO` -> WTC Poznań
+  Expected role: `prezes`
+- Jarosław Nowak -> `HOLDS_POSITION_AT` -> WTC Poznań
+  Expected role: `prezes`
+- WTC Poznań should be recognized as a company subordinate to / controlled by `Międzynarodowe Targi Poznańskie`
+- Jarosław Nowak -> `AFFILIATED_WITH_PARTY` -> Platforma Obywatelska
+  or equivalent PO affiliation
+- optional:
+  - Lena Bretes-Dorożała -> `DISMISSED_FROM` / `LEFT_POSITION` -> WTC Poznań
+    the archived article states that she was unexpectedly removed in December 2024
+  - a qualification-risk or red-flag signal tied to `Collegium Humanum`
+
+Important text cues:
+- "wybrany bez konkursu"
+- "spółki podległej MTP"
+- "nowy prezes WTC Poznań"
+- "lider ... PO"
+- "dyplom Collegium Humanum"
+- "wśród członków jego partii"
+- "osoby z dyplomami tej uczelni nie będą miały otwartej drogi do miejskich spółek"
+
+Expected comparison standard:
+- This should not degrade into generic city-politics output.
+- At minimum, the pipeline should recover:
+  - one appointment fact
+  - one role fact
+  - one PO affiliation
+  - one company / parent-organization context linking WTC Poznań to MTP
+- A useful future extension would be a qualification-risk or red-flag signal for `Collegium Humanum`, but that is not required for baseline extraction.
+
+## 18. Do Rzeczy: PSL rozdał posady swoim w Agencji Mienia Wojskowego. Bez konkursów
+
+Source:
+- https://dorzeczy.pl/kraj/658447/bez-konkursow-desant-psl-na-agencje-mienia-wojskowego.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a state-institution patronage article about PSL-linked appointments into `Agencja Mienia Wojskowego` and its regional branches without open competition.
+- It is a good benchmark for central-government / agency governance capture rather than only company-board extraction.
+
+Expected core entities:
+- Marcin Horyń
+- Władysław Kosiniak-Kamysz
+- Agencja Mienia Wojskowego
+- AMW
+- Fundacja Rozwoju
+- Donald Tusk
+- PSL / Polskie Stronnictwo Ludowe
+- MON / Ministerstwo Obrony Narodowej
+
+Expected relations and events:
+- Marcin Horyń -> `APPOINTED_TO` -> Agencja Mienia Wojskowego
+  Expected role: `dyrektor`
+- Marcin Horyń -> `AFFILIATED_WITH_PARTY` -> PSL
+  or at minimum a strong political tie to Władysław Kosiniak-Kamysz
+- Marcin Horyń -> `RELATED_TO` -> Władysław Kosiniak-Kamysz
+  Expected relationship type: trusted aide / cabinet chief / close political associate
+- Donald Tusk -> appointment context for Marcin Horyń
+  This may appear as an event participant or institutional appointing context rather than a stable relation
+- Fundacja Rozwoju -> previous employment / role context for Marcin Horyń
+- AMW regional director structure should be recognized as a broader patronage signal:
+  - article says 8 of 10 regional directors are linked to PSL
+  - even if the system cannot recover all names, it should detect the large-scale appointment pattern
+
+Important text cues:
+- "Bez konkursów"
+- "powołuje go na stanowisko dyrektora Agencji Mienia Wojskowego"
+- "jeden z zaufanych ludzi prezesa PSL"
+- "szef gabinetu politycznego"
+- "desant ludzi z PSL"
+- "na 10 dyrektorów oddziałów regionalnych AMW, aż ośmiu jest związanych z ludowcami"
+
+Expected comparison standard:
+- This should yield at least:
+  - one appointment fact for `Marcin Horyń`
+  - one role fact for `dyrektor AMW`
+  - one PSL affiliation or trusted-associate link
+  - one clear public-institution target (`Agencja Mienia Wojskowego`)
+- If the pipeline only extracts `PSL`, `Kosiniak-Kamysz`, and `AMW` as loose entities, it is underperforming.

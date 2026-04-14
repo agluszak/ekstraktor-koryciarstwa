@@ -147,7 +147,84 @@ def test_pis_deduplication(linker):
 
     linked_doc = linker.run(doc)
 
-    # Should link to the seeded PoliticalParty "Prawo I Sprawiedliwość"
+    # Should link to the seeded PoliticalParty "Prawo i Sprawiedliwość"
     # and deduplicate correctly.
     assert len(linked_doc.entities) == 1
-    assert linked_doc.entities[0].canonical_name == "Prawo I Sprawiedliwość"
+    assert linked_doc.entities[0].canonical_name == "Prawo i Sprawiedliwość"
+
+
+def test_exact_duplicate_canonical_names_are_merged_after_linking(linker):
+    doc = ArticleDocument(
+        document_id="test-doc-duplicate-org",
+        source_url=None,
+        raw_html="",
+        title="Test Natura Tour",
+        publication_date=None,
+        cleaned_text="Natura Tour Natura Tour",
+        paragraphs=["Natura Tour Natura Tour"],
+        entities=[
+            Entity(
+                entity_id="e1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Natura Tour",
+                normalized_name="Natura Tour",
+                aliases=[],
+            ),
+            Entity(
+                entity_id="e2",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Natura Tour",
+                normalized_name="Natura Tour",
+                aliases=[],
+            ),
+        ],
+    )
+
+    linked_doc = linker.run(doc)
+
+    assert len(linked_doc.entities) == 1
+    assert linked_doc.entities[0].canonical_name == "Natura Tour"
+
+
+def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):
+    registry_id = "politicalparty_registry_1a32b79340a35c3d"
+    linker.connection.execute(
+        (
+            "INSERT OR REPLACE INTO entity_registry "
+            "(registry_id, entity_type, canonical_name, fingerprint, embedding) "
+            "VALUES (?, ?, ?, ?, ?)"
+        ),
+        (
+            registry_id,
+            EntityType.POLITICAL_PARTY.value,
+            "Prawo I Sprawiedliwość",
+            "{}",
+            "[]",
+        ),
+    )
+    linker.connection.commit()
+    linker._knowledge_seeded = False
+
+    doc = ArticleDocument(
+        document_id="test-doc-refresh-party",
+        source_url=None,
+        raw_html="",
+        title="Test PiS Refresh",
+        publication_date=None,
+        cleaned_text="PiS",
+        paragraphs=["PiS"],
+        entities=[
+            Entity(
+                entity_id="e1",
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="PiS",
+                normalized_name="PiS",
+                aliases=[],
+                attributes={"lemmas": ["pis"]},
+            )
+        ],
+    )
+
+    linked_doc = linker.run(doc)
+
+    assert linked_doc.entities[0].canonical_name == "Prawo i Sprawiedliwość"

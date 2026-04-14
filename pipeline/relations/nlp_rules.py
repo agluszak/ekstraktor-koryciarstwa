@@ -15,13 +15,16 @@ BOARD_ROLE_KINDS = {
 }
 
 ROLE_PATTERNS: Mapping[RoleKind, re.Pattern[str]] = {
-    RoleKind.PREZES: re.compile(r"\bprezes(?:em|a)?\b", re.IGNORECASE),
-    RoleKind.WICEPREZES: re.compile(r"\bwiceprezes(?:em|a)?\b", re.IGNORECASE),
+    RoleKind.PREZES: re.compile(r"\bprezes(?:em|a)?\b|\bprezesk(?:ą|a)\b", re.IGNORECASE),
+    RoleKind.WICEPREZES: re.compile(
+        r"\bwiceprezes(?:em|a)?\b|\bwiceprezesk(?:ą|a)\b",
+        re.IGNORECASE,
+    ),
     RoleKind.ZASTEPCA_PREZESA: re.compile(
         r"\bzastępc(?:a|ą|y)\s+prezesa\b",
         re.IGNORECASE,
     ),
-    RoleKind.DYREKTOR: re.compile(r"\bdyrektor(?:em|a)?\b", re.IGNORECASE),
+    RoleKind.DYREKTOR: re.compile(r"\bdyrektor(?:em|a)?\b|\bdyrektork(?:ą|a)\b", re.IGNORECASE),
     RoleKind.CZLONEK_ZARZADU: re.compile(
         r"\bczłonk(?:iem|a)\s+zarządu\b",
         re.IGNORECASE,
@@ -47,6 +50,7 @@ ROLE_PATTERNS: Mapping[RoleKind, re.Pattern[str]] = {
 APPOINTMENT_TRIGGER_LEMMAS = frozenset(
     {
         "powołać",
+        "powoływać",
         "objąć",
         "wybrać",
         "mianować",
@@ -88,7 +92,9 @@ DISMISSAL_TRIGGER_TEXTS = frozenset(
 PARTY_CONTEXT_LEMMAS = frozenset(
     {
         "działacz",
+        "lider",
         "polityk",
+        "prezes",
         "poseł",
         "posłanka",
         "senator",
@@ -120,6 +126,7 @@ COMPENSATION_PATTERN = re.compile(
 OFFICE_CANDIDACY_LEMMAS = frozenset({"kandydować", "startować", "ubiegać"})
 
 TIE_WORDS: Mapping[str, RelationshipType] = {
+    "zaufany": RelationshipType.ASSOCIATE,
     "znajomy": RelationshipType.ASSOCIATE,
     "współpracownik": RelationshipType.COLLABORATOR,
     "przyjaciel": RelationshipType.FRIEND,
@@ -127,5 +134,7 @@ TIE_WORDS: Mapping[str, RelationshipType] = {
     "ochroniarz": RelationshipType.BODYGUARD,
     "rekomendować": RelationshipType.RECOMMENDER,
     "rekomendacja": RelationshipType.RECOMMENDER,
+    "szef gabinetu": RelationshipType.OFFICE_CHIEF,
+    "gabinet polityczny": RelationshipType.OFFICE_CHIEF,
     "szef biura": RelationshipType.OFFICE_CHIEF,
 }

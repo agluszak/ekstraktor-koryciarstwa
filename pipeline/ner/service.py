@@ -4,6 +4,7 @@ from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
+from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import join_hyphenated_parts, normalize_entity_name, stable_id
 
@@ -12,6 +13,7 @@ class SpacyPolishNERExtractor(NERExtractor):
     def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
+        self.canonicalizer = DocumentEntityCanonicalizer(config)
 
     def name(self) -> str:
         return "spacy_polish_ner_extractor"
@@ -44,10 +46,12 @@ class SpacyPolishNERExtractor(NERExtractor):
             if entity_type == EntityType.ORGANIZATION:
                 surface_lower = ent.text.strip().lower()
                 if surface_lower in party_keys_lower or surface_lower in party_values_lower:
+                    canonical_party = self._canonical_party_name(ent.text)
                     entity_type = EntityType.POLITICAL_PARTY
-                    merge_key = normalize_entity_name(ent.text)
-                    display_name = merge_key
-                    display_score = 0
+                    merge_key = canonical_party
+                    display_name = canonical_party
+                    display_score = 100
+                    lemmas = [token.lower() for token in canonical_party.split()]
 
             key = (entity_type, merge_key)
             if key not in entity_index:
@@ -90,7 +94,7 @@ class SpacyPolishNERExtractor(NERExtractor):
             )
 
         document.entities = list(entity_index.values())
-        return document
+        return self.canonicalizer.run(document)
 
     @staticmethod
     def _map_label(label: str) -> EntityType | None:
@@ -158,3 +162,10 @@ class SpacyPolishNERExtractor(NERExtractor):
             if sentence.start_char <= start_char <= sentence.end_char:
                 return sentence.sentence_index
         return 0
+
+    def _canonical_party_name(self, text: str) -> str:
+        normalized = normalize_entity_name(text)
+        lookup = {
+            alias.lower(): canonical for alias, canonical in self.config.party_aliases.items()
+        }
+        return lookup.get(text.lower(), lookup.get(normalized.lower(), normalized))

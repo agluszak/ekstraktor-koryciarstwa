@@ -45,6 +45,7 @@ class PipelineConfig:
     models: ModelConfig
     keywords: list[str]
     party_aliases: dict[str, str]
+    institution_aliases: dict[str, str]
     patterns: PatternConfig
     score_weights: ScoreConfig
     registry: RegistryConfig
@@ -56,6 +57,7 @@ class PipelineConfig:
             models=ModelConfig(**payload["models"]),
             keywords=payload["keywords"],
             party_aliases=payload["party_aliases"],
+            institution_aliases=payload.get("institution_aliases", {}),
             patterns=PatternConfig(**payload["patterns"]),
             score_weights=ScoreConfig(**payload["score_weights"]),
             registry=RegistryConfig(**payload["registry"]),

@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import CandidateType, EntityType, FactType, RelationType
 from pipeline.models import (
@@ -8,7 +10,41 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.relations import PolishRuleBasedRelationExtractor
+from pipeline.runtime import PipelineRuntime
 from pipeline.segmentation import ParagraphSentenceSegmenter
+
+
+@dataclass
+class FakeWord:
+    id: int
+    text: str
+    lemma: str
+    upos: str
+    head: int
+    deprel: str
+    start_char: int
+    end_char: int
+
+
+@dataclass
+class FakeSentence:
+    words: list[FakeWord]
+
+
+@dataclass
+class FakeDoc:
+    sentences: list[FakeSentence]
+
+
+class CountingSyntaxPipeline:
+    def __init__(self, doc: FakeDoc) -> None:
+        self.doc = doc
+        self.call_count = 0
+
+    def __call__(self, text: str) -> FakeDoc:
+        _ = text
+        self.call_count += 1
+        return self.doc
 
 
 def test_party_aliases_match_whole_tokens_only() -> None:
@@ -558,3 +594,546 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
         and "Koalicja" in candidate.canonical_name
         for candidate in extracted.candidate_graph.candidates
     )
+
+
+def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "Marcin Horyń złożył rezygnację ze stanowiska prezesa PSL Fundacji Rozwoju."
+    document = ArticleDocument(
+        document_id="doc-9b",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Marcin Horyń",
+                normalized_name="Marcin Horyń",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="PSL Fundacji Rozwoju",
+                normalized_name="PSL Fundacji Rozwoju",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Marcin Horyń",
+                normalized_text="Marcin Horyń",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="PSL Fundacji Rozwoju",
+                normalized_text="PSL Fundacji Rozwoju",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-1",
+            ),
+        ],
+    )
+
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    assert any(
+        entity.canonical_name == "PSL Fundacji Rozwoju"
+        and entity.entity_type == EntityType.ORGANIZATION
+        for entity in extracted.entities
+    )
+
+
+def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "Marcin Horyń został dyrektorem AMW. MON sprawuje nadzór nad agencją."
+    document = ArticleDocument(
+        document_id="doc-10a",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text="Marcin Horyń został dyrektorem AMW.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=35,
+            ),
+            SentenceFragment(
+                text="MON sprawuje nadzór nad agencją.",
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=36,
+                end_char=len(text),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Marcin Horyń",
+                normalized_name="Marcin Horyń",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="AMW",
+                normalized_name="AMW",
+            ),
+            Entity(
+                entity_id="org-2",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="MON",
+                normalized_name="MON",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Marcin Horyń",
+                normalized_text="Marcin Horyń",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="AMW",
+                normalized_text="AMW",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-1",
+            ),
+            Mention(
+                text="MON",
+                normalized_text="MON",
+                mention_type="Organization",
+                sentence_index=1,
+                entity_id="org-2",
+            ),
+        ],
+    )
+
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    assert extracted.candidate_graph is not None
+    public_institutions = {
+        candidate.canonical_name
+        for candidate in extracted.candidate_graph.candidates
+        if candidate.candidate_type == CandidateType.PUBLIC_INSTITUTION
+    }
+    assert "Agencja Mienia Wojskowego" in public_institutions
+    assert "Ministerstwo Obrony Narodowej" in public_institutions
+
+
+def test_object_appointee_sentence_extracts_appointee_not_appointing_authority() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = (
+        "Marcin Horyń złożył rezygnację. "
+        "Premier Donald Tusk powołuje go na stanowisko dyrektora AMW."
+    )
+    document = ArticleDocument(
+        document_id="doc-10b",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text="Marcin Horyń złożył rezygnację.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=31,
+            ),
+            SentenceFragment(
+                text="Premier Donald Tusk powołuje go na stanowisko dyrektora AMW.",
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=32,
+                end_char=len(text),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Marcin Horyń",
+                normalized_name="Marcin Horyń",
+            ),
+            Entity(
+                entity_id="person-2",
+                entity_type=EntityType.PERSON,
+                canonical_name="Donald Tusk",
+                normalized_name="Donald Tusk",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="AMW",
+                normalized_name="AMW",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Marcin Horyń",
+                normalized_text="Marcin Horyń",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="Donald Tusk",
+                normalized_text="Donald Tusk",
+                mention_type="Person",
+                sentence_index=1,
+                entity_id="person-2",
+            ),
+            Mention(
+                text="AMW",
+                normalized_text="AMW",
+                mention_type="Organization",
+                sentence_index=1,
+                entity_id="org-1",
+            ),
+        ],
+    )
+
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
+    entity_names = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+
+    assert appointments
+    assert entity_names[appointments[0].subject_entity_id] == "Marcin Horyń"
+    assert appointments[0].value_text == "Dyrektor"
+
+
+def test_party_affiliation_supports_lider_psl_phrase() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "Marcin Horyń, lider PSL, objął stanowisko dyrektora AMW."
+    document = ArticleDocument(
+        document_id="doc-10c",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Marcin Horyń",
+                normalized_name="Marcin Horyń",
+            ),
+            Entity(
+                entity_id="party-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="PSL",
+                normalized_name="PSL",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="AMW",
+                normalized_name="AMW",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Marcin Horyń",
+                normalized_text="Marcin Horyń",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="PSL",
+                normalized_text="PSL",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="party-1",
+            ),
+            Mention(
+                text="AMW",
+                normalized_text="AMW",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-1",
+            ),
+        ],
+    )
+
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    party_facts = [
+        fact
+        for fact in extracted.facts
+        if fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
+    ]
+
+    assert party_facts
+
+
+def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "Marcin Horyń jest jednym z zaufanych ludzi Władysława Kosiniaka-Kamysza."
+    document = ArticleDocument(
+        document_id="doc-10d",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Marcin Horyń",
+                normalized_name="Marcin Horyń",
+            ),
+            Entity(
+                entity_id="person-2",
+                entity_type=EntityType.PERSON,
+                canonical_name="Władysław Kosiniak-Kamysz",
+                normalized_name="Władysław Kosiniak-Kamysz",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Marcin Horyń",
+                normalized_text="Marcin Horyń",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="Władysława Kosiniaka-Kamysza",
+                normalized_text="Władysław Kosiniak-Kamysz",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-2",
+            ),
+        ],
+    )
+
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    assert any(fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE for fact in extracted.facts)
+
+
+def test_relation_extractor_parses_syntax_once_per_document() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    syntax_pipeline = CountingSyntaxPipeline(
+        FakeDoc(
+            sentences=[
+                FakeSentence(
+                    words=[
+                        FakeWord(1, "Jan", "jan", "PROPN", 2, "nsubj", 0, 3),
+                        FakeWord(2, "awansował", "awansować", "VERB", 0, "root", 4, 13),
+                        FakeWord(3, ".", ".", "PUNCT", 2, "punct", 13, 14),
+                    ]
+                ),
+                FakeSentence(
+                    words=[
+                        FakeWord(1, "Objął", "objąć", "VERB", 0, "root", 15, 20),
+                        FakeWord(2, "stanowisko", "stanowisko", "NOUN", 1, "obj", 21, 31),
+                        FakeWord(3, ".", ".", "PUNCT", 1, "punct", 31, 32),
+                    ]
+                ),
+            ]
+        )
+    )
+
+    def fake_stanza_factory(*args, **kwargs):
+        _ = args, kwargs
+        return syntax_pipeline
+
+    runtime = PipelineRuntime(config, stanza_factory=fake_stanza_factory)
+    extractor = PolishRuleBasedRelationExtractor(config, runtime=runtime)
+    text = "Jan awansował. Objął stanowisko."
+    document = ArticleDocument(
+        document_id="doc-10",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text="Jan awansował.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=14,
+            ),
+            SentenceFragment(
+                text="Objął stanowisko.",
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=15,
+                end_char=len(text),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan",
+                normalized_name="Jan",
+            )
+        ],
+        mentions=[
+            Mention(
+                text="Jan",
+                normalized_text="Jan",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            )
+        ],
+    )
+
+    extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    assert syntax_pipeline.call_count == 1
+
+
+def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "A. Góralczyk została prezeską Stadniny Koni Iwno, państwowej spółki Skarbu Państwa."
+    document = ArticleDocument(
+        document_id="doc-11",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="A. Góralczyk",
+                normalized_name="A. Góralczyk",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Stadnina Koni Iwno",
+                normalized_name="Stadnina Koni Iwno",
+            ),
+            Entity(
+                entity_id="org-2",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Skarbu Państwa",
+                normalized_name="Skarbu Państwa",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="A. Góralczyk",
+                normalized_text="A. Góralczyk",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="Stadniny Koni Iwno",
+                normalized_text="Stadnina Koni Iwno",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-1",
+            ),
+            Mention(
+                text="Skarbu Państwa",
+                normalized_text="Skarbu Państwa",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-2",
+            ),
+        ],
+    )
+
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
+
+    assert appointments
+    target_ids = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+    assert appointments[0].object_entity_id is not None
+    assert target_ids[appointments[0].object_entity_id] == "Stadnina Koni Iwno"

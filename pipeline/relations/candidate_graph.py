@@ -122,6 +122,19 @@ class CandidateGraphBuilder:
                 entity_id = party.entity_id
                 canonical_name = party.canonical_name
                 normalized_name = party.normalized_name
+            elif typing_result.candidate_type == CandidateType.PUBLIC_INSTITUTION:
+                institution = self._get_or_create_entity(
+                    document=document,
+                    entity_type=EntityType.PUBLIC_INSTITUTION,
+                    canonical_name=typing_result.canonical_name or entity.normalized_name,
+                    alias=entity.canonical_name,
+                )
+                candidate_type = CandidateType.PUBLIC_INSTITUTION
+                entity_id = institution.entity_id
+                canonical_name = institution.canonical_name
+                normalized_name = institution.normalized_name
+                attributes["organization_kind"] = OrganizationKind.PUBLIC_INSTITUTION
+                institution.attributes["organization_kind"] = OrganizationKind.PUBLIC_INSTITUTION
             else:
                 organization_kind = typing_result.organization_kind
                 attributes["organization_kind"] = organization_kind
@@ -401,7 +414,15 @@ class CandidateGraphBuilder:
 
             if any(
                 word in text_lower
-                for word in ("znajomy", "współpracownik", "przyjaciel", "doradca")
+                for word in (
+                    "znajomy",
+                    "współpracownik",
+                    "przyjaciel",
+                    "doradca",
+                    "zaufany",
+                    "szef gabinetu",
+                    "gabinetu politycznego",
+                )
             ):
                 for left, right in zip(persons, persons[1:], strict=False):
                     edges.append(

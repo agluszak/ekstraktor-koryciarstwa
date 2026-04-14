@@ -6,6 +6,24 @@ from collections.abc import Iterable
 
 WHITESPACE_RE = re.compile(r"\s+")
 DATE_RE = re.compile(r"\b(20\d{2}[-./]\d{2}[-./]\d{2}|\d{1,2}[.-]\d{1,2}[.-]20\d{2})\b")
+LOWERCASE_CONNECTORS = frozenset(
+    {
+        "a",
+        "do",
+        "i",
+        "im",
+        "na",
+        "o",
+        "od",
+        "oraz",
+        "po",
+        "u",
+        "w",
+        "we",
+        "z",
+        "ze",
+    }
+)
 
 
 def compact_whitespace(text: str) -> str:
@@ -13,8 +31,14 @@ def compact_whitespace(text: str) -> str:
 
 
 def normalize_entity_name(text: str) -> str:
-    text = compact_whitespace(text)
-    return text.strip(" ,.;:").title()
+    text = compact_whitespace(text).strip(" ,;:")
+    if not text:
+        return ""
+    parts = text.split(" ")
+    normalized_parts = [
+        _normalize_entity_token(part, index=index) for index, part in enumerate(parts) if part
+    ]
+    return " ".join(normalized_parts)
 
 
 def join_hyphenated_parts(parts: list[str]) -> str:
@@ -31,8 +55,7 @@ def join_hyphenated_parts(parts: list[str]) -> str:
 
 
 def normalize_party_name(text: str) -> str:
-    cleaned = compact_whitespace(text)
-    return cleaned.title()
+    return normalize_entity_name(text)
 
 
 def find_dates(text: str) -> list[str]:
@@ -52,3 +75,46 @@ def unique_preserve_order(values: Iterable[str]) -> list[str]:
             seen.add(value)
             output.append(value)
     return output
+
+
+def acronym_from_lemmas(lemmas: Iterable[str]) -> str:
+    cleaned = [lemma for lemma in lemmas if lemma]
+    return "".join(part[0] for part in cleaned if part)
+
+
+def lowercase_signature_tokens(text: str) -> list[str]:
+    cleaned = normalize_entity_name(text)
+    return [token.lower() for token in cleaned.split() if token]
+
+
+def _normalize_entity_token(token: str, *, index: int) -> str:
+    had_trailing_dot = token.endswith(".")
+    stripped = token.strip(" ,;:()[]{}\"'")
+    if not stripped:
+        return ""
+    trailing_dot_needs_restore = had_trailing_dot and not stripped.endswith(".")
+    lowered = stripped.lower()
+    if index > 0 and lowered in LOWERCASE_CONNECTORS:
+        return lowered
+    if _looks_like_acronym(stripped):
+        return stripped
+    if "-" in stripped:
+        normalized = "-".join(
+            _normalize_entity_token(part, index=index if i == 0 else 1)
+            for i, part in enumerate(stripped.split("-"))
+            if part
+        )
+        return f"{normalized}." if trailing_dot_needs_restore else normalized
+    normalized = stripped[:1].upper() + stripped[1:].lower()
+    if trailing_dot_needs_restore and (
+        len(stripped) <= 4 or any(char.isdigit() for char in stripped)
+    ):
+        return f"{normalized}."
+    return normalized
+
+
+def _looks_like_acronym(token: str) -> bool:
+    letters = [char for char in token if char.isalpha()]
+    if len(letters) >= 2 and all(char.isupper() for char in letters):
+        return True
+    return any(char.isupper() for char in token[1:])

@@ -10,7 +10,7 @@ from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, Entity
 from pipeline.runtime import PipelineRuntime
-from pipeline.utils import stable_id
+from pipeline.utils import normalize_party_name, stable_id
 
 
 class EntityFingerprint(TypedDict, total=False):
@@ -59,6 +59,8 @@ class SQLiteEntityLinker(EntityLinker):
 
         # Deduplicate: merge entities that resolved to the same registry_id
         document.entities, id_remap = self._deduplicate_by_registry(document.entities)
+        document.entities, exact_name_remap = self._deduplicate_exact_names(document.entities)
+        id_remap.update(exact_name_remap)
 
         # Remap entity references in facts and relations
         if id_remap:
@@ -111,23 +113,37 @@ class SQLiteEntityLinker(EntityLinker):
         # share a single registry_id.
         canonical_groups: dict[str, set[str]] = {}
         for alias, canonical in self.config.party_aliases.items():
-            normalized_canonical = canonical.strip(" ,.;:").title()
+            normalized_canonical = normalize_party_name(canonical)
             canonical_groups.setdefault(normalized_canonical, set()).add(alias)
             canonical_groups[normalized_canonical].add(canonical)
 
         for normalized, aliases in canonical_groups.items():
             registry_id = stable_id("politicalparty_registry", normalized, normalized)
+            fingerprint = self._fingerprint_from_name(normalized)
+            fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
+            embedding = self._encode_embedding(normalized)
             rows = list(
                 self.connection.execute(
                     "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
                     (registry_id,),
                 )
             )
-            if not rows:
-                fingerprint = self._fingerprint_from_name(normalized)
-                # Ensure seeded parties have lemmas for inflected form matching
-                fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
-                embedding = self._encode_embedding(normalized)
+            if rows:
+                self.connection.execute(
+                    (
+                        "UPDATE entity_registry "
+                        "SET entity_type = ?, canonical_name = ?, fingerprint = ?, embedding = ? "
+                        "WHERE registry_id = ?"
+                    ),
+                    (
+                        EntityType.POLITICAL_PARTY.value,
+                        normalized,
+                        json.dumps(fingerprint, ensure_ascii=False),
+                        json.dumps(embedding.tolist()),
+                        registry_id,
+                    ),
+                )
+            else:
                 self.connection.execute(
                     (
                         "INSERT INTO entity_registry "
@@ -151,6 +167,62 @@ class SQLiteEntityLinker(EntityLinker):
                         (registry_id, variant),
                     )
 
+        self.connection.commit()
+
+        institution_groups: dict[str, set[str]] = {}
+        for alias, canonical in self.config.institution_aliases.items():
+            normalized_canonical = alias if alias == canonical else canonical
+            normalized_canonical = normalized_canonical.strip(" ,.;:")
+            institution_groups.setdefault(normalized_canonical, set()).add(alias)
+            institution_groups[normalized_canonical].add(canonical)
+
+        for normalized, aliases in institution_groups.items():
+            registry_id = stable_id("publicinstitution_registry", normalized, normalized)
+            fingerprint = self._fingerprint_from_name(normalized)
+            fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
+            embedding = self._encode_embedding(normalized)
+            rows = list(
+                self.connection.execute(
+                    "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
+                    (registry_id,),
+                )
+            )
+            if rows:
+                self.connection.execute(
+                    (
+                        "UPDATE entity_registry "
+                        "SET entity_type = ?, canonical_name = ?, fingerprint = ?, embedding = ? "
+                        "WHERE registry_id = ?"
+                    ),
+                    (
+                        EntityType.PUBLIC_INSTITUTION.value,
+                        normalized,
+                        json.dumps(fingerprint, ensure_ascii=False),
+                        json.dumps(embedding.tolist()),
+                        registry_id,
+                    ),
+                )
+            else:
+                self.connection.execute(
+                    (
+                        "INSERT INTO entity_registry "
+                        "(registry_id, entity_type, canonical_name, fingerprint, embedding) "
+                        "VALUES (?, ?, ?, ?, ?)"
+                    ),
+                    (
+                        registry_id,
+                        EntityType.PUBLIC_INSTITUTION.value,
+                        normalized,
+                        json.dumps(fingerprint, ensure_ascii=False),
+                        json.dumps(embedding.tolist()),
+                    ),
+                )
+            for alias_text in aliases:
+                for variant in {alias_text, alias_text.title(), alias_text.lower()}:
+                    self.connection.execute(
+                        "INSERT OR IGNORE INTO entity_alias (registry_id, alias) VALUES (?, ?)",
+                        (registry_id, variant),
+                    )
         self.connection.commit()
 
         # Seed common media organizations with aliases
@@ -210,7 +282,11 @@ class SQLiteEntityLinker(EntityLinker):
         # Try alias-based match first (case-insensitive via multiple
         # candidate forms: canonical_name, normalized_name, raw aliases).
         search_names = {entity.canonical_name, entity.normalized_name, *entity.aliases}
-        related_types = {EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value}
+        related_types = {
+            EntityType.ORGANIZATION.value,
+            EntityType.POLITICAL_PARTY.value,
+            EntityType.PUBLIC_INSTITUTION.value,
+        }
 
         for name in search_names:
             for variant in {name, name.title(), name.lower()}:
@@ -336,6 +412,29 @@ class SQLiteEntityLinker(EntityLinker):
                 )
                 primary.evidence.extend(entity.evidence)
                 id_remap[entity.entity_id] = primary.entity_id
+        return result, id_remap
+
+    @staticmethod
+    def _deduplicate_exact_names(entities: list[Entity]) -> tuple[list[Entity], dict[str, str]]:
+        exact_name_map: dict[tuple[str, str], Entity] = {}
+        id_remap: dict[str, str] = {}
+        result: list[Entity] = []
+        related_types = {EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value}
+        for entity in entities:
+            key_type = entity.entity_type.value
+            if key_type in related_types:
+                key_type = "org-or-party"
+            key = (key_type, entity.canonical_name.casefold())
+            existing = exact_name_map.get(key)
+            if existing is None:
+                exact_name_map[key] = entity
+                result.append(entity)
+                continue
+            existing.aliases = list(
+                dict.fromkeys([*existing.aliases, existing.canonical_name, *entity.aliases])
+            )
+            existing.evidence.extend(entity.evidence)
+            id_remap[entity.entity_id] = existing.entity_id
         return result, id_remap
 
     def _upsert_alias(self, registry_id: str, entity: Entity) -> None:

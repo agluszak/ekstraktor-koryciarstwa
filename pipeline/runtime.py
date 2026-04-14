@@ -64,6 +64,9 @@ class PipelineRuntime:
             )
         return self._stanza_coref_pipeline
 
+    def reset_stanza_coref_pipeline(self) -> None:
+        self._stanza_coref_pipeline = None
+
     def get_stanza_syntax_pipeline(self) -> Any:
         if self._stanza_syntax_pipeline is None:
             self._stanza_syntax_pipeline = self._stanza_factory(

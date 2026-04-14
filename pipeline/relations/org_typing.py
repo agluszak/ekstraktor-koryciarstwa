@@ -90,6 +90,13 @@ class OrganizationMentionFeatures:
 class OrganizationMentionClassifier:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
+        self.institution_lookup = {
+            normalize_entity_name(alias).lower(): normalize_entity_name(canonical)
+            for alias, canonical in config.institution_aliases.items()
+        }
+        for canonical in config.institution_aliases.values():
+            normalized_canonical = normalize_entity_name(canonical)
+            self.institution_lookup[normalized_canonical.lower()] = normalized_canonical
 
     def resolve_party_name(
         self,
@@ -111,6 +118,37 @@ class OrganizationMentionClassifier:
             normalized_text=normalized_text,
             features=features,
         )
+
+    def resolve_institution_name(
+        self,
+        *,
+        surface_text: str,
+        normalized_text: str,
+        features: OrganizationMentionFeatures | None = None,
+    ) -> str | None:
+        if features is None:
+            features = OrganizationMentionFeatures(
+                surface_text=surface_text,
+                normalized_text=normalized_text,
+                lemmas=tuple(normalized_text.lower().split()),
+                head_lemma=normalized_text.lower().split()[-1] if normalized_text else None,
+                modifier_lemmas=tuple(normalized_text.lower().split()[:-1]),
+            )
+        candidates = {
+            surface_text,
+            normalized_text,
+            features.normalized_text,
+            features.head_lemma or "",
+            " ".join(features.lemmas),
+        }
+        for candidate in candidates:
+            if not candidate:
+                continue
+            normalized = normalize_entity_name(candidate)
+            canonical = self.institution_lookup.get(normalized.lower())
+            if canonical is not None:
+                return canonical
+        return None
 
     def classify(
         self,
@@ -137,6 +175,17 @@ class OrganizationMentionClassifier:
                 candidate_type=CandidateType.POLITICAL_PARTY,
                 organization_kind=OrganizationKind.ORGANIZATION,
                 canonical_name=alias_name,
+            )
+        institution_name = self.resolve_institution_name(
+            surface_text=surface_text,
+            normalized_text=normalized_text,
+            features=features,
+        )
+        if institution_name is not None:
+            return OrganizationTypingResult(
+                candidate_type=CandidateType.PUBLIC_INSTITUTION,
+                organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
+                canonical_name=institution_name,
             )
         if self._is_party_like(features):
             return OrganizationTypingResult(
@@ -236,7 +285,7 @@ class OrganizationMentionClassifier:
         ):
             return True
         lemmas = set(features.lemmas)
-        return bool(PARTY_HEADS.intersection(lemmas) or {"pis", "psl", "po", "ko"} & lemmas)
+        return bool(PARTY_HEADS.intersection(lemmas))
 
     @staticmethod
     def _organization_kind(features: OrganizationMentionFeatures) -> OrganizationKind:

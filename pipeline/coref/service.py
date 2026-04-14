@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import torch
 from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
@@ -25,36 +26,40 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         resolved_mentions = list(document.mentions)
         people = [entity for entity in document.entities if entity.entity_type == EntityType.PERSON]
         entity_by_name = {entity.normalized_name: entity for entity in people}
-        nlp_doc = self.runtime.get_stanza_coref_pipeline()(document.cleaned_text)
+        try:
+            with torch.inference_mode():
+                nlp_doc = self.runtime.get_stanza_coref_pipeline()(document.cleaned_text)
 
-        for chain in getattr(nlp_doc, "coref", []):
-            representative_text = normalize_entity_name(chain.representative_text)
-            representative_entity = entity_by_name.get(representative_text)
-            if representative_entity is None:
-                representative_entity = self._match_person_entity(
-                    entity_by_name, representative_text
-                )
-            if representative_entity is None:
-                continue
+            for chain in getattr(nlp_doc, "coref", []):
+                representative_text = normalize_entity_name(chain.representative_text)
+                representative_entity = entity_by_name.get(representative_text)
+                if representative_entity is None:
+                    representative_entity = self._match_person_entity(
+                        entity_by_name, representative_text
+                    )
+                if representative_entity is None:
+                    continue
 
-            for mention in chain.mentions:
-                sentence_index = mention.sentence
-                mention_text = extract_text(
-                    nlp_doc,
-                    mention.sentence,
-                    mention.start_word,
-                    mention.end_word,
-                )
-                resolved = Mention(
-                    text=mention_text,
-                    normalized_text=normalize_entity_name(mention_text),
-                    mention_type="ResolvedPersonReference",
-                    sentence_index=sentence_index,
-                    entity_id=representative_entity.entity_id,
-                    attributes={"representative_text": representative_text},
-                )
-                mention_links[id(resolved)] = representative_entity.entity_id
-                resolved_mentions.append(resolved)
+                for mention in chain.mentions:
+                    sentence_index = mention.sentence
+                    mention_text = extract_text(
+                        nlp_doc,
+                        mention.sentence,
+                        mention.start_word,
+                        mention.end_word,
+                    )
+                    resolved = Mention(
+                        text=mention_text,
+                        normalized_text=normalize_entity_name(mention_text),
+                        mention_type="ResolvedPersonReference",
+                        sentence_index=sentence_index,
+                        entity_id=representative_entity.entity_id,
+                        attributes={"representative_text": representative_text},
+                    )
+                    mention_links[id(resolved)] = representative_entity.entity_id
+                    resolved_mentions.append(resolved)
+        finally:
+            self.runtime.reset_stanza_coref_pipeline()
 
         for mention in document.mentions:
             if mention.entity_id:

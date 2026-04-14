@@ -31,6 +31,12 @@ party_aliases:
   KO: Koalicja Obywatelska
   Konfederacja: Konfederacja
 
+institution_aliases:
+  MON: Ministerstwo Obrony Narodowej
+  Ministerstwo Obrony Narodowej: Ministerstwo Obrony Narodowej
+  AMW: Agencja Mienia Wojskowego
+  Agencja Mienia Wojskowego: Agencja Mienia Wojskowego
+
 patterns:
   appointment_verbs:
     - został powołany

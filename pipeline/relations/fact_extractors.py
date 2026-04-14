@@ -200,11 +200,15 @@ class GovernanceFactExtractor:
         subject = _subject_candidate(context)
         if subject is None:
             return []
+        appointee = (
+            _appointment_object_candidate(context, subject) if has_appointment_signal else None
+        )
+        fact_subject = appointee or subject
 
-        role = _best_role_candidate(context, subject)
+        role = _best_role_candidate(context, fact_subject)
         if role is None and not has_dismissal_signal:
             return []
-        organization = _best_org_candidate(context, subject, role)
+        organization = _best_org_candidate(context, fact_subject, role)
         if organization is None:
             return []
 
@@ -234,13 +238,13 @@ class GovernanceFactExtractor:
                 document=context.document,
                 sentence_context=context,
                 fact_type=FactType.DISMISSAL if is_dismissal else FactType.APPOINTMENT,
-                subject=subject,
+                subject=fact_subject,
                 object_candidate=organization,
                 value_text=role_name,
                 value_normalized=role.normalized_name if role else None,
                 confidence=_governance_confidence(
                     context,
-                    subject,
+                    fact_subject,
                     role,
                     organization,
                     is_dismissal,
@@ -663,6 +667,47 @@ def _best_role_candidate(
     )
 
 
+def _appointment_object_candidate(
+    context: SentenceContext,
+    subject: EntityCandidate,
+) -> EntityCandidate | None:
+    root = next((word for word in context.parsed_words if word.deprel == "root"), None)
+    if root is None or root.lemma not in {"powoływać", "powołać", "mianować", "wybrać"}:
+        return None
+
+    object_words = [
+        word
+        for word in context.parsed_words
+        if word.head == root.index and word.deprel in {"obj", "iobj"}
+    ]
+    if not object_words:
+        return None
+
+    for word in object_words:
+        candidate = next(
+            (
+                person
+                for person in context.persons
+                if person.entity_id != subject.entity_id
+                and person.start_char <= word.start < person.end_char
+            ),
+            None,
+        )
+        if candidate is not None:
+            return candidate
+
+    if any(word.upos == "PRON" for word in object_words):
+        previous_persons = [
+            candidate
+            for candidate in context.previous_candidates
+            if candidate.candidate_type == CandidateType.PERSON
+            and candidate.entity_id != subject.entity_id
+        ]
+        if previous_persons:
+            return min(previous_persons, key=lambda candidate: candidate.start_char)
+    return None
+
+
 def _best_org_candidate(
     context: SentenceContext,
     person: EntityCandidate,
@@ -677,15 +722,14 @@ def _best_org_candidate(
         if organizations:
             return max(
                 organizations,
-                key=lambda org: (
+                key=lambda org: _organization_resolution_score(
                     context.edge_confidence(
                         "role-at-organization",
                         role.candidate_id,
                         org.candidate_id,
-                    )
-                    or 0.0,
-                    _organization_priority(org),
-                    -abs(role.start_char - org.start_char),
+                    ),
+                    org,
+                    role.start_char,
                 ),
             )
 
@@ -697,11 +741,14 @@ def _best_org_candidate(
     if organizations:
         return max(
             organizations,
-            key=lambda org: (
-                context.edge_confidence("person-org-context", person.candidate_id, org.candidate_id)
-                or 0.0,
-                _organization_priority(org),
-                -abs(person.start_char - org.start_char),
+            key=lambda org: _organization_resolution_score(
+                context.edge_confidence(
+                    "person-org-context",
+                    person.candidate_id,
+                    org.candidate_id,
+                ),
+                org,
+                person.start_char,
             ),
         )
     paragraph_organizations = [
@@ -732,15 +779,34 @@ def _organization_priority(candidate: EntityCandidate) -> float:
         base = 0.9
     elif kind == OrganizationKind.COMPANY:
         base = 1.0
+    elif kind == OrganizationKind.GOVERNING_BODY:
+        base = 0.25
     else:
         base = 0.5
     if normalized.startswith("zarząd") or normalized.startswith("rada"):
-        base -= 0.25
+        base -= 0.35
     if "skarbu państwa" in normalized:
-        base -= 0.2
+        base -= 0.45
     if normalized.isupper() and len(normalized) <= 6:
+        base -= 0.2
+    if len(normalized.split()) == 1 and normalized.isalpha() and normalized.isupper():
         base -= 0.1
     return base + min(len(candidate.canonical_name), 40) / 200
+
+
+def _organization_resolution_score(
+    edge_confidence: float | None,
+    candidate: EntityCandidate,
+    reference_start: int,
+) -> tuple[float, float, int]:
+    confidence = edge_confidence or 0.0
+    priority = _organization_priority(candidate)
+    distance = abs(reference_start - candidate.start_char)
+    return (
+        confidence * 0.65 + priority * 0.35,
+        priority,
+        -distance,
+    )
 
 
 def _role_priority(candidate: EntityCandidate) -> float:
@@ -765,7 +831,10 @@ def _supports_party_fact(
         max(0, min(person.start_char, party.start_char) - 8) : max(person.end_char, party.end_char)
         + 16
     ]
-    return any(marker in party_window for marker in ("polityk", "działacz", "radny", "radna", "z "))
+    return any(
+        marker in party_window
+        for marker in ("polityk", "działacz", "radny", "radna", "lider", "prezes", "z ")
+    )
 
 
 def _supports_office_fact(
