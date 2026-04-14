@@ -157,11 +157,11 @@ class CandidateGraphBuilder:
         sentence,
         existing_candidates: list[EntityCandidate],
     ) -> list[EntityCandidate]:
-        occupied_spans = {
-            (candidate.start_char, candidate.end_char)
+        occupied_candidates = [
+            candidate
             for candidate in existing_candidates
             if candidate.sentence_index == sentence.sentence_index
-        }
+        ]
         candidates: list[EntityCandidate] = []
         pattern = re.compile(
             r"\b(?:[A-ZŁŚŻŹĆŃÓ]\.|[A-ZŁŚŻŹĆŃÓ][a-ząćęłńóśźż]+)\s+"
@@ -169,8 +169,12 @@ class CandidateGraphBuilder:
         )
         for match in pattern.finditer(sentence.text):
             if any(
-                start <= match.start() < end or start < match.end() <= end
-                for start, end in occupied_spans
+                self._blocks_derived_person_candidate(
+                    candidate,
+                    candidate_start=match.start(),
+                    candidate_end=match.end(),
+                )
+                for candidate in occupied_candidates
             ):
                 continue
             surface = match.group(0)
@@ -266,10 +270,14 @@ class CandidateGraphBuilder:
             match = re.search(rf"(?<!\w){re.escape(token)}(?!\w)", sentence_text, re.IGNORECASE)
             if match is None:
                 continue
+            canonical_name = self.organization_classifier.resolve_party_name(
+                surface_text=match.group(0),
+                normalized_text=normalize_entity_name(match.group(0)),
+            )
             party = self._get_or_create_entity(
                 document=document,
                 entity_type=EntityType.POLITICAL_PARTY,
-                canonical_name=token,
+                canonical_name=canonical_name or token,
                 alias=match.group(0),
             )
             if party.entity_id in occupied_entity_ids:
@@ -513,6 +521,30 @@ class CandidateGraphBuilder:
     def _is_weak_person_name(text: str) -> bool:
         cleaned = normalize_entity_name(text).replace(".", "")
         return len(cleaned) <= 1
+
+    def _blocks_derived_person_candidate(
+        self,
+        candidate: EntityCandidate,
+        *,
+        candidate_start: int,
+        candidate_end: int,
+    ) -> bool:
+        overlaps = (
+            candidate.start_char <= candidate_start < candidate.end_char
+            or candidate.start_char < candidate_end <= candidate.end_char
+            or candidate_start <= candidate.start_char < candidate_end
+            or candidate_start < candidate.end_char <= candidate_end
+        )
+        if not overlaps:
+            return False
+
+        if candidate.candidate_type != CandidateType.PERSON:
+            return True
+
+        token_count = len(candidate.canonical_name.split())
+        if token_count < 2:
+            return False
+        return True
 
     @staticmethod
     def _deduplicate_candidates(candidates: list[EntityCandidate]) -> list[EntityCandidate]:

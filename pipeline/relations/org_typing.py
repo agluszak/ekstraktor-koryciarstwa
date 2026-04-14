@@ -91,6 +91,27 @@ class OrganizationMentionClassifier:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
 
+    def resolve_party_name(
+        self,
+        *,
+        surface_text: str,
+        normalized_text: str,
+        features: OrganizationMentionFeatures | None = None,
+    ) -> str | None:
+        if features is None:
+            features = OrganizationMentionFeatures(
+                surface_text=surface_text,
+                normalized_text=normalized_text,
+                lemmas=tuple(normalized_text.lower().split()),
+                head_lemma=normalized_text.lower().split()[-1] if normalized_text else None,
+                modifier_lemmas=tuple(normalized_text.lower().split()[:-1]),
+            )
+        return self._resolve_party_alias(
+            surface_text=surface_text,
+            normalized_text=normalized_text,
+            features=features,
+        )
+
     def classify(
         self,
         *,
@@ -106,7 +127,7 @@ class OrganizationMentionClassifier:
             start_char=start_char,
             end_char=end_char,
         )
-        alias_name = self._resolve_party_alias(
+        alias_name = self.resolve_party_name(
             surface_text=surface_text,
             normalized_text=normalized_text,
             features=features,
@@ -143,6 +164,10 @@ class OrganizationMentionClassifier:
         normalized_text: str,
         features: OrganizationMentionFeatures,
     ) -> str | None:
+        canonical_by_name: dict[str, str] = {}
+        for alias, canonical in self.config.party_aliases.items():
+            canonical_by_name[alias.lower()] = canonical
+            canonical_by_name[canonical.lower()] = canonical
         candidates = {
             surface_text,
             normalized_text,
@@ -154,11 +179,9 @@ class OrganizationMentionClassifier:
             if not candidate:
                 continue
             normalized = normalize_party_name(candidate)
-            party_names = {k.lower() for k in self.config.party_aliases.keys()}.union(
-                {v.lower() for v in self.config.party_aliases.values()}
-            )
-            if normalized.lower() in party_names:
-                return normalized
+            canonical = canonical_by_name.get(normalized.lower())
+            if canonical is not None:
+                return canonical
         return None
 
     @staticmethod

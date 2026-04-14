@@ -48,7 +48,7 @@ class SpacyPolishNERExtractor(NERExtractor):
                     merge_key = normalize_entity_name(ent.text)
                     display_name = merge_key
                     display_score = 0
-            
+
             key = (entity_type, merge_key)
             if key not in entity_index:
                 entity_index[key] = Entity(
@@ -60,7 +60,7 @@ class SpacyPolishNERExtractor(NERExtractor):
                 entity_index[key].attributes["lemmas"] = lemmas
                 entity_display_score[key] = display_score
             entity = entity_index[key]
-            
+
             # Update lemmas if we found a more "complete" version
             if len(lemmas) > len(entity.attributes.get("lemmas", [])):
                 entity.attributes["lemmas"] = lemmas
@@ -105,7 +105,6 @@ class SpacyPolishNERExtractor(NERExtractor):
     def _entity_forms(ent, entity_type: EntityType) -> tuple[str, str, int, list[str]]:
         lemmas = [t.lemma_.lower() for t in ent if t.text.strip()]
         if entity_type == EntityType.PERSON:
-
             merge_key = SpacyPolishNERExtractor._person_merge_key(ent)
             display_name, display_score = SpacyPolishNERExtractor._person_display_name(ent)
             return merge_key, display_name, display_score, lemmas
@@ -149,7 +148,7 @@ class SpacyPolishNERExtractor(NERExtractor):
         display = SpacyPolishNERExtractor._person_merge_key(ent)
         if all_propn:
             return display, 5
-        
+
         surface = normalize_entity_name(ent.text)
         return surface, -5
 

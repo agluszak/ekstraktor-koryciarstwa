@@ -18,6 +18,7 @@ def mock_runtime():
     runtime.get_sentence_transformer_model.return_value = model
     return runtime
 
+
 @pytest.fixture
 def linker(tmp_path, mock_runtime):
     db_path = tmp_path / "test_registry.sqlite3"
@@ -27,10 +28,11 @@ def linker(tmp_path, mock_runtime):
     linker = SQLiteEntityLinker(config, runtime=mock_runtime)
     return linker
 
+
 def test_onet_deduplication(linker):
     # Onet (seeded in _seed_knowledge_graph) should be in the DB already.
     # Its lemmas will be ["onet"]
-    
+
     doc = ArticleDocument(
         document_id="test-doc",
         source_url=None,
@@ -46,7 +48,7 @@ def test_onet_deduplication(linker):
                 canonical_name="Onetowi",
                 normalized_name="Onetowi",
                 aliases=[],
-                attributes={"lemmas": ["onet"]}
+                attributes={"lemmas": ["onet"]},
             ),
             Entity(
                 entity_id="e2",
@@ -54,26 +56,27 @@ def test_onet_deduplication(linker):
                 canonical_name="Onetem",
                 normalized_name="Onetem",
                 aliases=[],
-                attributes={"lemmas": ["onet"]}
+                attributes={"lemmas": ["onet"]},
             ),
-             Entity(
+            Entity(
                 entity_id="e3",
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Onet",
                 normalized_name="Onet",
                 aliases=[],
-                attributes={"lemmas": ["onet"]}
-            )
-        ]
+                attributes={"lemmas": ["onet"]},
+            ),
+        ],
     )
-    
+
     linked_doc = linker.run(doc)
-    
+
     # Should result in 1 entity (Onet) after deduplication
     assert len(linked_doc.entities) == 1
     assert linked_doc.entities[0].canonical_name == "Onet"
     # The registry_id should be stable across runs for the same seeded data
     assert linked_doc.entities[0].attributes["registry_id"] is not None
+
 
 def test_wp_deduplication(linker):
     # WP and Wirtualna Polska share same registry_id in seeding.
@@ -92,7 +95,7 @@ def test_wp_deduplication(linker):
                 canonical_name="Wp",
                 normalized_name="Wp",
                 aliases=[],
-                attributes={"lemmas": ["wp"]}
+                attributes={"lemmas": ["wp"]},
             ),
             Entity(
                 entity_id="e2",
@@ -100,16 +103,17 @@ def test_wp_deduplication(linker):
                 canonical_name="Wirtualna Polska",
                 normalized_name="Wirtualna Polska",
                 aliases=[],
-                attributes={"lemmas": ["wirtualna", "polska"]}
-            )
-        ]
+                attributes={"lemmas": ["wirtualna", "polska"]},
+            ),
+        ],
     )
-    
+
     linked_doc = linker.run(doc)
-    
+
     # Should result in 1 entity (Wirtualna Polska)
     assert len(linked_doc.entities) == 1
     assert linked_doc.entities[0].canonical_name == "Wirtualna Polska"
+
 
 def test_pis_deduplication(linker):
     # Prawo I Sprawiedliwość (seeded)
@@ -128,7 +132,7 @@ def test_pis_deduplication(linker):
                 canonical_name="PiS",
                 normalized_name="PiS",
                 aliases=[],
-                attributes={"lemmas": ["pis"]}
+                attributes={"lemmas": ["pis"]},
             ),
             Entity(
                 entity_id="e2",
@@ -136,13 +140,13 @@ def test_pis_deduplication(linker):
                 canonical_name="Prawa I Sprawiedliwości",
                 normalized_name="Prawa I Sprawiedliwości",
                 aliases=[],
-                attributes={"lemmas": ["prawo", "i", "sprawiedliwość"]}
-            )
-        ]
+                attributes={"lemmas": ["prawo", "i", "sprawiedliwość"]},
+            ),
+        ],
     )
-    
+
     linked_doc = linker.run(doc)
-    
+
     # Should link to the seeded PoliticalParty "Prawo I Sprawiedliwość"
     # and deduplicate correctly.
     assert len(linked_doc.entities) == 1

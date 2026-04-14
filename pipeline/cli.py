@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.request import Request, urlopen
 
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
@@ -31,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Political nepotism extraction pipeline for Polish articles."
     )
     parser.add_argument("--html-path", type=Path, help="Path to a local HTML file.")
+    parser.add_argument("--url", help="URL to download and process directly.")
     parser.add_argument("--input-dir", type=Path, help="Directory with local HTML files.")
     parser.add_argument("--glob", default="*.html", help="Glob for batch input discovery.")
     parser.add_argument("--source-url", help="Original article URL.")
@@ -81,21 +83,41 @@ def build_pipeline(
     )
 
 
-def read_html(path: Path | None) -> str:
+def fetch_html(url: str) -> str:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        charset = response.headers.get_content_charset() or "utf-8"
+        return response.read().decode(charset, errors="replace")
+
+
+def read_html(path: Path | None, url: str | None) -> str:
     if path is not None:
         return path.read_text(encoding="utf-8")
+    if url is not None:
+        return fetch_html(url)
     return sys.stdin.read()
 
 
 def run_single(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
-    raw_html = read_html(args.html_path)
+    raw_html = read_html(args.html_path, args.url)
     if not raw_html.strip():
-        raise ValueError("No HTML input provided. Use --html-path or pipe HTML through stdin.")
+        raise ValueError(
+            "No HTML input provided. Use --html-path, --url, or pipe HTML through stdin."
+        )
 
     result = pipeline.run(
         PipelineInput(
             raw_html=raw_html,
-            source_url=args.source_url,
+            source_url=args.source_url or args.url,
             publication_date=args.publication_date,
             document_id=args.document_id,
         )

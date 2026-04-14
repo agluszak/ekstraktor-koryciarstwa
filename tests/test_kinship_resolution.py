@@ -15,13 +15,14 @@ from pipeline.relations.types import ParsedWord
 def extractor():
     return GovernanceFactExtractor()
 
+
 def test_kinship_proxy_skips_speaker(extractor):
-    # Setup: 
+    # Setup:
     # Current sentence: "- Moja żona zrezygnowała - mówi Dariusz."
     # Speaker: Dariusz
     # Proxy: żona
     # Paragraph: Renata, Dariusz
-    
+
     dariusz_candidate = EntityCandidate(
         candidate_id="p1",
         entity_id="p1",
@@ -30,26 +31,26 @@ def test_kinship_proxy_skips_speaker(extractor):
         normalized_name="Dariusz",
         sentence_index=0,
         paragraph_index=0,
-        start_char=27, # Start of 'mówi' (approx)
+        start_char=27,  # Start of 'mówi' (approx)
         end_char=39,
         source="text",
-        attributes={}
+        attributes={},
     )
-    
+
     renata_candidate = EntityCandidate(
         candidate_id="p0",
         entity_id="p0",
         candidate_type=CandidateType.PERSON,
         canonical_name="Renata",
         normalized_name="Renata",
-        sentence_index=-1, # Not in current sentence
+        sentence_index=-1,  # Not in current sentence
         paragraph_index=0,
         start_char=0,
         end_char=6,
         source="text",
-        attributes={}
+        attributes={},
     )
-    
+
     # Words according to ParsedWord(index, text, lemma, upos, head, deprel, start, end)
     words = [
         ParsedWord(1, "-", "-", "PUNCT", 6, "punct", 0, 1),
@@ -60,7 +61,7 @@ def test_kinship_proxy_skips_speaker(extractor):
         ParsedWord(6, "mówi", "mówić", "VERB", 0, "root", 27, 31),
         ParsedWord(7, "Dariusz", "Dariusz", "PROPN", 6, "nsubj", 32, 39),
     ]
-    
+
     mock_doc = MagicMock(spec=ArticleDocument)
     mock_doc.document_id = "test-doc"
     mock_sentence = MagicMock()
@@ -74,13 +75,13 @@ def test_kinship_proxy_skips_speaker(extractor):
         graph=mock_graph,
         candidates=[dariusz_candidate],
         paragraph_candidates=[renata_candidate, dariusz_candidate],
-        previous_candidates=[]
+        previous_candidates=[],
     )
-    
+
     from pipeline.relations.fact_extractors import _subject_candidate
-    
+
     res = _subject_candidate(context)
-    
+
     # Should resolve to Renata (paragraph person) because Dariusz is identified as the speaker
     assert res is not None
     assert res.canonical_name == "Renata"

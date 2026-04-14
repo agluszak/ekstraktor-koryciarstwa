@@ -207,21 +207,25 @@ class GovernanceFactExtractor:
         organization = _best_org_candidate(context, subject, role)
         if organization is None:
             return []
-        
+
         # Skip media organizations (news sources) as governance targets
         name_lower = organization.canonical_name.lower()
         media_markers = {
-            "onet", "pap", "wp", "wirtualna polska", "rzzeczypospolita", 
-            "fakt", "tvn", "tvp", "interia"
+            "onet",
+            "pap",
+            "wp",
+            "wirtualna polska",
+            "rzzeczypospolita",
+            "fakt",
+            "tvn",
+            "tvp",
+            "interia",
         }
-        if (organization.attributes.get("is_media") or 
-            any(m in name_lower for m in media_markers)):
+        if organization.attributes.get("is_media") or any(m in name_lower for m in media_markers):
             return []
-
 
         if organization.candidate_type == CandidateType.POLITICAL_PARTY:
             return []
-
 
         is_dismissal = has_dismissal_signal
         role_name = role.canonical_name if role else None
@@ -496,15 +500,11 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
        in the subtree, look backward in the paragraph for the most recent person.
     5. Fall back to proximity and paragraph-level heuristics.
     """
-    all_nsubj = [
-        word for word in context.parsed_words
-        if word.deprel.startswith("nsubj")
-    ]
+    speaker_names: set[str] = set()
+
+    all_nsubj = [word for word in context.parsed_words if word.deprel.startswith("nsubj")]
     if not all_nsubj:
-        all_nsubj = [
-            word for word in context.parsed_words
-            if word.deprel == "root"
-        ]
+        all_nsubj = [word for word in context.parsed_words if word.deprel == "root"]
 
     # Speech/quote verbs are recognized by deprel: the governance clause is
     # usually attached as ``parataxis`` to the speech verb which is the root.
@@ -551,9 +551,11 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
         for candidate in context.persons:
             if candidate.start_char <= word.start < candidate.end_char:
                 # If it's a PROPN or the word matches a Person, we accept it as a direct mention
-                if (word.upos == "PROPN" or 
-                    any(t.upos == "PROPN" for t in context.parsed_words 
-                        if word.start <= t.start < word.end)):
+                if word.upos == "PROPN" or any(
+                    t.upos == "PROPN"
+                    for t in context.parsed_words
+                    if word.start <= t.start < word.end
+                ):
                     return candidate
 
         # B: Subtree resolution (Nested Name)
@@ -564,50 +566,55 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
         # C: Referential proxy (Noun looking backwards)
         # We also check the word text for kinship markers in case POS is noisy.
         kinship_markers = {
-            "żona", "mąż", "syn", "córka", "brat", "siostra", "szwagier", "szwagierka", "kuzyn"
+            "żona",
+            "mąż",
+            "syn",
+            "córka",
+            "brat",
+            "siostra",
+            "szwagier",
+            "szwagierka",
+            "kuzyn",
         }
         if word.upos == "NOUN" or word.text.lower() in kinship_markers:
             # Identify the speaker(s) in this sentence by name to avoid self-attribution
             speaker_names = {
-                c.canonical_name 
+                c.canonical_name
                 for c in context.persons
                 if any(aw.start <= c.start_char < aw.end for aw in attribution_subjects)
             }
-            
+
             # Look backward: previous sentence, then paragraph
             # We prefer candidates NOT in the speaker list.
             previous_persons = [
-                c for c in context.previous_candidates
-                if c.candidate_type == CandidateType.PERSON 
+                c
+                for c in context.previous_candidates
+                if c.candidate_type == CandidateType.PERSON
                 and c.canonical_name not in speaker_names
             ]
             if previous_persons:
                 return previous_persons[-1]
-            
+
             # Fallback to paragraph persons, skipping current speaker and their identity
             for p in context.paragraph_persons:
                 if p.canonical_name not in speaker_names:
                     return p
 
-
-
-
-
-
-
     # --- Step 4: Proximity fallback (bounded) ---------------------------------
     for word in ordered_subjects:
         candidate = _nearest_candidate(context.persons, word.start)
-        if (candidate is not None 
-            and abs(candidate.start_char - word.start) <= 45 
-            and candidate.canonical_name not in speaker_names):
+        if (
+            candidate is not None
+            and abs(candidate.start_char - word.start) <= 45
+            and candidate.canonical_name not in speaker_names
+        ):
             return candidate
 
     # --- Step 5: Paragraph and Context fallbacks ------------------------------
     filtered_persons = [p for p in context.persons if p.canonical_name not in speaker_names]
     if filtered_persons:
         return filtered_persons[0]
-        
+
     previous_persons = [
         candidate
         for candidate in context.previous_candidates
@@ -616,14 +623,12 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
     ]
     if previous_persons:
         return previous_persons[-1]
-        
+
     for p in context.paragraph_persons:
         if p.canonical_name not in speaker_names:
             return p
-            
+
     return None
-
-
 
 
 def _best_role_candidate(

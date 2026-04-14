@@ -430,12 +430,8 @@ def test_segmenter_keeps_initials_with_surname() -> None:
 def test_inflected_public_institution_is_typed_from_lemmas() -> None:
     config = PipelineConfig.from_file("config.yaml")
     extractor = PolishRuleBasedRelationExtractor(config)
-    institution_surface = (
-        "Wojewódzkim Funduszu Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
-    )
-    institution_normalized = (
-        "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
-    )
+    institution_surface = "Wojewódzkim Funduszu Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
+    institution_normalized = "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
     text = f"Stanisław Mazur odebrał nominację w {institution_surface}."
     document = ArticleDocument(
         document_id="doc-8",

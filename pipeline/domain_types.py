@@ -103,7 +103,6 @@ class EntityAttributes(TypedDict, total=False):
     organization_kind: OrganizationKind
 
 
-
 class ConfidenceBreakdown(TypedDict, total=False):
     person_role: float | None
     role_org: float | None

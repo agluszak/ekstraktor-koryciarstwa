@@ -24,3 +24,34 @@ The `reports/` folder contains benchmark files (e.g., `expected_article_findings
 - Current parsing performance metrics, issues (like false-positive relations or noisy entity spans), and immediate focus areas for improvement.
 
 Always consult the benchmark reports when modifying extraction rules or parsing logic to ensure changes align with expected outcomes and to avoid regressions.
+
+## Regression Testing Workflow
+
+When extraction, preprocessing, linking, scoring, or output logic changes:
+
+1. Read [reports/expected_article_findings.md](/D:/extractor/reports/expected_article_findings.md:1) first.
+   Use it as the manual oracle for what each benchmark article should and should not produce.
+
+2. Run the automated checks first:
+   - `uv run ruff check . --fix`
+   - `uv run ruff format .`
+   - `uv run ruff check .`
+   - `uv run ty check`
+   - `uv run pytest`
+
+3. Rerun the benchmark HTML inputs in one warm process:
+   - `uv run python main.py --input-dir inputs --glob "*.html" --output-dir output`
+   Prefer batch mode so spaCy/Stanza load once.
+
+4. Compare outputs against the benchmark report, especially for:
+   - strong positives that should yield appointments / dismissals / funding / compensation
+   - true negatives that should stay irrelevant or relation-empty
+   - high-risk regressions such as party mentions becoming appointment destinations, bad person merges, or boilerplate/comment entities leaking in
+
+5. If extraction behavior changed materially, update the progress snapshot in `reports/` with:
+   - what improved
+   - what regressed
+   - which benchmark articles were checked
+   - which bottleneck is next
+
+Do not treat `pytest` success as sufficient for extraction changes. The checked-in benchmark report is part of regression testing and must be consulted after significant pipeline changes.

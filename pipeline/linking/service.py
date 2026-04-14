@@ -24,7 +24,6 @@ class EntityFingerprint(TypedDict, total=False):
     is_media: bool
 
 
-
 class SQLiteEntityLinker(EntityLinker):
     def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
@@ -32,23 +31,28 @@ class SQLiteEntityLinker(EntityLinker):
         self.db_path = Path(config.registry.sqlite_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.db_path)
+        self._knowledge_seeded = False
         self._ensure_schema()
-        self._seed_knowledge_graph()
 
     def name(self) -> str:
         return "sqlite_entity_linker"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
+        if not self._knowledge_seeded and document.entities:
+            self._seed_knowledge_graph()
+            self._knowledge_seeded = True
         for entity in document.entities:
             fingerprint = self._fingerprint(entity)
             registry_id = self._match_or_create(entity, fingerprint)
             entity.attributes["registry_id"] = registry_id
 
             # Update entity name to the canonical form from the registry
-            rows = list(self.connection.execute(
-                "SELECT canonical_name FROM entity_registry WHERE registry_id = ?",
-                (registry_id,),
-            ))
+            rows = list(
+                self.connection.execute(
+                    "SELECT canonical_name FROM entity_registry WHERE registry_id = ?",
+                    (registry_id,),
+                )
+            )
             if rows:
                 entity.canonical_name = rows[0][0]
                 entity.normalized_name = rows[0][0]
@@ -75,9 +79,7 @@ class SQLiteEntityLinker(EntityLinker):
                 )
             for mention in document.mentions:
                 if mention.entity_id:
-                    mention.entity_id = id_remap.get(
-                        mention.entity_id, mention.entity_id
-                    )
+                    mention.entity_id = id_remap.get(mention.entity_id, mention.entity_id)
 
         return document
 
@@ -115,18 +117,17 @@ class SQLiteEntityLinker(EntityLinker):
 
         for normalized, aliases in canonical_groups.items():
             registry_id = stable_id("politicalparty_registry", normalized, normalized)
-            rows = list(self.connection.execute(
-                "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
-                (registry_id,),
-            ))
+            rows = list(
+                self.connection.execute(
+                    "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
+                    (registry_id,),
+                )
+            )
             if not rows:
                 fingerprint = self._fingerprint_from_name(normalized)
                 # Ensure seeded parties have lemmas for inflected form matching
                 fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
-                embedding = self.runtime.get_sentence_transformer_model().encode(
-
-                    normalized, normalize_embeddings=True,
-                )
+                embedding = self._encode_embedding(normalized)
                 self.connection.execute(
                     (
                         "INSERT INTO entity_registry "
@@ -162,20 +163,20 @@ class SQLiteEntityLinker(EntityLinker):
         }
         for normalized, aliases in media_groups.items():
             registry_id = stable_id("organization_registry", "media", normalized)
-            rows = list(self.connection.execute(
-                "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
-                (registry_id,),
-            ))
+            rows = list(
+                self.connection.execute(
+                    "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
+                    (registry_id,),
+                )
+            )
             if not rows:
                 fingerprint: EntityFingerprint = {
                     "normalized_name": normalized,
                     "name_tokens": normalized.split(),
                     "lemmas": [t.lower() for t in normalized.split()],
-                    "is_media": True
+                    "is_media": True,
                 }
-                embedding = self.runtime.get_sentence_transformer_model().encode(
-                    normalized, normalize_embeddings=True,
-                )
+                embedding = self._encode_embedding(normalized)
                 self.connection.execute(
                     (
                         "INSERT INTO entity_registry "
@@ -198,33 +199,43 @@ class SQLiteEntityLinker(EntityLinker):
                     )
         self.connection.commit()
 
+    def _encode_embedding(self, text: str):
+        model = self.runtime.get_sentence_transformer_model()
+        try:
+            return model.encode(text, normalize_embeddings=True)
+        except TypeError:
+            return model.encode(text)
+
     def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
         # Try alias-based match first (case-insensitive via multiple
         # candidate forms: canonical_name, normalized_name, raw aliases).
         search_names = {entity.canonical_name, entity.normalized_name, *entity.aliases}
         related_types = {EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value}
-        
+
         for name in search_names:
             for variant in {name, name.title(), name.lower()}:
-                alias_matches = list(self.connection.execute(
-                    "SELECT registry_id FROM entity_alias WHERE alias = ?", (variant,),
-                ))
+                alias_matches = list(
+                    self.connection.execute(
+                        "SELECT registry_id FROM entity_alias WHERE alias = ?",
+                        (variant,),
+                    )
+                )
                 for (match_id,) in alias_matches:
-                    type_row = list(self.connection.execute(
-                        "SELECT entity_type FROM entity_registry WHERE registry_id = ?",
-                        (match_id,),
-                    ))
+                    type_row = list(
+                        self.connection.execute(
+                            "SELECT entity_type FROM entity_registry WHERE registry_id = ?",
+                            (match_id,),
+                        )
+                    )
                     if type_row:
                         match_type = type_row[0][0]
-                        type_match = (match_type == entity.entity_type.value or 
-                                     (match_type in related_types and 
-                                      entity.entity_type.value in related_types))
+                        type_match = match_type == entity.entity_type.value or (
+                            match_type in related_types
+                            and entity.entity_type.value in related_types
+                        )
                         if type_match:
                             self._upsert_alias(match_id, entity)
                             return match_id
-
-
-
 
         # Candidate search
         if entity.entity_type == EntityType.PERSON:
@@ -242,21 +253,25 @@ class SQLiteEntityLinker(EntityLinker):
             # For non-persons, search all entities of the same type (or related types for Org/Party)
             # to allow matching via lemmas even if the canonical name is different (inflection).
             if entity.entity_type.value in related_types:
-                rows = list(self.connection.execute(
-                    (
-                        "SELECT registry_id, canonical_name, fingerprint, embedding "
-                        "FROM entity_registry WHERE entity_type IN (?, ?)"
-                    ),
-                    (EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value),
-                ))
+                rows = list(
+                    self.connection.execute(
+                        (
+                            "SELECT registry_id, canonical_name, fingerprint, embedding "
+                            "FROM entity_registry WHERE entity_type IN (?, ?)"
+                        ),
+                        (EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value),
+                    )
+                )
             else:
-                rows = list(self.connection.execute(
-                    (
-                        "SELECT registry_id, canonical_name, fingerprint, embedding "
-                        "FROM entity_registry WHERE entity_type = ?"
-                    ),
-                    (entity.entity_type.value,),
-                ))
+                rows = list(
+                    self.connection.execute(
+                        (
+                            "SELECT registry_id, canonical_name, fingerprint, embedding "
+                            "FROM entity_registry WHERE entity_type = ?"
+                        ),
+                        (entity.entity_type.value,),
+                    )
+                )
 
         entity_embedding = self.runtime.get_sentence_transformer_model().encode(
             self._embedding_text(entity),
@@ -276,14 +291,8 @@ class SQLiteEntityLinker(EntityLinker):
                 self._upsert_alias(registry_id, entity)
                 return registry_id
 
-
-
-
-
         registry_id = stable_id(
-            f"{entity.entity_type.value.lower()}_registry", 
-            entity.normalized_name, 
-            entity.entity_id
+            f"{entity.entity_type.value.lower()}_registry", entity.normalized_name, entity.entity_id
         )
         self.connection.execute(
             (
@@ -322,9 +331,9 @@ class SQLiteEntityLinker(EntityLinker):
             else:
                 # Merge aliases and evidence into the first entity
                 primary = registry_map[rid]
-                primary.aliases = list(dict.fromkeys(
-                    [*primary.aliases, *entity.aliases, entity.canonical_name]
-                ))
+                primary.aliases = list(
+                    dict.fromkeys([*primary.aliases, *entity.aliases, entity.canonical_name])
+                )
                 primary.evidence.extend(entity.evidence)
                 id_remap[entity.entity_id] = primary.entity_id
         return result, id_remap
@@ -358,7 +367,6 @@ class SQLiteEntityLinker(EntityLinker):
             "is_media": attributes.get("is_media", False),
         }
 
-
     def _match_score(
         self,
         entity_type: EntityType,
@@ -371,7 +379,7 @@ class SQLiteEntityLinker(EntityLinker):
         stored_tokens = stored["name_tokens"]
         if current_tokens == stored_tokens:
             return 1.0
-        
+
         if entity_type == EntityType.PERSON:
             if current_tokens[-1] != stored_tokens[-1]:
                 return 0.0
@@ -385,15 +393,14 @@ class SQLiteEntityLinker(EntityLinker):
             stored_lemmas = set(stored.get("lemmas", []))
             if current_lemmas and stored_lemmas and current_lemmas == stored_lemmas:
                 return 1.0
-            
-        return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
 
+        return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
 
     @staticmethod
     def _embedding_text(entity: Entity) -> str:
         if entity.entity_type != EntityType.PERSON:
             return entity.normalized_name
-            
+
         organizations = " ".join(entity.attributes.get("organizations", []))
         positions = " ".join(entity.attributes.get("positions", []))
         education = " ".join(entity.attributes.get("education", []))
