@@ -100,6 +100,37 @@ class GraphExport:
 
 
 @dataclass(slots=True)
+class EntityCandidate:
+    candidate_id: str
+    entity_id: str | None
+    candidate_type: str
+    canonical_name: str
+    normalized_name: str
+    sentence_index: int
+    paragraph_index: int
+    start_char: int
+    end_char: int
+    source: str
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class CandidateEdge:
+    edge_type: str
+    source_candidate_id: str
+    target_candidate_id: str
+    confidence: float
+    sentence_index: int
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class CandidateGraph:
+    candidates: list[EntityCandidate] = field(default_factory=list)
+    edges: list[CandidateEdge] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class SentenceFragment:
     text: str
     paragraph_index: int
@@ -147,6 +178,7 @@ class ArticleDocument:
     sentences: list[SentenceFragment] = field(default_factory=list)
     entities: list[Entity] = field(default_factory=list)
     mentions: list[Mention] = field(default_factory=list)
+    candidate_graph: CandidateGraph | None = None
     facts: list[Fact] = field(default_factory=list)
     relations: list[Relation] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)

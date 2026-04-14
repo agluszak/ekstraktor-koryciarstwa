@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import spacy
-
 from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import join_hyphenated_parts, normalize_entity_name, stable_id
 
 
 class SpacyPolishNERExtractor(NERExtractor):
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
-        self.nlp = spacy.load(config.models.spacy_model)
+        self.runtime = runtime or PipelineRuntime(config)
 
     def name(self) -> str:
         return "spacy_polish_ner_extractor"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        parsed = self.nlp(document.cleaned_text)
+        parsed = self.runtime.get_spacy_model()(document.cleaned_text)
         entity_index: dict[tuple[str, str], Entity] = {}
         entity_display_score: dict[tuple[str, str], int] = {}
 

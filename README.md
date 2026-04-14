@@ -19,6 +19,24 @@ Polish coref model artifact.
 uv run python main.py --html-path article.html --source-url https://example.com/article --stdout
 ```
 
+For batch runs, keep one process warm and process a directory sequentially:
+
+```powershell
+uv run python main.py --input-dir inputs --stdout
+```
+
+For repeated ad hoc requests, use the persistent worker:
+
+```powershell
+uv run python main.py --worker
+```
+
+Then send one JSON object per line on stdin, for example:
+
+```json
+{"html_path":"inputs/article.html","source_url":"https://example.com/article"}
+```
+
 The pipeline writes:
 
 - `output/<document>.json`

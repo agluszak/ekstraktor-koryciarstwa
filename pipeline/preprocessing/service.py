@@ -17,6 +17,7 @@ SCRIPT_JSON_RE = re.compile(
 )
 AMOUNT_RE = re.compile(r"\b\d+(?:[ .,]\d+)*(?:\s*tys\.)?\s*zł\b", re.IGNORECASE)
 JUNK_PATTERNS = (
+    re.compile(r"^::addons", re.IGNORECASE),
     re.compile(r"^płatny dostęp do treści$", re.IGNORECASE),
     re.compile(r"^ten artykuł przeczytasz", re.IGNORECASE),
     re.compile(r"^komentarze$", re.IGNORECASE),
@@ -28,6 +29,7 @@ JUNK_PATTERNS = (
     re.compile(r"^organizacje$", re.IGNORECASE),
     re.compile(r"^inne tematy$", re.IGNORECASE),
     re.compile(r"^pogoda$", re.IGNORECASE),
+    re.compile(r"^z tego artykułu dowiesz się:?$", re.IGNORECASE),
 )
 FEED_HINTS = (
     "zobacz wszystkie",

@@ -5,11 +5,10 @@ import sqlite3
 from pathlib import Path
 from typing import TypedDict, cast
 
-from sentence_transformers import SentenceTransformer
-
 from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
 from pipeline.models import ArticleDocument, Entity
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import stable_id
 
 
@@ -23,9 +22,9 @@ class PersonFingerprint(TypedDict):
 
 
 class SQLiteEntityLinker(EntityLinker):
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
-        self.model = SentenceTransformer(config.models.sentence_transformer_model)
+        self.runtime = runtime or PipelineRuntime(config)
         self.db_path = Path(config.registry.sqlite_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.db_path)
@@ -73,7 +72,7 @@ class SQLiteEntityLinker(EntityLinker):
                 (f"%{entity.normalized_name.split()[-1]}",),
             )
         )
-        entity_embedding = self.model.encode(
+        entity_embedding = self.runtime.get_sentence_transformer_model().encode(
             self._embedding_text(entity),
             normalize_embeddings=True,
         )

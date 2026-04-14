@@ -20,11 +20,12 @@ class ParagraphSentenceSegmenter(Segmenter):
         fragments: list[SentenceFragment] = []
         running_offset = 0
         for paragraph_index, paragraph in enumerate(document.paragraphs):
-            sentences = [
+            raw_sentences = [
                 compact_whitespace(part)
                 for part in self.sentence_split_re.split(paragraph)
                 if compact_whitespace(part)
             ]
+            sentences = self._merge_sentence_fragments(raw_sentences)
             local_offset = document.cleaned_text.find(paragraph, running_offset)
             if local_offset < 0:
                 local_offset = running_offset
@@ -50,3 +51,29 @@ class ParagraphSentenceSegmenter(Segmenter):
             running_offset = cursor
         document.sentences = fragments
         return document
+
+    @classmethod
+    def _merge_sentence_fragments(cls, parts: list[str]) -> list[str]:
+        merged: list[str] = []
+        pending_prefix: str | None = None
+        for part in parts:
+            candidate = f"{pending_prefix} {part}" if pending_prefix is not None else part
+            pending_prefix = None
+            if cls._is_prefix_fragment(candidate):
+                pending_prefix = candidate
+                continue
+            merged.append(candidate)
+        if pending_prefix is not None:
+            merged.append(pending_prefix)
+        return merged
+
+    @staticmethod
+    def _is_prefix_fragment(text: str) -> bool:
+        stripped = compact_whitespace(text)
+        if not stripped:
+            return False
+        if re.fullmatch(r"[A-ZŁŚŻŹĆŃÓ]\.", stripped):
+            return True
+        if re.fullmatch(r"(?:k|m|nr)\.", stripped, re.IGNORECASE):
+            return True
+        return bool(re.search(r"\([a-z]\.$", stripped, re.IGNORECASE))

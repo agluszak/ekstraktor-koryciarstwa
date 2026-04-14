@@ -2,25 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import stanza
-from stanza import DownloadMethod
 from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
 from pipeline.models import ArticleDocument, CoreferenceResult, Entity, Mention
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
 
 
 class StanzaCoreferenceResolver(CoreferenceResolver):
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
-        self.nlp = stanza.Pipeline(
-            "pl",
-            processors="tokenize,coref",
-            coref_model_path=config.models.stanza_coref_model_path,
-            download_method=DownloadMethod.REUSE_RESOURCES,
-        )
+        self.runtime = runtime or PipelineRuntime(config)
 
     def name(self) -> str:
         return "stanza_coreference_resolver"
@@ -30,7 +24,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         resolved_mentions = list(document.mentions)
         people = [entity for entity in document.entities if entity.entity_type == "Person"]
         entity_by_name = {entity.normalized_name: entity for entity in people}
-        nlp_doc = self.nlp(document.cleaned_text)
+        nlp_doc = self.runtime.get_stanza_coref_pipeline()(document.cleaned_text)
 
         for chain in getattr(nlp_doc, "coref", []):
             representative_text = normalize_entity_name(chain.representative_text)

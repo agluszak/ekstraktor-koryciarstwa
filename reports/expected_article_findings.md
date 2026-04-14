@@ -417,6 +417,159 @@ Expected comparison standard:
 - This is not a board-appointment article, but it is still a valid `koryciarstwo` benchmark.
 - A reasonable first-pass result is non-empty relevance plus people / party / municipal-power-network extraction, even if there is no clean `APPOINTED_TO` event.
 
+## 12. WP: Odpartyjnienie rad nadzorczych? "Nie tak miało być, wygląda to bardzo źle"
+
+Source:
+- https://wiadomosci.wp.pl/odpartyjnienie-rad-nadzorczych-nie-tak-mialo-byc-wyglada-to-bardzo-zle-6996280410176160a
+
+Saved input:
+- [wiadomosci.wp.pl__odpartyjnienie-rad-nadzorczych-nie-tak-mialo-byc-wyglada-to-bardzo-zle__6996280410176160a.html](</D:/extractor/inputs/wiadomosci.wp.pl__odpartyjnienie-rad-nadzorczych-nie-tak-mialo-byc-wyglada-to-bardzo-zle__6996280410176160a.html>)
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a governance / board-appointments article about political nominations to the supervisory board of a major public institution despite public promises of depoliticization.
+
+Expected core entities:
+- Narodowy Fundusz Ochrony Środowiska i Gospodarki Wodnej
+- Szymon Hołownia
+- Paulina Hennig-Kloska
+- Emilia Wasielewska
+- Polska 2050
+- Trzecia Droga
+
+Expected relations and events:
+- at least one `MEMBER_OF_BOARD` or `APPOINTED_TO` fact into the supervisory board of NFOŚiGW
+- at least one `AFFILIATED_WITH_PARTY` fact for Polska 2050
+- at least one governance / nomination fact tied to Paulina Hennig-Kloska or the ministry context
+
+Important text cues:
+- "obsadzeniu Rady Nadzorczej"
+- "politykami Polski 2050"
+- "odpolitycznieniu rad"
+- "wiceprzewodniczącą rady została Emilia Wasielewska"
+- "startowała w wyborach parlamentarnych z list Trzeciej Drogi"
+
+Expected comparison standard:
+- This should not degrade into generic party co-occurrence.
+- The main expected outcome is a clean board/governance fact attached to a public institution, plus party context for the appointees.
+
+## 13. Onet: Tak PSL obsadził państwową spółkę. Pracę dostał m.in. 29-letni brat wiceministra
+
+Source:
+- https://wiadomosci.onet.pl/kraj/tak-psl-obsadzil-panstwowa-spolke-prace-dostal-min-29-letni-brat-wiceministra/ezt8y9t
+
+Saved input:
+- [wiadomosci.onet.pl__kraj__tak-psl-obsadzil-panstwowa-spolke-prace-dostal-min-29-letni-brat-wiceministra__ezt8y9t.html](</D:/extractor/inputs/wiadomosci.onet.pl__kraj__tak-psl-obsadzil-panstwowa-spolke-prace-dostal-min-29-letni-brat-wiceministra__ezt8y9t.html>)
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a classic state-company patronage article about PSL-linked appointments into a PKP subsidiary without open competition.
+
+Expected core entities:
+- Natura Tour
+- PKP
+- Dariusz Klimczak
+- Konrad Wojnarowski
+- Andrzej Grzyb
+- Adam Struzik
+- Jolanta Sobczyk
+- Polskie Stronnictwo Ludowe
+- Trzecia Droga
+
+Expected relations and events:
+- Jolanta Sobczyk -> `APPOINTED_TO` -> Natura Tour
+  Expected role: `prezes`
+- multiple `MEMBER_OF_BOARD` / board facts for people tied to PSL in Natura Tour
+- multiple `AFFILIATED_WITH_PARTY` facts for PSL
+- at least one typed `RELATED_TO` fact such as acquaintance / sibling / family-political tie when explicitly stated
+
+Important text cues:
+- "żadnych konkursów do zarządu i rady nadzorczej nie było"
+- "najważniejsze stanowiska w spółce objęli ludzie bezpośrednio związani z Polskim Stronnictwem Ludowym"
+- "związana z Trzecią Drogą Jolanta Sobczyk"
+- "prywatnie znajoma nadzorującego PKP ministra Dariusza Klimczaka"
+- "29-letni brat wiceministra"
+
+Expected comparison standard:
+- This article should yield multiple non-empty governance facts.
+- If the pipeline only extracts people and `PSL`, it is underperforming.
+
+## 14. Gazeta Krakowska: To koniec rządów Katarzyny Zapał w Zarządzie Budynków Komunalnych
+
+Source:
+- https://gazetakrakowska.pl/za-jej-czasow-wybuchla-w-krakowie-wielka-afera-to-koniec-rzadow-katarzyny-zapal-w-zarzadzie-budynkow-komunalnych/ar/c1p2-27523231
+
+Fetch note:
+- direct live HTML fetch is currently blocked by a Cloudflare challenge in this repo environment
+- expectation below is based on the available crawled article snapshot
+
+Expectation:
+- This article is **in scope** as a municipal-governance / dismissal article.
+- It is not a narrow board-nepotism case, but it clearly belongs to the broader public-institution corruption / patronage monitoring set.
+
+Expected core entities:
+- Katarzyna Zapał
+- Zarząd Budynków Komunalnych w Krakowie
+- Bogusław Kośmider
+- Krakowski Holding Komunalny
+- Marcin Paradyż
+- Jacek Majchrowski
+- Aleksander Miszalski
+
+Expected relations and events:
+- Katarzyna Zapał -> `DISMISSED_FROM` or equivalent exit fact -> Zarząd Budynków Komunalnych
+- Marcin Paradyż -> succession / `APPOINTED_TO` or role-change fact -> Zarząd Budynków Komunalnych
+- Bogusław Kośmider -> Krakowski Holding Komunalny
+  Expected role: `prezes`
+- optional public-corruption / municipal-afera context should raise relevance even if kinship/party ties are absent
+
+Important text cues:
+- "odchodzi Katarzyna Zapał"
+- "następcą Zapał ma zostać Marcin Paradyż"
+- "prezes zarządu Krakowskiego Holdingu Komunalnego"
+- "największa miejska afera korupcyjna"
+
+Expected comparison standard:
+- This should at minimum produce a governance exit/change event.
+- If the pipeline misses the dismissal/change entirely, municipal-governance coverage is still too weak.
+
+## 15. Pleszew24: Radna powiatowa z posadą. Zmiana prezesa słynnej państwowej stadniny koni
+
+Source:
+- https://pleszew24.info/pl/12_biznes/16076_radna-powiatowa-z-posada-zmiana-prezesa-slynnej-panstwowej-stadniny-koni.html
+
+Saved input:
+- [pleszew24.info__pl__12_biznes__16076_radna-powiatowa-z-posada-zmiana-prezesa-slynnej-panstwowej-stadniny-koni.html](</D:/extractor/inputs/pleszew24.info__pl__12_biznes__16076_radna-powiatowa-z-posada-zmiana-prezesa-slynnej-panstwowej-stadniny-koni.html>)
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a state-company appointment article with explicit party context and a management change.
+
+Expected core entities:
+- A. Góralczyk
+- Stadnina Koni Iwno
+- Przemysław Pacia
+- Krajowy Ośrodek Wsparcia Rolnictwa
+- Wojewódzki Ośrodek Doradztwa Rolniczego
+- Polskie Stronnictwo Ludowe
+
+Expected relations and events:
+- A. Góralczyk -> `APPOINTED_TO` -> Stadnina Koni Iwno
+  Expected role: `prezes zarządu`
+- Przemysław Pacia -> `DISMISSED_FROM` or equivalent exit event -> Stadnina Koni Iwno
+- A. Góralczyk -> `AFFILIATED_WITH_PARTY` -> PSL
+- KOWR should be recognized as the controlling public institution supervising the stadnina
+
+Important text cues:
+- "działaczka Polskiego Stronnictwa Ludowego"
+- "awansowała na stanowisko prezesa zarządu"
+- "spółki Skarbu Państwa"
+- "odwołano poprzedniego prezesa"
+- "KOWR sprawuje nadzór właścicielski nad stadniną"
+
+Expected comparison standard:
+- This article should yield one appointment, one dismissal/change fact, one party tie, and one state-ownership signal.
+
 ## Comparison Guidance
 
 When comparing current output against this file:

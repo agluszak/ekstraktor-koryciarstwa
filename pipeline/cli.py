@@ -4,20 +4,26 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any, Protocol
 
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
 from pipeline.events import PolishEventExtractor
 from pipeline.filtering import KeywordRelevanceFilter
 from pipeline.linking import SQLiteEntityLinker
-from pipeline.models import PipelineInput
+from pipeline.models import ExtractionResult, PipelineInput
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.orchestrator import NepotismPipeline
 from pipeline.output import JsonOutputBuilder, write_outputs
 from pipeline.preprocessing import TrafilaturaPreprocessor
 from pipeline.relations import PolishRuleBasedRelationExtractor
+from pipeline.runtime import PipelineRuntime
 from pipeline.scoring import RuleBasedNepotismScorer
 from pipeline.segmentation import ParagraphSentenceSegmenter
+
+
+class PipelineRunner(Protocol):
+    def run(self, data: PipelineInput) -> ExtractionResult: ...
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Political nepotism extraction pipeline for Polish articles."
     )
     parser.add_argument("--html-path", type=Path, help="Path to a local HTML file.")
+    parser.add_argument("--input-dir", type=Path, help="Directory with local HTML files.")
+    parser.add_argument("--glob", default="*.html", help="Glob for batch input discovery.")
     parser.add_argument("--source-url", help="Original article URL.")
     parser.add_argument("--publication-date", help="Publication date override.")
     parser.add_argument("--document-id", help="Document identifier override.")
@@ -45,38 +53,45 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the main JSON result to stdout.",
     )
+    parser.add_argument(
+        "--worker",
+        action="store_true",
+        help="Run a persistent JSON-lines worker on stdin/stdout.",
+    )
     return parser
 
 
-def build_pipeline(config: PipelineConfig) -> NepotismPipeline:
+def build_pipeline(
+    config: PipelineConfig,
+    *,
+    runtime: PipelineRuntime | None = None,
+) -> NepotismPipeline:
+    shared_runtime = runtime or PipelineRuntime(config)
     return NepotismPipeline(
         preprocessor=TrafilaturaPreprocessor(),
         relevance_filter=KeywordRelevanceFilter(config),
         segmenter=ParagraphSentenceSegmenter(config),
-        ner_extractor=SpacyPolishNERExtractor(config),
-        coreference_resolver=StanzaCoreferenceResolver(config),
-        relation_extractor=PolishRuleBasedRelationExtractor(config),
+        ner_extractor=SpacyPolishNERExtractor(config, runtime=shared_runtime),
+        coreference_resolver=StanzaCoreferenceResolver(config, runtime=shared_runtime),
+        relation_extractor=PolishRuleBasedRelationExtractor(config, runtime=shared_runtime),
         event_extractor=PolishEventExtractor(config),
-        entity_linker=SQLiteEntityLinker(config),
+        entity_linker=SQLiteEntityLinker(config, runtime=shared_runtime),
         scorer=RuleBasedNepotismScorer(config),
         output_builder=JsonOutputBuilder(),
     )
 
 
-def read_html(args: argparse.Namespace) -> str:
-    if args.html_path:
-        return args.html_path.read_text(encoding="utf-8")
+def read_html(path: Path | None) -> str:
+    if path is not None:
+        return path.read_text(encoding="utf-8")
     return sys.stdin.read()
 
 
-def main() -> int:
-    args = build_parser().parse_args()
-    raw_html = read_html(args)
+def run_single(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
+    raw_html = read_html(args.html_path)
     if not raw_html.strip():
         raise ValueError("No HTML input provided. Use --html-path or pipe HTML through stdin.")
 
-    config = PipelineConfig.from_file(args.config)
-    pipeline = build_pipeline(config)
     result = pipeline.run(
         PipelineInput(
             raw_html=raw_html,
@@ -96,3 +111,114 @@ def main() -> int:
             )
         )
     return 0
+
+
+def iter_batch_inputs(input_dir: Path, pattern: str) -> list[Path]:
+    return sorted(path for path in input_dir.glob(pattern) if path.is_file())
+
+
+def run_batch(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
+    if args.input_dir is None:
+        raise ValueError("--input-dir is required for batch execution.")
+    html_paths = iter_batch_inputs(args.input_dir, args.glob)
+    if not html_paths:
+        raise ValueError(f"No HTML files matched {args.glob!r} in {args.input_dir}.")
+
+    rows: list[dict[str, Any]] = []
+    for html_path in html_paths:
+        result = pipeline.run(
+            PipelineInput(
+                raw_html=html_path.read_text(encoding="utf-8"),
+                source_url=None,
+                publication_date=args.publication_date,
+                document_id=args.document_id,
+            )
+        )
+        result_path, graph_path = write_outputs(result, args.output_dir)
+        rows.append(
+            {
+                "input_path": str(html_path),
+                "document_id": result.document_id,
+                "result_path": str(result_path),
+                "graph_path": str(graph_path),
+                "relevant": result.relevance.is_relevant,
+                "facts": len(result.facts),
+                "relations": len(result.relations),
+                "events": len(result.events),
+            }
+        )
+
+    if args.stdout:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(rows, ensure_ascii=False))
+    return 0
+
+
+def handle_worker_request(
+    payload: dict[str, Any],
+    *,
+    pipeline: PipelineRunner,
+    output_dir: Path,
+) -> dict[str, Any]:
+    html_path_value = payload.get("html_path")
+    raw_html = payload.get("raw_html")
+    if html_path_value is None and raw_html is None:
+        raise ValueError("worker request must include either 'html_path' or 'raw_html'")
+    if html_path_value is not None and raw_html is not None:
+        raise ValueError("worker request must not include both 'html_path' and 'raw_html'")
+
+    if html_path_value is not None:
+        html_path = Path(str(html_path_value))
+        raw_html = html_path.read_text(encoding="utf-8")
+    assert raw_html is not None
+
+    result = pipeline.run(
+        PipelineInput(
+            raw_html=raw_html,
+            source_url=str(payload["source_url"]) if payload.get("source_url") else None,
+            publication_date=str(payload["publication_date"])
+            if payload.get("publication_date")
+            else None,
+            document_id=str(payload["document_id"]) if payload.get("document_id") else None,
+        )
+    )
+    result_path, graph_path = write_outputs(result, output_dir)
+    return {
+        "ok": True,
+        "document_id": result.document_id,
+        "result_path": str(result_path),
+        "graph_path": str(graph_path),
+        "result": result.to_dict(),
+    }
+
+
+def run_worker(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError("worker request must be a JSON object")
+            response = handle_worker_request(
+                payload,
+                pipeline=pipeline,
+                output_dir=args.output_dir,
+            )
+        except Exception as exc:
+            response = {"ok": False, "error": str(exc)}
+        print(json.dumps(response, ensure_ascii=False), flush=True)
+    return 0
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    config = PipelineConfig.from_file(args.config)
+    pipeline = build_pipeline(config)
+    if args.worker:
+        return run_worker(args, pipeline)
+    if args.input_dir is not None:
+        return run_batch(args, pipeline)
+    return run_single(args, pipeline)
