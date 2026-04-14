@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import join_hyphenated_parts, normalize_entity_name, stable_id
@@ -20,11 +21,34 @@ class SpacyPolishNERExtractor(NERExtractor):
         entity_index: dict[tuple[str, str], Entity] = {}
         entity_display_score: dict[tuple[str, str], int] = {}
 
+        # Build lookup from config: party alias keys/values (case-insensitive)
+        party_keys_lower = {k.lower() for k in self.config.party_aliases}
+        party_values_lower = {v.lower() for v in self.config.party_aliases.values()}
+
         for ent in parsed.ents:
             entity_type = self._map_label(ent.label_)
             if not entity_type:
                 continue
-            merge_key, display_name, display_score = self._entity_forms(ent, entity_type)
+            merge_key, display_name, display_score, lemmas = self._entity_forms(ent, entity_type)
+
+            # Use spaCy's morphology to filter: single-token PERSON entities
+            # where no token has PROPN POS are misclassifications (media names,
+            # common nouns, abbreviations).
+            if entity_type == EntityType.PERSON:
+                lexical = [t for t in ent if t.text.strip()]
+                if lexical and not any(t.pos_ == "PROPN" for t in lexical):
+                    continue
+
+            # Reclassify: if spaCy labeled an ORG that matches a known party
+            # alias from config, retype it to PoliticalParty.
+            if entity_type == EntityType.ORGANIZATION:
+                surface_lower = ent.text.strip().lower()
+                if surface_lower in party_keys_lower or surface_lower in party_values_lower:
+                    entity_type = EntityType.POLITICAL_PARTY
+                    merge_key = normalize_entity_name(ent.text)
+                    display_name = merge_key
+                    display_score = 0
+            
             key = (entity_type, merge_key)
             if key not in entity_index:
                 entity_index[key] = Entity(
@@ -33,8 +57,14 @@ class SpacyPolishNERExtractor(NERExtractor):
                     canonical_name=display_name,
                     normalized_name=display_name,
                 )
+                entity_index[key].attributes["lemmas"] = lemmas
                 entity_display_score[key] = display_score
             entity = entity_index[key]
+            
+            # Update lemmas if we found a more "complete" version
+            if len(lemmas) > len(entity.attributes.get("lemmas", [])):
+                entity.attributes["lemmas"] = lemmas
+
             if display_score > entity_display_score[key]:
                 entity.canonical_name = display_name
                 entity.normalized_name = display_name
@@ -55,6 +85,7 @@ class SpacyPolishNERExtractor(NERExtractor):
                     mention_type=entity_type,
                     sentence_index=self._sentence_index(document, ent.start_char),
                     entity_id=entity.entity_id,
+                    attributes={"lemmas": lemmas},
                 )
             )
 
@@ -62,22 +93,24 @@ class SpacyPolishNERExtractor(NERExtractor):
         return document
 
     @staticmethod
-    def _map_label(label: str) -> str | None:
+    def _map_label(label: str) -> EntityType | None:
         lowered = label.lower()
         if "pers" in lowered or lowered == "person":
-            return "Person"
+            return EntityType.PERSON
         if "org" in lowered:
-            return "Organization"
+            return EntityType.ORGANIZATION
         return None
 
     @staticmethod
-    def _entity_forms(ent, entity_type: str) -> tuple[str, str, int]:
-        if entity_type == "Person":
+    def _entity_forms(ent, entity_type: EntityType) -> tuple[str, str, int, list[str]]:
+        lemmas = [t.lemma_.lower() for t in ent if t.text.strip()]
+        if entity_type == EntityType.PERSON:
+
             merge_key = SpacyPolishNERExtractor._person_merge_key(ent)
             display_name, display_score = SpacyPolishNERExtractor._person_display_name(ent)
-            return merge_key, display_name, display_score
+            return merge_key, display_name, display_score, lemmas
         normalized = normalize_entity_name(ent.text)
-        return normalized, normalized, 0
+        return normalized, normalized, 0, lemmas
 
     @staticmethod
     def _person_merge_key(ent) -> str:
@@ -113,9 +146,12 @@ class SpacyPolishNERExtractor(NERExtractor):
                 score += 1
             return display, score
 
+        display = SpacyPolishNERExtractor._person_merge_key(ent)
+        if all_propn:
+            return display, 5
+        
         surface = normalize_entity_name(ent.text)
-        score = 0 if all_propn else -5
-        return surface, score
+        return surface, -5
 
     @staticmethod
     def _sentence_index(document: ArticleDocument, start_char: int) -> int:

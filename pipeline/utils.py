@@ -30,9 +30,9 @@ def join_hyphenated_parts(parts: list[str]) -> str:
     return " ".join(output)
 
 
-def normalize_party_name(text: str, aliases: dict[str, str]) -> str:
+def normalize_party_name(text: str) -> str:
     cleaned = compact_whitespace(text)
-    return aliases.get(cleaned, aliases.get(cleaned.upper(), cleaned))
+    return cleaned.title()
 
 
 def find_dates(text: str) -> list[str]:

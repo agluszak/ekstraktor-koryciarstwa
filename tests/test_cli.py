@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from pipeline.cli import handle_worker_request, iter_batch_inputs, run_batch
+from pipeline.domain_types import EntityType
 from pipeline.models import (
     Entity,
     ExtractionResult,
@@ -29,7 +30,7 @@ class StubPipeline:
             entities=[
                 Entity(
                     entity_id="person-1",
-                    entity_type="Person",
+                    entity_type=EntityType.PERSON,
                     canonical_name="Jan Kowalski",
                     normalized_name="Jan Kowalski",
                 )

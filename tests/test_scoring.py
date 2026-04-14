@@ -1,4 +1,5 @@
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import EventType, RelationType
 from pipeline.models import ArticleDocument, Event, EvidenceSpan, Relation
 from pipeline.scoring import RuleBasedNepotismScorer
 
@@ -16,14 +17,14 @@ def test_rule_based_scorer_counts_expected_signals() -> None:
         paragraphs=["Polityk trafił do rady nadzorczej spółki skarbu państwa bez doświadczenia."],
         relations=[
             Relation(
-                relation_type="AFFILIATED_WITH_PARTY",
+                relation_type=RelationType.AFFILIATED_WITH_PARTY,
                 source_entity_id="p1",
                 target_entity_id="party1",
                 confidence=0.7,
                 evidence=EvidenceSpan(text="Polityk PiS"),
             ),
             Relation(
-                relation_type="MEMBER_OF_BOARD",
+                relation_type=RelationType.MEMBER_OF_BOARD,
                 source_entity_id="p1",
                 target_entity_id="org1",
                 confidence=0.7,
@@ -33,7 +34,7 @@ def test_rule_based_scorer_counts_expected_signals() -> None:
         events=[
             Event(
                 event_id="event1",
-                event_type="appointment",
+                event_type=EventType.APPOINTMENT,
                 person_entity_id="p1",
                 organization_entity_id="org1",
                 position_entity_id=None,
@@ -65,7 +66,7 @@ def test_dismissal_increases_score() -> None:
         events=[
             Event(
                 event_id="event2",
-                event_type="dismissal",
+                event_type=EventType.DISMISSAL,
                 person_entity_id="p1",
                 organization_entity_id="org1",
                 position_entity_id=None,

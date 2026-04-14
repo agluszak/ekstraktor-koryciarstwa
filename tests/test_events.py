@@ -1,4 +1,5 @@
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import EntityType, EventType, RelationType
 from pipeline.events import PolishEventExtractor
 from pipeline.models import (
     ArticleDocument,
@@ -34,13 +35,13 @@ def test_dismissal_sentence_produces_relation_and_event() -> None:
         entities=[
             Entity(
                 entity_id="person-1",
-                entity_type="Person",
+                entity_type=EntityType.PERSON,
                 canonical_name="Leszek Ruta",
                 normalized_name="Leszek Ruta",
             ),
             Entity(
                 entity_id="org-1",
-                entity_type="Organization",
+                entity_type=EntityType.ORGANIZATION,
                 canonical_name="Zarząd Transportu Miejskiego",
                 normalized_name="Zarząd Transportu Miejskiego",
             ),
@@ -69,5 +70,7 @@ def test_dismissal_sentence_produces_relation_and_event() -> None:
     )
     document = event_extractor.run(document)
 
-    assert any(relation.relation_type == "DISMISSED_FROM" for relation in document.relations)
-    assert any(event.event_type == "dismissal" for event in document.events)
+    assert any(
+        relation.relation_type == RelationType.DISMISSED_FROM for relation in document.relations
+    )
+    assert any(event.event_type == EventType.DISMISSAL for event in document.events)

@@ -2,7 +2,21 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import date
-from typing import Any
+from typing import Any, cast
+
+from pipeline.domain_types import (
+    CandidateAttributes,
+    CandidateType,
+    EntityAttributes,
+    EntityType,
+    EventAttributes,
+    EventType,
+    FactAttributes,
+    FactType,
+    RelationAttributes,
+    RelationType,
+    TimeScope,
+)
 
 
 @dataclass(slots=True)
@@ -25,50 +39,50 @@ class EvidenceSpan:
 @dataclass(slots=True)
 class Entity:
     entity_id: str
-    entity_type: str
+    entity_type: EntityType
     canonical_name: str
     normalized_name: str
     aliases: list[str] = field(default_factory=list)
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: EntityAttributes = field(default_factory=lambda: cast(EntityAttributes, {}))
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class Relation:
-    relation_type: str
+    relation_type: RelationType
     source_entity_id: str
     target_entity_id: str
     confidence: float
     evidence: EvidenceSpan
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: RelationAttributes = field(default_factory=lambda: cast(RelationAttributes, {}))
 
 
 @dataclass(slots=True)
 class Fact:
     fact_id: str
-    fact_type: str
+    fact_type: FactType
     subject_entity_id: str
     object_entity_id: str | None
     value_text: str | None
     value_normalized: str | None
-    time_scope: str
+    time_scope: TimeScope
     event_date: str | None
     confidence: float
     evidence: EvidenceSpan
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: FactAttributes = field(default_factory=lambda: cast(FactAttributes, {}))
 
 
 @dataclass(slots=True)
 class Event:
     event_id: str
-    event_type: str
+    event_type: EventType
     person_entity_id: str | None
     organization_entity_id: str | None
     position_entity_id: str | None
     event_date: str | None
     confidence: float
     evidence: EvidenceSpan
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: EventAttributes = field(default_factory=lambda: cast(EventAttributes, {}))
 
 
 @dataclass(slots=True)
@@ -103,7 +117,7 @@ class GraphExport:
 class EntityCandidate:
     candidate_id: str
     entity_id: str | None
-    candidate_type: str
+    candidate_type: CandidateType
     canonical_name: str
     normalized_name: str
     sentence_index: int
@@ -111,7 +125,7 @@ class EntityCandidate:
     start_char: int
     end_char: int
     source: str
-    attributes: dict[str, Any] = field(default_factory=dict)
+    attributes: CandidateAttributes = field(default_factory=lambda: cast(CandidateAttributes, {}))
 
 
 @dataclass(slots=True)

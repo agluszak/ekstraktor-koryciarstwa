@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from typing import cast
+
 from pipeline.base import RelationExtractor
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import EntityType, FactType, RelationAttributes, RelationType
 from pipeline.models import ArticleDocument, CoreferenceResult, Entity, Fact, Relation
 from pipeline.runtime import PipelineRuntime
 
-from .candidate_graph import CandidateGraphBuilder, ParsedWord
+from .candidate_graph import CandidateGraphBuilder
 from .fact_extractors import (
     CompensationFactExtractor,
     FundingFactExtractor,
@@ -14,6 +17,7 @@ from .fact_extractors import (
     SentenceContext,
     TieFactExtractor,
 )
+from .types import ParsedWord
 
 
 class PolishRuleBasedRelationExtractor(RelationExtractor):
@@ -110,10 +114,10 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
     def _derive_relations(self, document: ArticleDocument) -> list[Relation]:
         derived: list[Relation] = []
         for fact in document.facts:
-            if fact.fact_type == "APPOINTMENT" and fact.object_entity_id:
+            if fact.fact_type == FactType.APPOINTMENT and fact.object_entity_id:
                 derived.append(
                     self._relation(
-                        "APPOINTED_TO",
+                        RelationType.APPOINTED_TO,
                         fact.subject_entity_id,
                         fact.object_entity_id,
                         fact,
@@ -123,7 +127,7 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                 if position_entity_id:
                     derived.append(
                         self._relation(
-                            "HOLDS_POSITION",
+                            RelationType.HOLDS_POSITION,
                             fact.subject_entity_id,
                             position_entity_id,
                             fact,
@@ -132,17 +136,17 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                 if bool(fact.attributes.get("board_role")):
                     derived.append(
                         self._relation(
-                            "MEMBER_OF_BOARD",
+                            RelationType.MEMBER_OF_BOARD,
                             fact.subject_entity_id,
                             fact.object_entity_id,
                             fact,
                             {"status": "current"},
                         )
                     )
-            elif fact.fact_type == "DISMISSAL" and fact.object_entity_id:
+            elif fact.fact_type == FactType.DISMISSAL and fact.object_entity_id:
                 derived.append(
                     self._relation(
-                        "DISMISSED_FROM",
+                        RelationType.DISMISSED_FROM,
                         fact.subject_entity_id,
                         fact.object_entity_id,
                         fact,
@@ -152,7 +156,7 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                 if position_entity_id:
                     derived.append(
                         self._relation(
-                            "LEFT_POSITION",
+                            RelationType.LEFT_POSITION,
                             fact.subject_entity_id,
                             position_entity_id,
                             fact,
@@ -161,17 +165,17 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                 if bool(fact.attributes.get("board_role")):
                     derived.append(
                         self._relation(
-                            "MEMBER_OF_BOARD",
+                            RelationType.MEMBER_OF_BOARD,
                             fact.subject_entity_id,
                             fact.object_entity_id,
                             fact,
                             {"status": "former"},
                         )
                     )
-            elif fact.fact_type == "COMPENSATION" and fact.object_entity_id:
+            elif fact.fact_type == FactType.COMPENSATION and fact.object_entity_id:
                 derived.append(
                     self._relation(
-                        "RECEIVES_COMPENSATION",
+                        RelationType.RECEIVES_COMPENSATION,
                         fact.subject_entity_id,
                         fact.object_entity_id,
                         fact,
@@ -181,10 +185,10 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                         },
                     )
                 )
-            elif fact.fact_type == "FUNDING" and fact.object_entity_id:
+            elif fact.fact_type == FactType.FUNDING and fact.object_entity_id:
                 derived.append(
                     self._relation(
-                        "FUNDED_BY",
+                        RelationType.FUNDED_BY,
                         fact.subject_entity_id,
                         fact.object_entity_id,
                         fact,
@@ -192,22 +196,22 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                     )
                 )
             elif (
-                fact.fact_type in {"PARTY_MEMBERSHIP", "FORMER_PARTY_MEMBERSHIP"}
+                fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
                 and fact.object_entity_id
             ):
                 derived.append(
                     self._relation(
-                        "AFFILIATED_WITH_PARTY",
+                        RelationType.AFFILIATED_WITH_PARTY,
                         fact.subject_entity_id,
                         fact.object_entity_id,
                         fact,
                         {"time_scope": fact.time_scope},
                     )
                 )
-            elif fact.fact_type == "PERSONAL_OR_POLITICAL_TIE" and fact.object_entity_id:
+            elif fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE and fact.object_entity_id:
                 derived.append(
                     self._relation(
-                        "RELATED_TO",
+                        RelationType.RELATED_TO,
                         fact.subject_entity_id,
                         fact.object_entity_id,
                         fact,
@@ -220,34 +224,37 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
         entities = {entity.entity_id: entity for entity in document.entities}
         for fact in document.facts:
             person = entities.get(fact.subject_entity_id)
-            if person is None or person.entity_type != "Person":
+            if person is None or person.entity_type != EntityType.PERSON:
                 continue
             if (
-                fact.fact_type in {"PARTY_MEMBERSHIP", "FORMER_PARTY_MEMBERSHIP"}
+                fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
                 and fact.object_entity_id
             ):
                 party = entities.get(fact.object_entity_id)
                 if party is not None:
                     self._append_list_value(person, "parties", party.canonical_name)
-            if fact.fact_type in {"APPOINTMENT", "DISMISSAL"} and fact.object_entity_id:
+            if (
+                fact.fact_type in {FactType.APPOINTMENT, FactType.DISMISSAL}
+                and fact.object_entity_id
+            ):
                 organization = entities.get(fact.object_entity_id)
                 if organization is not None:
                     self._append_list_value(person, "organizations", organization.canonical_name)
                 role = self._string_attribute(fact, "role")
                 if role:
                     self._append_list_value(person, "positions", role)
-            if fact.fact_type == "POLITICAL_OFFICE" and fact.object_entity_id:
+            if fact.fact_type == FactType.POLITICAL_OFFICE and fact.object_entity_id:
                 office = entities.get(fact.object_entity_id)
                 if office is not None:
                     self._append_list_value(person, "positions", office.canonical_name)
 
     @staticmethod
     def _relation(
-        relation_type: str,
+        relation_type: RelationType,
         source_entity_id: str,
         target_entity_id: str,
         fact: Fact,
-        extra_attributes: dict[str, str | None] | None = None,
+        extra_attributes: RelationAttributes | None = None,
     ) -> Relation:
         attributes = {
             key: value for key, value in (extra_attributes or {}).items() if value is not None
@@ -258,7 +265,7 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
             target_entity_id=target_entity_id,
             confidence=fact.confidence,
             evidence=fact.evidence,
-            attributes=attributes,
+            attributes=cast(RelationAttributes, attributes),
         )
 
     @staticmethod
@@ -268,7 +275,28 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
 
     @staticmethod
     def _append_list_value(entity: Entity, key: str, value: str) -> None:
-        values = entity.attributes.setdefault(key, [])
+        if key == "parties":
+            values = entity.attributes.get("parties")
+            if values is None:
+                values = []
+                entity.attributes["parties"] = values
+        elif key == "organizations":
+            values = entity.attributes.get("organizations")
+            if values is None:
+                values = []
+                entity.attributes["organizations"] = values
+        elif key == "positions":
+            values = entity.attributes.get("positions")
+            if values is None:
+                values = []
+                entity.attributes["positions"] = values
+        elif key == "education":
+            values = entity.attributes.get("education")
+            if values is None:
+                values = []
+                entity.attributes["education"] = values
+        else:
+            return
         if isinstance(values, list) and value not in values:
             values.append(value)
 

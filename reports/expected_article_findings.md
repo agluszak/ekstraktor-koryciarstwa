@@ -634,3 +634,35 @@ Expectation:
 Expected extraction outcome:
 - Relevance should be `false`.
 - No company appointment, salary-in-public-company, board membership, or acquaintance-network findings should be emitted.
+
+## 16. Onet: Żona posła PiS zrezygnowała z zasiadania w radach nadzorczych państwowych spółek
+
+Source:
+- https://wiadomosci.onet.pl/lublin/zona-posla-pis-zrezygnowala-z-zasiadania-w-radach-nadzorczych-panstwowych-spolek/hhpswdf
+
+Expectation:
+- This article is **strongly in scope**.
+- It is about a dismissal/resignation of a politician's family member from state-owned company boards due to party resolutions against nepotism.
+
+Expected core entities:
+- Renata Stefaniuk
+- Dariusz Stefaniuk
+- Enea Połaniec
+- Jelcz
+- PiS / Prawo i Sprawiedliwość
+
+Expected relations and events:
+- Renata Stefaniuk -> `DISMISSED_FROM` (or resignation) -> Enea Połaniec
+- Renata Stefaniuk -> `DISMISSED_FROM` (or resignation) -> Jelcz
+- Renata Stefaniuk -> `RELATED_TO` -> Dariusz Stefaniuk
+  Expected relationship type: `wife / spouse`
+- Dariusz Stefaniuk -> `AFFILIATED_WITH_PARTY` -> PiS
+
+Important text cues:
+- "Renata Stefaniuk nie zasiada już w radach nadzorczych"
+- "Złożyła rezygnację"
+- "Żona posła PiS"
+- "Dariusz Stefaniuk"
+
+Expected comparison standard:
+- This should yield at least one or two board exit facts (dismissal/resignation), a kinship fact (wife/spouse), and a party affiliation.

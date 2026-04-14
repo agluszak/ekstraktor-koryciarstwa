@@ -1,3 +1,4 @@
+from pipeline.domain_types import EntityType, RelationType
 from pipeline.models import (
     ArticleDocument,
     Entity,
@@ -21,20 +22,20 @@ def test_output_builder_creates_graph() -> None:
         entities=[
             Entity(
                 entity_id="person-1",
-                entity_type="Person",
+                entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="Jan Kowalski",
             ),
             Entity(
                 entity_id="org-1",
-                entity_type="Organization",
+                entity_type=EntityType.ORGANIZATION,
                 canonical_name="PKN",
                 normalized_name="PKN",
             ),
         ],
         relations=[
             Relation(
-                relation_type="APPOINTED_TO",
+                relation_type=RelationType.APPOINTED_TO,
                 source_entity_id="person-1",
                 target_entity_id="org-1",
                 confidence=0.8,

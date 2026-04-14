@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import AbstractSet, cast
 
+from pipeline.domain_types import (
+    CandidateType,
+    FactAttributes,
+    FactType,
+    OrganizationKind,
+    RoleKind,
+    TimeScope,
+)
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -12,19 +21,19 @@ from pipeline.models import (
 )
 from pipeline.utils import find_dates, normalize_entity_name, stable_id
 
-from .candidate_graph import ParsedWord
-from .constants import (
-    APPOINTMENT_LEMMAS,
-    APPOINTMENT_TEXTS,
-    BOARD_ROLE_NAMES,
+from .nlp_rules import (
+    APPOINTMENT_TRIGGER_LEMMAS,
+    APPOINTMENT_TRIGGER_TEXTS,
+    BOARD_ROLE_KINDS,
     COMPENSATION_PATTERN,
-    DISMISSAL_LEMMAS,
-    DISMISSAL_TEXTS,
+    DISMISSAL_TRIGGER_LEMMAS,
+    DISMISSAL_TRIGGER_TEXTS,
     FORMER_MARKERS,
     FUNDING_HINTS,
     OFFICE_CANDIDACY_LEMMAS,
     TIE_WORDS,
 )
+from .types import ParsedWord
 
 
 @dataclass(slots=True)
@@ -39,12 +48,18 @@ class SentenceContext:
 
     @property
     def persons(self) -> list[EntityCandidate]:
-        return [candidate for candidate in self.candidates if candidate.candidate_type == "Person"]
+        return [
+            candidate
+            for candidate in self.candidates
+            if candidate.candidate_type == CandidateType.PERSON
+        ]
 
     @property
     def positions(self) -> list[EntityCandidate]:
         return [
-            candidate for candidate in self.candidates if candidate.candidate_type == "Position"
+            candidate
+            for candidate in self.candidates
+            if candidate.candidate_type == CandidateType.POSITION
         ]
 
     @property
@@ -52,7 +67,8 @@ class SentenceContext:
         return [
             candidate
             for candidate in self.candidates
-            if candidate.candidate_type in {"Organization", "PublicInstitution"}
+            if candidate.candidate_type
+            in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
         ]
 
     @property
@@ -60,7 +76,7 @@ class SentenceContext:
         return [
             candidate
             for candidate in self.candidates
-            if candidate.candidate_type == "PoliticalParty"
+            if candidate.candidate_type == CandidateType.POLITICAL_PARTY
         ]
 
     @property
@@ -68,7 +84,7 @@ class SentenceContext:
         return [
             candidate
             for candidate in self.paragraph_candidates
-            if candidate.candidate_type == "Person"
+            if candidate.candidate_type == CandidateType.PERSON
         ]
 
     @property
@@ -76,7 +92,8 @@ class SentenceContext:
         return [
             candidate
             for candidate in self.paragraph_candidates
-            if candidate.candidate_type in {"Organization", "PublicInstitution"}
+            if candidate.candidate_type
+            in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
         ]
 
     @property
@@ -88,13 +105,13 @@ class SentenceContext:
         return next(iter(find_dates(self.sentence.text)), self.document.publication_date)
 
     @property
-    def time_scope(self) -> str:
+    def time_scope(self) -> TimeScope:
         lowered = self.lowered_text
         if any(marker in lowered for marker in FORMER_MARKERS):
-            return "former"
+            return TimeScope.FORMER
         if "ma zostać" in lowered:
-            return "future"
-        return "current"
+            return TimeScope.FUTURE
+        return TimeScope.CURRENT
 
     @property
     def evidence(self) -> EvidenceSpan:
@@ -132,13 +149,13 @@ def _fact(
     *,
     document: ArticleDocument,
     sentence_context: SentenceContext,
-    fact_type: str,
+    fact_type: FactType,
     subject: EntityCandidate,
     object_candidate: EntityCandidate | None,
     value_text: str | None,
     value_normalized: str | None,
     confidence: float,
-    attributes: dict[str, object] | None = None,
+    attributes: FactAttributes | None = None,
 ) -> Fact:
     return Fact(
         fact_id=stable_id(
@@ -159,7 +176,7 @@ def _fact(
         event_date=sentence_context.event_date,
         confidence=round(confidence, 3),
         evidence=sentence_context.evidence,
-        attributes=dict(attributes or {}),
+        attributes=cast(FactAttributes, attributes or {}),
     )
 
 
@@ -168,14 +185,14 @@ class GovernanceFactExtractor:
         has_appointment_signal = _has_signal(
             context.parsed_words,
             context.lowered_text,
-            APPOINTMENT_LEMMAS,
-            APPOINTMENT_TEXTS,
+            APPOINTMENT_TRIGGER_LEMMAS,
+            APPOINTMENT_TRIGGER_TEXTS,
         )
         has_dismissal_signal = _has_signal(
             context.parsed_words,
             context.lowered_text,
-            DISMISSAL_LEMMAS,
-            DISMISSAL_TEXTS,
+            DISMISSAL_TRIGGER_LEMMAS,
+            DISMISSAL_TRIGGER_TEXTS,
         )
         if not has_appointment_signal and not has_dismissal_signal:
             return []
@@ -190,8 +207,21 @@ class GovernanceFactExtractor:
         organization = _best_org_candidate(context, subject, role)
         if organization is None:
             return []
-        if organization.candidate_type == "PoliticalParty":
+        
+        # Skip media organizations (news sources) as governance targets
+        name_lower = organization.canonical_name.lower()
+        media_markers = {
+            "onet", "pap", "wp", "wirtualna polska", "rzzeczypospolita", 
+            "fakt", "tvn", "tvp", "interia"
+        }
+        if (organization.attributes.get("is_media") or 
+            any(m in name_lower for m in media_markers)):
             return []
+
+
+        if organization.candidate_type == CandidateType.POLITICAL_PARTY:
+            return []
+
 
         is_dismissal = has_dismissal_signal
         role_name = role.canonical_name if role else None
@@ -199,7 +229,7 @@ class GovernanceFactExtractor:
             _fact(
                 document=context.document,
                 sentence_context=context,
-                fact_type="DISMISSAL" if is_dismissal else "APPOINTMENT",
+                fact_type=FactType.DISMISSAL if is_dismissal else FactType.APPOINTMENT,
                 subject=subject,
                 object_candidate=organization,
                 value_text=role_name,
@@ -215,7 +245,11 @@ class GovernanceFactExtractor:
                     "position_entity_id": role.entity_id if role else None,
                     "role": role_name,
                     "role_kind": role.normalized_name.lower() if role else None,
-                    "board_role": bool(role and role.normalized_name.lower() in BOARD_ROLE_NAMES),
+                    "board_role": bool(
+                        role
+                        and role.normalized_name.lower()
+                        in {kind.value for kind in BOARD_ROLE_KINDS}
+                    ),
                     "organization_kind": organization.attributes.get("organization_kind"),
                     "confidence_breakdown": {
                         "person_role": context.edge_confidence(
@@ -240,14 +274,14 @@ class GovernanceFactExtractor:
 
 class PoliticalProfileFactExtractor:
     POLITICAL_ROLE_NAMES = {
-        "radny",
-        "poseł",
-        "senator",
-        "wiceminister",
-        "minister",
-        "prezydent miasta",
-        "wiceprezydent",
-        "wicewojewoda",
+        RoleKind.RADNY.value,
+        RoleKind.POSEL.value,
+        RoleKind.SENATOR.value,
+        RoleKind.WICEMINISTER.value,
+        RoleKind.MINISTER.value,
+        RoleKind.PREZYDENT_MIASTA.value,
+        RoleKind.WICEPREZYDENT.value,
+        RoleKind.WICEWOJEWODA.value,
     }
 
     def extract(self, context: SentenceContext) -> list[Fact]:
@@ -255,17 +289,17 @@ class PoliticalProfileFactExtractor:
         governance_signal = _has_signal(
             context.parsed_words,
             context.lowered_text,
-            APPOINTMENT_LEMMAS | DISMISSAL_LEMMAS,
-            APPOINTMENT_TEXTS | DISMISSAL_TEXTS,
+            APPOINTMENT_TRIGGER_LEMMAS | DISMISSAL_TRIGGER_LEMMAS,
+            APPOINTMENT_TRIGGER_TEXTS | DISMISSAL_TRIGGER_TEXTS,
         )
         for person in context.persons:
             for party in context.outgoing("person-affiliated-party", person.candidate_id):
                 if not _supports_party_fact(context, person, party, governance_signal):
                     continue
                 fact_type = (
-                    "FORMER_PARTY_MEMBERSHIP"
-                    if context.time_scope == "former"
-                    else "PARTY_MEMBERSHIP"
+                    FactType.FORMER_PARTY_MEMBERSHIP
+                    if context.time_scope == TimeScope.FORMER
+                    else FactType.PARTY_MEMBERSHIP
                 )
                 facts.append(
                     _fact(
@@ -293,7 +327,7 @@ class PoliticalProfileFactExtractor:
                         _fact(
                             document=context.document,
                             sentence_context=context,
-                            fact_type="POLITICAL_OFFICE",
+                            fact_type=FactType.POLITICAL_OFFICE,
                             subject=person,
                             object_candidate=role,
                             value_text=role.canonical_name,
@@ -308,7 +342,7 @@ class PoliticalProfileFactExtractor:
                     _fact(
                         document=context.document,
                         sentence_context=context,
-                        fact_type="ELECTION_CANDIDACY",
+                        fact_type=FactType.ELECTION_CANDIDACY,
                         subject=person,
                         object_candidate=None,
                         value_text=None,
@@ -337,7 +371,7 @@ class CompensationFactExtractor:
             _fact(
                 document=context.document,
                 sentence_context=context,
-                fact_type="COMPENSATION",
+                fact_type=FactType.COMPENSATION,
                 subject=person,
                 object_candidate=object_candidate,
                 value_text=match.group("amount"),
@@ -375,7 +409,7 @@ class FundingFactExtractor:
             _fact(
                 document=context.document,
                 sentence_context=context,
-                fact_type="FUNDING",
+                fact_type=FactType.FUNDING,
                 subject=target,
                 object_candidate=source,
                 value_text=amount.group("amount") if amount else None,
@@ -421,11 +455,11 @@ class TieFactExtractor:
                 _fact(
                     document=context.document,
                     sentence_context=context,
-                    fact_type="PERSONAL_OR_POLITICAL_TIE",
+                    fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
                     subject=source,
                     object_candidate=target,
-                    value_text=TIE_WORDS[trigger],
-                    value_normalized=TIE_WORDS[trigger],
+                    value_text=TIE_WORDS[trigger].value,
+                    value_normalized=TIE_WORDS[trigger].value,
                     confidence=edge.confidence,
                     attributes={"relationship_type": TIE_WORDS[trigger]},
                 )
@@ -436,36 +470,160 @@ class TieFactExtractor:
 def _has_signal(
     parsed_words: list[ParsedWord],
     lowered_text: str,
-    lemmas: set[str],
-    surface_triggers: set[str],
+    lemmas: AbstractSet[str],
+    surface_triggers: AbstractSet[str],
 ) -> bool:
     parsed_lemmas = {word.lemma for word in parsed_words}
     return bool(
-        lemmas.intersection(parsed_lemmas)
+        parsed_lemmas.intersection(lemmas)
         or any(trigger in lowered_text for trigger in surface_triggers)
     )
 
 
 def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
-    subject_words = [
-        word
-        for word in context.parsed_words
-        if word.deprel.startswith("nsubj") or word.deprel == "root"
+    """Resolve the subject of a governance event using POS tags and dependency
+    structure from the NLP parse, rather than hardcoded word lists.
+
+    Strategy:
+    1. Partition nsubj words into governance-attached vs quote-attribution.
+       Quote-verb subjects (nsubj of root speech verbs like ``mówi``) are
+       deprioritized because they identify the speaker, not the actor.
+    2. If a subject word directly overlaps a PERSON candidate, return it.
+    3. Traverse the syntactic subtree of each subject word looking for PERSON
+       candidates attached via nmod/appos/flat etc.
+    4. If the subject word is a **common noun** (UPOS=NOUN) — indicating a
+       referential proxy like "żona", "szwagierka" — and no person was found
+       in the subtree, look backward in the paragraph for the most recent person.
+    5. Fall back to proximity and paragraph-level heuristics.
+    """
+    all_nsubj = [
+        word for word in context.parsed_words
+        if word.deprel.startswith("nsubj")
     ]
-    for word in subject_words:
+    if not all_nsubj:
+        all_nsubj = [
+            word for word in context.parsed_words
+            if word.deprel == "root"
+        ]
+
+    # Speech/quote verbs are recognized by deprel: the governance clause is
+    # usually attached as ``parataxis`` to the speech verb which is the root.
+    # So an nsubj whose head verb has deprel == "root" AND whose head verb has
+    # a parataxis child with its own nsubj is likely a quote attribution.
+    # a parataxis child with its own nsubj is likely a quote attribution.
+    speech_verb_indices: set[int] = set()
+    for w in context.parsed_words:
+        if w.deprel == "root":
+            # Check if this root verb has a parataxis child with its own nsubj
+            has_parataxis_with_nsubj = any(
+                child.deprel.startswith("parataxis")
+                and any(
+                    gc.head == child.index and gc.deprel.startswith("nsubj")
+                    for gc in context.parsed_words
+                )
+                for child in context.parsed_words
+                if child.head == w.index
+            )
+            if has_parataxis_with_nsubj:
+                speech_verb_indices.add(w.index)
+
+    # Partition: governance subjects first, then quote-attribution subjects
+    governance_subjects = [w for w in all_nsubj if w.head not in speech_verb_indices]
+    attribution_subjects = [w for w in all_nsubj if w.head in speech_verb_indices]
+    ordered_subjects = governance_subjects + attribution_subjects
+
+    # --- Steps 1-3: Resolution per subject word (Prioritizing early subjects) ---
+    def _find_entity_in_subtree(head_index: int, depth: int = 0) -> EntityCandidate | None:
+        if depth > 4:
+            return None
+        children = [w for w in context.parsed_words if w.head == head_index]
+        for child in children:
+            for candidate in context.persons:
+                if candidate.start_char <= child.start < candidate.end_char:
+                    return candidate
+            found = _find_entity_in_subtree(child.index, depth + 1)
+            if found:
+                return found
+        return None
+
+    for word in ordered_subjects:
+        # A: Direct overlap (Named Entity)
+        for candidate in context.persons:
+            if candidate.start_char <= word.start < candidate.end_char:
+                # If it's a PROPN or the word matches a Person, we accept it as a direct mention
+                if (word.upos == "PROPN" or 
+                    any(t.upos == "PROPN" for t in context.parsed_words 
+                        if word.start <= t.start < word.end)):
+                    return candidate
+
+        # B: Subtree resolution (Nested Name)
+        subtree_found = _find_entity_in_subtree(word.index)
+        if subtree_found:
+            return subtree_found
+
+        # C: Referential proxy (Noun looking backwards)
+        # We also check the word text for kinship markers in case POS is noisy.
+        kinship_markers = {
+            "żona", "mąż", "syn", "córka", "brat", "siostra", "szwagier", "szwagierka", "kuzyn"
+        }
+        if word.upos == "NOUN" or word.text.lower() in kinship_markers:
+            # Identify the speaker(s) in this sentence by name to avoid self-attribution
+            speaker_names = {
+                c.canonical_name 
+                for c in context.persons
+                if any(aw.start <= c.start_char < aw.end for aw in attribution_subjects)
+            }
+            
+            # Look backward: previous sentence, then paragraph
+            # We prefer candidates NOT in the speaker list.
+            previous_persons = [
+                c for c in context.previous_candidates
+                if c.candidate_type == CandidateType.PERSON 
+                and c.canonical_name not in speaker_names
+            ]
+            if previous_persons:
+                return previous_persons[-1]
+            
+            # Fallback to paragraph persons, skipping current speaker and their identity
+            for p in context.paragraph_persons:
+                if p.canonical_name not in speaker_names:
+                    return p
+
+
+
+
+
+
+
+    # --- Step 4: Proximity fallback (bounded) ---------------------------------
+    for word in ordered_subjects:
         candidate = _nearest_candidate(context.persons, word.start)
-        if candidate is not None:
+        if (candidate is not None 
+            and abs(candidate.start_char - word.start) <= 45 
+            and candidate.canonical_name not in speaker_names):
             return candidate
-    if context.persons:
-        return context.persons[0]
+
+    # --- Step 5: Paragraph and Context fallbacks ------------------------------
+    filtered_persons = [p for p in context.persons if p.canonical_name not in speaker_names]
+    if filtered_persons:
+        return filtered_persons[0]
+        
     previous_persons = [
         candidate
         for candidate in context.previous_candidates
-        if candidate.candidate_type == "Person"
+        if candidate.candidate_type == CandidateType.PERSON
+        and candidate.canonical_name not in speaker_names
     ]
     if previous_persons:
-        return previous_persons[0]
-    return context.paragraph_persons[0] if context.paragraph_persons else None
+        return previous_persons[-1]
+        
+    for p in context.paragraph_persons:
+        if p.canonical_name not in speaker_names:
+            return p
+            
+    return None
+
+
 
 
 def _best_role_candidate(
@@ -509,7 +667,7 @@ def _best_org_candidate(
         organizations = [
             candidate
             for candidate in context.outgoing("role-at-organization", role.candidate_id)
-            if candidate.candidate_type != "PoliticalParty"
+            if candidate.candidate_type != CandidateType.POLITICAL_PARTY
         ]
         if organizations:
             return max(
@@ -529,7 +687,7 @@ def _best_org_candidate(
     organizations = [
         candidate
         for candidate in context.outgoing("person-org-context", person.candidate_id)
-        if candidate.candidate_type != "PoliticalParty"
+        if candidate.candidate_type != CandidateType.POLITICAL_PARTY
     ]
     if organizations:
         return max(
@@ -544,7 +702,7 @@ def _best_org_candidate(
     paragraph_organizations = [
         candidate
         for candidate in context.paragraph_organizations
-        if candidate.candidate_type != "PoliticalParty"
+        if candidate.candidate_type != CandidateType.POLITICAL_PARTY
     ]
     if paragraph_organizations:
         return max(
@@ -565,9 +723,9 @@ def _best_org_candidate(
 def _organization_priority(candidate: EntityCandidate) -> float:
     normalized = candidate.normalized_name.lower()
     kind = candidate.attributes.get("organization_kind")
-    if kind == "public_institution":
+    if kind == OrganizationKind.PUBLIC_INSTITUTION:
         base = 0.9
-    elif kind == "company":
+    elif kind == OrganizationKind.COMPANY:
         base = 1.0
     else:
         base = 0.5
@@ -584,7 +742,7 @@ def _role_priority(candidate: EntityCandidate) -> float:
     role_name = candidate.normalized_name.lower()
     if role_name in PoliticalProfileFactExtractor.POLITICAL_ROLE_NAMES:
         return 0.2
-    if role_name in BOARD_ROLE_NAMES:
+    if role_name in {role.value for role in BOARD_ROLE_KINDS}:
         return 1.0 + min(len(role_name), 32) / 200
     return 0.8 + min(len(role_name), 32) / 300
 
@@ -674,6 +832,6 @@ def _governance_confidence(
             or 0.0
         )
         base += (role_edge + org_edge - 1.0) * 0.1
-    if organization.attributes.get("organization_kind") == "company":
+    if organization.attributes.get("organization_kind") == OrganizationKind.COMPANY:
         base += 0.02
     return max(0.45, min(base, 0.95))

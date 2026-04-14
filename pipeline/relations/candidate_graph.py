@@ -2,8 +2,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import cast
 
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import (
+    CandidateAttributes,
+    CandidateType,
+    EntityType,
+    OrganizationKind,
+)
 from pipeline.models import (
     ArticleDocument,
     CandidateEdge,
@@ -12,9 +19,11 @@ from pipeline.models import (
     Entity,
     EntityCandidate,
 )
-from pipeline.utils import normalize_entity_name, normalize_party_name, stable_id
+from pipeline.utils import normalize_entity_name, stable_id
 
-from .constants import PARTY_CONTEXT_WORDS, ROLE_PATTERNS
+from .nlp_rules import PARTY_CONTEXT_LEMMAS, ROLE_PATTERNS
+from .org_typing import OrganizationMentionClassifier
+from .types import ParsedWord
 
 
 @dataclass(slots=True)
@@ -24,21 +33,10 @@ class SentenceEntityAnchor:
     end: int
 
 
-@dataclass(slots=True)
-class ParsedWord:
-    index: int
-    text: str
-    lemma: str
-    upos: str
-    head: int
-    deprel: str
-    start: int
-    end: int
-
-
 class CandidateGraphBuilder:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
+        self.organization_classifier = OrganizationMentionClassifier(config)
 
     def build(
         self,
@@ -56,7 +54,12 @@ class CandidateGraphBuilder:
             )
             parsed_words = parsed_sentences.get(sentence.sentence_index, [])
             for anchor in sentence_mentions:
-                candidate = self._candidate_for_anchor(document, sentence, anchor)
+                candidate = self._candidate_for_anchor(
+                    document,
+                    sentence,
+                    anchor,
+                    parsed_words,
+                )
                 if candidate is None:
                     continue
                 mention_candidates[(anchor.entity.entity_id, anchor.start, anchor.end)] = candidate
@@ -87,34 +90,44 @@ class CandidateGraphBuilder:
         document: ArticleDocument,
         sentence,
         anchor: SentenceEntityAnchor,
+        parsed_words: list[ParsedWord],
     ) -> EntityCandidate | None:
         entity = anchor.entity
-        if entity.entity_type == "Person" and self._is_weak_person_name(entity.canonical_name):
+        if entity.entity_type == EntityType.PERSON and self._is_weak_person_name(
+            entity.canonical_name
+        ):
             return None
-        candidate_type = entity.entity_type
+        candidate_type = CandidateType(entity.entity_type)
         entity_id = entity.entity_id
         canonical_name = entity.canonical_name
         normalized_name = entity.normalized_name
-        attributes = dict(entity.attributes)
+        attributes = cast(CandidateAttributes, dict(entity.attributes))
 
-        if entity.entity_type == "Organization":
-            party_name = self._party_name(entity)
-            if party_name is not None:
+        if entity.entity_type == EntityType.ORGANIZATION:
+            typing_result = self.organization_classifier.classify(
+                surface_text=entity.canonical_name,
+                normalized_text=entity.normalized_name,
+                parsed_words=parsed_words,
+                start_char=anchor.start,
+                end_char=anchor.end,
+            )
+            if typing_result.candidate_type == CandidateType.POLITICAL_PARTY:
                 party = self._get_or_create_entity(
                     document=document,
-                    entity_type="PoliticalParty",
-                    canonical_name=party_name,
+                    entity_type=EntityType.POLITICAL_PARTY,
+                    canonical_name=typing_result.canonical_name or entity.normalized_name,
                     alias=entity.canonical_name,
                 )
-                candidate_type = "PoliticalParty"
+                candidate_type = CandidateType.POLITICAL_PARTY
                 entity_id = party.entity_id
                 canonical_name = party.canonical_name
                 normalized_name = party.normalized_name
             else:
-                organization_kind = self._organization_kind(entity)
+                organization_kind = typing_result.organization_kind
                 attributes["organization_kind"] = organization_kind
-                if organization_kind == "public_institution":
-                    candidate_type = "PublicInstitution"
+                entity.attributes["organization_kind"] = organization_kind
+                if organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
+                    candidate_type = CandidateType.PUBLIC_INSTITUTION
 
         return EntityCandidate(
             candidate_id=stable_id(
@@ -148,7 +161,6 @@ class CandidateGraphBuilder:
             (candidate.start_char, candidate.end_char)
             for candidate in existing_candidates
             if candidate.sentence_index == sentence.sentence_index
-            and candidate.candidate_type == "Person"
         }
         candidates: list[EntityCandidate] = []
         pattern = re.compile(
@@ -156,8 +168,10 @@ class CandidateGraphBuilder:
             r"[A-ZŁŚŻŹĆŃÓ][a-ząćęłńóśźż-]+\b"
         )
         for match in pattern.finditer(sentence.text):
-            span = (match.start(), match.end())
-            if span in occupied_spans:
+            if any(
+                start <= match.start() < end or start < match.end() <= end
+                for start, end in occupied_spans
+            ):
                 continue
             surface = match.group(0)
             person = self._get_or_create_person_entity(document=document, surface=surface)
@@ -172,7 +186,7 @@ class CandidateGraphBuilder:
                         str(match.end()),
                     ),
                     entity_id=person.entity_id,
-                    candidate_type="Person",
+                    candidate_type=CandidateType.PERSON,
                     canonical_name=person.canonical_name,
                     normalized_name=person.normalized_name,
                     sentence_index=sentence.sentence_index,
@@ -195,7 +209,7 @@ class CandidateGraphBuilder:
         occupied_spans: list[tuple[int, int]] = []
         for role_name, pattern in sorted(
             ROLE_PATTERNS.items(),
-            key=lambda item: len(item[0]),
+            key=lambda item: len(item[0].value),
             reverse=True,
         ):
             for match in pattern.finditer(text):
@@ -206,8 +220,8 @@ class CandidateGraphBuilder:
                     continue
                 position = self._get_or_create_entity(
                     document=document,
-                    entity_type="Position",
-                    canonical_name=normalize_entity_name(role_name),
+                    entity_type=EntityType.POSITION,
+                    canonical_name=normalize_entity_name(role_name.value),
                     alias=match.group(0),
                 )
                 candidates.append(
@@ -221,7 +235,7 @@ class CandidateGraphBuilder:
                             str(match.end()),
                         ),
                         entity_id=position.entity_id,
-                        candidate_type="Position",
+                        candidate_type=CandidateType.POSITION,
                         canonical_name=position.canonical_name,
                         normalized_name=position.normalized_name,
                         sentence_index=sentence.sentence_index,
@@ -245,15 +259,18 @@ class CandidateGraphBuilder:
         sentence_text = sentence.text
         occupied_entity_ids = {candidate.entity_id for candidate in existing_candidates}
         candidates: list[EntityCandidate] = []
-        for alias, canonical in self.config.party_aliases.items():
-            match = re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", sentence_text, re.IGNORECASE)
+        party_tokens = set(self.config.party_aliases.keys()).union(
+            set(self.config.party_aliases.values())
+        )
+        for token in party_tokens:
+            match = re.search(rf"(?<!\w){re.escape(token)}(?!\w)", sentence_text, re.IGNORECASE)
             if match is None:
                 continue
             party = self._get_or_create_entity(
                 document=document,
-                entity_type="PoliticalParty",
-                canonical_name=canonical,
-                alias=alias,
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name=token,
+                alias=match.group(0),
             )
             if party.entity_id in occupied_entity_ids:
                 continue
@@ -268,7 +285,7 @@ class CandidateGraphBuilder:
                         str(match.end()),
                     ),
                     entity_id=party.entity_id,
-                    candidate_type="PoliticalParty",
+                    candidate_type=CandidateType.POLITICAL_PARTY,
                     canonical_name=party.canonical_name,
                     normalized_name=party.normalized_name,
                     sentence_index=sentence.sentence_index,
@@ -299,22 +316,23 @@ class CandidateGraphBuilder:
             persons = [
                 candidate
                 for candidate in sentence_candidates
-                if candidate.candidate_type == "Person"
+                if candidate.candidate_type == CandidateType.PERSON
             ]
             positions = [
                 candidate
                 for candidate in sentence_candidates
-                if candidate.candidate_type == "Position"
+                if candidate.candidate_type == CandidateType.POSITION
             ]
             orgs = [
                 candidate
                 for candidate in sentence_candidates
-                if candidate.candidate_type in {"Organization", "PublicInstitution"}
+                if candidate.candidate_type
+                in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
             ]
             parties = [
                 candidate
                 for candidate in sentence_candidates
-                if candidate.candidate_type == "PoliticalParty"
+                if candidate.candidate_type == CandidateType.POLITICAL_PARTY
             ]
 
             for person in persons:
@@ -400,7 +418,7 @@ class CandidateGraphBuilder:
     ) -> bool:
         lower = sentence_text.lower()
         party_window = lower[max(0, party.start_char - 24) : party.end_char + 24]
-        if any(marker in party_window for marker in PARTY_CONTEXT_WORDS):
+        if any(marker in party_window for marker in PARTY_CONTEXT_LEMMAS):
             return abs(person.start_char - party.start_char) <= 72
 
         party_word = next(
@@ -418,7 +436,9 @@ class CandidateGraphBuilder:
         head = next((word for word in parsed_words if word.index == party_word.head), None)
         if head is None:
             return False
-        return head.lemma in PARTY_CONTEXT_WORDS and abs(person.start_char - party.start_char) <= 72
+        return (
+            head.lemma in PARTY_CONTEXT_LEMMAS and abs(person.start_char - party.start_char) <= 72
+        )
 
     def _mentions_for_sentence(
         self,
@@ -468,7 +488,7 @@ class CandidateGraphBuilder:
         surname = normalized_surface.split()[-1]
         first_token = normalized_surface.split()[0].rstrip(".")
         for entity in document.entities:
-            if entity.entity_type != "Person":
+            if entity.entity_type != EntityType.PERSON:
                 continue
             tokens = entity.canonical_name.split()
             if len(tokens) < 2:
@@ -484,46 +504,10 @@ class CandidateGraphBuilder:
                 return entity
         return self._get_or_create_entity(
             document=document,
-            entity_type="Person",
+            entity_type=EntityType.PERSON,
             canonical_name=normalized_surface,
             alias=surface,
         )
-
-    def _party_name(self, entity: Entity) -> str | None:
-        names = [entity.canonical_name, entity.normalized_name, *entity.aliases]
-        for name in names:
-            normalized = normalize_party_name(name, self.config.party_aliases)
-            if normalized in self.config.party_aliases.values():
-                return normalized
-            cleaned = normalized.strip()
-            if cleaned.isupper() and cleaned not in self.config.party_aliases:
-                continue
-            name_tokens = [token.lower() for token in normalized.split()]
-            for canonical in self.config.party_aliases.values():
-                alias_tokens = [token.lower() for token in canonical.split()]
-                if len(name_tokens) != len(alias_tokens):
-                    continue
-                comparable = [
-                    (token, alias_token)
-                    for token, alias_token in zip(name_tokens, alias_tokens, strict=False)
-                    if len(token) >= 4 and len(alias_token) >= 4
-                ]
-                if comparable and all(
-                    token[:4] == alias_token[:4] for token, alias_token in comparable
-                ):
-                    return canonical
-        return None
-
-    @staticmethod
-    def _organization_kind(entity: Entity) -> str:
-        normalized = entity.normalized_name.lower()
-        if normalized in {"kowr", "wfosi gw", "wfośigw", "nfośigw", "nfosigw"}:
-            return "public_institution"
-        if "fundusz" in normalized or "minister" in normalized or "sejm" in normalized:
-            return "public_institution"
-        if "spół" in normalized or "holding" in normalized or "wodoci" in normalized:
-            return "company"
-        return "organization"
 
     @staticmethod
     def _is_weak_person_name(text: str) -> bool:
@@ -562,7 +546,7 @@ class CandidateGraphBuilder:
     def _get_or_create_entity(
         *,
         document: ArticleDocument,
-        entity_type: str,
+        entity_type: EntityType,
         canonical_name: str,
         alias: str,
     ) -> Entity:

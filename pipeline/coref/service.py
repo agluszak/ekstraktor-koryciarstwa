@@ -6,6 +6,7 @@ from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, CoreferenceResult, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
@@ -22,7 +23,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
     def run(self, document: ArticleDocument) -> CoreferenceResult:
         mention_links: dict[int, str] = {}
         resolved_mentions = list(document.mentions)
-        people = [entity for entity in document.entities if entity.entity_type == "Person"]
+        people = [entity for entity in document.entities if entity.entity_type == EntityType.PERSON]
         entity_by_name = {entity.normalized_name: entity for entity in people}
         nlp_doc = self.runtime.get_stanza_coref_pipeline()(document.cleaned_text)
 
