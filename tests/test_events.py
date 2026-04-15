@@ -1,6 +1,8 @@
+from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType, EventType, RelationType
 from pipeline.events import PolishEventExtractor
+from pipeline.frames import PolishGovernanceFrameExtractor
 from pipeline.models import (
     ArticleDocument,
     CoreferenceResult,
@@ -9,6 +11,18 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.relations import PolishRuleBasedRelationExtractor
+from pipeline.runtime import PipelineRuntime
+from pipeline.syntax import StanzaClauseParser
+
+
+def prepare_for_relation_extraction(
+    config: PipelineConfig,
+    document: ArticleDocument,
+) -> ArticleDocument:
+    runtime = PipelineRuntime(config)
+    document = PolishEntityClusterer(config).run(document)
+    document = StanzaClauseParser(config, runtime).run(document)
+    return PolishGovernanceFrameExtractor(config).run(document)
 
 
 def test_dismissal_sentence_produces_relation_and_event() -> None:
@@ -64,6 +78,7 @@ def test_dismissal_sentence_produces_relation_and_event() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     document = relation_extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),

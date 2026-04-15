@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from pipeline.base import (
+    ClauseParser,
     CoreferenceResolver,
+    EntityClusterer,
     EntityLinker,
     EventExtractor,
+    FrameExtractor,
     NERExtractor,
     OutputBuilder,
     Preprocessor,
@@ -27,6 +30,9 @@ class NepotismPipeline:
         relation_extractor: RelationExtractor,
         event_extractor: EventExtractor,
         entity_linker: EntityLinker,
+        entity_clusterer: EntityClusterer,
+        clause_parser: ClauseParser,
+        frame_extractor: FrameExtractor,
         scorer: Scorer,
         output_builder: OutputBuilder,
     ) -> None:
@@ -38,6 +44,9 @@ class NepotismPipeline:
         self.relation_extractor = relation_extractor
         self.event_extractor = event_extractor
         self.entity_linker = entity_linker
+        self.entity_clusterer = entity_clusterer
+        self.clause_parser = clause_parser
+        self.frame_extractor = frame_extractor
         self.scorer = scorer
         self.output_builder = output_builder
 
@@ -49,6 +58,19 @@ class NepotismPipeline:
         document = self.segmenter.run(document)
         document = self.ner_extractor.run(document)
         coreference = self.coreference_resolver.run(document)
+        if coreference.resolved_mentions:
+            existing_keys = {
+                (mention.text, mention.sentence_index, mention.entity_id)
+                for mention in document.mentions
+            }
+            for mention in coreference.resolved_mentions:
+                key = (mention.text, mention.sentence_index, mention.entity_id)
+                if key not in existing_keys:
+                    document.mentions.append(mention)
+                    existing_keys.add(key)
+        document = self.entity_clusterer.run(document)
+        document = self.clause_parser.run(document)
+        document = self.frame_extractor.run(document)
         document = self.relation_extractor.run(document, coreference)
         document = self.event_extractor.run(document)
         document = self.entity_linker.run(document)

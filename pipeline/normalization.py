@@ -29,6 +29,47 @@ GENERIC_ORGANIZATION_TOKENS = frozenset(
     }
 )
 
+NOISY_CANONICAL_TOKENS = frozenset(
+    {
+        "advertisement",
+        "czytaj",
+        "materiały",
+        "newsletter",
+        "reklama",
+        "subskrybuj",
+        "zobacz",
+    }
+)
+
+POLISH_ORG_INFLECTION_SUFFIXES = (
+    ("owym", "owy"),
+    ("owej", "owa"),
+    ("ego", "y"),
+    ("emu", "y"),
+    ("ich", "i"),
+    ("iej", "a"),
+    ("ym", "y"),
+    ("ą", "a"),
+    ("ę", "a"),
+)
+
+POLISH_ORG_DROP_SUFFIXES = (
+    "ach",
+    "ami",
+    "owi",
+    "om",
+    "em",
+    "u",
+)
+
+PARTY_TOKEN_VARIANTS = {
+    "prawa": "prawo",
+    "sprawiedliwości": "sprawiedliwość",
+    "platformy": "platforma",
+    "obywatelskiej": "obywatelska",
+    "lewicy": "lewica",
+}
+
 
 @dataclass(slots=True)
 class _EntityCluster:
@@ -52,6 +93,12 @@ class DocumentEntityCanonicalizer:
             normalize_entity_name(alias).lower(): compact_whitespace(canonical)
             for alias, canonical in config.institution_aliases.items()
         }
+        self.known_acronyms = {
+            alias
+            for alias in [*config.institution_aliases, *config.party_aliases]
+            if self._is_acronym_like(alias)
+        }
+        self.known_acronym_lookup = {alias.lower(): alias for alias in self.known_acronyms}
         for canonical in config.institution_aliases.values():
             normalized_canonical = normalize_entity_name(canonical)
             self.institution_lookup[normalized_canonical.lower()] = compact_whitespace(canonical)
@@ -82,6 +129,7 @@ class DocumentEntityCanonicalizer:
 
         document.entities = deduplicated
         self._remap_mentions(document, remap)
+        self._remap_fact_graph(document, remap)
         self._refresh_entity_names(document.entities)
         return document
 
@@ -91,6 +139,8 @@ class DocumentEntityCanonicalizer:
                 entity.canonical_name,
                 entity.normalized_name,
                 *entity.aliases,
+                *self._lemma_name_candidates(entity),
+                *self._case_repaired_candidates(entity),
             ]
         )
         if entity.entity_type == EntityType.POLITICAL_PARTY:
@@ -109,19 +159,27 @@ class DocumentEntityCanonicalizer:
             entity.attributes["lemmas"] = self._person_lemmas(canonical)
             return
 
-        institution_canonical = self._canonical_institution_name(alias_pool)
+        specific_acronym_alias = self._specific_acronym_organization_alias(alias_pool)
+        if specific_acronym_alias is not None:
+            entity.entity_type = EntityType.ORGANIZATION
+            entity.canonical_name = specific_acronym_alias
+            entity.normalized_name = specific_acronym_alias
+            entity.aliases = self._organization_aliases(alias_pool, specific_acronym_alias)
+            return
+
+        institution_canonical = self._canonical_institution_name(entity, alias_pool)
         if institution_canonical is not None:
             entity.entity_type = EntityType.PUBLIC_INSTITUTION
             entity.canonical_name = institution_canonical
             entity.normalized_name = institution_canonical
-            entity.aliases = unique_preserve_order([*alias_pool, institution_canonical])
+            entity.aliases = self._organization_aliases(alias_pool, institution_canonical)
             entity.attributes["organization_kind"] = OrganizationKind.PUBLIC_INSTITUTION
             return
 
         canonical = self._best_organization_name(entity, alias_pool)
         entity.canonical_name = canonical
         entity.normalized_name = canonical
-        entity.aliases = unique_preserve_order([*alias_pool, canonical])
+        entity.aliases = self._organization_aliases(alias_pool, canonical)
 
     def _entities_compatible(self, left: Entity, right: Entity) -> bool:
         if (
@@ -173,24 +231,79 @@ class DocumentEntityCanonicalizer:
         for entity in entities:
             self._normalize_entity(entity)
 
+    def _remap_fact_graph(self, document: ArticleDocument, remap: dict[str, str]) -> None:
+        if not remap:
+            return
+        for fact in document.facts:
+            fact.subject_entity_id = remap.get(fact.subject_entity_id, fact.subject_entity_id)
+            if fact.object_entity_id:
+                fact.object_entity_id = remap.get(fact.object_entity_id, fact.object_entity_id)
+            for attr_key in (
+                "position_entity_id",
+                "owner_context_entity_id",
+                "appointing_authority_entity_id",
+                "governing_body_entity_id",
+            ):
+                attr_value = fact.attributes.get(attr_key)
+                if isinstance(attr_value, str):
+                    fact.attributes[attr_key] = remap.get(attr_value, attr_value)
+        for relation in document.relations:
+            relation.source_entity_id = remap.get(
+                relation.source_entity_id, relation.source_entity_id
+            )
+            relation.target_entity_id = remap.get(
+                relation.target_entity_id, relation.target_entity_id
+            )
+        for event in document.events:
+            if event.person_entity_id:
+                event.person_entity_id = remap.get(event.person_entity_id, event.person_entity_id)
+            if event.organization_entity_id:
+                event.organization_entity_id = remap.get(
+                    event.organization_entity_id,
+                    event.organization_entity_id,
+                )
+            if event.position_entity_id:
+                event.position_entity_id = remap.get(
+                    event.position_entity_id, event.position_entity_id
+                )
+            for attr_key in (
+                "position_entity_id",
+                "owner_context_entity_id",
+                "appointing_authority_entity_id",
+                "governing_body_entity_id",
+            ):
+                attr_value = event.attributes.get(attr_key)
+                if isinstance(attr_value, str):
+                    event.attributes[attr_key] = remap.get(attr_value, attr_value)
+
     def _persons_compatible(self, left: Entity, right: Entity) -> bool:
         left_tokens = left.normalized_name.split()
         right_tokens = right.normalized_name.split()
         if not left_tokens or not right_tokens:
             return False
-        if left_tokens[-1].lower() != right_tokens[-1].lower():
-            if not self._person_tokens_compatible(left_tokens[-1], right_tokens[-1]):
-                return False
-        if left.normalized_name == right.normalized_name:
-            return True
         left_full = len(left_tokens) >= 2
         right_full = len(right_tokens) >= 2
+        if left.normalized_name == right.normalized_name:
+            return True
         if left_full and right_full:
-            return self._person_tokens_compatible(left_tokens[0], right_tokens[0])
+            left_bases = {
+                self._person_token_base(token.rstrip(".").lower()) for token in left_tokens
+            }
+            right_bases = {
+                self._person_token_base(token.rstrip(".").lower()) for token in right_tokens
+            }
+            if left_tokens[-1].lower() != right_tokens[-1].lower():
+                if not self._person_tokens_compatible(left_tokens[-1], right_tokens[-1]) and not (
+                    left_bases & right_bases
+                ):
+                    return False
+            return self._person_tokens_compatible(left_tokens[0], right_tokens[0]) or bool(
+                left_bases & right_bases
+            )
         if len(left_tokens) == 1 and right_full:
-            return True
+            return self._single_token_matches_person_cluster(left_tokens[0], right_tokens)
         if len(right_tokens) == 1 and left_full:
-            return True
+            return self._single_token_matches_person_cluster(right_tokens[0], left_tokens)
         return False
 
     def _organizations_compatible(self, left: Entity, right: Entity) -> bool:
@@ -224,6 +337,8 @@ class DocumentEntityCanonicalizer:
         return max(
             normalized,
             key=lambda name: (
+                -self._canonical_noise_score(name),
+                not self._looks_like_inflected_single_token_person(name),
                 len(name.split()) >= 2,
                 self._person_name_observed_variant_bonus(name, observed_tokens),
                 self._person_name_nominality_score(name),
@@ -233,19 +348,33 @@ class DocumentEntityCanonicalizer:
         )
 
     def _best_organization_name(self, entity: Entity, names: list[str]) -> str:
-        normalized = [normalize_entity_name(name) for name in names if compact_whitespace(name)]
+        normalized = [
+            normalize_entity_name(name)
+            for name in self._candidate_name_parts(names)
+            if compact_whitespace(name)
+        ]
         if not normalized:
             return entity.canonical_name
         return max(normalized, key=lambda name: self._organization_name_score(entity, name))
 
-    def _organization_name_score(self, entity: Entity, name: str) -> tuple[int, int, int]:
+    def _organization_name_score(
+        self,
+        entity: Entity,
+        name: str,
+    ) -> tuple[int, int, int, int, int, int]:
         tokens = [token for token in name.split() if token]
         lower_tokens = {token.lower() for token in tokens}
         generic_count = len(lower_tokens & GENERIC_ORGANIZATION_TOKENS)
         acronym_bonus = sum(1 for token in tokens if self._is_acronym_like(token))
+        noisy_penalty = self._canonical_noise_score(name)
+        inflection_penalty = self._organization_inflection_penalty(tokens)
+        lemma_match_bonus = self._lemma_match_score(entity, name)
         return (
+            -noisy_penalty,
             -generic_count,
-            len(tokens) + acronym_bonus,
+            len(tokens),
+            -inflection_penalty,
+            lemma_match_bonus + acronym_bonus,
             len(name),
         )
 
@@ -255,20 +384,176 @@ class DocumentEntityCanonicalizer:
             canonical = self.party_lookup.get(normalized.lower())
             if canonical is not None:
                 return canonical
+            canonical = self.party_lookup.get(self._party_lookup_key(normalized))
+            if canonical is not None:
+                return canonical
         normalized_candidates: list[str] = [
             normalize_party_name(name) for name in names if compact_whitespace(name)
         ]
         if not normalized_candidates:
             return ""
-        return str(max(normalized_candidates, key=len))
+        return str(max(normalized_candidates, key=self._party_name_score))
 
-    def _canonical_institution_name(self, names: list[str]) -> str | None:
-        for name in names:
+    def _canonical_institution_name(self, entity: Entity, names: list[str]) -> str | None:
+        primary_tokens = {
+            token.lower()
+            for name in (entity.canonical_name, entity.normalized_name)
+            for token in normalize_entity_name(name).split()
+            if token
+        }
+        has_multi_token_primary = any(
+            len(normalize_entity_name(name).split()) > 1
+            for name in (entity.canonical_name, entity.normalized_name)
+        )
+        for name in self._candidate_name_parts(names):
             normalized = normalize_entity_name(name)
+            normalized_tokens = normalized.split()
+            if (
+                has_multi_token_primary
+                and len(normalized_tokens) == 1
+                and normalized_tokens[0].lower() in primary_tokens
+                and self._is_acronym_like(normalized_tokens[0])
+            ):
+                continue
             canonical = self.institution_lookup.get(normalized.lower())
             if canonical is not None:
                 return canonical
         return None
+
+    def _specific_acronym_organization_alias(self, names: list[str]) -> str | None:
+        candidates: list[str] = []
+        for name in self._candidate_name_parts(names):
+            normalized = normalize_entity_name(name)
+            tokens = normalized.split()
+            if len(tokens) < 2:
+                continue
+            first = self.known_acronym_lookup.get(tokens[0].lower())
+            if first is None:
+                continue
+            repaired = " ".join([first, *tokens[1:]])
+            if repaired.lower() not in self.institution_lookup:
+                candidates.append(repaired)
+        if not candidates:
+            return None
+        return max(candidates, key=lambda candidate: (len(candidate.split()), len(candidate)))
+
+    @staticmethod
+    def _lemma_name_candidates(entity: Entity) -> list[str]:
+        lemmas = [
+            lemma
+            for lemma in entity.attributes.get("lemmas", [])
+            if isinstance(lemma, str) and compact_whitespace(lemma)
+        ]
+        if len(lemmas) < 2:
+            return []
+        if entity.entity_type != EntityType.POLITICAL_PARTY:
+            return []
+        if all(len(lemma) <= 1 for lemma in lemmas):
+            return []
+        return [normalize_entity_name(" ".join(lemmas))]
+
+    def _case_repaired_candidates(self, entity: Entity) -> list[str]:
+        if entity.entity_type not in {
+            EntityType.ORGANIZATION,
+            EntityType.PUBLIC_INSTITUTION,
+            EntityType.POLITICAL_PARTY,
+        }:
+            return []
+        candidates: list[str] = []
+        for name in self._raw_names_for_entity(entity):
+            tokens = []
+            changed = False
+            for token in normalize_entity_name(name).split():
+                repaired = self.known_acronym_lookup.get(token.lower(), token)
+                tokens.append(repaired)
+                changed = changed or repaired != token
+            if changed:
+                candidates.append(" ".join(tokens))
+        return candidates
+
+    @classmethod
+    def _party_lookup_key(cls, name: str) -> str:
+        tokens = [
+            PARTY_TOKEN_VARIANTS.get(token.lower(), token.lower())
+            for token in normalize_party_name(name).split()
+        ]
+        return " ".join(tokens)
+
+    @classmethod
+    def _party_name_score(cls, name: str) -> tuple[int, int, int]:
+        tokens = [token for token in name.split() if token]
+        return (
+            -cls._canonical_noise_score(name),
+            sum(1 for token in tokens if token.lower() == cls._party_token_base(token.lower())),
+            len(name),
+        )
+
+    @staticmethod
+    def _canonical_noise_score(name: str) -> int:
+        tokens = [token.lower() for token in name.split()]
+        score = sum(3 for token in tokens if token in NOISY_CANONICAL_TOKENS)
+        score += sum(2 for token in tokens if len(token) > 24 and token.lower() != token.upper())
+        score += sum(
+            2 for token in tokens if any(noise in token for noise in NOISY_CANONICAL_TOKENS)
+        )
+        return score
+
+    def _organization_aliases(self, names: list[str], canonical: str) -> list[str]:
+        normalized_aliases = []
+        compacted_multiline_names = self._compacted_multiline_names(names)
+        for name in names:
+            if "\n" in name or "\r" in name:
+                continue
+            normalized = normalize_entity_name(name)
+            if not normalized:
+                continue
+            if normalized in compacted_multiline_names:
+                continue
+            normalized_aliases.append(normalized)
+        return unique_preserve_order([*normalized_aliases, canonical])
+
+    @classmethod
+    def _organization_inflection_penalty(cls, tokens: list[str]) -> int:
+        penalty = 0
+        for token in tokens:
+            lower = token.lower().strip(".,;:")
+            if cls._is_acronym_like(token) or len(lower) < 4:
+                continue
+            if cls._org_token_base(lower) != lower:
+                penalty += 1
+        return penalty
+
+    @classmethod
+    def _lemma_match_score(cls, entity: Entity, name: str) -> int:
+        lemmas = {
+            str(lemma).lower()
+            for lemma in entity.attributes.get("lemmas", [])
+            if isinstance(lemma, str) and lemma
+        }
+        if not lemmas:
+            return 0
+        return sum(1 for token in name.split() if cls._org_token_base(token.lower()) in lemmas)
+
+    @classmethod
+    def _org_token_base(cls, token: str) -> str:
+        if len(token) <= 3:
+            return token
+        if token.endswith("rze") and len(token) > 5:
+            return f"{token[:-3]}r"
+        for suffix, replacement in POLISH_ORG_INFLECTION_SUFFIXES:
+            if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+                return f"{token[: -len(suffix)]}{replacement}"
+        for suffix in POLISH_ORG_DROP_SUFFIXES:
+            if token.endswith(suffix) and len(token) - len(suffix) >= 3:
+                return token[: -len(suffix)]
+        return token
+
+    @classmethod
+    def _party_token_base(cls, token: str) -> str:
+        mapped = PARTY_TOKEN_VARIANTS.get(token)
+        if mapped is not None:
+            return mapped
+        return cls._org_token_base(token)
 
     @staticmethod
     def _person_lemmas(name: str) -> list[str]:
@@ -330,9 +615,9 @@ class DocumentEntityCanonicalizer:
                 )
         if left_clean[:1] and right_clean[:1] and (len(left_clean) == 1 or len(right_clean) == 1):
             return left_clean[:1] == right_clean[:1]
-        left_base = cls._person_token_base(left_clean)
-        right_base = cls._person_token_base(right_clean)
-        return bool(left_base and right_base and left_base == right_base)
+        left_variants = cls._person_token_variants(left_clean)
+        right_variants = cls._person_token_variants(right_clean)
+        return bool(left_variants & right_variants)
 
     @classmethod
     def _person_token_base(cls, token: str) -> str:
@@ -370,11 +655,100 @@ class DocumentEntityCanonicalizer:
             ("ego", "emu", "owi", "ami", "ach")
         )
 
+    @classmethod
+    def _single_token_matches_person_cluster(
+        cls,
+        token: str,
+        cluster_tokens: list[str],
+    ) -> bool:
+        token_variants = cls._person_token_variants(token.rstrip(".").lower())
+        cluster_variants = {
+            variant
+            for cluster_token in cluster_tokens
+            for variant in cls._person_token_variants(cluster_token.rstrip(".").lower())
+        }
+        if token_variants & cluster_variants:
+            return True
+        if any(
+            len(token_variant) >= 4
+            and len(cluster_variant) >= 4
+            and (
+                cluster_variant.startswith(token_variant)
+                or token_variant.startswith(cluster_variant)
+            )
+            for token_variant in token_variants
+            for cluster_variant in cluster_variants
+        ):
+            return True
+        if len(cluster_tokens) >= 2:
+            first_last_variants = {
+                variant
+                for cluster_token in (cluster_tokens[0], cluster_tokens[-1])
+                for variant in cls._person_token_variants(cluster_token.rstrip(".").lower())
+            }
+            return bool(token_variants & first_last_variants)
+        return False
+
+    @classmethod
+    def _looks_like_inflected_single_token_person(cls, name: str) -> bool:
+        tokens = [token for token in name.split() if token]
+        if len(tokens) != 1:
+            return False
+        token = tokens[0].rstrip(".").lower()
+        if len(token) < 4:
+            return False
+        return cls._person_token_base(token) != token
+
+    @classmethod
+    def _person_token_variants(cls, token: str) -> set[str]:
+        if not token:
+            return set()
+        base = cls._person_token_base(token)
+        variants = {token, base}
+        if token.endswith("ku") and len(token) >= 4:
+            variants.add(f"{token[:-2]}ek")
+        if token.endswith("a") and len(token) >= 4:
+            variants.add(token[:-1])
+        return {variant for variant in variants if len(variant) >= 3}
+
     @staticmethod
     def _names_for_entity(entity: Entity) -> list[str]:
         return unique_preserve_order(
+            name
+            for name in [entity.canonical_name, entity.normalized_name, *entity.aliases]
+            if compact_whitespace(name) and "\n" not in name and "\r" not in name
+        )
+
+    @staticmethod
+    def _raw_names_for_entity(entity: Entity) -> list[str]:
+        return unique_preserve_order(
             [entity.canonical_name, entity.normalized_name, *entity.aliases]
         )
+
+    @staticmethod
+    def _candidate_name_parts(names: list[str]) -> list[str]:
+        candidates: list[str] = []
+        compacted_multiline_names = DocumentEntityCanonicalizer._compacted_multiline_names(names)
+        for name in names:
+            if not compact_whitespace(name):
+                continue
+            if "\n" not in name and "\r" not in name:
+                if normalize_entity_name(name) in compacted_multiline_names:
+                    continue
+                candidates.append(name)
+                continue
+            candidates.extend(
+                part for part in (compact_whitespace(line) for line in name.splitlines()) if part
+            )
+        return unique_preserve_order(candidates)
+
+    @staticmethod
+    def _compacted_multiline_names(names: list[str]) -> set[str]:
+        return {
+            normalize_entity_name(name)
+            for name in names
+            if ("\n" in name or "\r" in name) and compact_whitespace(name)
+        }
 
     @staticmethod
     def _shared_acronym(left_names: list[str], right_names: list[str]) -> bool:

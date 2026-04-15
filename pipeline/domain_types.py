@@ -119,6 +119,9 @@ class FactAttributes(TypedDict, total=False):
     role_kind: str | None
     board_role: bool
     organization_kind: OrganizationKind | None
+    owner_context_entity_id: str | None
+    appointing_authority_entity_id: str | None
+    governing_body_entity_id: str | None
     confidence_breakdown: ConfidenceBreakdown | None
     party: str | None
     office_type: str | None
@@ -126,6 +129,11 @@ class FactAttributes(TypedDict, total=False):
     amount_text: str | None
     period: str | None
     relationship_type: RelationshipType | None
+    extraction_signal: str | None
+    evidence_scope: str | None
+    overlaps_governance: bool
+    source_extractor: str | None
+    score_reason: str | None
 
 
 class RelationAttributes(TypedDict, total=False):
@@ -143,4 +151,7 @@ class EventAttributes(TypedDict, total=False):
     role_kind: str | None
     board_role: bool
     organization_kind: OrganizationKind | None
+    owner_context_entity_id: str | None
+    appointing_authority_entity_id: str | None
+    governing_body_entity_id: str | None
     confidence_breakdown: ConfidenceBreakdown | None

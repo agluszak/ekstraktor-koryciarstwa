@@ -57,6 +57,7 @@ APPOINTMENT_TRIGGER_LEMMAS = frozenset(
         "trafić",
         "zająć",
         "awansować",
+        "zostać",
     }
 )
 DISMISSAL_TRIGGER_LEMMAS = frozenset({"odwołać", "zrezygnować"})
@@ -124,6 +125,42 @@ COMPENSATION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 OFFICE_CANDIDACY_LEMMAS = frozenset({"kandydować", "startować", "ubiegać"})
+
+OWNER_CONTEXT_TERMS = frozenset(
+    {
+        "ministerstwo",
+        "minister",
+        "krajowy ośrodek",
+        "krajowy zasób",
+        "skarbu państwa",
+        "nadzór",
+        "właścicielski",
+        "podległ",
+        "podlega",
+        "nadzorowan",
+        "kontrolowan",
+        "należąc",
+        "spółki podległej",
+        "spółka skarbu państwa",
+    }
+)
+BODY_CONTEXT_TERMS = frozenset({"rada", "rada nadzorcza", "zarząd", "komitet", "komisja"})
+TARGET_CONTEXT_TERMS = frozenset(
+    {
+        "spółk",
+        "spółce",
+        "fundusz",
+        "agencj",
+        "stadnin",
+        "hotel",
+        "rewita",
+        "tour",
+        "wodociąg",
+        "kanaliz",
+        "wtc",
+        "grup",
+    }
+)
 
 TIE_WORDS: Mapping[str, RelationshipType] = {
     "zaufany": RelationshipType.ASSOCIATE,

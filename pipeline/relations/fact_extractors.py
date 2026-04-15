@@ -17,23 +17,222 @@ from pipeline.models import (
     EntityCandidate,
     EvidenceSpan,
     Fact,
+    ParsedWord,
     SentenceFragment,
 )
-from pipeline.utils import find_dates, normalize_entity_name, stable_id
-
-from .nlp_rules import (
+from pipeline.nlp_rules import (
     APPOINTMENT_TRIGGER_LEMMAS,
     APPOINTMENT_TRIGGER_TEXTS,
     BOARD_ROLE_KINDS,
+    BODY_CONTEXT_TERMS,
     COMPENSATION_PATTERN,
     DISMISSAL_TRIGGER_LEMMAS,
     DISMISSAL_TRIGGER_TEXTS,
     FORMER_MARKERS,
     FUNDING_HINTS,
     OFFICE_CANDIDACY_LEMMAS,
+    OWNER_CONTEXT_TERMS,
+    PARTY_CONTEXT_LEMMAS,
+    TARGET_CONTEXT_TERMS,
     TIE_WORDS,
 )
-from .types import ParsedWord
+from pipeline.utils import find_dates, normalize_entity_name, stable_id
+
+
+@dataclass(frozen=True, slots=True)
+class SecondaryFactScore:
+    confidence: float
+    extraction_signal: str
+    evidence_scope: str
+    reason: str
+
+
+class SecondaryFactScorer:
+    SYNTACTIC_DIRECT = 0.85
+    APPOSITIVE_CONTEXT = 0.78
+    DEPENDENCY_EDGE = 0.72
+    SAME_CLAUSE = 0.64
+    SAME_SENTENCE = 0.55
+    SAME_PARAGRAPH = 0.42
+    BROAD_CONTEXT = 0.30
+
+    @classmethod
+    def party_membership(
+        cls,
+        context: SentenceContext,
+        person: EntityCandidate,
+        party: EntityCandidate,
+        *,
+        governance_signal: bool,
+    ) -> SecondaryFactScore | None:
+        edge_confidence = context.edge_confidence(
+            "person-affiliated-party",
+            person.candidate_id,
+            party.candidate_id,
+        )
+        syntactic_signal = _party_syntactic_signal(context, person, party)
+        distance = abs(person.start_char - party.start_char)
+
+        if syntactic_signal == "syntactic_direct":
+            confidence = max(cls.SYNTACTIC_DIRECT, edge_confidence or 0.0)
+            return cls._score(confidence, syntactic_signal, "same_sentence", "direct_party_edge")
+        if syntactic_signal == "appositive_context":
+            confidence = max(cls.APPOSITIVE_CONTEXT, edge_confidence or 0.0)
+            return cls._score(confidence, syntactic_signal, "same_sentence", "party_apposition")
+        if edge_confidence is not None:
+            confidence = max(cls.DEPENDENCY_EDGE, edge_confidence)
+            if governance_signal:
+                confidence -= 0.12
+            return cls._score(
+                confidence,
+                "dependency_edge",
+                "same_sentence",
+                "candidate_graph_party_edge",
+            )
+        if distance <= 40 and _party_context_window_supports(context, person, party):
+            confidence = cls.SAME_SENTENCE - (0.1 if governance_signal else 0.0)
+            return cls._score(confidence, "same_sentence", "same_sentence", "near_party_context")
+        return None
+
+    @classmethod
+    def political_office(
+        cls,
+        context: SentenceContext,
+        person: EntityCandidate,
+        role: EntityCandidate,
+        *,
+        governance_signal: bool,
+    ) -> SecondaryFactScore | None:
+        edge_confidence = context.edge_confidence(
+            "person-has-role",
+            person.candidate_id,
+            role.candidate_id,
+        )
+        distance = abs(person.start_char - role.start_char)
+        if edge_confidence is not None and edge_confidence >= 0.72:
+            confidence = max(cls.DEPENDENCY_EDGE, edge_confidence)
+            if governance_signal:
+                confidence -= 0.1
+            return cls._score(
+                confidence,
+                "dependency_edge",
+                "same_sentence",
+                "person_role_edge",
+            )
+        if distance <= 28:
+            confidence = cls.SAME_SENTENCE - (0.08 if governance_signal else 0.0)
+            return cls._score(confidence, "same_sentence", "same_sentence", "near_office_role")
+        if distance <= 48 and not governance_signal:
+            return cls._score(cls.SAME_PARAGRAPH, "same_paragraph", "same_sentence", "loose_role")
+        return None
+
+    @classmethod
+    def candidacy(
+        cls,
+        context: SentenceContext,
+        person: EntityCandidate,
+    ) -> SecondaryFactScore | None:
+        lemmas = {word.lemma for word in context.parsed_words}
+        if not (
+            OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
+            or "kandydat" in context.lowered_text
+            or "wybory" in context.lowered_text
+        ):
+            return None
+        governing_words = [
+            word
+            for word in context.parsed_words
+            if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
+        ]
+        if "wybory" not in context.lowered_text and "kandydat" not in context.lowered_text:
+            return None
+        if any(abs(person.start_char - word.start) <= 28 for word in governing_words):
+            return cls._score(cls.DEPENDENCY_EDGE, "dependency_edge", "same_sentence", "candidacy")
+        return cls._score(cls.SAME_SENTENCE, "same_sentence", "same_sentence", "election_context")
+
+    @classmethod
+    def compensation(
+        cls,
+        *,
+        person: EntityCandidate | None,
+        organization: EntityCandidate | None,
+        role: EntityCandidate | None,
+    ) -> SecondaryFactScore:
+        if person is not None and organization is not None and role is not None:
+            return cls._score(
+                cls.SYNTACTIC_DIRECT,
+                "syntactic_direct",
+                "same_sentence",
+                "amount_person_role_org",
+            )
+        if person is not None and organization is not None:
+            return cls._score(
+                cls.DEPENDENCY_EDGE,
+                "dependency_edge",
+                "same_sentence",
+                "amount_person_org",
+            )
+        if person is not None:
+            return cls._score(
+                cls.SAME_SENTENCE,
+                "same_sentence",
+                "same_sentence",
+                "amount_person",
+            )
+        return cls._score(
+            cls.SAME_PARAGRAPH,
+            "same_paragraph",
+            "same_sentence",
+            "amount_public_org",
+        )
+
+    @classmethod
+    def funding(cls, *, has_amount: bool) -> SecondaryFactScore:
+        return cls._score(
+            cls.DEPENDENCY_EDGE if has_amount else cls.SAME_SENTENCE,
+            "dependency_edge" if has_amount else "same_sentence",
+            "same_sentence",
+            "funding_amount" if has_amount else "funding_verb",
+        )
+
+    @classmethod
+    def tie(
+        cls,
+        context: SentenceContext,
+        source: EntityCandidate,
+        target: EntityCandidate,
+        trigger: str,
+        edge_confidence: float,
+    ) -> SecondaryFactScore:
+        strong_triggers = {"przyjaciel", "doradca", "rekomendować", "rekomendacja"}
+        distance = abs(source.start_char - target.start_char)
+        confidence = max(cls.SAME_SENTENCE, edge_confidence)
+        signal = "dependency_edge"
+        reason = f"tie_trigger:{trigger}"
+        if trigger in strong_triggers:
+            confidence += 0.08
+            signal = "syntactic_direct"
+        if distance > 120:
+            confidence -= 0.12
+            reason += ":long_distance"
+        if _is_quote_speaker_risk(context, source) or _is_quote_speaker_risk(context, target):
+            confidence -= 0.12
+            reason += ":quote_speaker_risk"
+        return cls._score(confidence, signal, "same_sentence", reason)
+
+    @staticmethod
+    def _score(
+        confidence: float,
+        extraction_signal: str,
+        evidence_scope: str,
+        reason: str,
+    ) -> SecondaryFactScore:
+        return SecondaryFactScore(
+            confidence=max(0.05, min(confidence, 0.95)),
+            extraction_signal=extraction_signal,
+            evidence_scope=evidence_scope,
+            reason=reason,
+        )
 
 
 @dataclass(slots=True)
@@ -144,6 +343,34 @@ class SentenceContext:
         ]
         return [candidate for candidate in self.candidates if candidate.candidate_id in target_ids]
 
+    @property
+    def overlaps_governance(self) -> bool:
+        return any(
+            evidence.sentence_index == self.sentence.sentence_index
+            for frame in self.document.governance_frames
+            for evidence in frame.evidence
+        )
+
+
+def _secondary_attributes(
+    *,
+    source_extractor: str,
+    score: SecondaryFactScore,
+    context: SentenceContext,
+    extra: FactAttributes | None = None,
+) -> FactAttributes:
+    attributes = dict(extra or {})
+    attributes.update(
+        {
+            "extraction_signal": score.extraction_signal,
+            "evidence_scope": score.evidence_scope,
+            "overlaps_governance": context.overlaps_governance,
+            "source_extractor": source_extractor,
+            "score_reason": score.reason,
+        }
+    )
+    return cast(FactAttributes, attributes)
+
 
 def _fact(
     *,
@@ -180,106 +407,6 @@ def _fact(
     )
 
 
-class GovernanceFactExtractor:
-    def extract(self, context: SentenceContext) -> list[Fact]:
-        has_appointment_signal = _has_signal(
-            context.parsed_words,
-            context.lowered_text,
-            APPOINTMENT_TRIGGER_LEMMAS,
-            APPOINTMENT_TRIGGER_TEXTS,
-        )
-        has_dismissal_signal = _has_signal(
-            context.parsed_words,
-            context.lowered_text,
-            DISMISSAL_TRIGGER_LEMMAS,
-            DISMISSAL_TRIGGER_TEXTS,
-        )
-        if not has_appointment_signal and not has_dismissal_signal:
-            return []
-
-        subject = _subject_candidate(context)
-        if subject is None:
-            return []
-        appointee = (
-            _appointment_object_candidate(context, subject) if has_appointment_signal else None
-        )
-        fact_subject = appointee or subject
-
-        role = _best_role_candidate(context, fact_subject)
-        if role is None and not has_dismissal_signal:
-            return []
-        organization = _best_org_candidate(context, fact_subject, role)
-        if organization is None:
-            return []
-
-        # Skip media organizations (news sources) as governance targets
-        name_lower = organization.canonical_name.lower()
-        media_markers = {
-            "onet",
-            "pap",
-            "wp",
-            "wirtualna polska",
-            "rzzeczypospolita",
-            "fakt",
-            "tvn",
-            "tvp",
-            "interia",
-        }
-        if organization.attributes.get("is_media") or any(m in name_lower for m in media_markers):
-            return []
-
-        if organization.candidate_type == CandidateType.POLITICAL_PARTY:
-            return []
-
-        is_dismissal = has_dismissal_signal
-        role_name = role.canonical_name if role else None
-        return [
-            _fact(
-                document=context.document,
-                sentence_context=context,
-                fact_type=FactType.DISMISSAL if is_dismissal else FactType.APPOINTMENT,
-                subject=fact_subject,
-                object_candidate=organization,
-                value_text=role_name,
-                value_normalized=role.normalized_name if role else None,
-                confidence=_governance_confidence(
-                    context,
-                    fact_subject,
-                    role,
-                    organization,
-                    is_dismissal,
-                ),
-                attributes={
-                    "position_entity_id": role.entity_id if role else None,
-                    "role": role_name,
-                    "role_kind": role.normalized_name.lower() if role else None,
-                    "board_role": bool(
-                        role
-                        and role.normalized_name.lower()
-                        in {kind.value for kind in BOARD_ROLE_KINDS}
-                    ),
-                    "organization_kind": organization.attributes.get("organization_kind"),
-                    "confidence_breakdown": {
-                        "person_role": context.edge_confidence(
-                            "person-has-role",
-                            subject.candidate_id,
-                            role.candidate_id,
-                        )
-                        if role
-                        else None,
-                        "role_org": context.edge_confidence(
-                            "role-at-organization",
-                            role.candidate_id,
-                            organization.candidate_id,
-                        )
-                        if role
-                        else None,
-                    },
-                },
-            )
-        ]
-
-
 class PoliticalProfileFactExtractor:
     POLITICAL_ROLE_NAMES = {
         RoleKind.RADNY.value,
@@ -302,7 +429,13 @@ class PoliticalProfileFactExtractor:
         )
         for person in context.persons:
             for party in context.outgoing("person-affiliated-party", person.candidate_id):
-                if not _supports_party_fact(context, person, party, governance_signal):
+                score = SecondaryFactScorer.party_membership(
+                    context,
+                    person,
+                    party,
+                    governance_signal=governance_signal,
+                )
+                if score is None:
                     continue
                 fact_type = (
                     FactType.FORMER_PARTY_MEMBERSHIP
@@ -318,34 +451,49 @@ class PoliticalProfileFactExtractor:
                         object_candidate=party,
                         value_text=party.canonical_name,
                         value_normalized=party.normalized_name,
-                        confidence=0.77,
-                        attributes={"party": party.canonical_name},
+                        confidence=score.confidence,
+                        attributes=_secondary_attributes(
+                            source_extractor="political_profile",
+                            score=score,
+                            context=context,
+                            extra={"party": party.canonical_name},
+                        ),
                     )
                 )
 
             for role in context.outgoing("person-has-role", person.candidate_id):
                 role_name = role.normalized_name.lower()
-                if role_name in self.POLITICAL_ROLE_NAMES and _supports_office_fact(
+                if role_name not in self.POLITICAL_ROLE_NAMES:
+                    continue
+                score = SecondaryFactScorer.political_office(
                     context,
                     person,
                     role,
-                    governance_signal,
-                ):
-                    facts.append(
-                        _fact(
-                            document=context.document,
-                            sentence_context=context,
-                            fact_type=FactType.POLITICAL_OFFICE,
-                            subject=person,
-                            object_candidate=role,
-                            value_text=role.canonical_name,
-                            value_normalized=role.normalized_name,
-                            confidence=0.69,
-                            attributes={"office_type": role.canonical_name},
-                        )
+                    governance_signal=governance_signal,
+                )
+                if score is None:
+                    continue
+                facts.append(
+                    _fact(
+                        document=context.document,
+                        sentence_context=context,
+                        fact_type=FactType.POLITICAL_OFFICE,
+                        subject=person,
+                        object_candidate=role,
+                        value_text=role.canonical_name,
+                        value_normalized=role.normalized_name,
+                        confidence=score.confidence,
+                        attributes=_secondary_attributes(
+                            source_extractor="political_profile",
+                            score=score,
+                            context=context,
+                            extra={"office_type": role.canonical_name},
+                        ),
                     )
+                )
 
-            if _supports_candidacy(context, person):
+            candidacy_score = SecondaryFactScorer.candidacy(context, person)
+            if candidacy_score is not None:
                 facts.append(
                     _fact(
                         document=context.document,
@@ -355,8 +503,13 @@ class PoliticalProfileFactExtractor:
                         object_candidate=None,
                         value_text=None,
                         value_normalized=None,
-                        confidence=0.66,
-                        attributes={"candidacy_scope": "mentioned"},
+                        confidence=candidacy_score.confidence,
+                        attributes=_secondary_attributes(
+                            source_extractor="political_profile",
+                            score=candidacy_score,
+                            context=context,
+                            extra={"candidacy_scope": "mentioned"},
+                        ),
                     )
                 )
         return facts
@@ -365,36 +518,52 @@ class PoliticalProfileFactExtractor:
 class CompensationFactExtractor:
     def extract(self, context: SentenceContext) -> list[Fact]:
         match = COMPENSATION_PATTERN.search(context.sentence.text)
-        if match is None or not context.persons:
+        if match is None:
             return []
-        person = _nearest_candidate(context.persons, match.start())
-        if person is None:
+        person = _nearest_candidate(context.persons, match.start()) if context.persons else None
+        organization_for_context = _nearest_candidate(context.organizations, match.start())
+        if person is None and organization_for_context is None:
             return []
-        role = _best_role_candidate(context, person)
-        organization = _best_org_candidate(context, person, role)
+        role = _best_role_candidate(context, person) if person is not None else None
+        organization = (
+            _best_org_candidate(context, person, role)
+            if person is not None
+            else organization_for_context
+        )
         object_candidate = organization or role
-        if object_candidate is None:
+        subject = person or organization_for_context
+        if subject is None:
             return []
+        score = SecondaryFactScorer.compensation(
+            person=person,
+            organization=organization,
+            role=role,
+        )
         return [
             _fact(
                 document=context.document,
                 sentence_context=context,
                 fact_type=FactType.COMPENSATION,
-                subject=person,
+                subject=subject,
                 object_candidate=object_candidate,
                 value_text=match.group("amount"),
                 value_normalized=normalize_entity_name(match.group("amount").lower()),
-                confidence=0.74,
-                attributes={
-                    "amount_text": normalize_entity_name(match.group("amount").lower()),
-                    "period": normalize_entity_name(match.group("period").lower())
-                    if match.group("period")
-                    else None,
-                    "position_entity_id": role.entity_id if role else None,
-                    "organization_kind": organization.attributes.get("organization_kind")
-                    if organization
-                    else None,
-                },
+                confidence=score.confidence,
+                attributes=_secondary_attributes(
+                    source_extractor="compensation",
+                    score=score,
+                    context=context,
+                    extra={
+                        "amount_text": normalize_entity_name(match.group("amount").lower()),
+                        "period": normalize_entity_name(match.group("period").lower())
+                        if match.group("period")
+                        else None,
+                        "position_entity_id": role.entity_id if role else None,
+                        "organization_kind": organization.attributes.get("organization_kind")
+                        if organization
+                        else None,
+                    },
+                ),
             )
         ]
 
@@ -413,6 +582,7 @@ class FundingFactExtractor:
             return []
 
         amount = COMPENSATION_PATTERN.search(context.sentence.text)
+        score = SecondaryFactScorer.funding(has_amount=amount is not None)
         return [
             _fact(
                 document=context.document,
@@ -424,13 +594,18 @@ class FundingFactExtractor:
                 value_normalized=normalize_entity_name(amount.group("amount").lower())
                 if amount
                 else None,
-                confidence=0.68,
-                attributes={
-                    "amount_text": normalize_entity_name(amount.group("amount").lower())
-                    if amount
-                    else None,
-                    "organization_kind": source.attributes.get("organization_kind"),
-                },
+                confidence=score.confidence,
+                attributes=_secondary_attributes(
+                    source_extractor="funding",
+                    score=score,
+                    context=context,
+                    extra={
+                        "amount_text": normalize_entity_name(amount.group("amount").lower())
+                        if amount
+                        else None,
+                        "organization_kind": source.attributes.get("organization_kind"),
+                    },
+                ),
             )
         ]
 
@@ -459,6 +634,13 @@ class TieFactExtractor:
                 for candidate in context.candidates
                 if candidate.candidate_id == edge.target_candidate_id
             )
+            score = SecondaryFactScorer.tie(
+                context,
+                source,
+                target,
+                trigger,
+                edge.confidence,
+            )
             facts.append(
                 _fact(
                     document=context.document,
@@ -468,8 +650,13 @@ class TieFactExtractor:
                     object_candidate=target,
                     value_text=TIE_WORDS[trigger].value,
                     value_normalized=TIE_WORDS[trigger].value,
-                    confidence=edge.confidence,
-                    attributes={"relationship_type": TIE_WORDS[trigger]},
+                    confidence=score.confidence,
+                    attributes=_secondary_attributes(
+                        source_extractor="tie",
+                        score=score,
+                        context=context,
+                        extra={"relationship_type": TIE_WORDS[trigger]},
+                    ),
                 )
             )
         return facts
@@ -713,63 +900,37 @@ def _best_org_candidate(
     person: EntityCandidate,
     role: EntityCandidate | None,
 ) -> EntityCandidate | None:
-    if role is not None:
-        organizations = [
-            candidate
-            for candidate in context.outgoing("role-at-organization", role.candidate_id)
-            if candidate.candidate_type != CandidateType.POLITICAL_PARTY
-        ]
-        if organizations:
-            return max(
-                organizations,
-                key=lambda org: _organization_resolution_score(
-                    context.edge_confidence(
-                        "role-at-organization",
-                        role.candidate_id,
-                        org.candidate_id,
-                    ),
-                    org,
-                    role.start_char,
-                ),
-            )
-
-    organizations = [
-        candidate
-        for candidate in context.outgoing("person-org-context", person.candidate_id)
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY
-    ]
-    if organizations:
+    organization_pool = _candidate_organization_pool(context, person, role)
+    if organization_pool:
         return max(
-            organizations,
+            organization_pool,
             key=lambda org: _organization_resolution_score(
-                context.edge_confidence(
-                    "person-org-context",
-                    person.candidate_id,
-                    org.candidate_id,
-                ),
-                org,
-                person.start_char,
+                context=context,
+                candidate=org,
+                role=role,
+                person=person,
             ),
         )
-    paragraph_organizations = [
-        candidate
-        for candidate in context.paragraph_organizations
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY
-    ]
-    if paragraph_organizations:
-        return max(
-            paragraph_organizations,
-            key=lambda org: (
-                _organization_priority(org),
-                -abs(org.sentence_index - person.sentence_index),
-                -abs(person.start_char - org.start_char)
-                if org.sentence_index == person.sentence_index
-                else 0,
-            ),
-        )
-    if len(context.organizations) == 1:
-        return context.organizations[0]
     return None
+
+
+def _candidate_organization_pool(
+    context: SentenceContext,
+    person: EntityCandidate,
+    role: EntityCandidate | None,
+) -> list[EntityCandidate]:
+    pooled: dict[str, EntityCandidate] = {}
+    if role is not None:
+        for candidate in context.outgoing("role-at-organization", role.candidate_id):
+            if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
+                pooled[candidate.candidate_id] = candidate
+    for candidate in context.outgoing("person-org-context", person.candidate_id):
+        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
+            pooled[candidate.candidate_id] = candidate
+    for candidate in context.paragraph_organizations:
+        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
+            pooled[candidate.candidate_id] = candidate
+    return list(pooled.values())
 
 
 def _organization_priority(candidate: EntityCandidate) -> float:
@@ -786,7 +947,9 @@ def _organization_priority(candidate: EntityCandidate) -> float:
     if normalized.startswith("zarząd") or normalized.startswith("rada"):
         base -= 0.35
     if "skarbu państwa" in normalized:
-        base -= 0.45
+        base -= 0.65
+    if any(term in normalized for term in OWNER_CONTEXT_TERMS):
+        base -= 0.25
     if normalized.isupper() and len(normalized) <= 6:
         base -= 0.2
     if len(normalized.split()) == 1 and normalized.isalpha() and normalized.isupper():
@@ -795,13 +958,36 @@ def _organization_priority(candidate: EntityCandidate) -> float:
 
 
 def _organization_resolution_score(
-    edge_confidence: float | None,
+    *,
+    context: SentenceContext,
     candidate: EntityCandidate,
-    reference_start: int,
+    role: EntityCandidate | None,
+    person: EntityCandidate,
 ) -> tuple[float, float, int]:
-    confidence = edge_confidence or 0.0
+    reference_start = role.start_char if role is not None else person.start_char
+    role_edge = (
+        context.edge_confidence("role-at-organization", role.candidate_id, candidate.candidate_id)
+        if role is not None
+        else None
+    )
+    person_edge = context.edge_confidence(
+        "person-org-context",
+        person.candidate_id,
+        candidate.candidate_id,
+    )
+    confidence = max(role_edge or 0.0, person_edge or 0.0)
     priority = _organization_priority(candidate)
     distance = abs(reference_start - candidate.start_char)
+    clause_bonus = _organization_clause_bonus(context, candidate, role, person)
+    if _is_target_like_org(candidate):
+        priority += 0.14
+    if _is_owner_like_org(candidate):
+        priority -= 0.2
+    if role is not None and candidate.start_char >= role.start_char:
+        priority += 0.06
+    if candidate.sentence_index != person.sentence_index:
+        priority -= 0.08
+    priority += clause_bonus
     return (
         confidence * 0.65 + priority * 0.35,
         priority,
@@ -818,6 +1004,102 @@ def _role_priority(candidate: EntityCandidate) -> float:
     return 0.8 + min(len(role_name), 32) / 300
 
 
+def _party_syntactic_signal(
+    context: SentenceContext,
+    person: EntityCandidate,
+    party: EntityCandidate,
+) -> str | None:
+    party_word = _candidate_head_word(context.parsed_words, party)
+    person_words = _candidate_words(context.parsed_words, person)
+    if party_word is None or not person_words:
+        return None
+
+    head = next((word for word in context.parsed_words if word.index == party_word.head), None)
+    if head is not None and head.lemma in PARTY_CONTEXT_LEMMAS:
+        if any(person_word.index == head.head for person_word in person_words):
+            return "syntactic_direct"
+        if any(person_word.head == head.index for person_word in person_words):
+            return "appositive_context"
+        between_text = _between_candidates(context, person, party)
+        if any(marker in between_text for marker in (" z ", ",", "(", ")")):
+            return "appositive_context"
+
+    preceding_text = context.sentence.text[max(0, party.start_char - 3) : party.start_char].lower()
+    if preceding_text.endswith(" z "):
+        return "syntactic_direct"
+    return None
+
+
+def _party_context_window_supports(
+    context: SentenceContext,
+    person: EntityCandidate,
+    party: EntityCandidate,
+) -> bool:
+    window_start = max(0, min(person.start_char, party.start_char) - 8)
+    window_end = max(person.end_char, party.end_char) + 16
+    party_window = context.lowered_text[window_start:window_end]
+    between_text = _between_candidates(context, person, party)
+    strong_context = ("polityk", "działacz", "radny", "radna", "lider", "prezes")
+    return any(marker in party_window for marker in strong_context) or any(
+        marker in between_text for marker in (" z ", " z ")
+    )
+
+
+def _candidate_head_word(
+    parsed_words: list[ParsedWord],
+    candidate: EntityCandidate,
+) -> ParsedWord | None:
+    words = _candidate_words(parsed_words, candidate)
+    if not words:
+        return None
+    word_indices = {word.index for word in words}
+    return next((word for word in words if word.head not in word_indices), words[-1])
+
+
+def _candidate_words(
+    parsed_words: list[ParsedWord],
+    candidate: EntityCandidate,
+) -> list[ParsedWord]:
+    return [
+        word
+        for word in parsed_words
+        if candidate.start_char <= word.start < candidate.end_char
+        or word.start <= candidate.start_char < word.end
+    ]
+
+
+def _between_candidates(
+    context: SentenceContext,
+    left: EntityCandidate,
+    right: EntityCandidate,
+) -> str:
+    between_start = min(left.end_char, right.end_char)
+    between_end = max(left.start_char, right.start_char)
+    return context.lowered_text[between_start:between_end]
+
+
+def _is_quote_speaker_risk(
+    context: SentenceContext,
+    candidate: EntityCandidate,
+) -> bool:
+    candidate_words = _candidate_words(context.parsed_words, candidate)
+    if not candidate_words:
+        return False
+    speech_roots = {
+        word.index
+        for word in context.parsed_words
+        if word.deprel == "root"
+        and any(
+            child.deprel.startswith("parataxis")
+            for child in context.parsed_words
+            if child.head == word.index
+        )
+    }
+    return any(
+        word.head in speech_roots and word.deprel.startswith("nsubj") for word in candidate_words
+    )
+
+
 def _supports_party_fact(
     context: SentenceContext,
     person: EntityCandidate,
@@ -825,16 +1107,51 @@ def _supports_party_fact(
     governance_signal: bool,
 ) -> bool:
     distance = abs(person.start_char - party.start_char)
-    if governance_signal and distance > 36:
+    max_distance = 24 if governance_signal else 40
+    if distance > max_distance:
         return False
-    party_window = context.lowered_text[
-        max(0, min(person.start_char, party.start_char) - 8) : max(person.end_char, party.end_char)
-        + 16
-    ]
-    return any(
+    window_start = max(0, min(person.start_char, party.start_char) - 8)
+    window_end = max(person.end_char, party.end_char) + 16
+    party_window = context.lowered_text[window_start:window_end]
+    between_start = min(person.end_char, party.end_char)
+    between_end = max(person.start_char, party.start_char)
+    between_text = context.lowered_text[between_start:between_end]
+    if any(
         marker in party_window
-        for marker in ("polityk", "działacz", "radny", "radna", "lider", "prezes", "z ")
+        for marker in ("polityk", "działacz", "radny", "radna", "lider", "prezes")
+    ):
+        return governance_signal or any(
+            marker in between_text for marker in ("polityk", "działacz", "radny", "radna", "lider")
+        )
+    party_word = next(
+        (
+            word
+            for word in context.parsed_words
+            if word.start <= party.start_char < word.end
+            or party.start_char <= word.start < party.end_char
+        ),
+        None,
     )
+    if party_word is None:
+        return False
+    person_words = [
+        word
+        for word in context.parsed_words
+        if person.start_char <= word.start < person.end_char
+        or word.start <= person.start_char < word.end
+    ]
+    if not person_words:
+        return False
+    if party_word.head:
+        head = next((word for word in context.parsed_words if word.index == party_word.head), None)
+        if head is not None and head.lemma in PARTY_CONTEXT_LEMMAS:
+            if any(person_word.index == head.head for person_word in person_words):
+                return True
+            if any(person_word.head == head.index for person_word in person_words):
+                return True
+            return not governance_signal and abs(person.start_char - party.start_char) <= 24
+    preceding_text = context.sentence.text[max(0, party.start_char - 3) : party.start_char].lower()
+    return preceding_text.endswith(" z ")
 
 
 def _supports_office_fact(
@@ -859,14 +1176,51 @@ def _supports_office_fact(
 
 def _supports_candidacy(context: SentenceContext, person: EntityCandidate) -> bool:
     lemmas = {word.lemma for word in context.parsed_words}
-    if not (OFFICE_CANDIDACY_LEMMAS.intersection(lemmas) or "kandydat" in context.lowered_text):
+    if not (
+        OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
+        or "kandydat" in context.lowered_text
+        or "wybory" in context.lowered_text
+    ):
         return False
     governing_words = [
         word
         for word in context.parsed_words
         if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
     ]
-    return any(abs(person.start_char - word.start) <= 72 for word in governing_words)
+    if "wybory" not in context.lowered_text and "kandydat" not in context.lowered_text:
+        return False
+    return any(abs(person.start_char - word.start) <= 28 for word in governing_words)
+
+
+def _is_target_like_org(candidate: EntityCandidate) -> bool:
+    normalized = candidate.normalized_name.lower()
+    if _is_body_like_org(candidate) or _is_owner_like_org(candidate):
+        return False
+    if candidate.attributes.get("organization_kind") == OrganizationKind.COMPANY:
+        return True
+    return any(
+        term in normalized
+        for term in ("stadnin", "rewita", "tour", "wodociąg", "hotel", "port", "centrum", "spółk")
+    )
+
+
+def _is_owner_like_org(candidate: EntityCandidate) -> bool:
+    normalized = candidate.normalized_name.lower()
+    if "skarbu państwa" in normalized:
+        return True
+    if candidate.attributes.get("organization_kind") == OrganizationKind.PUBLIC_INSTITUTION and any(
+        term in normalized for term in OWNER_CONTEXT_TERMS
+    ):
+        return True
+    return False
+
+
+def _is_body_like_org(candidate: EntityCandidate) -> bool:
+    normalized = candidate.normalized_name.lower()
+    kind = candidate.attributes.get("organization_kind")
+    return kind == OrganizationKind.GOVERNING_BODY or any(
+        normalized.startswith(term) for term in BODY_CONTEXT_TERMS
+    )
 
 
 def _nearest_candidate(
@@ -878,34 +1232,29 @@ def _nearest_candidate(
     return min(candidates, key=lambda candidate: abs(candidate.start_char - index))
 
 
-def _governance_confidence(
+def _organization_clause_bonus(
     context: SentenceContext,
-    person: EntityCandidate,
+    candidate: EntityCandidate,
     role: EntityCandidate | None,
-    organization: EntityCandidate,
-    is_dismissal: bool,
+    person: EntityCandidate,
 ) -> float:
-    base = 0.8 if is_dismissal else 0.82
-    if role is None:
-        base -= 0.08
-    else:
-        role_edge = (
-            context.edge_confidence(
-                "person-has-role",
-                person.candidate_id,
-                role.candidate_id,
-            )
-            or 0.0
-        )
-        org_edge = (
-            context.edge_confidence(
-                "role-at-organization",
-                role.candidate_id,
-                organization.candidate_id,
-            )
-            or 0.0
-        )
-        base += (role_edge + org_edge - 1.0) * 0.1
-    if organization.attributes.get("organization_kind") == OrganizationKind.COMPANY:
-        base += 0.02
-    return max(0.45, min(base, 0.95))
+    reference = role or person
+    if candidate.sentence_index != reference.sentence_index:
+        return -0.06
+
+    local_start = min(reference.end_char, candidate.end_char)
+    local_end = max(reference.start_char, candidate.start_char)
+    between_text = context.lowered_text[local_start:local_end]
+    bonus = 0.0
+
+    if role is not None and candidate.start_char >= role.end_char:
+        bonus += 0.08
+    if between_text and "," not in between_text and len(between_text) <= 24:
+        bonus += 0.08
+    if any(term in candidate.normalized_name.lower() for term in TARGET_CONTEXT_TERMS):
+        bonus += 0.08
+    if any(term in between_text for term in OWNER_CONTEXT_TERMS):
+        bonus -= 0.14
+    if any(term in between_text for term in BODY_CONTEXT_TERMS):
+        bonus -= 0.1
+    return bonus

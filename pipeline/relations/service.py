@@ -1,43 +1,45 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import cast
 
 from pipeline.base import RelationExtractor
+from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType, FactType, RelationAttributes, RelationType
-from pipeline.models import ArticleDocument, CoreferenceResult, Entity, Fact, Relation
-from pipeline.runtime import PipelineRuntime
+from pipeline.domain_types import (
+    EntityType,
+    FactType,
+    RelationAttributes,
+    RelationType,
+)
+from pipeline.funding import FundingFactBuilder
+from pipeline.governance import GovernanceFactBuilder
+from pipeline.models import (
+    ArticleDocument,
+    CoreferenceResult,
+    Entity,
+    Fact,
+    Relation,
+)
+from pipeline.normalization import DocumentEntityCanonicalizer
 
 from .candidate_graph import CandidateGraphBuilder
 from .fact_extractors import (
-    CompensationFactExtractor,
-    FundingFactExtractor,
-    GovernanceFactExtractor,
     PoliticalProfileFactExtractor,
     SentenceContext,
     TieFactExtractor,
 )
-from .types import ParsedWord
-
-
-@dataclass(slots=True)
-class ParsedSentence:
-    start_char: int
-    end_char: int
-    words: list[ParsedWord]
 
 
 class PolishRuleBasedRelationExtractor(RelationExtractor):
-    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
+    def __init__(self, config: PipelineConfig) -> None:
         self.config = config
-        self.runtime = runtime or PipelineRuntime(config)
         self.graph_builder = CandidateGraphBuilder(config)
+        self.canonicalizer = DocumentEntityCanonicalizer(config)
+        self.governance_fact_builder = GovernanceFactBuilder()
+        self.compensation_fact_builder = CompensationFactBuilder()
+        self.funding_fact_builder = FundingFactBuilder()
         self.fact_extractors = [
-            GovernanceFactExtractor(),
             PoliticalProfileFactExtractor(),
-            CompensationFactExtractor(),
-            FundingFactExtractor(),
             TieFactExtractor(),
         ]
 
@@ -45,11 +47,10 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
         return "polish_rule_based_relation_extractor"
 
     def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
-        parsed_sentences = self._parse_document(document)
         document.candidate_graph = self.graph_builder.build(
             document=document,
             coreference=coreference,
-            parsed_sentences=parsed_sentences,
+            parsed_sentences=document.parsed_sentences,
         )
 
         facts: list[Fact] = []
@@ -75,7 +76,7 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
             context = SentenceContext(
                 document=document,
                 sentence=sentence,
-                parsed_words=parsed_sentences.get(sentence.sentence_index, []),
+                parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
                 graph=document.candidate_graph,
                 candidates=sentence_candidates,
                 paragraph_candidates=paragraph_candidates,
@@ -84,80 +85,14 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
             for extractor in self.fact_extractors:
                 facts.extend(extractor.extract(context))
 
+        facts.extend(self.governance_fact_builder.build(document))
+        facts.extend(self.compensation_fact_builder.build(document))
+        facts.extend(self.funding_fact_builder.build(document))
+
         document.facts = self._deduplicate_facts(facts)
         document.relations = self._derive_relations(document)
         self._append_person_attributes(document)
-        return document
-
-    def _parse_document(self, document: ArticleDocument) -> dict[int, list[ParsedWord]]:
-        syntax_doc = self.runtime.get_stanza_syntax_pipeline()(document.cleaned_text)
-        parsed_sentences = [self._to_parsed_sentence(sentence) for sentence in syntax_doc.sentences]
-        return {
-            sentence.sentence_index: self._align_sentence(sentence, parsed_sentences)
-            for sentence in document.sentences
-        }
-
-    @staticmethod
-    def _to_parsed_sentence(sentence) -> ParsedSentence:
-        parsed_words = [
-            ParsedWord(
-                index=int(word.id if isinstance(word.id, int) else word.id[0]),
-                text=word.text,
-                lemma=(word.lemma or word.text).lower(),
-                upos=word.upos or "",
-                head=int(word.head or 0),
-                deprel=word.deprel or "",
-                start=int(word.start_char),
-                end=int(word.end_char),
-            )
-            for word in sentence.words
-        ]
-        if not parsed_words:
-            return ParsedSentence(start_char=0, end_char=0, words=[])
-        return ParsedSentence(
-            start_char=min(word.start for word in parsed_words),
-            end_char=max(word.end for word in parsed_words),
-            words=parsed_words,
-        )
-
-    @classmethod
-    def _align_sentence(
-        cls,
-        sentence,
-        parsed_sentences: list[ParsedSentence],
-    ) -> list[ParsedWord]:
-        if not parsed_sentences:
-            return []
-
-        best_sentence = max(
-            parsed_sentences,
-            key=lambda parsed_sentence: cls._sentence_overlap(sentence, parsed_sentence),
-        )
-        overlap = cls._sentence_overlap(sentence, best_sentence)
-        if overlap <= 0:
-            return []
-
-        return [
-            ParsedWord(
-                index=word.index,
-                text=word.text,
-                lemma=word.lemma,
-                upos=word.upos,
-                head=word.head,
-                deprel=word.deprel,
-                start=max(0, word.start - sentence.start_char),
-                end=max(0, word.end - sentence.start_char),
-            )
-            for word in best_sentence.words
-        ]
-
-    @staticmethod
-    def _sentence_overlap(sentence, parsed_sentence: ParsedSentence) -> int:
-        return max(
-            0,
-            min(sentence.end_char, parsed_sentence.end_char)
-            - max(sentence.start_char, parsed_sentence.start_char),
-        )
+        return self.canonicalizer.run(document)
 
     def _derive_relations(self, document: ArticleDocument) -> list[Relation]:
         derived: list[Relation] = []

@@ -1,7 +1,15 @@
 from dataclasses import dataclass
 
+from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import CandidateType, EntityType, FactType, RelationType
+from pipeline.domain_types import (
+    CandidateType,
+    EntityType,
+    FactType,
+    OrganizationKind,
+    RelationType,
+)
+from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
     ArticleDocument,
     CoreferenceResult,
@@ -12,6 +20,7 @@ from pipeline.models import (
 from pipeline.relations import PolishRuleBasedRelationExtractor
 from pipeline.runtime import PipelineRuntime
 from pipeline.segmentation import ParagraphSentenceSegmenter
+from pipeline.syntax import StanzaClauseParser
 
 
 @dataclass
@@ -45,6 +54,17 @@ class CountingSyntaxPipeline:
         _ = text
         self.call_count += 1
         return self.doc
+
+
+def prepare_for_relation_extraction(
+    config: PipelineConfig,
+    document: ArticleDocument,
+    runtime: PipelineRuntime | None = None,
+) -> ArticleDocument:
+    shared_runtime = runtime or PipelineRuntime(config)
+    document = PolishEntityClusterer(config).run(document)
+    document = StanzaClauseParser(config, shared_runtime).run(document)
+    return PolishFrameExtractor(config).run(document)
 
 
 def test_party_aliases_match_whole_tokens_only() -> None:
@@ -86,6 +106,7 @@ def test_party_aliases_match_whole_tokens_only() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -139,6 +160,7 @@ def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -202,6 +224,7 @@ def test_compensation_relation_is_extracted() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -215,6 +238,16 @@ def test_compensation_relation_is_extracted() -> None:
 
     assert compensation_relations
     assert compensation_relations[0].attributes["amount_text"] == "31 Tys. Zł Brutto"
+    compensation_facts = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.COMPENSATION
+    ]
+    assert compensation_facts
+    assert compensation_facts[0].confidence >= 0.7
+    assert compensation_facts[0].attributes["source_extractor"] == "compensation_frame"
+    assert compensation_facts[0].attributes["extraction_signal"] in {
+        "syntactic_direct",
+        "dependency_edge",
+    }
 
 
 def test_party_cannot_become_appointment_destination() -> None:
@@ -270,6 +303,7 @@ def test_party_cannot_become_appointment_destination() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -334,6 +368,7 @@ def test_party_membership_requires_local_structural_support() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -343,6 +378,81 @@ def test_party_membership_requires_local_structural_support() -> None:
         fact.fact_type in {"PARTY_MEMBERSHIP", "FORMER_PARTY_MEMBERSHIP"}
         for fact in extracted.facts
     )
+
+
+def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "Jan Kowalski, działacz PSL, został powołany do rady."
+    document = ArticleDocument(
+        document_id="doc-party-score",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+            ),
+            Entity(
+                entity_id="party-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="PSL",
+                normalized_name="PSL",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Jan Kowalski",
+                normalized_text="Jan Kowalski",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="PSL",
+                normalized_text="PSL",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="party-1",
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    party_facts = [
+        fact
+        for fact in extracted.facts
+        if fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
+    ]
+
+    assert party_facts
+    assert party_facts[0].confidence >= 0.7
+    assert party_facts[0].attributes["source_extractor"] == "political_profile"
+    assert party_facts[0].attributes["extraction_signal"] in {
+        "syntactic_direct",
+        "appositive_context",
+        "dependency_edge",
+    }
 
 
 def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
@@ -429,6 +539,7 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -518,6 +629,7 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -583,6 +695,7 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -649,6 +762,7 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -734,6 +848,7 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -825,6 +940,7 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -904,6 +1020,7 @@ def test_party_affiliation_supports_lider_psl_phrase() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -971,15 +1088,26 @@ def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
     )
 
-    assert any(fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE for fact in extracted.facts)
+    tie_facts = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
+    ]
+
+    assert tie_facts
+    assert tie_facts[0].confidence >= 0.55
+    assert tie_facts[0].attributes["source_extractor"] == "tie"
+    assert tie_facts[0].attributes["extraction_signal"] in {
+        "dependency_edge",
+        "syntactic_direct",
+    }
 
 
-def test_relation_extractor_parses_syntax_once_per_document() -> None:
+def test_clause_parser_parses_syntax_once_per_document() -> None:
     config = PipelineConfig.from_file("config.yaml")
     syntax_pipeline = CountingSyntaxPipeline(
         FakeDoc(
@@ -1007,7 +1135,8 @@ def test_relation_extractor_parses_syntax_once_per_document() -> None:
         return syntax_pipeline
 
     runtime = PipelineRuntime(config, stanza_factory=fake_stanza_factory)
-    extractor = PolishRuleBasedRelationExtractor(config, runtime=runtime)
+    clause_parser = StanzaClauseParser(config, runtime)
+    extractor = PolishRuleBasedRelationExtractor(config)
     text = "Jan awansował. Objął stanowisko."
     document = ArticleDocument(
         document_id="doc-10",
@@ -1052,6 +1181,7 @@ def test_relation_extractor_parses_syntax_once_per_document() -> None:
         ],
     )
 
+    document = clause_parser.run(document)
     extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -1126,6 +1256,7 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
         ],
     )
 
+    document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
@@ -1137,3 +1268,271 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
     target_ids = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
     assert appointments[0].object_entity_id is not None
     assert target_ids[appointments[0].object_entity_id] == "Stadnina Koni Iwno"
+
+
+def test_governance_keeps_owner_context_without_replacing_target() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = (
+        "Marcin Horyń został dyrektorem Rewita Hoteli, "
+        "spółki podległej Ministerstwu Obrony Narodowej."
+    )
+    document = ArticleDocument(
+        document_id="doc-12",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Marcin Horyń",
+                normalized_name="Marcin Horyń",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Rewita Hoteli",
+                normalized_name="Rewita Hoteli",
+                attributes={"organization_kind": OrganizationKind.COMPANY},
+            ),
+            Entity(
+                entity_id="org-2",
+                entity_type=EntityType.PUBLIC_INSTITUTION,
+                canonical_name="Ministerstwo Obrony Narodowej",
+                normalized_name="Ministerstwo Obrony Narodowej",
+                attributes={"organization_kind": OrganizationKind.PUBLIC_INSTITUTION},
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Marcin Horyń",
+                normalized_text="Marcin Horyń",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="Rewita Hoteli",
+                normalized_text="Rewita Hoteli",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-1",
+            ),
+            Mention(
+                text="Ministerstwu Obrony Narodowej",
+                normalized_text="Ministerstwo Obrony Narodowej",
+                mention_type="PublicInstitution",
+                sentence_index=0,
+                entity_id="org-2",
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
+    entity_names = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+
+    assert appointments
+    assert appointments[0].object_entity_id is not None
+    assert entity_names[appointments[0].object_entity_id] == "Rewita Hoteli"
+    owner_id = appointments[0].attributes.get("owner_context_entity_id")
+    assert isinstance(owner_id, str)
+    assert entity_names[owner_id] == "Ministerstwo Obrony Narodowej"
+
+
+def test_candidacy_requires_explicit_election_context() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "Tadeusz Rydzyk dostał 300 tys. zł dotacji na projekt fundacji."
+    document = ArticleDocument(
+        document_id="doc-13",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Tadeusz Rydzyk",
+                normalized_name="Tadeusz Rydzyk",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Fundacja Lux Veritatis",
+                normalized_name="Fundacja Lux Veritatis",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Tadeusz Rydzyk",
+                normalized_text="Tadeusz Rydzyk",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="fundacji",
+                normalized_text="Fundacja Lux Veritatis",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-1",
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
+
+
+def test_party_membership_does_not_cross_attach_between_multiple_people() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishRuleBasedRelationExtractor(config)
+    text = "Stanisław Mazur z Lewicy i Andrzej Kloc z PSL będą kierować funduszem."
+    document = ArticleDocument(
+        document_id="doc-14",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        entities=[
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="Stanisław Mazur",
+                normalized_name="Stanisław Mazur",
+            ),
+            Entity(
+                entity_id="person-2",
+                entity_type=EntityType.PERSON,
+                canonical_name="Andrzej Kloc",
+                normalized_name="Andrzej Kloc",
+            ),
+            Entity(
+                entity_id="party-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Lewicy",
+                normalized_name="Lewica",
+            ),
+            Entity(
+                entity_id="party-2",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="PSL",
+                normalized_name="PSL",
+            ),
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="funduszem",
+                normalized_name="fundusz",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Stanisław Mazur",
+                normalized_text="Stanisław Mazur",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-1",
+            ),
+            Mention(
+                text="Andrzej Kloc",
+                normalized_text="Andrzej Kloc",
+                mention_type="Person",
+                sentence_index=0,
+                entity_id="person-2",
+            ),
+            Mention(
+                text="Lewicy",
+                normalized_text="Lewica",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="party-1",
+            ),
+            Mention(
+                text="PSL",
+                normalized_text="PSL",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="party-2",
+            ),
+            Mention(
+                text="funduszem",
+                normalized_text="fundusz",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="org-1",
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+    )
+
+    party_facts = {
+        (fact.subject_entity_id, fact.object_entity_id)
+        for fact in extracted.facts
+        if fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
+    }
+    names = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+    mazur_id = next(key for key, value in names.items() if value == "Stanisław Mazur")
+    kloc_id = next(key for key, value in names.items() if value == "Andrzej Kloc")
+    psl_id = next(key for key, value in names.items() if value == "Polskie Stronnictwo Ludowe")
+    mazur_party_names = {
+        names[object_id]
+        for subject_id, object_id in party_facts
+        if subject_id == mazur_id and object_id is not None
+    }
+
+    assert any("Lewic" in party_name for party_name in mazur_party_names)
+    assert (kloc_id, psl_id) in party_facts
+    assert (mazur_id, psl_id) not in party_facts

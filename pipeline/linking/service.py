@@ -9,6 +9,7 @@ from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, Entity
+from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_party_name, stable_id
 
@@ -32,6 +33,7 @@ class SQLiteEntityLinker(EntityLinker):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(self.db_path)
         self._knowledge_seeded = False
+        self.canonicalizer = DocumentEntityCanonicalizer(config)
         self._ensure_schema()
 
     def name(self) -> str:
@@ -83,7 +85,7 @@ class SQLiteEntityLinker(EntityLinker):
                 if mention.entity_id:
                     mention.entity_id = id_remap.get(mention.entity_id, mention.entity_id)
 
-        return document
+        return self.canonicalizer.run(document)
 
     def _ensure_schema(self) -> None:
         self.connection.execute(
@@ -281,7 +283,7 @@ class SQLiteEntityLinker(EntityLinker):
     def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
         # Try alias-based match first (case-insensitive via multiple
         # candidate forms: canonical_name, normalized_name, raw aliases).
-        search_names = {entity.canonical_name, entity.normalized_name, *entity.aliases}
+        search_names = self._alias_search_names(entity)
         related_types = {
             EntityType.ORGANIZATION.value,
             EntityType.POLITICAL_PARTY.value,
@@ -389,6 +391,32 @@ class SQLiteEntityLinker(EntityLinker):
         return registry_id
 
     @staticmethod
+    def _alias_search_names(entity: Entity) -> set[str]:
+        primary_names = {
+            name
+            for name in {entity.canonical_name, entity.normalized_name}
+            if "\n" not in name and "\r" not in name
+        }
+        primary_tokens = {
+            token.lower() for name in primary_names for token in name.split() if token
+        }
+        has_multi_token_primary = any(len(name.split()) > 1 for name in primary_names)
+        names = set(primary_names)
+        for alias in entity.aliases:
+            if "\n" in alias or "\r" in alias:
+                continue
+            alias_tokens = alias.split()
+            alias_is_component_acronym = (
+                has_multi_token_primary
+                and len(alias_tokens) == 1
+                and alias_tokens[0].lower() in primary_tokens
+                and alias_tokens[0].isupper()
+            )
+            if not alias_is_component_acronym:
+                names.add(alias)
+        return names
+
+    @staticmethod
     def _deduplicate_by_registry(entities: list[Entity]) -> tuple[list[Entity], dict[str, str]]:
         """Merge entities that resolved to the same registry_id.
 
@@ -438,7 +466,11 @@ class SQLiteEntityLinker(EntityLinker):
         return result, id_remap
 
     def _upsert_alias(self, registry_id: str, entity: Entity) -> None:
-        aliases = {entity.canonical_name, entity.normalized_name, *entity.aliases}
+        aliases = {
+            alias
+            for alias in {entity.canonical_name, entity.normalized_name, *entity.aliases}
+            if "\n" not in alias and "\r" not in alias
+        }
         for alias in aliases:
             self.connection.execute(
                 "INSERT OR IGNORE INTO entity_alias (registry_id, alias) VALUES (?, ?)",

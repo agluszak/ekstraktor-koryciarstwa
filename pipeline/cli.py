@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.request import Request, urlopen
 
+from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
 from pipeline.events import PolishEventExtractor
 from pipeline.filtering import KeywordRelevanceFilter
+from pipeline.frames import PolishFrameExtractor
 from pipeline.linking import SQLiteEntityLinker
 from pipeline.models import ExtractionResult, PipelineInput
 from pipeline.ner import SpacyPolishNERExtractor
@@ -21,10 +23,20 @@ from pipeline.relations import PolishRuleBasedRelationExtractor
 from pipeline.runtime import PipelineRuntime
 from pipeline.scoring import RuleBasedNepotismScorer
 from pipeline.segmentation import ParagraphSentenceSegmenter
+from pipeline.syntax import StanzaClauseParser
 
 
 class PipelineRunner(Protocol):
     def run(self, data: PipelineInput) -> ExtractionResult: ...
+
+
+def emit_json(payload: object, *, indent: int | None = None) -> None:
+    text = json.dumps(payload, ensure_ascii=False, indent=indent)
+    try:
+        sys.stdout.write(f"{text}\n")
+    except UnicodeEncodeError:
+        fallback = json.dumps(payload, ensure_ascii=True, indent=indent)
+        sys.stdout.write(f"{fallback}\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,9 +87,12 @@ def build_pipeline(
         segmenter=ParagraphSentenceSegmenter(config),
         ner_extractor=SpacyPolishNERExtractor(config, runtime=shared_runtime),
         coreference_resolver=StanzaCoreferenceResolver(config, runtime=shared_runtime),
-        relation_extractor=PolishRuleBasedRelationExtractor(config, runtime=shared_runtime),
+        relation_extractor=PolishRuleBasedRelationExtractor(config),
         event_extractor=PolishEventExtractor(config),
         entity_linker=SQLiteEntityLinker(config, runtime=shared_runtime),
+        entity_clusterer=PolishEntityClusterer(config),
+        clause_parser=StanzaClauseParser(config, runtime=shared_runtime),
+        frame_extractor=PolishFrameExtractor(config),
         scorer=RuleBasedNepotismScorer(config),
         output_builder=JsonOutputBuilder(),
     )
@@ -124,13 +139,10 @@ def run_single(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
     )
     result_path, graph_path = write_outputs(result, args.output_dir)
     if args.stdout:
-        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        emit_json(result.to_dict(), indent=2)
     else:
-        print(
-            json.dumps(
-                {"result_path": str(result_path), "graph_path": str(graph_path)},
-                ensure_ascii=False,
-            )
+        emit_json(
+            {"result_path": str(result_path), "graph_path": str(graph_path)},
         )
     return 0
 
@@ -153,7 +165,7 @@ def run_batch(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
                 raw_html=html_path.read_text(encoding="utf-8"),
                 source_url=None,
                 publication_date=args.publication_date,
-                document_id=args.document_id,
+                document_id=args.document_id or html_path.stem,
             )
         )
         result_path, graph_path = write_outputs(result, args.output_dir)
@@ -171,9 +183,9 @@ def run_batch(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
         )
 
     if args.stdout:
-        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        emit_json(rows, indent=2)
     else:
-        print(json.dumps(rows, ensure_ascii=False))
+        emit_json(rows)
     return 0
 
 
@@ -231,7 +243,8 @@ def run_worker(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
             )
         except Exception as exc:
             response = {"ok": False, "error": str(exc)}
-        print(json.dumps(response, ensure_ascii=False), flush=True)
+        emit_json(response)
+        sys.stdout.flush()
     return 0
 
 

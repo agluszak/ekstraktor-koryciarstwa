@@ -155,12 +155,108 @@ class SentenceFragment:
 
 
 @dataclass(slots=True)
+class ParsedWord:
+    index: int
+    text: str
+    lemma: str
+    upos: str
+    head: int
+    deprel: str
+    start: int
+    end: int
+
+
+@dataclass(slots=True)
+class ParsedSentence:
+    start_char: int
+    end_char: int
+    words: list[ParsedWord]
+
+
+@dataclass(slots=True)
 class Mention:
     text: str
     normalized_text: str
     mention_type: str
     sentence_index: int
     entity_id: str | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ClusterMention:
+    text: str
+    entity_type: EntityType
+    sentence_index: int
+    paragraph_index: int
+    start_char: int
+    end_char: int
+    entity_id: str | None = None
+
+
+@dataclass(slots=True)
+class EntityCluster:
+    cluster_id: str
+    entity_type: EntityType
+    canonical_name: str
+    normalized_name: str
+    mentions: list[ClusterMention]
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ClauseUnit:
+    clause_id: str
+    text: str
+    trigger_head_text: str
+    trigger_head_lemma: str
+    sentence_index: int
+    paragraph_index: int
+    start_char: int
+    end_char: int
+    cluster_mentions: list[ClusterMention] = field(default_factory=list)
+    mention_roles: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class GovernanceFrame:
+    frame_id: str
+    event_type: EventType
+    person_cluster_id: str | None = None
+    role_cluster_id: str | None = None
+    target_org_cluster_id: str | None = None
+    owner_context_cluster_id: str | None = None
+    governing_body_cluster_id: str | None = None
+    appointing_authority_cluster_id: str | None = None
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class CompensationFrame:
+    frame_id: str
+    amount_text: str
+    amount_normalized: str
+    period: str | None = None
+    person_cluster_id: str | None = None
+    role_cluster_id: str | None = None
+    organization_cluster_id: str | None = None
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class FundingFrame:
+    frame_id: str
+    amount_text: str | None = None
+    amount_normalized: str | None = None
+    funder_cluster_id: str | None = None
+    recipient_cluster_id: str | None = None
+    project_cluster_id: str | None = None
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
     attributes: dict[str, Any] = field(default_factory=dict)
 
 
@@ -198,6 +294,12 @@ class ArticleDocument:
     events: list[Event] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
     score: ScoreResult | None = None
+    clusters: list[EntityCluster] = field(default_factory=list)
+    parsed_sentences: dict[int, list[ParsedWord]] = field(default_factory=dict)
+    clause_units: list[ClauseUnit] = field(default_factory=list)
+    governance_frames: list[GovernanceFrame] = field(default_factory=list)
+    compensation_frames: list[CompensationFrame] = field(default_factory=list)
+    funding_frames: list[FundingFrame] = field(default_factory=list)
 
 
 @dataclass(slots=True)

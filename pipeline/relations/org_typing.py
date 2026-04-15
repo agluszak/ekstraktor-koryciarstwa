@@ -4,9 +4,8 @@ from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import CandidateType, OrganizationKind
+from pipeline.models import ParsedWord
 from pipeline.utils import compact_whitespace, normalize_entity_name, normalize_party_name
-
-from .types import ParsedWord
 
 STRONG_PUBLIC_HEADS = frozenset(
     {
@@ -191,7 +190,7 @@ class OrganizationMentionClassifier:
             return OrganizationTypingResult(
                 candidate_type=CandidateType.POLITICAL_PARTY,
                 organization_kind=OrganizationKind.ORGANIZATION,
-                canonical_name=None,
+                canonical_name=normalize_entity_name(" ".join(features.lemmas)),
             )
 
         organization_kind = self._organization_kind(features)

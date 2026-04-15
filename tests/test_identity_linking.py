@@ -115,6 +115,31 @@ def test_wp_deduplication(linker):
     assert linked_doc.entities[0].canonical_name == "Wirtualna Polska"
 
 
+def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
+    doc = ArticleDocument(
+        document_id="test-doc-amw-rewita",
+        source_url=None,
+        raw_html="",
+        title="Test AMW Rewita",
+        publication_date=None,
+        cleaned_text="AMW Rewita",
+        paragraphs=["AMW Rewita"],
+        entities=[
+            Entity(
+                entity_id="e1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="AMW Rewita",
+                normalized_name="AMW Rewita",
+                aliases=["AMW"],
+            )
+        ],
+    )
+
+    linked_doc = linker.run(doc)
+
+    assert linked_doc.entities[0].canonical_name == "AMW Rewita"
+
+
 def test_pis_deduplication(linker):
     # Prawo I Sprawiedliwość (seeded)
     doc = ArticleDocument(

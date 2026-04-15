@@ -20,3 +20,30 @@ def test_dismissal_article_passes_relevance_filter() -> None:
 
     assert decision.is_relevant is True
     assert decision.score >= 0.4
+
+
+def test_public_salary_article_passes_relevance_filter() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    relevance_filter = KeywordRelevanceFilter(config)
+    document = ArticleDocument(
+        document_id="doc-salary",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=(
+            "Sprawdzili zarobki prezesów miejskich wodociągów. "
+            "Wiesław Pancer zarabia ponad 20 tys. zł miesięcznie."
+        ),
+        paragraphs=[
+            (
+                "Sprawdzili zarobki prezesów miejskich wodociągów. "
+                "Wiesław Pancer zarabia ponad 20 tys. zł miesięcznie."
+            )
+        ],
+    )
+
+    decision = relevance_filter.run(document)
+
+    assert decision.is_relevant is True
+    assert decision.score >= 0.4

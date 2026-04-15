@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import io
+import sys
 from pathlib import Path
 
-from pipeline.cli import handle_worker_request, iter_batch_inputs, run_batch
+from pipeline.cli import emit_json, handle_worker_request, iter_batch_inputs, run_batch
 from pipeline.domain_types import EntityType
 from pipeline.models import (
     Entity,
@@ -20,7 +22,7 @@ class StubPipeline:
 
     def run(self, data):  # noqa: ANN001
         self.calls.append(data.raw_html)
-        document_id = f"doc-{len(self.calls)}"
+        document_id = data.document_id or f"doc-{len(self.calls)}"
         return ExtractionResult(
             document_id=document_id,
             source_url=data.source_url,
@@ -80,8 +82,8 @@ def test_run_batch_reuses_single_pipeline_instance(tmp_path: Path, capsys) -> No
 
     assert status == 0
     assert len(pipeline.calls) == 2
-    assert "doc-1" in captured
-    assert "doc-2" in captured
+    assert '"document_id": "a"' in captured
+    assert '"document_id": "b"' in captured
 
 
 def test_handle_worker_request_accepts_html_path(tmp_path: Path) -> None:
@@ -98,3 +100,18 @@ def test_handle_worker_request_accepts_html_path(tmp_path: Path) -> None:
     assert response["ok"] is True
     assert response["document_id"] == "doc-1"
     assert response["result"]["source_url"] == "https://example.com/article"
+
+
+def test_emit_json_falls_back_to_ascii_when_stdout_encoding_cannot_encode(monkeypatch) -> None:
+    sink = io.BytesIO()
+    stdout = io.TextIOWrapper(sink, encoding="cp1250", errors="strict")
+    original_stdout = sys.stdout
+    monkeypatch.setattr(sys, "stdout", stdout)
+    try:
+        emit_json({"text": "Horyń � Rydzyk"})
+        stdout.flush()
+    finally:
+        monkeypatch.setattr(sys, "stdout", original_stdout)
+
+    output = sink.getvalue().decode("cp1250")
+    assert "\\ufffd" in output

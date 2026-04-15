@@ -18,12 +18,12 @@ from pipeline.models import (
     CoreferenceResult,
     Entity,
     EntityCandidate,
+    ParsedWord,
 )
+from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, ROLE_PATTERNS
 from pipeline.utils import normalize_entity_name, stable_id
 
-from .nlp_rules import PARTY_CONTEXT_LEMMAS, ROLE_PATTERNS
 from .org_typing import OrganizationMentionClassifier
-from .types import ParsedWord
 
 
 @dataclass(slots=True)
@@ -446,9 +446,24 @@ class CandidateGraphBuilder:
         party: EntityCandidate,
     ) -> bool:
         lower = sentence_text.lower()
+        distance = abs(person.start_char - party.start_char)
+        if distance > 56:
+            return False
+
         party_window = lower[max(0, party.start_char - 24) : party.end_char + 24]
+        between_start = min(person.end_char, party.end_char)
+        between_end = max(person.start_char, party.start_char)
+        between_text = lower[between_start:between_end]
+        preceding_text = lower[max(0, party.start_char - 3) : party.start_char]
+        if preceding_text.endswith(" z ") and distance <= 28:
+            return True
         if any(marker in party_window for marker in PARTY_CONTEXT_LEMMAS):
-            return abs(person.start_char - party.start_char) <= 72
+            if any(
+                marker in between_text
+                for marker in ("lider", "działacz", "polityk", "radny", "radna")
+            ):
+                return True
+            return distance <= 36
 
         party_word = next(
             (
@@ -462,12 +477,25 @@ class CandidateGraphBuilder:
         if party_word is None:
             return False
 
+        person_words = [
+            word
+            for word in parsed_words
+            if person.start_char <= word.start < person.end_char
+            or word.start <= person.start_char < word.end
+        ]
+        if not person_words:
+            return False
+
         head = next((word for word in parsed_words if word.index == party_word.head), None)
         if head is None:
             return False
-        return (
-            head.lemma in PARTY_CONTEXT_LEMMAS and abs(person.start_char - party.start_char) <= 72
-        )
+        if head.lemma in PARTY_CONTEXT_LEMMAS and distance <= 40:
+            if any(person_word.index == head.head for person_word in person_words):
+                return True
+            if any(person_word.head == head.index for person_word in person_words):
+                return True
+            return any(marker in between_text for marker in (" z ", ",", "(", ")"))
+        return False
 
     def _mentions_for_sentence(
         self,

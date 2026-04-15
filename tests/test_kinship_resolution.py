@@ -1,22 +1,10 @@
 from unittest.mock import MagicMock
 
-import pytest
-
-from pipeline.models import ArticleDocument, CandidateGraph, EntityCandidate
-from pipeline.relations.fact_extractors import (
-    CandidateType,
-    GovernanceFactExtractor,
-    SentenceContext,
-)
-from pipeline.relations.types import ParsedWord
+from pipeline.models import ArticleDocument, CandidateGraph, EntityCandidate, ParsedWord
+from pipeline.relations.fact_extractors import CandidateType, SentenceContext
 
 
-@pytest.fixture
-def extractor():
-    return GovernanceFactExtractor()
-
-
-def test_kinship_proxy_skips_speaker(extractor):
+def test_kinship_proxy_skips_speaker() -> None:
     # Setup:
     # Current sentence: "- Moja żona zrezygnowała - mówi Dariusz."
     # Speaker: Dariusz

@@ -75,3 +75,21 @@ class OutputBuilder(PipelineStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ExtractionResult:
         raise NotImplementedError
+
+
+class EntityClusterer(PipelineStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
+
+
+class ClauseParser(PipelineStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
+
+
+class FrameExtractor(PipelineStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
