@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from unittest.mock import patch
 
-from pipeline.base import OutputBuilder, Preprocessor, RelevanceFilter
+from pipeline.base import Preprocessor, RelevanceFilter
 from pipeline.cli import build_pipeline
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
@@ -12,8 +12,6 @@ from pipeline.models import (
     ArticleDocument,
     CoreferenceResult,
     Entity,
-    ExtractionResult,
-    GraphExport,
     Mention,
     PipelineInput,
     RelevanceDecision,
@@ -98,24 +96,6 @@ class StubRelevanceFilter(RelevanceFilter):
         return RelevanceDecision(is_relevant=False, score=0.0, reasons=["irrelevant"])
 
 
-class StubOutputBuilder(OutputBuilder):
-    def name(self) -> str:
-        return "stub_output_builder"
-
-    def run(self, document: ArticleDocument) -> ExtractionResult:
-        return ExtractionResult(
-            document_id=document.document_id,
-            source_url=document.source_url,
-            title=document.title,
-            publication_date=document.publication_date,
-            relevance=document.relevance or RelevanceDecision(False, 0.0, []),
-            entities=[],
-            facts=[],
-            events=[],
-            score=None,
-        )
-
-
 def test_irrelevant_pipeline_run_does_not_load_heavy_models() -> None:
     config = PipelineConfig.from_file("config.yaml")
     calls = LoaderCounter()
@@ -144,7 +124,6 @@ def test_irrelevant_pipeline_run_does_not_load_heavy_models() -> None:
     pipeline = build_pipeline(config, runtime=runtime)
     pipeline.preprocessor = StubPreprocessor()
     pipeline.relevance_filter = StubRelevanceFilter()
-    pipeline.output_builder = StubOutputBuilder()
 
     result = pipeline.run(PipelineInput(raw_html="<html></html>", source_url=None))
 

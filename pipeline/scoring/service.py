@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import Scorer
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EventType, FactType
+from pipeline.domain_types import FactType
 from pipeline.models import ArticleDocument, ScoreResult
 
 
@@ -17,35 +17,41 @@ class RuleBasedNepotismScorer(Scorer):
         score = 0.0
         reasons: list[str] = []
         fact_types = {fact.fact_type for fact in document.facts}
-        event_types = {event.event_type for event in document.events}
         lowered = document.cleaned_text.lower()
 
-        if FactType.PARTY_MEMBERSHIP in fact_types or FactType.FORMER_PARTY_MEMBERSHIP in fact_types:
+        if (
+            FactType.PARTY_MEMBERSHIP in fact_types
+            or FactType.FORMER_PARTY_MEMBERSHIP in fact_types
+        ):
             score += self.config.score_weights.political_tie
             reasons.append("detected party affiliation")
         if FactType.PERSONAL_OR_POLITICAL_TIE in fact_types:
             score += self.config.score_weights.family_tie
             reasons.append("detected family or acquaintance tie")
-            
-        has_board = any(f.fact_type in {FactType.APPOINTMENT, FactType.DISMISSAL} and f.attributes.get("board_role") for f in document.facts)
+
+        has_board = any(
+            f.fact_type in {FactType.APPOINTMENT, FactType.DISMISSAL}
+            and f.attributes.get("board_role")
+            for f in document.facts
+        )
         if has_board:
             score += self.config.score_weights.board_position
             reasons.append("detected board appointment")
-            
+
         if FactType.COMPENSATION in fact_types:
             score += 0.15
             reasons.append("detected public-money compensation signal")
         if FactType.FUNDING in fact_types:
             score += 0.2
             reasons.append("detected public funding relation")
-            
+
         if any(marker in lowered for marker in self.config.patterns.state_company_markers):
             score += self.config.score_weights.state_company
             reasons.append("organization looks state-owned or municipal")
         if any(marker in lowered for marker in self.config.patterns.qualification_markers):
             score += self.config.score_weights.qualification_gap
             reasons.append("qualification-gap language detected")
-        if EventType.DISMISSAL in event_types:
+        if FactType.DISMISSAL in fact_types:
             score += self.config.score_weights.dismissal_signal
             reasons.append("dismissal is a governance event signal")
 

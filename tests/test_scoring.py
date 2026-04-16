@@ -1,6 +1,6 @@
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EventType, FactType, TimeScope
-from pipeline.models import ArticleDocument, Event, EvidenceSpan, Fact
+from pipeline.domain_types import FactType, TimeScope
+from pipeline.models import ArticleDocument, EvidenceSpan, Fact
 from pipeline.scoring import RuleBasedNepotismScorer
 
 
@@ -42,18 +42,6 @@ def test_rule_based_scorer_counts_expected_signals() -> None:
                 attributes={"board_role": True},
             ),
         ],
-        events=[
-            Event(
-                event_id="event1",
-                event_type=EventType.APPOINTMENT,
-                person_entity_id="p1",
-                organization_entity_id="org1",
-                position_entity_id=None,
-                event_date=None,
-                confidence=0.8,
-                evidence=EvidenceSpan(text="powołano"),
-            )
-        ],
     )
 
     scored = scorer.run(document)
@@ -73,14 +61,15 @@ def test_dismissal_increases_score() -> None:
         publication_date=None,
         cleaned_text="Prezesa odwołano ze spółki miejskiej.",
         paragraphs=["Prezesa odwołano ze spółki miejskiej."],
-        facts=[],
-        events=[
-            Event(
-                event_id="event2",
-                event_type=EventType.DISMISSAL,
-                person_entity_id="p1",
-                organization_entity_id="org1",
-                position_entity_id=None,
+        facts=[
+            Fact(
+                fact_id="f-dismissal",
+                fact_type=FactType.DISMISSAL,
+                subject_entity_id="p1",
+                object_entity_id="org1",
+                value_text=None,
+                value_normalized=None,
+                time_scope=TimeScope.CURRENT,
                 event_date=None,
                 confidence=0.8,
                 evidence=EvidenceSpan(text="odwołano"),
@@ -92,4 +81,3 @@ def test_dismissal_increases_score() -> None:
 
     assert scored.score is not None
     assert scored.score.value == config.score_weights.dismissal_signal
-

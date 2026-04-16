@@ -34,9 +34,6 @@ class FactType(StrEnum):
     PERSONAL_OR_POLITICAL_TIE = "PERSONAL_OR_POLITICAL_TIE"
 
 
-
-
-
 class EventType(StrEnum):
     APPOINTMENT = "appointment"
     DISMISSAL = "dismissal"
@@ -121,19 +118,3 @@ class FactAttributes(TypedDict, total=False):
     overlaps_governance: bool
     source_extractor: str | None
     score_reason: str | None
-
-
-
-
-
-class EventAttributes(TypedDict, total=False):
-    time_scope: TimeScope | None
-    position_entity_id: str | None
-    role: str | None
-    role_kind: str | None
-    board_role: bool
-    organization_kind: OrganizationKind | None
-    owner_context_entity_id: str | None
-    appointing_authority_entity_id: str | None
-    governing_body_entity_id: str | None
-    confidence_breakdown: ConfidenceBreakdown | None

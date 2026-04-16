@@ -5,7 +5,6 @@ from abc import ABC, abstractmethod
 from pipeline.models import (
     ArticleDocument,
     CoreferenceResult,
-    ExtractionResult,
     PipelineInput,
     RelevanceDecision,
 )
@@ -47,15 +46,9 @@ class CoreferenceResolver(PipelineStage):
         raise NotImplementedError
 
 
-class RelationExtractor(PipelineStage):
+class FactExtractor(PipelineStage):
     @abstractmethod
     def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
-        raise NotImplementedError
-
-
-class EventExtractor(PipelineStage):
-    @abstractmethod
-    def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
@@ -68,12 +61,6 @@ class EntityLinker(PipelineStage):
 class Scorer(PipelineStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        raise NotImplementedError
-
-
-class OutputBuilder(PipelineStage):
-    @abstractmethod
-    def run(self, document: ArticleDocument) -> ExtractionResult:
         raise NotImplementedError
 
 

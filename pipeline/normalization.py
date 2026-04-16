@@ -247,27 +247,6 @@ class DocumentEntityCanonicalizer:
                 attr_value = fact.attributes.get(attr_key)
                 if isinstance(attr_value, str):
                     fact.attributes[attr_key] = remap.get(attr_value, attr_value)
-        for event in document.events:
-            if event.person_entity_id:
-                event.person_entity_id = remap.get(event.person_entity_id, event.person_entity_id)
-            if event.organization_entity_id:
-                event.organization_entity_id = remap.get(
-                    event.organization_entity_id,
-                    event.organization_entity_id,
-                )
-            if event.position_entity_id:
-                event.position_entity_id = remap.get(
-                    event.position_entity_id, event.position_entity_id
-                )
-            for attr_key in (
-                "position_entity_id",
-                "owner_context_entity_id",
-                "appointing_authority_entity_id",
-                "governing_body_entity_id",
-            ):
-                attr_value = event.attributes.get(attr_key)
-                if isinstance(attr_value, str):
-                    event.attributes[attr_key] = remap.get(attr_value, attr_value)
 
     def _persons_compatible(self, left: Entity, right: Entity) -> bool:
         left_tokens = left.normalized_name.split()

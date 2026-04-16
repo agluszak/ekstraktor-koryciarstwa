@@ -19,8 +19,6 @@ Note: Stanza coref still reloads per article by design, matching the earlier sta
 - Relevant outputs: 20
 - Irrelevant outputs: 3
 - Total facts: 177
-- Total relations: 94
-- Total events: 29
 
 High-level fact families observed:
 
@@ -42,9 +40,9 @@ The previous joined entity name `Ministerstwo Kultury i Dziedzictwa Narodowego F
 
 ### Negative Cases
 
-- `olsztyn_roosevelta_negative`: irrelevant, 0 facts, 0 relations, 0 events.
-- `wp_meloni_negative`: irrelevant, 0 facts, 0 relations, 0 events.
-- `rp_tk_negative`: still marked relevant, but emits 0 facts, 0 relations, 0 events.
+- `olsztyn_roosevelta_negative`: irrelevant, 0 facts.
+- `wp_meloni_negative`: irrelevant, 0 facts.
+- `rp_tk_negative`: still marked relevant, but emits 0 facts.
 
 The RP TK article remains a relevance false positive, but downstream extraction stays clean.
 
@@ -52,17 +50,17 @@ The RP TK article remains a relevance false positive, but downstream extraction 
 
 Examples with useful extraction:
 
-- `onet_totalizator` / Onet Totalizator copy: 25 facts, 10 relations, 3 events.
-- `onet_wfosigw_lublin`: 15 facts, 13 relations, 2 events.
-- `radomszczanska_nowy_zaciag` / Radomszczańska copy: 5 facts, 5 relations, 3 events.
-- `tvp_olsztyn_sloma_wodociagi` / TVP Olsztyn copy: 1 fact, 2 relations, 2 events.
-- `zona-posla-pis`: 10 facts, 6 relations, 4 events.
-- `wiadomosci.onet.pl__kraj__tak-psl-obsadzil...`: 15 facts, 6 relations, 2 events.
+- `onet_totalizator`: 25 facts.
+- `onet_wfosigw_lublin`: 15 facts.
+- `radomszczanska.pl__artykul__nowy-zaciag-tlustych-n1256470`: 5 facts.
+- `olsztyn.tvp.pl__41863255__z-wiceprezydenta-na-wiceprezesa-jaroslaw-sloma-w-zarzadzie-olsztynskich-wodociagow`: 1 fact.
+- `zona-posla-pis`: 10 facts.
+- `wiadomosci.onet.pl__kraj__tak-psl-obsadzil...`: 15 facts.
 
 Salary/public-money coverage:
 
 - `olsztyn_wodkan`: 5 compensation facts.
-- `niezalezna_polski2050_synekury` and its duplicate: 2 compensation facts each for KZN salary amounts.
+- `niezalezna_polski2050_synekury`: 12 facts, including KZN compensation findings.
 
 ## Main Regressions Or Misses
 
@@ -73,7 +71,7 @@ Salary/public-money coverage:
 - Relevance: false.
 - Score: `0.2`.
 - Reason: only `contains person-like full name`.
-- Facts/relations/events: all 0.
+- Facts: 0.
 
 This is a strong positive article by expectation, so relevance filtering is too strict for this article variant. The shorter `onet_wfosigw_lublin` copy does extract useful facts, so this may be input-content extraction or boilerplate/cleaned-text differences rather than relation extraction itself.
 
@@ -82,7 +80,7 @@ This is a strong positive article by expectation, so relevance filtering is too 
 `pleszew24.info__pl__12_biznes__16076_radna-powiatowa-z-posada-zmiana-prezesa-slynnej-panstwowej-stadniny-koni`
 
 - Relevance: true.
-- Facts/relations/events: all 0.
+- Facts: 0.
 
 This is a strong appointment case by title and benchmark expectation. The failure is after relevance, likely in sentence segmentation, NER, clause parsing, or governance-frame target/person role resolution.
 

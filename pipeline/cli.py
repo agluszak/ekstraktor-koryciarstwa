@@ -10,16 +10,14 @@ from urllib.request import Request, urlopen
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
-from pipeline.events import PolishEventExtractor
 from pipeline.filtering import KeywordRelevanceFilter
 from pipeline.frames import PolishFrameExtractor
 from pipeline.linking import SQLiteEntityLinker
 from pipeline.models import ExtractionResult, PipelineInput
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.orchestrator import NepotismPipeline
-from pipeline.output import JsonOutputBuilder, write_outputs
 from pipeline.preprocessing import TrafilaturaPreprocessor
-from pipeline.relations import PolishRuleBasedRelationExtractor
+from pipeline.relations import PolishFactExtractor
 from pipeline.runtime import PipelineRuntime
 from pipeline.scoring import RuleBasedNepotismScorer
 from pipeline.segmentation import ParagraphSentenceSegmenter
@@ -87,14 +85,12 @@ def build_pipeline(
         segmenter=ParagraphSentenceSegmenter(config),
         ner_extractor=SpacyPolishNERExtractor(config, runtime=shared_runtime),
         coreference_resolver=StanzaCoreferenceResolver(config, runtime=shared_runtime),
-        relation_extractor=PolishRuleBasedRelationExtractor(config),
-        event_extractor=PolishEventExtractor(config),
+        fact_extractor=PolishFactExtractor(config),
         entity_linker=SQLiteEntityLinker(config, runtime=shared_runtime),
         entity_clusterer=PolishEntityClusterer(config),
         clause_parser=StanzaClauseParser(config, runtime=shared_runtime),
         frame_extractor=PolishFrameExtractor(config),
         scorer=RuleBasedNepotismScorer(config),
-        output_builder=JsonOutputBuilder(),
     )
 
 
@@ -137,13 +133,11 @@ def run_single(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
             document_id=args.document_id,
         )
     )
-    result_path, graph_path = write_outputs(result, args.output_dir)
     if args.stdout:
         emit_json(result.to_dict(), indent=2)
     else:
-        emit_json(
-            {"result_path": str(result_path), "graph_path": str(graph_path)},
-        )
+        output_path = write_result(result, args.output_dir)
+        emit_json({"result_path": str(output_path)})
     return 0
 
 
@@ -168,16 +162,14 @@ def run_batch(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
                 document_id=args.document_id or html_path.stem,
             )
         )
-        result_path, graph_path = write_outputs(result, args.output_dir)
+        result_path = write_result(result, args.output_dir)
         rows.append(
             {
                 "input_path": str(html_path),
                 "document_id": result.document_id,
                 "result_path": str(result_path),
-                "graph_path": str(graph_path),
                 "relevant": result.relevance.is_relevant,
                 "facts": len(result.facts),
-                "events": len(result.events),
             }
         )
 
@@ -216,14 +208,23 @@ def handle_worker_request(
             document_id=str(payload["document_id"]) if payload.get("document_id") else None,
         )
     )
-    result_path, graph_path = write_outputs(result, output_dir)
+    result_path = write_result(result, output_dir)
     return {
         "ok": True,
         "document_id": result.document_id,
         "result_path": str(result_path),
-        "graph_path": str(graph_path),
         "result": result.to_dict(),
     }
+
+
+def write_result(result: ExtractionResult, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    result_path = output_dir / f"{result.document_id}.json"
+    result_path.write_text(
+        json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return result_path
 
 
 def run_worker(args: argparse.Namespace, pipeline: PipelineRunner) -> int:

@@ -38,11 +38,16 @@
       "evidence": []
     }
   ],
-  "relations": [
+  "facts": [
     {
-      "relation_type": "APPOINTED_TO",
-      "source_entity_id": "person_123",
-      "target_entity_id": "org_123",
+      "fact_id": "fact_123",
+      "fact_type": "APPOINTMENT",
+      "subject_entity_id": "person_123",
+      "object_entity_id": "org_123",
+      "value_text": "członek zarządu",
+      "value_normalized": "członek zarządu",
+      "time_scope": "current",
+      "event_date": "2026-04-13",
       "confidence": 0.82,
       "evidence": {
         "text": "Mariusz Antoni Kamiński został powołany do zarządu Polskiego Holdingu Obronnego.",
@@ -51,26 +56,9 @@
         "start_char": 0,
         "end_char": 86
       },
-      "attributes": {}
-    }
-  ],
-  "events": [
-    {
-      "event_id": "event_123",
-      "event_type": "appointment",
-      "person_entity_id": "person_123",
-      "organization_entity_id": "org_123",
-      "position_entity_id": null,
-      "event_date": "2026-04-13",
-      "confidence": 0.8,
-      "evidence": {
-        "text": "Mariusz Antoni Kamiński został powołany do zarządu Polskiego Holdingu Obronnego.",
-        "sentence_index": 0,
-        "paragraph_index": 0,
-        "start_char": 0,
-        "end_char": 86
-      },
-      "attributes": {}
+      "attributes": {
+        "board_role": true
+      }
     }
   ],
   "score": {
@@ -78,38 +66,6 @@
     "reasons": [
       "detected board appointment",
       "organization looks state-owned or municipal"
-    ]
-  },
-  "graph": {
-    "nodes": [
-      {
-        "node_id": "person_123",
-        "label": "Person",
-        "properties": {
-          "canonical_name": "Mariusz Antoni Kamiński",
-          "normalized_name": "Mariusz Antoni Kamiński",
-          "registry_id": "person_registry_123"
-        }
-      },
-      {
-        "node_id": "org_123",
-        "label": "Organization",
-        "properties": {
-          "canonical_name": "Polski Holding Obronny",
-          "normalized_name": "Polski Holding Obronny"
-        }
-      }
-    ],
-    "edges": [
-      {
-        "edge_id": "edge_123",
-        "edge_type": "APPOINTED_TO",
-        "source": "person_123",
-        "target": "org_123",
-        "properties": {
-          "confidence": 0.82
-        }
-      }
     ]
   }
 }

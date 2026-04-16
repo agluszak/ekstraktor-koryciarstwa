@@ -36,7 +36,6 @@ class StubPipeline:
                 )
             ],
             facts=[],
-            events=[],
             score=None,
         )
 

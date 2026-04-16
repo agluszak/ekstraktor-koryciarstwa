@@ -22,7 +22,6 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         return "stanza_coreference_resolver"
 
     def run(self, document: ArticleDocument) -> CoreferenceResult:
-        mention_links: dict[int, str] = {}
         resolved_mentions = list(document.mentions)
         people = [entity for entity in document.entities if entity.entity_type == EntityType.PERSON]
         entity_by_name = {entity.normalized_name: entity for entity in people}
@@ -56,16 +55,11 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                         entity_id=representative_entity.entity_id,
                         attributes={"representative_text": representative_text},
                     )
-                    mention_links[id(resolved)] = representative_entity.entity_id
                     resolved_mentions.append(resolved)
         finally:
             self.runtime.reset_stanza_coref_pipeline()
 
-        for mention in document.mentions:
-            if mention.entity_id:
-                mention_links[id(mention)] = mention.entity_id
-
-        return CoreferenceResult(mention_links=mention_links, resolved_mentions=resolved_mentions)
+        return CoreferenceResult(resolved_mentions=resolved_mentions)
 
     @staticmethod
     def _match_person_entity(

@@ -64,7 +64,7 @@ class SQLiteEntityLinker(EntityLinker):
         document.entities, exact_name_remap = self._deduplicate_exact_names(document.entities)
         id_remap.update(exact_name_remap)
 
-        # Remap entity references in facts and relations
+        # Remap entity references in extracted facts
         if id_remap:
             for fact in document.facts:
                 fact.subject_entity_id = id_remap.get(

@@ -9,7 +9,6 @@ from pipeline.domain_types import (
     CandidateType,
     EntityAttributes,
     EntityType,
-    EventAttributes,
     EventType,
     FactAttributes,
     FactType,
@@ -61,44 +60,9 @@ class Fact:
 
 
 @dataclass(slots=True)
-class Event:
-    event_id: str
-    event_type: EventType
-    person_entity_id: str | None
-    organization_entity_id: str | None
-    position_entity_id: str | None
-    event_date: str | None
-    confidence: float
-    evidence: EvidenceSpan
-    attributes: EventAttributes = field(default_factory=lambda: cast(EventAttributes, {}))
-
-
-@dataclass(slots=True)
 class ScoreResult:
     value: float
     reasons: list[str]
-
-
-@dataclass(slots=True)
-class GraphNode:
-    node_id: str
-    label: str
-    properties: dict[str, Any]
-
-
-@dataclass(slots=True)
-class GraphEdge:
-    edge_id: str
-    edge_type: str
-    source: str
-    target: str
-    properties: dict[str, Any]
-
-
-@dataclass(slots=True)
-class GraphExport:
-    nodes: list[GraphNode]
-    edges: list[GraphEdge]
 
 
 @dataclass(slots=True)
@@ -257,7 +221,6 @@ class RelevanceDecision:
 
 @dataclass(slots=True)
 class CoreferenceResult:
-    mention_links: dict[int, str]
     resolved_mentions: list[Mention]
 
 
@@ -276,9 +239,7 @@ class ArticleDocument:
     sentences: list[SentenceFragment] = field(default_factory=list)
     entities: list[Entity] = field(default_factory=list)
     mentions: list[Mention] = field(default_factory=list)
-    candidate_graph: CandidateGraph | None = None
     facts: list[Fact] = field(default_factory=list)
-    events: list[Event] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
     score: ScoreResult | None = None
     clusters: list[EntityCluster] = field(default_factory=list)
@@ -298,11 +259,23 @@ class ExtractionResult:
     relevance: RelevanceDecision
     entities: list[Entity]
     facts: list[Fact]
-    events: list[Event]
     score: ScoreResult | None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def extraction_result_from_document(document: ArticleDocument) -> ExtractionResult:
+    return ExtractionResult(
+        document_id=document.document_id,
+        source_url=document.source_url,
+        title=document.title,
+        publication_date=document.publication_date,
+        relevance=document.relevance or RelevanceDecision(False, 0.0, []),
+        entities=document.entities,
+        facts=document.facts,
+        score=document.score,
+    )
 
 
 def default_document_id(source_url: str | None, publication_date: str | None) -> str:

@@ -9,7 +9,10 @@ uv sync
 uv run python scripts/setup_models.py
 ```
 
-The setup script installs `pl_core_news_lg`, downloads the Stanza Polish
+You must run `uv run python scripts/setup_models.py` in the current `.venv` before
+running the pipeline or the test suite. `uv sync` alone is not enough.
+
+The setup script installs `pl_core_news_lg` and `pl_core_news_md`, downloads the Stanza Polish
 `tokenize,mwt,pos,lemma,depparse` models, and downloads plus patches the pinned
 Polish coref model artifact.
 
@@ -40,7 +43,6 @@ Then send one JSON object per line on stdin, for example:
 The pipeline writes:
 
 - `output/<document>.json`
-- `output/<document>.graph.json`
 - `output/entity_registry.sqlite3`
 
 ## Example output

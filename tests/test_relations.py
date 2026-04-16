@@ -16,7 +16,8 @@ from pipeline.models import (
     Mention,
     SentenceFragment,
 )
-from pipeline.relations import PolishRuleBasedRelationExtractor
+from pipeline.relations import PolishFactExtractor
+from pipeline.relations.candidate_graph import CandidateGraphBuilder
 from pipeline.runtime import PipelineRuntime
 from pipeline.segmentation import ParagraphSentenceSegmenter
 from pipeline.syntax import StanzaClauseParser
@@ -68,7 +69,7 @@ def prepare_for_relation_extraction(
 
 def test_party_aliases_match_whole_tokens_only() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     document = ArticleDocument(
         document_id="doc-1",
         source_url=None,
@@ -108,7 +109,7 @@ def test_party_aliases_match_whole_tokens_only() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
     party_names = sorted(
         entity.canonical_name
@@ -121,7 +122,7 @@ def test_party_aliases_match_whole_tokens_only() -> None:
 
 def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = 'Jest to niestety prosta droga do "syndromu Rybnika" - pisze Dorota Połedniok.'
     document = ArticleDocument(
         document_id="doc-2",
@@ -162,17 +163,15 @@ def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
-    assert not any(
-        fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE for fact in extracted.facts
-    )
+    assert not any(fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE for fact in extracted.facts)
 
 
 def test_compensation_relation_is_extracted() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Łukasz Bałajewicz zarabia miesięcznie ponad 31 tys. zł brutto jako prezes KZN."
     document = ArticleDocument(
         document_id="doc-3",
@@ -226,7 +225,7 @@ def test_compensation_relation_is_extracted() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     compensation_facts = [
@@ -248,7 +247,7 @@ def test_compensation_relation_is_extracted() -> None:
 
 def test_party_cannot_become_appointment_destination() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Stanisław Mazur, polityk Lewicy, został prezesem."
     document = ArticleDocument(
         document_id="doc-4",
@@ -302,7 +301,7 @@ def test_party_cannot_become_appointment_destination() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert not any(fact.fact_type == FactType.APPOINTMENT for fact in extracted.facts)
@@ -310,7 +309,7 @@ def test_party_cannot_become_appointment_destination() -> None:
 
 def test_party_membership_requires_local_structural_support() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Donald Tusk skrytykował PSL za decyzję w sprawie budżetu."
     document = ArticleDocument(
         document_id="doc-5",
@@ -364,7 +363,7 @@ def test_party_membership_requires_local_structural_support() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert not any(
@@ -375,7 +374,7 @@ def test_party_membership_requires_local_structural_support() -> None:
 
 def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Jan Kowalski, działacz PSL, został powołany do rady."
     document = ArticleDocument(
         document_id="doc-party-score",
@@ -429,7 +428,7 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     party_facts = [
@@ -450,7 +449,7 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
 
 def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = (
         "A. Góralczyk, działaczka PSL, pracowała wcześniej w urzędzie. "
         "Teraz awansowała na stanowisko zastępcy prezesa. "
@@ -535,7 +534,7 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -569,7 +568,7 @@ def test_segmenter_keeps_initials_with_surname() -> None:
 
 def test_inflected_public_institution_is_typed_from_lemmas() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     institution_surface = "Wojewódzkim Funduszu Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
     institution_normalized = "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
     text = f"Stanisław Mazur odebrał nominację w {institution_surface}."
@@ -625,19 +624,23 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
-    assert extracted.candidate_graph is not None
+    candidate_graph = CandidateGraphBuilder(config).build(
+        document=extracted,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=extracted.parsed_sentences,
+    )
     assert any(
         candidate.candidate_type == CandidateType.PUBLIC_INSTITUTION
-        for candidate in extracted.candidate_graph.candidates
+        for candidate in candidate_graph.candidates
     )
 
 
 def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Jan Kowalski, polityk Koalicji 15 Października, został powołany."
     document = ArticleDocument(
         document_id="doc-9",
@@ -691,20 +694,24 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
-    assert extracted.candidate_graph is not None
+    candidate_graph = CandidateGraphBuilder(config).build(
+        document=extracted,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=extracted.parsed_sentences,
+    )
     assert any(
         candidate.candidate_type == CandidateType.POLITICAL_PARTY
         and "Koalicja" in candidate.canonical_name
-        for candidate in extracted.candidate_graph.candidates
+        for candidate in candidate_graph.candidates
     )
 
 
 def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Marcin Horyń złożył rezygnację ze stanowiska prezesa PSL Fundacji Rozwoju."
     document = ArticleDocument(
         document_id="doc-9b",
@@ -758,7 +765,7 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert any(
@@ -770,7 +777,7 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
 
 def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Marcin Horyń został dyrektorem AMW. MON sprawuje nadzór nad agencją."
     document = ArticleDocument(
         document_id="doc-10a",
@@ -844,13 +851,17 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
-    assert extracted.candidate_graph is not None
+    candidate_graph = CandidateGraphBuilder(config).build(
+        document=extracted,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=extracted.parsed_sentences,
+    )
     public_institutions = {
         candidate.canonical_name
-        for candidate in extracted.candidate_graph.candidates
+        for candidate in candidate_graph.candidates
         if candidate.candidate_type == CandidateType.PUBLIC_INSTITUTION
     }
     assert "Agencja Mienia Wojskowego" in public_institutions
@@ -859,7 +870,7 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
 
 def test_object_appointee_sentence_extracts_appointee_not_appointing_authority() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = (
         "Marcin Horyń złożył rezygnację. "
         "Premier Donald Tusk powołuje go na stanowisko dyrektora AMW."
@@ -936,7 +947,7 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -949,7 +960,7 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
 
 def test_party_affiliation_supports_lider_psl_phrase() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Marcin Horyń, lider PSL, objął stanowisko dyrektora AMW."
     document = ArticleDocument(
         document_id="doc-10c",
@@ -1016,7 +1027,7 @@ def test_party_affiliation_supports_lider_psl_phrase() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     party_facts = [
@@ -1030,7 +1041,7 @@ def test_party_affiliation_supports_lider_psl_phrase() -> None:
 
 def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Marcin Horyń jest jednym z zaufanych ludzi Władysława Kosiniaka-Kamysza."
     document = ArticleDocument(
         document_id="doc-10d",
@@ -1084,7 +1095,7 @@ def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     tie_facts = [
@@ -1129,7 +1140,7 @@ def test_clause_parser_parses_syntax_once_per_document() -> None:
 
     runtime = PipelineRuntime(config, stanza_factory=fake_stanza_factory)
     clause_parser = StanzaClauseParser(config, runtime)
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Jan awansował. Objął stanowisko."
     document = ArticleDocument(
         document_id="doc-10",
@@ -1177,7 +1188,7 @@ def test_clause_parser_parses_syntax_once_per_document() -> None:
     document = clause_parser.run(document)
     extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert syntax_pipeline.call_count == 1
@@ -1185,7 +1196,7 @@ def test_clause_parser_parses_syntax_once_per_document() -> None:
 
 def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "A. Góralczyk została prezeską Stadniny Koni Iwno, państwowej spółki Skarbu Państwa."
     document = ArticleDocument(
         document_id="doc-11",
@@ -1252,7 +1263,7 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -1265,7 +1276,7 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
 
 def test_governance_keeps_owner_context_without_replacing_target() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = (
         "Marcin Horyń został dyrektorem Rewita Hoteli, "
         "spółki podległej Ministerstwu Obrony Narodowej."
@@ -1337,7 +1348,7 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -1353,7 +1364,7 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
 
 def test_candidacy_requires_explicit_election_context() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Tadeusz Rydzyk dostał 300 tys. zł dotacji na projekt fundacji."
     document = ArticleDocument(
         document_id="doc-13",
@@ -1407,7 +1418,7 @@ def test_candidacy_requires_explicit_election_context() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
@@ -1415,7 +1426,7 @@ def test_candidacy_requires_explicit_election_context() -> None:
 
 def test_party_membership_does_not_cross_attach_between_multiple_people() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    extractor = PolishRuleBasedRelationExtractor(config)
+    extractor = PolishFactExtractor(config)
     text = "Stanisław Mazur z Lewicy i Andrzej Kloc z PSL będą kierować funduszem."
     document = ArticleDocument(
         document_id="doc-14",
@@ -1508,7 +1519,7 @@ def test_party_membership_does_not_cross_attach_between_multiple_people() -> Non
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
+        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     party_facts = {

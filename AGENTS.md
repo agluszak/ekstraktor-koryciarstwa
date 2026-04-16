@@ -3,25 +3,26 @@
 - Use direct execution now that full access is available.
 - If a task starts needing environment or sandbox workarounds, stop and notify the user instead of adding a workaround.
 - When lint or formatting tools support autofix, run the autofix path first and only do manual cleanup for remaining issues.
+- `uv sync` does not install the spaCy/Stanza model assets required by this repo. In any fresh or rebuilt `.venv`, run `uv run python scripts/setup_models.py` before running the pipeline or tests. Do not skip model-dependent tests; provision the models instead.
 
 # Project Context
 
 This repository houses an information extraction pipeline ("ekstraktor-koryciarstwa") focused on analyzing Polish news articles. Its primary domain is monitoring "koryciarstwo" / public money extraction: nepotism, patronage, appointments to state-owned companies, and the flow of public funds.
 
 ## Domain Model
-The pipeline extracts specific entities, relations, and events from text, using tools like spaCy NER and Stanza parsing. Key concepts include:
+The pipeline extracts specific entities and facts from text, using tools like spaCy NER and Stanza parsing. Key concepts include:
 - **Entities**: People, Organizations (state-owned enterprises, public institutions, municipal utilities), Political Parties (e.g., KO, PO, PSL, Lewica, Polska 2050, PiS), Roles/Positions, and Salary figures.
-- **Relations & Events**:
-  - `APPOINTED_TO` / `MEMBER_OF_BOARD` / `HOLDS_POSITION_AT`: Tracking governance changes and new board members.
-  - `DISMISSED_FROM`: Removals from management or supervisory boards.
-  - `AFFILIATED_WITH_PARTY`: Direct political party affiliations.
-  - `RELATED_TO`: Acquaintances, family ties, and patronage networks.
+- **Facts**:
+  - `APPOINTMENT` / board-membership-style governance facts: Tracking governance changes and new board members.
+  - `DISMISSAL`: Removals from management or supervisory boards.
+  - `PARTY_MEMBERSHIP`: Direct political party affiliations.
+  - `PERSONAL_OR_POLITICAL_TIE`: Acquaintances, family ties, and patronage networks.
 
 ## Benchmarks and Evaluation
 The `reports/` folder contains benchmark files (e.g., `expected_article_findings.md` and progress tracking reports) used to evaluate pipeline extraction quality. They document:
 - Expected extraction scenarios for various high-signal articles (like appointments without competition, party-affiliated staffing in public trusts or utilities).
 - True negative examples that should not trigger extraction (e.g., generic legal analysis or international news).
-- Current parsing performance metrics, issues (like false-positive relations or noisy entity spans), and immediate focus areas for improvement.
+- Current parsing performance metrics, issues (like false-positive facts or noisy entity spans), and immediate focus areas for improvement.
 
 Always consult the benchmark reports when modifying extraction rules or parsing logic to ensure changes align with expected outcomes and to avoid regressions.
 
@@ -33,6 +34,7 @@ When extraction, preprocessing, linking, scoring, or output logic changes:
    Use it as the manual oracle for what each benchmark article should and should not produce.
 
 2. Run the automated checks first:
+   - `uv run python scripts/setup_models.py`
    - `uv run ruff check . --fix`
    - `uv run ruff format .`
    - `uv run ruff check .`
@@ -68,11 +70,10 @@ The pipeline is no longer just "NER plus relation rules". The current internal s
 6. entity clustering
 7. clause parsing
 8. frame extraction
-9. fact / relation extraction from frames
-10. event extraction
-11. SQLite entity linking
-12. scoring
-13. JSON output
+9. fact extraction from frames
+10. SQLite entity linking
+11. scoring
+12. JSON output
 
 The practical entrypoint is [pipeline/cli.py](/D:/extractor/pipeline/cli.py:1), and the orchestration order is in [pipeline/orchestrator.py](/D:/extractor/pipeline/orchestrator.py:1).
 
@@ -95,7 +96,7 @@ The practical entrypoint is [pipeline/cli.py](/D:/extractor/pipeline/cli.py:1), 
 - [pipeline/funding.py](/D:/extractor/pipeline/funding.py:1)
   Builds funding facts from funding frames.
 - [pipeline/relations/service.py](/D:/extractor/pipeline/relations/service.py:1)
-  The frame-derived fact/relation path. This is the main extraction service now.
+  The frame-derived fact extraction path. This is the main extraction service now.
 - [pipeline/linking/service.py](/D:/extractor/pipeline/linking/service.py:1)
   SQLite registry linking and post-extraction canonical name reuse.
 
@@ -169,7 +170,7 @@ Current benchmark problems worth knowing before you start changing things:
    This is probably a relevance/content-extraction issue, not just relation extraction.
 
 2. `pleszew24.info__...stadniny-koni`
-   Relevant, but produces no facts/relations/events.
+   Relevant, but produces no facts.
    Likely failure after relevance: NER, clause parsing, or governance-frame resolution.
 
 3. `rp_tk_negative`

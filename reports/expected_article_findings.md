@@ -25,7 +25,7 @@ Likely relevant entities:
 Expected extraction outcome:
 - Relevance should likely be `true`.
 - The pipeline should at least recover people and the public institution paying the money.
-- No `APPOINTED_TO` or `MEMBER_OF_BOARD` finding is required here unless the article itself mentions company posts.
+- No `APPOINTMENT` or `MEMBER_OF_BOARD` finding is required here unless the article itself mentions company posts.
 - A generic public-money / remuneration signal would be useful in future versions.
 
 Useful comparison note:
@@ -48,25 +48,25 @@ Expected high-level findings:
 
 Expected person -> organization findings explicitly visible in the article:
 - Piotr Szymanek -> Energa Elektrownie Ostrołęka
-  Expected relations: `MEMBER_OF_BOARD`, likely also `APPOINTED_TO`
+  Expected facts: `MEMBER_OF_BOARD`, likely also `APPOINTMENT`
 - Piotr Szymanek -> Energa
-  Expected relation/event: management appointment, vice-president role
+  Expected fact: management appointment, vice-president role
 - Karol Bielski -> PKP Telkol
-  Expected relation: `MEMBER_OF_BOARD`
+  Expected fact: `MEMBER_OF_BOARD`
 - Leszek Świętowski -> Zakład Mechaniczny "Siarkopol"
-  Expected relation: `MEMBER_OF_BOARD`
+  Expected fact: `MEMBER_OF_BOARD`
 - Leszek Zawadzki -> Pomorska Agencja Rozwoju Regionalnego
-  Expected relation: `MEMBER_OF_BOARD`
+  Expected fact: `MEMBER_OF_BOARD`
 - Michał Olejniczak -> Narzędziownia-Mechanik
-  Expected relation: `MEMBER_OF_BOARD`
+  Expected fact: `MEMBER_OF_BOARD`
 - Marek Rutka -> Zarząd Morskiego Portu Gdynia
-  Expected relation: `MEMBER_OF_BOARD`
+  Expected fact: `MEMBER_OF_BOARD`
 - Bartłomiej Gębala -> Nowe Centrum Administracyjne
-  Expected relation: `MEMBER_OF_BOARD`
+  Expected fact: `MEMBER_OF_BOARD`
 - Andrzej Pilot -> JSW Logistics
-  Expected relation: `MEMBER_OF_BOARD`
+  Expected fact: `MEMBER_OF_BOARD`
 - Magdalena Roguska -> Polska Wytwórnia Papierów Wartościowych
-  Expected relation/event: appointment to supervisory board
+  Expected fact: appointment to supervisory board
 - Magdalena Roguska -> resignation / board exit
   Expected event: dismissal/resignation style governance event if the system handles it
 
@@ -133,21 +133,21 @@ Expected core entities:
 - MON
 - Platforma Obywatelska
 
-Expected relations and events:
+Expected facts:
 - Jarosław Hodura -> Grupa Hoteli WAM
-  Expected: `APPOINTED_TO` or equivalent employment/position relation
+  Expected: `APPOINTMENT` or equivalent employment/position relation
 - Jarosław Hodura -> Bogdan Klich
-  Expected: `RELATED_TO` with acquaintance / collaborator semantics
+  Expected: `PERSONAL_OR_POLITICAL_TIE` with acquaintance / collaborator semantics
 - Marcin Dulian -> Grupa Hoteli WAM
   Expected: management-board / president role
 - Marcin Dulian -> Bogdan Klich
-  Expected: `RELATED_TO` with friend / former bureau chief semantics
+  Expected: `PERSONAL_OR_POLITICAL_TIE` with friend / former bureau chief semantics
 - Krzysztof Kuczmański -> Przedsiębiorstwo Usług Hotelarskich i Turystycznych
-  Expected: `APPOINTED_TO`, management / president role
+  Expected: `APPOINTMENT`, management / president role
 - Krzysztof Kuczmański -> Bogdan Klich
-  Expected: `RELATED_TO` with acquaintance / campaign helper semantics
+  Expected: `PERSONAL_OR_POLITICAL_TIE` with acquaintance / campaign helper semantics
 - Bogdan Klich -> Platforma Obywatelska
-  Expected: `AFFILIATED_WITH_PARTY`
+  Expected: `PARTY_MEMBERSHIP`
 
 Important text cues:
 - "dostał się bez konkursu"
@@ -156,8 +156,8 @@ Important text cues:
 - "były szef biura europoselskiego Klicha i jego wieloletni przyjaciel"
 
 Expected comparison standard:
-- This article should definitely yield non-empty relations.
-- If the system fails to emit acquaintance links and appointment relations here, extraction coverage is still too weak.
+- This article should definitely yield non-empty facts.
+- If the system fails to emit acquaintance links and appointment facts here, extraction coverage is still too weak.
 
 ## 5. Onet: Partyjny desant na Totalizator Sportowy
 
@@ -177,12 +177,12 @@ Expected core entities:
 - Olgierd Cieślik
 - local PO / PSL / Lewica appointees named in the body
 
-Expected relations and events:
-- Multiple `APPOINTED_TO` findings into `Totalizator Sportowy`
+Expected facts:
+- Multiple `APPOINTMENT` findings into `Totalizator Sportowy`
 - Multiple `HOLDS_POSITION_AT` or equivalent management-role findings for regional director roles
-- At least one `DISMISSED_FROM` or `dismissal` event for earlier management removals
-- Multiple `AFFILIATED_WITH_PARTY` findings for PO, PSL, Lewica
-- Multiple typed `RELATED_TO` findings for collaborator / parliamentary-office / political-network ties
+- At least one `DISMISSAL` or `dismissal` event for earlier management removals
+- Multiple `PARTY_MEMBERSHIP` findings for PO, PSL, Lewica
+- Multiple typed `PERSONAL_OR_POLITICAL_TIE` findings for collaborator / parliamentary-office / political-network ties
 - Compensation metadata should appear where the article states that directors can earn over `20 tys. zł miesięcznie`
 
 Important text cues:
@@ -212,11 +212,11 @@ Expected core entities:
 - Cezary Tomczyk
 - Ministerstwo Obrony Narodowej
 
-Expected relations and events:
-- Marek Rząsowski -> `APPOINTED_TO` -> AMW Rewita
+Expected facts:
+- Marek Rząsowski -> `APPOINTMENT` -> AMW Rewita
 - Marek Rząsowski -> `HOLDS_POSITION_AT` -> AMW Rewita
   Expected role: `wiceprezes`
-- Marek Rząsowski -> `AFFILIATED_WITH_PARTY` -> Platforma Obywatelska
+- Marek Rząsowski -> `PARTY_MEMBERSHIP` -> Platforma Obywatelska
 - AMW Rewita should be recognized as a state-controlled / MON-linked organization
 - Compensation metadata should be captured from the line about the predecessor earning `24 tys. zł brutto`
 
@@ -252,15 +252,15 @@ Expected core entities:
 - Platforma Obywatelska
 - PiS
 
-Expected relations and events:
-- Stanisław Mazur -> `APPOINTED_TO` -> WFOŚiGW w Lublinie
+Expected facts:
+- Stanisław Mazur -> `APPOINTMENT` -> WFOŚiGW w Lublinie
   Expected role: `prezes`
-- Andrzej Kloc -> `APPOINTED_TO` -> WFOŚiGW w Lublinie
+- Andrzej Kloc -> `APPOINTMENT` -> WFOŚiGW w Lublinie
   Expected role: `wiceprezes`
-- Agnieszka Kruk -> `DISMISSED_FROM` -> WFOŚiGW w Lublinie
-- Anna Pokwapisz -> `DISMISSED_FROM` -> WFOŚiGW w Lublinie
-- Stanisław Mazur -> `AFFILIATED_WITH_PARTY` -> Lewica
-- Andrzej Kloc -> `AFFILIATED_WITH_PARTY` -> PSL
+- Agnieszka Kruk -> `DISMISSAL` -> WFOŚiGW w Lublinie
+- Anna Pokwapisz -> `DISMISSAL` -> WFOŚiGW w Lublinie
+- Stanisław Mazur -> `PARTY_MEMBERSHIP` -> Lewica
+- Andrzej Kloc -> `PARTY_MEMBERSHIP` -> PSL
 - board-member party links should also be recoverable where possible
 - Compensation metadata should be captured from the line about `kilkadziesiąt tysięcy złotych miesięcznie`
 
@@ -295,11 +295,11 @@ Expected core entities:
 - Koalicja Obywatelska
 - Lewica
 
-Expected relations and events:
-- Łukasz Bałajewicz -> `APPOINTED_TO` or `HOLDS_POSITION_AT` -> Krajowy Zasób Nieruchomości
+Expected facts:
+- Łukasz Bałajewicz -> `APPOINTMENT` or `HOLDS_POSITION_AT` -> Krajowy Zasób Nieruchomości
   Expected role: `prezes`
-- Łukasz Bałajewicz -> `AFFILIATED_WITH_PARTY` -> Polska 2050
-- Rafał Komarewicz -> `RELATED_TO` -> Łukasz Bałajewicz
+- Łukasz Bałajewicz -> `PARTY_MEMBERSHIP` -> Polska 2050
+- Rafał Komarewicz -> `PERSONAL_OR_POLITICAL_TIE` -> Łukasz Bałajewicz
   Expected relationship type: `recommender`, `party_patron`, or similar
 - other KZN staff / board figures linked to `Polska 2050` should be extracted where the article names them
 - Compensation metadata should capture `ponad 31 tys. zł brutto miesięcznie`
@@ -348,7 +348,7 @@ Important text cues:
 
 Expected comparison standard:
 - Partial coverage is acceptable in the near term.
-- A good first-pass result here is non-empty funding relations and public-institution links, not perfect full-network reconstruction.
+- A good first-pass result here is non-empty funding facts and public-institution links, not perfect full-network reconstruction.
 
 ## 10. TVP Olsztyn: Jarosław Słoma w zarządzie olsztyńskich wodociągów
 
@@ -364,8 +364,8 @@ Expected core entities:
 - Przedsiębiorstwo Wodociągów i Kanalizacji w Olsztynie
 - WodKan
 
-Expected relations and events:
-- Jarosław Słoma -> `APPOINTED_TO` or `HOLDS_POSITION_AT` -> Przedsiębiorstwo Wodociągów i Kanalizacji w Olsztynie
+Expected facts:
+- Jarosław Słoma -> `APPOINTMENT` or `HOLDS_POSITION_AT` -> Przedsiębiorstwo Wodociągów i Kanalizacji w Olsztynie
   Expected role: `wiceprezes` / `zastępca prezesa`
 - Event date should preferably capture `25 lutego` if the parser can normalize it from context
 - The article should be treated as a municipal-company governance case
@@ -404,7 +404,7 @@ Expected extraction outcome:
   - strong patronage / `kolesiostwo` language
   - PO / local-coalition context
   - public-position / local-power-network framing
-  - at least one typed `RELATED_TO` or conflict / patronage-network signal between local party actors and city authorities
+  - at least one typed `PERSONAL_OR_POLITICAL_TIE` or conflict / patronage-network signal between local party actors and city authorities
 
 Important text cues:
 - "Kolesiostwo, rozdawanie posad, brak wizji działania"
@@ -415,7 +415,7 @@ Important text cues:
 
 Expected comparison standard:
 - This is not a board-appointment article, but it is still a valid `koryciarstwo` benchmark.
-- A reasonable first-pass result is non-empty relevance plus people / party / municipal-power-network extraction, even if there is no clean `APPOINTED_TO` event.
+- A reasonable first-pass result is non-empty relevance plus people / party / municipal-power-network extraction, even if there is no clean `APPOINTMENT` event.
 
 ## 12. WP: Odpartyjnienie rad nadzorczych? "Nie tak miało być, wygląda to bardzo źle"
 
@@ -437,9 +437,9 @@ Expected core entities:
 - Polska 2050
 - Trzecia Droga
 
-Expected relations and events:
-- at least one `MEMBER_OF_BOARD` or `APPOINTED_TO` fact into the supervisory board of NFOŚiGW
-- at least one `AFFILIATED_WITH_PARTY` fact for Polska 2050
+Expected facts:
+- at least one `MEMBER_OF_BOARD` or `APPOINTMENT` fact into the supervisory board of NFOŚiGW
+- at least one `PARTY_MEMBERSHIP` fact for Polska 2050
 - at least one governance / nomination fact tied to Paulina Hennig-Kloska or the ministry context
 
 Important text cues:
@@ -476,12 +476,12 @@ Expected core entities:
 - Polskie Stronnictwo Ludowe
 - Trzecia Droga
 
-Expected relations and events:
-- Jolanta Sobczyk -> `APPOINTED_TO` -> Natura Tour
+Expected facts:
+- Jolanta Sobczyk -> `APPOINTMENT` -> Natura Tour
   Expected role: `prezes`
 - multiple `MEMBER_OF_BOARD` / board facts for people tied to PSL in Natura Tour
-- multiple `AFFILIATED_WITH_PARTY` facts for PSL
-- at least one typed `RELATED_TO` fact such as acquaintance / sibling / family-political tie when explicitly stated
+- multiple `PARTY_MEMBERSHIP` facts for PSL
+- at least one typed `PERSONAL_OR_POLITICAL_TIE` fact such as acquaintance / sibling / family-political tie when explicitly stated
 
 Important text cues:
 - "żadnych konkursów do zarządu i rady nadzorczej nie było"
@@ -516,9 +516,9 @@ Expected core entities:
 - Jacek Majchrowski
 - Aleksander Miszalski
 
-Expected relations and events:
-- Katarzyna Zapał -> `DISMISSED_FROM` or equivalent exit fact -> Zarząd Budynków Komunalnych
-- Marcin Paradyż -> succession / `APPOINTED_TO` or role-change fact -> Zarząd Budynków Komunalnych
+Expected facts:
+- Katarzyna Zapał -> `DISMISSAL` or equivalent exit fact -> Zarząd Budynków Komunalnych
+- Marcin Paradyż -> succession / `APPOINTMENT` or role-change fact -> Zarząd Budynków Komunalnych
 - Bogusław Kośmider -> Krakowski Holding Komunalny
   Expected role: `prezes`
 - optional public-corruption / municipal-afera context should raise relevance even if kinship/party ties are absent
@@ -553,11 +553,11 @@ Expected core entities:
 - Wojewódzki Ośrodek Doradztwa Rolniczego
 - Polskie Stronnictwo Ludowe
 
-Expected relations and events:
-- A. Góralczyk -> `APPOINTED_TO` -> Stadnina Koni Iwno
+Expected facts:
+- A. Góralczyk -> `APPOINTMENT` -> Stadnina Koni Iwno
   Expected role: `prezes zarządu`
-- Przemysław Pacia -> `DISMISSED_FROM` or equivalent exit event -> Stadnina Koni Iwno
-- A. Góralczyk -> `AFFILIATED_WITH_PARTY` -> PSL
+- Przemysław Pacia -> `DISMISSAL` or equivalent exit event -> Stadnina Koni Iwno
+- A. Góralczyk -> `PARTY_MEMBERSHIP` -> PSL
 - KOWR should be recognized as the controlling public institution supervising the stadnina
 
 Important text cues:
@@ -577,7 +577,7 @@ When comparing current output against this file:
 - Treat Demagog and RP as high-value positives where missing appointments, board memberships, party links, or acquaintance links indicate real extraction gaps.
 - Treat the negative examples below as true negatives.
 - A good next milestone is:
-  - Demagog: recover several appointment / board relations
+  - Demagog: recover several appointment / board facts
   - RP: recover at least the Hodura and Kuczmański appointment-and-acquaintance structure
   - Olsztyn salary article: recover at least person-role-organization-salary facts
 
@@ -651,12 +651,12 @@ Expected core entities:
 - Jelcz
 - PiS / Prawo i Sprawiedliwość
 
-Expected relations and events:
-- Renata Stefaniuk -> `DISMISSED_FROM` (or resignation) -> Enea Połaniec
-- Renata Stefaniuk -> `DISMISSED_FROM` (or resignation) -> Jelcz
-- Renata Stefaniuk -> `RELATED_TO` -> Dariusz Stefaniuk
+Expected facts:
+- Renata Stefaniuk -> `DISMISSAL` (or resignation) -> Enea Połaniec
+- Renata Stefaniuk -> `DISMISSAL` (or resignation) -> Jelcz
+- Renata Stefaniuk -> `PERSONAL_OR_POLITICAL_TIE` -> Dariusz Stefaniuk
   Expected relationship type: `wife / spouse`
-- Dariusz Stefaniuk -> `AFFILIATED_WITH_PARTY` -> PiS
+- Dariusz Stefaniuk -> `PARTY_MEMBERSHIP` -> PiS
 
 Important text cues:
 - "Renata Stefaniuk nie zasiada już w radach nadzorczych"
@@ -694,16 +694,16 @@ Expected core entities:
 - Platforma Obywatelska / PO
 - Lena Bretes-Dorożała
 
-Expected relations and events:
-- Jarosław Nowak -> `APPOINTED_TO` -> WTC Poznań
+Expected facts:
+- Jarosław Nowak -> `APPOINTMENT` -> WTC Poznań
   Expected role: `prezes`
 - Jarosław Nowak -> `HOLDS_POSITION_AT` -> WTC Poznań
   Expected role: `prezes`
 - WTC Poznań should be recognized as a company subordinate to / controlled by `Międzynarodowe Targi Poznańskie`
-- Jarosław Nowak -> `AFFILIATED_WITH_PARTY` -> Platforma Obywatelska
+- Jarosław Nowak -> `PARTY_MEMBERSHIP` -> Platforma Obywatelska
   or equivalent PO affiliation
 - optional:
-  - Lena Bretes-Dorożała -> `DISMISSED_FROM` / `LEFT_POSITION` -> WTC Poznań
+  - Lena Bretes-Dorożała -> `DISMISSAL` / `LEFT_POSITION` -> WTC Poznań
     the archived article states that she was unexpectedly removed in December 2024
   - a qualification-risk or red-flag signal tied to `Collegium Humanum`
 
@@ -745,12 +745,12 @@ Expected core entities:
 - PSL / Polskie Stronnictwo Ludowe
 - MON / Ministerstwo Obrony Narodowej
 
-Expected relations and events:
-- Marcin Horyń -> `APPOINTED_TO` -> Agencja Mienia Wojskowego
+Expected facts:
+- Marcin Horyń -> `APPOINTMENT` -> Agencja Mienia Wojskowego
   Expected role: `dyrektor`
-- Marcin Horyń -> `AFFILIATED_WITH_PARTY` -> PSL
+- Marcin Horyń -> `PARTY_MEMBERSHIP` -> PSL
   or at minimum a strong political tie to Władysław Kosiniak-Kamysz
-- Marcin Horyń -> `RELATED_TO` -> Władysław Kosiniak-Kamysz
+- Marcin Horyń -> `PERSONAL_OR_POLITICAL_TIE` -> Władysław Kosiniak-Kamysz
   Expected relationship type: trusted aide / cabinet chief / close political associate
 - Donald Tusk -> appointment context for Marcin Horyń
   This may appear as an event participant or institutional appointing context rather than a stable relation

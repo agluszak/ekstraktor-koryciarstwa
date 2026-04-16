@@ -5,11 +5,12 @@ import shutil
 import urllib.request
 from pathlib import Path
 
+import spacy
 import spacy.cli
 import stanza
 import torch
 
-SPACY_MODEL = "pl_core_news_lg"
+SPACY_MODELS = ("pl_core_news_lg", "pl_core_news_md")
 COREf_URL = "https://huggingface.co/stanfordnlp/stanza-pl/resolve/v1.12.0/models/coref/udcoref_xlm-roberta-lora.pt"
 RAW_COREF_PATH = Path("models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.pt")
 PATCHED_COREF_PATH = Path("models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.patched.pt")
@@ -25,10 +26,11 @@ def sha256_file(path: Path) -> str:
 
 
 def ensure_spacy_model() -> None:
-    try:
-        spacy.load(SPACY_MODEL)
-    except OSError:
-        spacy.cli.download(SPACY_MODEL)
+    for model_name in SPACY_MODELS:
+        try:
+            spacy.load(model_name)
+        except OSError:
+            spacy.cli.download(model_name)
 
 
 def ensure_stanza_models() -> None:

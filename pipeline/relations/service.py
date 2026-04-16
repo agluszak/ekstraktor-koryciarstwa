@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from typing import cast
-
-from pipeline.base import RelationExtractor
+from pipeline.base import FactExtractor
 from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import (
-    FactType,
-)
 from pipeline.funding import FundingFactBuilder
 from pipeline.governance import GovernanceFactBuilder
 from pipeline.models import (
@@ -25,7 +20,7 @@ from .fact_extractors import (
 )
 
 
-class PolishRuleBasedRelationExtractor(RelationExtractor):
+class PolishFactExtractor(FactExtractor):
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
         self.graph_builder = CandidateGraphBuilder(config)
@@ -39,32 +34,31 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
         ]
 
     def name(self) -> str:
-        return "polish_rule_based_relation_extractor"
+        return "polish_fact_extractor"
 
     def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
-        document.candidate_graph = self.graph_builder.build(
+        candidate_graph = self.graph_builder.build(
             document=document,
             coreference=coreference,
             parsed_sentences=document.parsed_sentences,
         )
-
         facts: list[Fact] = []
         for sentence in document.sentences:
             sentence_candidates = [
                 candidate
-                for candidate in document.candidate_graph.candidates
+                for candidate in candidate_graph.candidates
                 if candidate.sentence_index == sentence.sentence_index
             ]
             if not sentence_candidates:
                 continue
             paragraph_candidates = [
                 candidate
-                for candidate in document.candidate_graph.candidates
+                for candidate in candidate_graph.candidates
                 if candidate.paragraph_index == sentence.paragraph_index
             ]
             previous_candidates = [
                 candidate
-                for candidate in document.candidate_graph.candidates
+                for candidate in candidate_graph.candidates
                 if candidate.paragraph_index == sentence.paragraph_index
                 and candidate.sentence_index == sentence.sentence_index - 1
             ]
@@ -72,7 +66,7 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                 document=document,
                 sentence=sentence,
                 parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
-                graph=document.candidate_graph,
+                graph=candidate_graph,
                 candidates=sentence_candidates,
                 paragraph_candidates=paragraph_candidates,
                 previous_candidates=previous_candidates,
@@ -101,4 +95,3 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
             if key not in deduplicated or deduplicated[key].confidence < fact.confidence:
                 deduplicated[key] = fact
         return list(deduplicated.values())
-
