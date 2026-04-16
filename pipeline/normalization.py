@@ -247,13 +247,6 @@ class DocumentEntityCanonicalizer:
                 attr_value = fact.attributes.get(attr_key)
                 if isinstance(attr_value, str):
                     fact.attributes[attr_key] = remap.get(attr_value, attr_value)
-        for relation in document.relations:
-            relation.source_entity_id = remap.get(
-                relation.source_entity_id, relation.source_entity_id
-            )
-            relation.target_entity_id = remap.get(
-                relation.target_entity_id, relation.target_entity_id
-            )
         for event in document.events:
             if event.person_entity_id:
                 event.person_entity_id = remap.get(event.person_entity_id, event.person_entity_id)

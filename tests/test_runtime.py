@@ -111,10 +111,8 @@ class StubOutputBuilder(OutputBuilder):
             relevance=document.relevance or RelevanceDecision(False, 0.0, []),
             entities=[],
             facts=[],
-            relations=[],
             events=[],
             score=None,
-            graph=GraphExport(nodes=[], edges=[]),
         )
 
 

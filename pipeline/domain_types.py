@@ -34,16 +34,7 @@ class FactType(StrEnum):
     PERSONAL_OR_POLITICAL_TIE = "PERSONAL_OR_POLITICAL_TIE"
 
 
-class RelationType(StrEnum):
-    APPOINTED_TO = "APPOINTED_TO"
-    HOLDS_POSITION = "HOLDS_POSITION"
-    MEMBER_OF_BOARD = "MEMBER_OF_BOARD"
-    DISMISSED_FROM = "DISMISSED_FROM"
-    LEFT_POSITION = "LEFT_POSITION"
-    AFFILIATED_WITH_PARTY = "AFFILIATED_WITH_PARTY"
-    RELATED_TO = "RELATED_TO"
-    RECEIVES_COMPENSATION = "RECEIVES_COMPENSATION"
-    FUNDED_BY = "FUNDED_BY"
+
 
 
 class EventType(StrEnum):
@@ -96,10 +87,6 @@ class RoleKind(StrEnum):
 class EntityAttributes(TypedDict, total=False):
     registry_id: str
     lemmas: list[str]
-    organizations: list[str]
-    positions: list[str]
-    parties: list[str]
-    education: list[str]
     organization_kind: OrganizationKind
 
 
@@ -136,12 +123,7 @@ class FactAttributes(TypedDict, total=False):
     score_reason: str | None
 
 
-class RelationAttributes(TypedDict, total=False):
-    status: str | None
-    amount_text: str | None
-    period: str | None
-    time_scope: TimeScope | None
-    relationship: str | RelationshipType | None
+
 
 
 class EventAttributes(TypedDict, total=False):

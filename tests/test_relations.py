@@ -7,7 +7,6 @@ from pipeline.domain_types import (
     EntityType,
     FactType,
     OrganizationKind,
-    RelationType,
 )
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
@@ -167,7 +166,7 @@ def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
     )
 
     assert not any(
-        relation.relation_type == RelationType.RELATED_TO for relation in extracted.relations
+        fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE for fact in extracted.facts
     )
 
 
@@ -230,14 +229,11 @@ def test_compensation_relation_is_extracted() -> None:
         coreference=CoreferenceResult(mention_links={}, resolved_mentions=[]),
     )
 
-    compensation_relations = [
-        relation
-        for relation in extracted.relations
-        if relation.relation_type == "RECEIVES_COMPENSATION"
+    compensation_facts = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.COMPENSATION
     ]
-
-    assert compensation_relations
-    assert compensation_relations[0].attributes["amount_text"] == "31 Tys. Zł Brutto"
+    assert compensation_facts
+    assert compensation_facts[0].attributes["amount_text"] == "31 Tys. Zł Brutto"
     compensation_facts = [
         fact for fact in extracted.facts if fact.fact_type == FactType.COMPENSATION
     ]
@@ -310,9 +306,6 @@ def test_party_cannot_become_appointment_destination() -> None:
     )
 
     assert not any(fact.fact_type == FactType.APPOINTMENT for fact in extracted.facts)
-    assert not any(
-        relation.relation_type == RelationType.APPOINTED_TO for relation in extracted.relations
-    )
 
 
 def test_party_membership_requires_local_structural_support() -> None:

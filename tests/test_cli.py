@@ -10,8 +10,6 @@ from pipeline.domain_types import EntityType
 from pipeline.models import (
     Entity,
     ExtractionResult,
-    GraphExport,
-    GraphNode,
     RelevanceDecision,
 )
 
@@ -38,19 +36,8 @@ class StubPipeline:
                 )
             ],
             facts=[],
-            relations=[],
             events=[],
             score=None,
-            graph=GraphExport(
-                nodes=[
-                    GraphNode(
-                        node_id="person-1",
-                        label="Person",
-                        properties={"canonical_name": "Jan Kowalski"},
-                    )
-                ],
-                edges=[],
-            ),
         )
 
 

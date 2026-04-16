@@ -6,19 +6,14 @@ from pipeline.base import RelationExtractor
 from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
-    EntityType,
     FactType,
-    RelationAttributes,
-    RelationType,
 )
 from pipeline.funding import FundingFactBuilder
 from pipeline.governance import GovernanceFactBuilder
 from pipeline.models import (
     ArticleDocument,
     CoreferenceResult,
-    Entity,
     Fact,
-    Relation,
 )
 from pipeline.normalization import DocumentEntityCanonicalizer
 
@@ -90,198 +85,7 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
         facts.extend(self.funding_fact_builder.build(document))
 
         document.facts = self._deduplicate_facts(facts)
-        document.relations = self._derive_relations(document)
-        self._append_person_attributes(document)
         return self.canonicalizer.run(document)
-
-    def _derive_relations(self, document: ArticleDocument) -> list[Relation]:
-        derived: list[Relation] = []
-        for fact in document.facts:
-            if fact.fact_type == FactType.APPOINTMENT and fact.object_entity_id:
-                derived.append(
-                    self._relation(
-                        RelationType.APPOINTED_TO,
-                        fact.subject_entity_id,
-                        fact.object_entity_id,
-                        fact,
-                    )
-                )
-                position_entity_id = self._string_attribute(fact, "position_entity_id")
-                if position_entity_id:
-                    derived.append(
-                        self._relation(
-                            RelationType.HOLDS_POSITION,
-                            fact.subject_entity_id,
-                            position_entity_id,
-                            fact,
-                        )
-                    )
-                if bool(fact.attributes.get("board_role")):
-                    derived.append(
-                        self._relation(
-                            RelationType.MEMBER_OF_BOARD,
-                            fact.subject_entity_id,
-                            fact.object_entity_id,
-                            fact,
-                            {"status": "current"},
-                        )
-                    )
-            elif fact.fact_type == FactType.DISMISSAL and fact.object_entity_id:
-                derived.append(
-                    self._relation(
-                        RelationType.DISMISSED_FROM,
-                        fact.subject_entity_id,
-                        fact.object_entity_id,
-                        fact,
-                    )
-                )
-                position_entity_id = self._string_attribute(fact, "position_entity_id")
-                if position_entity_id:
-                    derived.append(
-                        self._relation(
-                            RelationType.LEFT_POSITION,
-                            fact.subject_entity_id,
-                            position_entity_id,
-                            fact,
-                        )
-                    )
-                if bool(fact.attributes.get("board_role")):
-                    derived.append(
-                        self._relation(
-                            RelationType.MEMBER_OF_BOARD,
-                            fact.subject_entity_id,
-                            fact.object_entity_id,
-                            fact,
-                            {"status": "former"},
-                        )
-                    )
-            elif fact.fact_type == FactType.COMPENSATION and fact.object_entity_id:
-                derived.append(
-                    self._relation(
-                        RelationType.RECEIVES_COMPENSATION,
-                        fact.subject_entity_id,
-                        fact.object_entity_id,
-                        fact,
-                        {
-                            "amount_text": self._string_attribute(fact, "amount_text"),
-                            "period": self._string_attribute(fact, "period"),
-                        },
-                    )
-                )
-            elif fact.fact_type == FactType.FUNDING and fact.object_entity_id:
-                derived.append(
-                    self._relation(
-                        RelationType.FUNDED_BY,
-                        fact.subject_entity_id,
-                        fact.object_entity_id,
-                        fact,
-                        {"amount_text": self._string_attribute(fact, "amount_text")},
-                    )
-                )
-            elif (
-                fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
-                and fact.object_entity_id
-            ):
-                derived.append(
-                    self._relation(
-                        RelationType.AFFILIATED_WITH_PARTY,
-                        fact.subject_entity_id,
-                        fact.object_entity_id,
-                        fact,
-                        {"time_scope": fact.time_scope},
-                    )
-                )
-            elif fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE and fact.object_entity_id:
-                derived.append(
-                    self._relation(
-                        RelationType.RELATED_TO,
-                        fact.subject_entity_id,
-                        fact.object_entity_id,
-                        fact,
-                        {"relationship": self._string_attribute(fact, "relationship_type")},
-                    )
-                )
-        return self._deduplicate_relations(derived)
-
-    def _append_person_attributes(self, document: ArticleDocument) -> None:
-        entities = {entity.entity_id: entity for entity in document.entities}
-        for fact in document.facts:
-            person = entities.get(fact.subject_entity_id)
-            if person is None or person.entity_type != EntityType.PERSON:
-                continue
-            if (
-                fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
-                and fact.object_entity_id
-            ):
-                party = entities.get(fact.object_entity_id)
-                if party is not None:
-                    self._append_list_value(person, "parties", party.canonical_name)
-            if (
-                fact.fact_type in {FactType.APPOINTMENT, FactType.DISMISSAL}
-                and fact.object_entity_id
-            ):
-                organization = entities.get(fact.object_entity_id)
-                if organization is not None:
-                    self._append_list_value(person, "organizations", organization.canonical_name)
-                role = self._string_attribute(fact, "role")
-                if role:
-                    self._append_list_value(person, "positions", role)
-            if fact.fact_type == FactType.POLITICAL_OFFICE and fact.object_entity_id:
-                office = entities.get(fact.object_entity_id)
-                if office is not None:
-                    self._append_list_value(person, "positions", office.canonical_name)
-
-    @staticmethod
-    def _relation(
-        relation_type: RelationType,
-        source_entity_id: str,
-        target_entity_id: str,
-        fact: Fact,
-        extra_attributes: RelationAttributes | None = None,
-    ) -> Relation:
-        attributes = {
-            key: value for key, value in (extra_attributes or {}).items() if value is not None
-        }
-        return Relation(
-            relation_type=relation_type,
-            source_entity_id=source_entity_id,
-            target_entity_id=target_entity_id,
-            confidence=fact.confidence,
-            evidence=fact.evidence,
-            attributes=cast(RelationAttributes, attributes),
-        )
-
-    @staticmethod
-    def _string_attribute(fact: Fact, key: str) -> str | None:
-        value = fact.attributes.get(key)
-        return value if isinstance(value, str) else None
-
-    @staticmethod
-    def _append_list_value(entity: Entity, key: str, value: str) -> None:
-        if key == "parties":
-            values = entity.attributes.get("parties")
-            if values is None:
-                values = []
-                entity.attributes["parties"] = values
-        elif key == "organizations":
-            values = entity.attributes.get("organizations")
-            if values is None:
-                values = []
-                entity.attributes["organizations"] = values
-        elif key == "positions":
-            values = entity.attributes.get("positions")
-            if values is None:
-                values = []
-                entity.attributes["positions"] = values
-        elif key == "education":
-            values = entity.attributes.get("education")
-            if values is None:
-                values = []
-                entity.attributes["education"] = values
-        else:
-            return
-        if isinstance(values, list) and value not in values:
-            values.append(value)
 
     @staticmethod
     def _deduplicate_facts(facts: list[Fact]) -> list[Fact]:
@@ -298,16 +102,3 @@ class PolishRuleBasedRelationExtractor(RelationExtractor):
                 deduplicated[key] = fact
         return list(deduplicated.values())
 
-    @staticmethod
-    def _deduplicate_relations(relations: list[Relation]) -> list[Relation]:
-        deduplicated: dict[tuple[str, str, str, str], Relation] = {}
-        for relation in relations:
-            key = (
-                relation.relation_type,
-                relation.source_entity_id,
-                relation.target_entity_id,
-                relation.evidence.text,
-            )
-            if key not in deduplicated or deduplicated[key].confidence < relation.confidence:
-                deduplicated[key] = relation
-        return list(deduplicated.values())

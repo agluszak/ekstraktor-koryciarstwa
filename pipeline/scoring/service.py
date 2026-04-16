@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import Scorer
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EventType, RelationType
+from pipeline.domain_types import EventType, FactType
 from pipeline.models import ArticleDocument, ScoreResult
 
 
@@ -16,25 +16,29 @@ class RuleBasedNepotismScorer(Scorer):
     def run(self, document: ArticleDocument) -> ArticleDocument:
         score = 0.0
         reasons: list[str] = []
-        relation_types = {relation.relation_type for relation in document.relations}
+        fact_types = {fact.fact_type for fact in document.facts}
         event_types = {event.event_type for event in document.events}
         lowered = document.cleaned_text.lower()
 
-        if RelationType.AFFILIATED_WITH_PARTY in relation_types:
+        if FactType.PARTY_MEMBERSHIP in fact_types or FactType.FORMER_PARTY_MEMBERSHIP in fact_types:
             score += self.config.score_weights.political_tie
             reasons.append("detected party affiliation")
-        if RelationType.RELATED_TO in relation_types:
+        if FactType.PERSONAL_OR_POLITICAL_TIE in fact_types:
             score += self.config.score_weights.family_tie
             reasons.append("detected family or acquaintance tie")
-        if RelationType.MEMBER_OF_BOARD in relation_types:
+            
+        has_board = any(f.fact_type in {FactType.APPOINTMENT, FactType.DISMISSAL} and f.attributes.get("board_role") for f in document.facts)
+        if has_board:
             score += self.config.score_weights.board_position
             reasons.append("detected board appointment")
-        if RelationType.RECEIVES_COMPENSATION in relation_types:
+            
+        if FactType.COMPENSATION in fact_types:
             score += 0.15
             reasons.append("detected public-money compensation signal")
-        if RelationType.FUNDED_BY in relation_types:
+        if FactType.FUNDING in fact_types:
             score += 0.2
             reasons.append("detected public funding relation")
+            
         if any(marker in lowered for marker in self.config.patterns.state_company_markers):
             score += self.config.score_weights.state_company
             reasons.append("organization looks state-owned or municipal")

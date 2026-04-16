@@ -177,7 +177,6 @@ def run_batch(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
                 "graph_path": str(graph_path),
                 "relevant": result.relevance.is_relevant,
                 "facts": len(result.facts),
-                "relations": len(result.relations),
                 "events": len(result.events),
             }
         )

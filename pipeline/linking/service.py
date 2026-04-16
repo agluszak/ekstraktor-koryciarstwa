@@ -74,13 +74,6 @@ class SQLiteEntityLinker(EntityLinker):
                     fact.object_entity_id = id_remap.get(
                         fact.object_entity_id, fact.object_entity_id
                     )
-            for relation in document.relations:
-                relation.source_entity_id = id_remap.get(
-                    relation.source_entity_id, relation.source_entity_id
-                )
-                relation.target_entity_id = id_remap.get(
-                    relation.target_entity_id, relation.target_entity_id
-                )
             for mention in document.mentions:
                 if mention.entity_id:
                     mention.entity_id = id_remap.get(mention.entity_id, mention.entity_id)

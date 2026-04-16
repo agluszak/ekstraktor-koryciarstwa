@@ -13,8 +13,6 @@ from pipeline.domain_types import (
     EventType,
     FactAttributes,
     FactType,
-    RelationAttributes,
-    RelationType,
     TimeScope,
 )
 
@@ -45,16 +43,6 @@ class Entity:
     aliases: list[str] = field(default_factory=list)
     attributes: EntityAttributes = field(default_factory=lambda: cast(EntityAttributes, {}))
     evidence: list[EvidenceSpan] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class Relation:
-    relation_type: RelationType
-    source_entity_id: str
-    target_entity_id: str
-    confidence: float
-    evidence: EvidenceSpan
-    attributes: RelationAttributes = field(default_factory=lambda: cast(RelationAttributes, {}))
 
 
 @dataclass(slots=True)
@@ -290,7 +278,6 @@ class ArticleDocument:
     mentions: list[Mention] = field(default_factory=list)
     candidate_graph: CandidateGraph | None = None
     facts: list[Fact] = field(default_factory=list)
-    relations: list[Relation] = field(default_factory=list)
     events: list[Event] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
     score: ScoreResult | None = None
@@ -311,10 +298,8 @@ class ExtractionResult:
     relevance: RelevanceDecision
     entities: list[Entity]
     facts: list[Fact]
-    relations: list[Relation]
     events: list[Event]
     score: ScoreResult | None
-    graph: GraphExport
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

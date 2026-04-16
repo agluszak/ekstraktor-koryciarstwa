@@ -1,6 +1,6 @@
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType, EventType, RelationType
+from pipeline.domain_types import EntityType, EventType, FactType
 from pipeline.events import PolishEventExtractor
 from pipeline.frames import PolishGovernanceFrameExtractor
 from pipeline.models import (
@@ -86,6 +86,6 @@ def test_dismissal_sentence_produces_relation_and_event() -> None:
     document = event_extractor.run(document)
 
     assert any(
-        relation.relation_type == RelationType.DISMISSED_FROM for relation in document.relations
+        fact.fact_type == FactType.DISMISSAL for fact in document.facts
     )
     assert any(event.event_type == EventType.DISMISSAL for event in document.events)

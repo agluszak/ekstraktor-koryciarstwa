@@ -1,6 +1,6 @@
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EventType, RelationType
-from pipeline.models import ArticleDocument, Event, EvidenceSpan, Relation
+from pipeline.domain_types import EventType, FactType, TimeScope
+from pipeline.models import ArticleDocument, Event, EvidenceSpan, Fact
 from pipeline.scoring import RuleBasedNepotismScorer
 
 
@@ -15,20 +15,31 @@ def test_rule_based_scorer_counts_expected_signals() -> None:
         publication_date=None,
         cleaned_text="Polityk trafił do rady nadzorczej spółki skarbu państwa bez doświadczenia.",
         paragraphs=["Polityk trafił do rady nadzorczej spółki skarbu państwa bez doświadczenia."],
-        relations=[
-            Relation(
-                relation_type=RelationType.AFFILIATED_WITH_PARTY,
-                source_entity_id="p1",
-                target_entity_id="party1",
+        facts=[
+            Fact(
+                fact_id="f1",
+                fact_type=FactType.PARTY_MEMBERSHIP,
+                subject_entity_id="p1",
+                object_entity_id="party1",
+                value_text=None,
+                value_normalized=None,
+                time_scope=TimeScope.CURRENT,
+                event_date=None,
                 confidence=0.7,
                 evidence=EvidenceSpan(text="Polityk PiS"),
             ),
-            Relation(
-                relation_type=RelationType.MEMBER_OF_BOARD,
-                source_entity_id="p1",
-                target_entity_id="org1",
+            Fact(
+                fact_id="f2",
+                fact_type=FactType.APPOINTMENT,
+                subject_entity_id="p1",
+                object_entity_id="org1",
+                value_text=None,
+                value_normalized=None,
+                time_scope=TimeScope.CURRENT,
+                event_date=None,
                 confidence=0.7,
                 evidence=EvidenceSpan(text="rada nadzorcza"),
+                attributes={"board_role": True},
             ),
         ],
         events=[
@@ -62,7 +73,7 @@ def test_dismissal_increases_score() -> None:
         publication_date=None,
         cleaned_text="Prezesa odwołano ze spółki miejskiej.",
         paragraphs=["Prezesa odwołano ze spółki miejskiej."],
-        relations=[],
+        facts=[],
         events=[
             Event(
                 event_id="event2",
@@ -81,3 +92,4 @@ def test_dismissal_increases_score() -> None:
 
     assert scored.score is not None
     assert scored.score.value == config.score_weights.dismissal_signal
+
