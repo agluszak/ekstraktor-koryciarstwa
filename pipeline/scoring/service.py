@@ -43,6 +43,12 @@ class RuleBasedNepotismScorer(Scorer):
         if FactType.FUNDING in fact_types:
             score += 0.2
             reasons.append("detected public funding relation")
+        if FactType.PUBLIC_CONTRACT in fact_types:
+            score += 0.2
+            reasons.append("detected public contract relation")
+        if FactType.ANTI_CORRUPTION_REFERRAL in fact_types:
+            score += 0.2
+            reasons.append("detected anti-corruption referral")
 
         if any(marker in lowered for marker in self.config.patterns.state_company_markers):
             score += self.config.score_weights.state_company

@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import AbstractSet
 
 from pipeline.domain_types import (
+    CandidateID,
     CandidateType,
     EntityID,
+    EntityType,
     FactID,
     FactType,
     OrganizationKind,
@@ -629,7 +631,133 @@ class TieFactExtractor:
                     relationship_type=TIE_WORDS[trigger],
                 )
             )
+        if not facts:
+            facts.extend(self._owner_context_ties(context, trigger))
         return facts
+
+    @staticmethod
+    def _owner_context_ties(context: SentenceContext, trigger: str) -> list[Fact]:
+        lowered = context.lowered_text
+        anchor = lowered.find(trigger)
+        if anchor < 0:
+            anchor = min(
+                (
+                    lowered.find(marker)
+                    for marker in ("współpracownik", "koleg", "znajom", "przyjaciel")
+                    if lowered.find(marker) >= 0
+                ),
+                default=-1,
+            )
+        if anchor < 0:
+            return []
+        public_role_markers = ("prezydent", "burmistrz", "wójt", "minister", "poseł", "radny")
+        public_actors = [
+            person
+            for person in context.persons
+            if person.start_char >= anchor
+            and any(
+                marker in lowered[max(0, person.start_char - 40) : person.end_char + 8]
+                for marker in public_role_markers
+            )
+            and not _is_quote_speaker_risk(context, person)
+        ]
+        if not public_actors:
+            return []
+        source = min(public_actors, key=lambda person: person.start_char)
+
+        org_names = " ".join(org.normalized_name.lower() for org in context.organizations)
+        document_org_names = " ".join(
+            entity.normalized_name.lower()
+            for entity in context.document.entities
+            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+        )
+        owner_candidates = [
+            person
+            for person in context.paragraph_persons
+            if person.entity_id != source.entity_id
+            and person.canonical_name.split()
+            and not _person_name_looks_like_company(person.canonical_name)
+            and person.canonical_name.split()[-1].lower() in f"{org_names} {document_org_names}"
+            and not _is_quote_speaker_risk(context, person)
+        ]
+        owner_candidates.extend(
+            _document_owner_person_candidates(
+                context,
+                source=source,
+                document_org_names=document_org_names,
+            )
+        )
+        if not owner_candidates:
+            return []
+        target = min(owner_candidates, key=lambda person: abs(person.start_char - anchor))
+        score = SecondaryFactScore(
+            confidence=0.78,
+            extraction_signal="dependency_edge",
+            evidence_scope="same_paragraph",
+            reason=f"tie_trigger:{trigger}:owner_context",
+        )
+        return [
+            _fact(
+                document=context.document,
+                sentence_context=context,
+                fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+                subject=source,
+                object_candidate=target,
+                value_text=TIE_WORDS[trigger].value,
+                value_normalized=TIE_WORDS[trigger].value,
+                confidence=score.confidence,
+                score=score,
+                source_extractor="tie",
+                relationship_type=TIE_WORDS[trigger],
+            )
+        ]
+
+
+def _document_owner_person_candidates(
+    context: SentenceContext,
+    *,
+    source: EntityCandidate,
+    document_org_names: str,
+) -> list[EntityCandidate]:
+    candidates: list[EntityCandidate] = []
+    if not any(marker in context.lowered_text for marker in ("firmą prowadzon", "firma prowadzon")):
+        return candidates
+    for entity in context.document.entities:
+        if entity.entity_type != EntityType.PERSON or entity.entity_id == source.entity_id:
+            continue
+        if _person_name_looks_like_company(entity.canonical_name):
+            continue
+        tokens = entity.canonical_name.split()
+        if len(tokens) < 2 or tokens[-1].lower() not in document_org_names:
+            continue
+        candidates.append(
+            EntityCandidate(
+                candidate_id=CandidateID(
+                    stable_id(
+                        "candidate",
+                        context.document.document_id,
+                        entity.entity_id,
+                        str(context.sentence.sentence_index),
+                        "owner-context",
+                    )
+                ),
+                entity_id=entity.entity_id,
+                candidate_type=CandidateType.PERSON,
+                canonical_name=entity.canonical_name,
+                normalized_name=entity.normalized_name,
+                sentence_index=context.sentence.sentence_index,
+                paragraph_index=context.sentence.paragraph_index,
+                start_char=0,
+                end_char=0,
+                source="document_owner_context",
+            )
+        )
+    return candidates
+
+
+def _person_name_looks_like_company(name: str) -> bool:
+    lowered = name.lower()
+    return any(marker in lowered for marker in ("consulting", "group", "spół", "firma"))
 
 
 def _has_signal(

@@ -822,3 +822,73 @@ Expected comparison standard:
   - one PSL affiliation or trusted-associate link
   - one clear public-institution target (`Agencja Mienia Wojskowego`)
 - If the pipeline only extracts `PSL`, `Kosiniak-Kamysz`, and `AMW` as loose entities, it is underperforming.
+
+## 19. Dziennik Zachodni: Nepotyzm w Bytomiu? Radni PiS zapowiadają zawiadomienie do CBA
+
+Source:
+- https://dziennikzachodni.pl/nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zapowiedzieli-ze-zloza-zawiadomienie-do-cba-o-mozliwosci-popelnienia-przestepstwa/ar/c1-16375383
+
+Archived source:
+- https://web.archive.org/web/20230923073103/https://dziennikzachodni.pl/nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zapowiedzieli-ze-zloza-zawiadomienie-do-cba-o-mozliwosci-popelnienia-przestepstwa/ar/c1-16375383
+
+Fetch note:
+- use the archived source above as the canonical benchmark reference for this case
+- the live page currently returns HTTP 403 in this repo environment
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a municipal public-money / conflict-of-interest article about Bytom councillors
+  announcing a notification to `CBA` / `Centralne Biuro Antykorupcyjne`.
+- `CBA` is a strong koryciarstwo signal because it indicates an anti-corruption complaint
+  or alleged public-office abuse, even when the article is about contracts rather than a
+  direct board appointment.
+
+Expected core entities:
+- Maciej Bartków
+- Bartłomiej Wnuk
+- Mariusz Wołosz
+- Wnuk Consulting
+- Gmina Bytom / miasto Bytom
+- Urząd Miejski w Bytomiu / Urząd Miasta w Bytomiu
+- Centralne Biuro Antykorupcyjne / CBA
+- Przedsiębiorstwo Energetyki Cieplnej / PEC Bytom
+- Bytomskie Przedsiębiorstwo Komunalne / BPK
+- Prawo i Sprawiedliwość / PiS
+
+Expected facts:
+- Maciej Bartków -> `POLITICAL_OFFICE` -> radny.
+- Maciej Bartków / bytomscy radni PiS -> complaint / anti-corruption notification context
+  -> `Centralne Biuro Antykorupcyjne`.
+- Bartłomiej Wnuk / `Wnuk Consulting` -> public-money contract / funding-style fact
+  -> `Gmina Bytom`, `PEC Bytom`, or `BPK`.
+- `Wnuk Consulting` -> contract amount context:
+  - `397 496,95 zł` for agreements with city Bytom and PEC.
+  - `241 559,70 zł` for agreements with city and BPK by a firm run by a Wnuk Consulting employee.
+- Mariusz Wołosz -> `PERSONAL_OR_POLITICAL_TIE` -> Bartłomiej Wnuk
+  Expected relationship type: longtime colleague / collaborator.
+- Bartłomiej Wnuk -> family-tie context -> spokesperson of the Bytom city office
+  Expected relationship: husband of the city spokesperson, if represented by the output model.
+- Wnuk Consulting / related firm -> municipal-company contract context involving `PEC` and `BPK`.
+
+Important text cues:
+- "złożenia zawiadomienia do CBA"
+- "Centralne Biuro Antykorupcyjne"
+- "nepotyzmu, konfliktu interesów oraz niewłaściwego zarządzania majątkiem spółek miejskich"
+- "podmiotami kierowanymi przez rodziny osób wysoko postawionych w urzędzie"
+- "firma Bartłomieja Wnuka"
+- "stanowiskach decyzyjnych znajdował się Mariusz Wołosz"
+- "wieloletniego kolegę i współpracownika prezydenta Mariusza Wołosza"
+- "męża rzeczniczki prasowej Urzędu Miasta w Bytomiu"
+- "Wnuk Consulting podpisała umowy z miastem Bytom oraz spółką PEC na kwotę 397 496,95 zł"
+- "spółką BPK na 241 559,70 zł"
+
+Expected comparison standard:
+- This should be treated as a high-value positive even without a classic appointment verb.
+- A useful extraction should recover:
+  - the CBA complaint / anti-corruption context,
+  - municipal-company/public-money targets,
+  - Wnuk Consulting and contract amounts,
+  - the Wołosz-Wnuk colleague/collaborator tie,
+  - the family tie to the city spokesperson if the entity can be represented.
+- If the pipeline only emits generic `radny` political-office facts and misses the CBA,
+  contract-money, and conflict-of-interest structure, it is underperforming.

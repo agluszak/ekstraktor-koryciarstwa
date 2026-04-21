@@ -58,7 +58,47 @@ Clean-registry batch run:
   `wyłożyć` contexts; the communication-style `przekazać` no-amount false positives are gone from
   the final batch run.
 
+## Dziennik Zachodni Bytom CBA Fixture
+
+Added archived benchmark input:
+
+- `inputs/dziennikzachodni.pl__nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zawiadomienie-cba__c1-16375383.html`
+- Archived source:
+  `https://web.archive.org/web/20230923073103/https://dziennikzachodni.pl/nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zapowiedzieli-ze-zloza-zawiadomienie-do-cba-o-mozliwosci-popelnienia-przestepstwa/ar/c1-16375383`
+
+Single-article clean-registry check:
+
+- Removed `output/entity_registry.sqlite3`, `output/entity_registry.sqlite3-shm`, and
+  `output/entity_registry.sqlite3-wal` first.
+- Command: `uv run python main.py --html-path inputs/dziennikzachodni.pl__nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zawiadomienie-cba__c1-16375383.html --document-id dziennikzachodni.pl__nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zawiadomienie-cba__c1-16375383 --source-url "https://web.archive.org/web/20230923073103/https://dziennikzachodni.pl/nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zapowiedzieli-ze-zloza-zawiadomienie-do-cba-o-mozliwosci-popelnienia-przestepstwa/ar/c1-16375383" --output-dir output/dziennikzachodni_bytom_check`
+- Output:
+  `output/dziennikzachodni_bytom_check/dziennikzachodni.pl__nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zawiadomienie-cba__c1-16375383.json`
+- Relevance: `true`, score `1.0`.
+- Relevance reasons include `CBA` and `Centralne Biuro Antykorupcyjne`.
+- `Centralne Biuro Antykorupcyjne` is extracted as a `PublicInstitution`.
+- Key entities present include `Maciej Bartków`, `Bartłomiej Wnuk`, `Mariusz Wołosz`,
+  `Wnuk Consulting`, `Gminę Bytom`, `PEC Bytom`, `Bytomskim Przedsiębiorstwie
+  Komunalnym Sp.`, `Prawo i Sprawiedliwość`, and `Centralne Biuro Antykorupcyjne`.
+- Current facts after the public-contract/referral pass: 14 total.
+- Newly recovered:
+  - `ANTI_CORRUPTION_REFERRAL`: `Prawo i Sprawiedliwość` -> `Centralne Biuro Antykorupcyjne`
+    from the bytomscy-radni/PiS CBA-notification sentence.
+  - `ANTI_CORRUPTION_REFERRAL`: `Maciej Bartków` -> `Centralne Biuro Antykorupcyjne`
+    from the "złożyć zawiadomienie do CBA" sentence.
+  - `PUBLIC_CONTRACT`: `Wnuk Consulting` -> Bytom/city-context cluster and `PEC Bytom`,
+    both carrying `397 496,95 zł`.
+  - `PERSONAL_OR_POLITICAL_TIE`: `Mariusz Wołosz` -> `Bartłomiej Wnuk`, relationship
+    `collaborator`, from the owner/operator context around the long quoted sentence.
+- Remaining misses/weak spots:
+  - The city counterparty is still canonically noisy as `Bytomski` because Bytom/BPK/city
+    mentions are over-clustered.
+  - The second contract amount `241 559,70 zł` for the employee-run firm and BPK is still not
+    split into a separate contract frame.
+  - `Wnuk Consulting` is still duplicated as a weak derived `Person` entity, though the recovered
+    tie now points to `Bartłomiej Wnuk`, not the company-like person duplicate.
+
 ## Next Bottleneck
 
-The next useful step is entity hygiene in long articles: better canonicalization for inflected
-person names and company suffix cleanup, followed by safer long-document person clustering.
+The next useful step is contract-clause splitting plus entity hygiene in long articles: separate
+multiple contract/amount groups in one sentence, then clean Bytom/BPK city clustering and suppress
+company-like derived person candidates.

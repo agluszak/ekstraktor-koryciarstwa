@@ -11,7 +11,9 @@ from pipeline.utils import compact_whitespace
 class ParagraphSentenceSegmenter(Segmenter):
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
-        self.sentence_split_re = re.compile(r"(?<=[.!?])\s+(?=[A-ZŁŚŻŹĆŃÓ])")
+        self.sentence_split_re = re.compile(
+            r"(?<=[.!?])\s+(?=[\"'„“”»«]*(?:[–—-]\s*)?[A-ZŁŚŻŹĆŃÓ])"
+        )
 
     def name(self) -> str:
         return "paragraph_sentence_segmenter"

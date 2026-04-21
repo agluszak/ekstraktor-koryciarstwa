@@ -31,6 +31,11 @@ class SpacyPolishNERExtractor(NERExtractor):
             entity_type = self._map_label(ent.label_)
             if not entity_type:
                 continue
+            if entity_type == EntityType.PERSON and self._person_span_looks_like_org(
+                ent,
+                document.cleaned_text,
+            ):
+                entity_type = EntityType.ORGANIZATION
             merge_key, display_name, display_score, lemmas = self._entity_forms(ent, entity_type)
 
             # Use spaCy's morphology to filter: single-token PERSON entities
@@ -113,6 +118,29 @@ class SpacyPolishNERExtractor(NERExtractor):
         if "org" in lowered or "geog" in lowered or "place" in lowered:
             return EntityType.ORGANIZATION
         return None
+
+    @staticmethod
+    def _person_span_looks_like_org(ent, cleaned_text: str) -> bool:
+        surface = ent.text.strip()
+        lowered = surface.lower()
+        business_terms = {
+            "consulting",
+            "group",
+            "holding",
+            "spółka",
+            "spółka z o.o.",
+            "sp.",
+            "firma",
+            "fundacja",
+            "stowarzyszenie",
+            "przedsiębiorstwo",
+        }
+        if any(term in lowered for term in business_terms):
+            return True
+
+        right_context = cleaned_text[ent.end_char : ent.end_char + 18].lower()
+        org_context_after = {" sp. z o.o.", " spółka", " firma"}
+        return any(right_context.startswith(term) for term in org_context_after)
 
     @staticmethod
     def _entity_forms(ent, entity_type: EntityType) -> tuple[str, str, int, list[str]]:

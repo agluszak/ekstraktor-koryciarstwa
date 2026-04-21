@@ -4,6 +4,8 @@ from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     CandidateType,
+    ClauseID,
+    ClusterID,
     DocumentID,
     EntityID,
     EntityType,
@@ -13,9 +15,13 @@ from pipeline.domain_types import (
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
     ArticleDocument,
+    ClauseUnit,
+    ClusterMention,
     CoreferenceResult,
     Entity,
+    EntityCluster,
     Mention,
+    ParsedWord,
     SentenceFragment,
 )
 from pipeline.relations import PolishFactExtractor
@@ -67,6 +73,94 @@ def prepare_for_relation_extraction(
     document = PolishEntityClusterer(config).run(document)
     document = StanzaClauseParser(config, shared_runtime).run(document)
     return PolishFrameExtractor(config).run(document)
+
+
+def prepared_single_clause_document(
+    *,
+    document_id: str,
+    text: str,
+    entities: list[tuple[str, EntityType, str]],
+    parsed_words: list[ParsedWord] | None = None,
+) -> ArticleDocument:
+    sentence = SentenceFragment(
+        text=text,
+        paragraph_index=0,
+        sentence_index=0,
+        start_char=0,
+        end_char=len(text),
+    )
+    document = ArticleDocument(
+        document_id=DocumentID(document_id),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[sentence],
+    )
+    cluster_mentions: list[ClusterMention] = []
+    for index, (surface, entity_type, canonical_name) in enumerate(entities):
+        start = text.index(surface)
+        end = start + len(surface)
+        entity_id = EntityID(f"entity-{index}")
+        entity = Entity(
+            entity_id=entity_id,
+            entity_type=entity_type,
+            canonical_name=canonical_name,
+            normalized_name=canonical_name,
+        )
+        document.entities.append(entity)
+        document.mentions.append(
+            Mention(
+                text=surface,
+                normalized_text=canonical_name,
+                mention_type=entity_type,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=start,
+                end_char=end,
+                entity_id=entity_id,
+            )
+        )
+        cluster_mention = ClusterMention(
+            text=surface,
+            entity_type=entity_type,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=start,
+            end_char=end,
+            entity_id=entity_id,
+        )
+        cluster_mentions.append(cluster_mention)
+        document.clusters.append(
+            EntityCluster(
+                cluster_id=ClusterID(f"cluster-{index}"),
+                entity_type=entity_type,
+                canonical_name=canonical_name,
+                normalized_name=canonical_name,
+                mentions=[cluster_mention],
+            )
+        )
+    document.parsed_sentences = {0: parsed_words or []}
+    root = (
+        parsed_words
+        or [ParsedWord(1, text.split()[0], text.split()[0].lower(), "", 0, "root", 0, 1)]
+    )[0]
+    document.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-1"),
+            text=text,
+            trigger_head_text=root.text,
+            trigger_head_lemma=root.lemma,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+            cluster_mentions=cluster_mentions,
+        )
+    ]
+    return document
 
 
 def test_party_aliases_match_whole_tokens_only() -> None:
@@ -643,6 +737,28 @@ def test_segmenter_keeps_initials_with_surname() -> None:
     segmented = segmenter.run(document)
 
     assert segmented.sentences[0].text.startswith("A. Góralczyk")
+
+
+def test_segmenter_splits_sentence_before_quote_dash() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    segmenter = ParagraphSentenceSegmenter(config)
+    text = "Pierwsza umowa dotyczyła Bartków. – Łącznie firma podpisała dwie umowy."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-quote-dash"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+    )
+
+    segmented = segmenter.run(document)
+
+    assert [sentence.text for sentence in segmented.sentences] == [
+        "Pierwsza umowa dotyczyła Bartków.",
+        "– Łącznie firma podpisała dwie umowy.",
+    ]
 
 
 def test_inflected_public_institution_is_typed_from_lemmas() -> None:
@@ -1619,3 +1735,120 @@ def test_party_membership_does_not_cross_attach_between_multiple_people() -> Non
     assert any("Lewic" in party_name for party_name in mazur_party_names)
     assert (kloc_id, psl_id) in party_facts
     assert (mazur_id, psl_id) not in party_facts
+
+
+def test_named_person_referral_to_cba_emits_anti_corruption_fact() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Radny Jan Kowalski złożył zawiadomienie do CBA."
+    document = prepared_single_clause_document(
+        document_id="doc-cba-person",
+        text=text,
+        entities=[
+            ("Jan Kowalski", EntityType.PERSON, "Jan Kowalski"),
+            ("CBA", EntityType.PUBLIC_INSTITUTION, "Centralne Biuro Antykorupcyjne"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    referrals = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
+    ]
+    assert referrals
+    assert referrals[0].subject_entity_id == EntityID("entity-0")
+    assert referrals[0].object_entity_id == EntityID("entity-1")
+
+
+def test_party_referral_to_cba_uses_party_actor_when_no_person_present() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Radni reprezentujący PiS zapowiedzieli zawiadomienie do CBA."
+    document = prepared_single_clause_document(
+        document_id="doc-cba-party",
+        text=text,
+        entities=[
+            ("PiS", EntityType.POLITICAL_PARTY, "Prawo i Sprawiedliwość"),
+            ("CBA", EntityType.PUBLIC_INSTITUTION, "Centralne Biuro Antykorupcyjne"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    referrals = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
+    ]
+    assert referrals
+    assert referrals[0].subject_entity_id == EntityID("entity-0")
+    assert referrals[0].object_entity_id == EntityID("entity-1")
+
+
+def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Firma X podpisała umowy z miastem Y oraz spółką Z na kwotę 397 496,95 zł."
+    document = prepared_single_clause_document(
+        document_id="doc-contract",
+        text=text,
+        entities=[
+            ("Firma X", EntityType.ORGANIZATION, "Firma X"),
+            ("miastem Y", EntityType.PUBLIC_INSTITUTION, "Miasto Y"),
+            ("spółką Z", EntityType.ORGANIZATION, "Spółka Z"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
+    assert len(contracts) == 2
+    assert {fact.object_entity_id for fact in contracts} == {
+        EntityID("entity-1"),
+        EntityID("entity-2"),
+    }
+    assert {fact.amount_text for fact in contracts} == {"397 496,95 Zł"}
+
+
+def test_generic_contract_sentence_without_parties_does_not_emit_public_contract() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Wszystkie umowy zawierane są zgodnie z prawem."
+    document = prepared_single_clause_document(
+        document_id="doc-contract-negative",
+        text=text,
+        entities=[],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    assert not any(fact.fact_type == FactType.PUBLIC_CONTRACT for fact in extracted.facts)
+
+
+def test_owner_context_collaborator_tie_skips_quote_attribution_person() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Firma Bartłomieja Wnuka zatrudniała wieloletniego kolegę i współpracownika "
+        "prezydenta Mariusza Wołosza, powiedział Maciej Bartków."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-owner-tie",
+        text=text,
+        entities=[
+            ("Bartłomieja Wnuka", EntityType.PERSON, "Bartłomiej Wnuk"),
+            ("Mariusza Wołosza", EntityType.PERSON, "Mariusz Wołosz"),
+            ("Maciej Bartków", EntityType.PERSON, "Maciej Bartków"),
+        ],
+    )
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    ties = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert len(ties) == 1
+    assert ties[0].subject_entity_id == EntityID("entity-1")
+    assert ties[0].object_entity_id == EntityID("entity-0")
+    assert ties[0].subject_entity_id != ties[0].object_entity_id
+    assert EntityID("entity-2") not in {
+        ties[0].subject_entity_id,
+        ties[0].object_entity_id,
+    }

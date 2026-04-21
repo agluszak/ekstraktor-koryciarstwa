@@ -436,18 +436,102 @@ class CandidateGraphBuilder:
                     "gabinetu politycznego",
                 )
             ):
-                for left, right in zip(persons, persons[1:], strict=False):
+                edges.extend(
+                    self._tie_edges_from_anchors(
+                        sentence_text=sentence.text,
+                        sentence_index=sentence.sentence_index,
+                        persons=persons,
+                    )
+                )
+
+        return self._deduplicate_edges(edges)
+
+    @staticmethod
+    def _tie_edges_from_anchors(
+        *,
+        sentence_text: str,
+        sentence_index: int,
+        persons: list[EntityCandidate],
+    ) -> list[CandidateEdge]:
+        lowered = sentence_text.lower()
+        relation_markers = (
+            "współpracownik",
+            "koleg",
+            "znajom",
+            "przyjaciel",
+            "doradc",
+            "zaufan",
+        )
+        owner_markers = ("firma", "firmy", "spółka", "spółki", "właściciel", "prowadz")
+        public_role_markers = (
+            "prezydent",
+            "burmistrz",
+            "wójt",
+            "minister",
+            "poseł",
+            "radny",
+            "marszałek",
+        )
+        edges: list[CandidateEdge] = []
+        for marker in relation_markers:
+            anchor = lowered.find(marker)
+            if anchor < 0:
+                continue
+            owner_persons = [
+                person
+                for person in persons
+                if person.end_char <= anchor
+                and any(
+                    owner_marker
+                    in lowered[
+                        max(0, person.start_char - 80) : min(len(lowered), person.end_char + 18)
+                    ]
+                    for owner_marker in owner_markers
+                )
+            ]
+            public_actor_persons = [
+                person
+                for person in persons
+                if person.start_char >= anchor
+                and any(
+                    role_marker
+                    in lowered[
+                        max(0, person.start_char - 36) : min(len(lowered), person.end_char + 8)
+                    ]
+                    for role_marker in public_role_markers
+                )
+            ]
+            if owner_persons and public_actor_persons:
+                owner = max(owner_persons, key=lambda person: person.end_char)
+                public_actor = min(public_actor_persons, key=lambda person: person.start_char)
+                if owner.entity_id != public_actor.entity_id:
                     edges.append(
                         CandidateEdge(
                             edge_type="person-related-to-person",
-                            source_candidate_id=left.candidate_id,
-                            target_candidate_id=right.candidate_id,
-                            confidence=0.68,
-                            sentence_index=sentence.sentence_index,
+                            source_candidate_id=public_actor.candidate_id,
+                            target_candidate_id=owner.candidate_id,
+                            confidence=0.82,
+                            sentence_index=sentence_index,
                         )
                     )
+                continue
 
-        return self._deduplicate_edges(edges)
+            nearby = [
+                person
+                for person in persons
+                if abs(person.start_char - anchor) <= 80 or abs(person.end_char - anchor) <= 80
+            ]
+            if len(nearby) == 2 and nearby[0].entity_id != nearby[1].entity_id:
+                edges.append(
+                    CandidateEdge(
+                        edge_type="person-related-to-person",
+                        source_candidate_id=nearby[0].candidate_id,
+                        target_candidate_id=nearby[1].candidate_id,
+                        confidence=0.72,
+                        sentence_index=sentence_index,
+                    )
+                )
+        return edges
 
     def _supports_party_link(
         self,

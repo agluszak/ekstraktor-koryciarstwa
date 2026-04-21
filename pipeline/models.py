@@ -315,6 +315,36 @@ class FundingFrame:
 
 
 @dataclass(slots=True)
+class PublicContractFrame:
+    frame_id: FrameID
+    contractor_cluster_id: ClusterID
+    counterparty_cluster_id: ClusterID
+    amount_text: str | None = None
+    amount_normalized: str | None = None
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+
+    # Inlined attributes
+    extraction_signal: str | None = None
+    evidence_scope: str | None = None
+    score_reason: str | None = None
+
+
+@dataclass(slots=True)
+class AntiCorruptionReferralFrame:
+    frame_id: FrameID
+    complainant_cluster_id: ClusterID
+    target_cluster_id: ClusterID
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+
+    # Inlined attributes
+    extraction_signal: str | None = None
+    evidence_scope: str | None = None
+    score_reason: str | None = None
+
+
+@dataclass(slots=True)
 class RelevanceDecision:
     is_relevant: bool
     score: float
@@ -350,6 +380,8 @@ class ArticleDocument:
     governance_frames: list[GovernanceFrame] = field(default_factory=list)
     compensation_frames: list[CompensationFrame] = field(default_factory=list)
     funding_frames: list[FundingFrame] = field(default_factory=list)
+    public_contract_frames: list[PublicContractFrame] = field(default_factory=list)
+    anti_corruption_referral_frames: list[AntiCorruptionReferralFrame] = field(default_factory=list)
     identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
 
 

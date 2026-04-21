@@ -26,6 +26,8 @@ keywords:
   - pensja
   - uposażenie
   - miesięcznie
+  - CBA
+  - Centralne Biuro Antykorupcyjne
 
 party_aliases:
   PO: Platforma Obywatelska
@@ -42,6 +44,8 @@ institution_aliases:
   Ministerstwo Obrony Narodowej: Ministerstwo Obrony Narodowej
   AMW: Agencja Mienia Wojskowego
   Agencja Mienia Wojskowego: Agencja Mienia Wojskowego
+  CBA: Centralne Biuro Antykorupcyjne
+  Centralne Biuro Antykorupcyjne: Centralne Biuro Antykorupcyjne
 
 patterns:
   appointment_verbs:

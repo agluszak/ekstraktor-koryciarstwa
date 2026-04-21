@@ -5,10 +5,18 @@ from collections.abc import Iterable
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import ClusterID, EntityType, EventType, FrameID, RoleKind
+from pipeline.domain_types import (
+    ClusterID,
+    EntityType,
+    EventType,
+    FrameID,
+    OrganizationKind,
+    RoleKind,
+)
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
 from pipeline.models import (
+    AntiCorruptionReferralFrame,
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
@@ -18,6 +26,7 @@ from pipeline.models import (
     FundingFrame,
     GovernanceFrame,
     ParsedWord,
+    PublicContractFrame,
 )
 from pipeline.nlp_rules import (
     APPOINTMENT_TRIGGER_LEMMAS,
@@ -95,12 +104,69 @@ KINSHIP_LEMMAS = frozenset(
     }
 )
 
+REFERRAL_TRIGGER_LEMMAS = frozenset({"złożyć", "skierować", "zapowiedzieć"})
+REFERRAL_NOUN_LEMMAS = frozenset({"zawiadomienie", "doniesienie", "skarga", "wniosek"})
+ACCOUNTABILITY_INSTITUTION_MARKERS = frozenset(
+    {
+        "cba",
+        "centralne biuro antykorupcyjne",
+        "prokuratura",
+        "prokuratury",
+        "nik",
+        "najwyższa izba kontroli",
+    }
+)
+CONTRACT_TRIGGER_LEMMAS = frozenset(
+    {
+        "umowa",
+        "kontrakt",
+        "zamówienie",
+        "podpisać",
+        "zawrzeć",
+        "udzielić",
+        "realizować",
+    }
+)
+CONTRACT_TEXT_MARKERS = frozenset(
+    {
+        "umow",
+        "kontrakt",
+        "zamówie",
+        "zamówienia publicz",
+        "przetarg",
+        "podpisał",
+        "podpisała",
+        "zawarł",
+        "zawarła",
+    }
+)
+PUBLIC_COUNTERPARTY_MARKERS = frozenset(
+    {
+        "gmina",
+        "miasto",
+        "urząd",
+        "miejski",
+        "miejska",
+        "miejskie",
+        "komunaln",
+        "publiczn",
+        "pec",
+        "bpk",
+        "przedsiębiorstwo komunalne",
+    }
+)
+CONTRACTOR_CONTEXT_MARKERS = frozenset(
+    {"firma", "firmy", "firmą", "spółka", "spółki", "spółką", "podmiot"}
+)
+
 
 class PolishFrameExtractor(FrameExtractor):
     def __init__(self, config: PipelineConfig) -> None:
         self.governance = PolishGovernanceFrameExtractor(config)
         self.compensation = PolishCompensationFrameExtractor(config)
         self.funding = PolishFundingFrameExtractor(config)
+        self.public_contracts = PolishPublicContractFrameExtractor(config)
+        self.anti_corruption_referrals = PolishAntiCorruptionReferralFrameExtractor(config)
 
     def name(self) -> str:
         return "polish_frame_extractor"
@@ -108,7 +174,520 @@ class PolishFrameExtractor(FrameExtractor):
     def run(self, document: ArticleDocument) -> ArticleDocument:
         document = self.governance.run(document)
         document = self.compensation.run(document)
-        return self.funding.run(document)
+        document = self.funding.run(document)
+        document = self.public_contracts.run(document)
+        return self.anti_corruption_referrals.run(document)
+
+
+class PolishPublicContractFrameExtractor(FrameExtractor):
+    def __init__(self, config: PipelineConfig) -> None:
+        self.config = config
+
+    def name(self) -> str:
+        return "polish_public_contract_frame_extractor"
+
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        document.public_contract_frames = []
+        for clause in document.clause_units:
+            if not self._has_contract_context(document, clause):
+                continue
+            amount_match = COMPENSATION_PATTERN.search(clause.text)
+            explicit_public_procurement = self._has_public_procurement_context(clause)
+            if amount_match is None and self._is_generic_contract_compliance_clause(clause):
+                continue
+            if amount_match is None and not explicit_public_procurement:
+                continue
+            for frame in self._extract_frames_from_clause(
+                document,
+                clause,
+                amount_match,
+                explicit_public_procurement=explicit_public_procurement,
+            ):
+                document.public_contract_frames.append(frame)
+        return document
+
+    def _extract_frames_from_clause(
+        self,
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        amount_match,
+        *,
+        explicit_public_procurement: bool,
+    ) -> list[PublicContractFrame]:
+        clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION, EntityType.PERSON},
+        )
+        if not clusters:
+            return []
+
+        trigger_offset = self._contract_trigger_offset(document, clause)
+        contractor = self._best_contractor(clause, clusters, trigger_offset)
+        if contractor is None:
+            return []
+        counterparties = self._public_counterparties(clause, clusters, contractor, trigger_offset)
+        if not counterparties:
+            return []
+
+        amount_text = amount_match.group("amount") if amount_match else None
+        confidence = 0.82 if amount_text else 0.68
+        if contractor.entity_type == EntityType.PERSON:
+            confidence -= 0.12
+        if explicit_public_procurement:
+            confidence += 0.04
+        frames: list[PublicContractFrame] = []
+        for counterparty in counterparties:
+            if counterparty.cluster_id == contractor.cluster_id:
+                continue
+            frames.append(
+                PublicContractFrame(
+                    frame_id=FrameID(f"contract-frame-{uuid.uuid4().hex[:8]}"),
+                    contractor_cluster_id=contractor.cluster_id,
+                    counterparty_cluster_id=counterparty.cluster_id,
+                    amount_text=amount_text,
+                    amount_normalized=normalize_entity_name(amount_text.lower())
+                    if amount_text
+                    else None,
+                    confidence=max(0.05, min(confidence, 0.95)),
+                    evidence=[
+                        EvidenceSpan(
+                            text=clause.text,
+                            sentence_index=clause.sentence_index,
+                            paragraph_index=clause.paragraph_index,
+                            start_char=clause.start_char,
+                            end_char=clause.end_char,
+                        )
+                    ],
+                    extraction_signal="dependency_edge",
+                    evidence_scope="same_clause",
+                    score_reason="contract_amount_public_counterparty"
+                    if amount_text
+                    else "public_procurement_counterparty",
+                )
+            )
+        return frames
+
+    @staticmethod
+    def _has_contract_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
+        lowered = clause.text.lower()
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        lemmas = {word.lemma.lower() for word in parsed_words}
+        return bool(
+            lemmas.intersection(CONTRACT_TRIGGER_LEMMAS)
+            or clause.trigger_head_lemma.lower() in CONTRACT_TRIGGER_LEMMAS
+            or any(marker in lowered for marker in CONTRACT_TEXT_MARKERS)
+        )
+
+    @staticmethod
+    def _has_public_procurement_context(clause: ClauseUnit) -> bool:
+        lowered = clause.text.lower()
+        return any(
+            marker in lowered
+            for marker in ("zamówień publicznych", "zamówienia publiczne", "przetarg")
+        )
+
+    @staticmethod
+    def _is_generic_contract_compliance_clause(clause: ClauseUnit) -> bool:
+        lowered = clause.text.lower()
+        return (
+            "zgodnie z prawem" in lowered
+            and "zamówień publicznych" in lowered
+            and not any(marker in lowered for marker in ("kwot", "zł", "podpisa", "zawar"))
+        )
+
+    def _clusters_for_mentions(
+        self,
+        document: ArticleDocument,
+        mentions: Iterable[ClusterMention],
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        seen: set[ClusterID] = set()
+        clusters: list[EntityCluster] = []
+        for mention in mentions:
+            if mention.entity_type not in entity_types:
+                continue
+            cluster = PolishCompensationFrameExtractor._find_cluster_for_mention(
+                mention,
+                document,
+            )
+            if cluster is None or cluster.cluster_id in seen:
+                continue
+            seen.add(cluster.cluster_id)
+            clusters.append(cluster)
+        return clusters
+
+    @staticmethod
+    def _contract_trigger_offset(document: ArticleDocument, clause: ClauseUnit) -> int:
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        trigger_words = [
+            word
+            for word in parsed_words
+            if word.lemma.lower() in CONTRACT_TRIGGER_LEMMAS
+            or any(marker in word.text.lower() for marker in ("umow", "kontrakt", "zamówie"))
+        ]
+        if trigger_words:
+            return clause.start_char + min(word.start for word in trigger_words)
+        lowered = clause.text.lower()
+        offsets = [
+            lowered.find(marker) for marker in CONTRACT_TEXT_MARKERS if lowered.find(marker) >= 0
+        ]
+        return clause.start_char + min(offsets, default=0)
+
+    @staticmethod
+    def _best_contractor(
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+        trigger_offset: int,
+    ) -> EntityCluster | None:
+        organizations = [
+            cluster
+            for cluster in clusters
+            if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+        ]
+        before_trigger = [
+            cluster
+            for cluster in organizations
+            if PolishPublicContractFrameExtractor._cluster_before_offset(
+                cluster, trigger_offset, clause
+            )
+        ]
+        company_candidates = [
+            cluster
+            for cluster in before_trigger or organizations
+            if PolishPublicContractFrameExtractor._is_company_like_contractor(clause, cluster)
+        ]
+        if company_candidates:
+            return max(
+                company_candidates, key=lambda cluster: cluster.organization_kind is not None
+            )
+
+        person_contractors = [
+            cluster
+            for cluster in clusters
+            if cluster.entity_type == EntityType.PERSON
+            and PolishPublicContractFrameExtractor._has_person_firm_context(clause, cluster)
+        ]
+        if person_contractors:
+            return min(
+                person_contractors,
+                key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+                    cluster,
+                    clause,
+                ),
+            )
+        return before_trigger[0] if before_trigger else None
+
+    @staticmethod
+    def _public_counterparties(
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+        contractor: EntityCluster,
+        trigger_offset: int,
+    ) -> list[EntityCluster]:
+        counterparties: list[EntityCluster] = []
+        for cluster in clusters:
+            if cluster.cluster_id == contractor.cluster_id:
+                continue
+            if cluster.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+                continue
+            if not PolishPublicContractFrameExtractor._cluster_after_or_near_trigger(
+                cluster,
+                trigger_offset,
+                clause,
+            ):
+                continue
+            if PolishPublicContractFrameExtractor._is_public_counterparty(clause, cluster):
+                counterparties.append(cluster)
+        return counterparties
+
+    @staticmethod
+    def _cluster_before_offset(
+        cluster: EntityCluster,
+        offset: int,
+        clause: ClauseUnit,
+    ) -> bool:
+        return any(
+            mention.sentence_index == clause.sentence_index and mention.start_char < offset
+            for mention in cluster.mentions
+        )
+
+    @staticmethod
+    def _cluster_after_or_near_trigger(
+        cluster: EntityCluster,
+        offset: int,
+        clause: ClauseUnit,
+    ) -> bool:
+        return any(
+            mention.sentence_index == clause.sentence_index and mention.end_char >= offset - 12
+            for mention in cluster.mentions
+        )
+
+    @staticmethod
+    def _is_company_like_contractor(clause: ClauseUnit, cluster: EntityCluster) -> bool:
+        if cluster.organization_kind == OrganizationKind.COMPANY:
+            return True
+        lowered_name = cluster.normalized_name.lower()
+        if any(marker in lowered_name for marker in ("consulting", "group", "spół", "firma")):
+            return True
+        return PolishPublicContractFrameExtractor._cluster_has_context_marker(
+            clause,
+            cluster,
+            CONTRACTOR_CONTEXT_MARKERS,
+            before=18,
+            after=6,
+        )
+
+    @staticmethod
+    def _is_public_counterparty(clause: ClauseUnit, cluster: EntityCluster) -> bool:
+        if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
+            return True
+        if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
+            return True
+        lowered_name = cluster.normalized_name.lower()
+        if any(marker in lowered_name for marker in PUBLIC_COUNTERPARTY_MARKERS):
+            return True
+        if any(
+            marker in clause.text.lower() for marker in ("miast", "gmin", "komunal")
+        ) and PolishPublicContractFrameExtractor._cluster_has_context_marker(
+            clause,
+            cluster,
+            {"spółką", "spółce", "spółka"},
+            before=12,
+            after=4,
+        ):
+            return True
+        return PolishPublicContractFrameExtractor._cluster_has_context_marker(
+            clause,
+            cluster,
+            PUBLIC_COUNTERPARTY_MARKERS,
+            before=18,
+            after=10,
+        )
+
+    @staticmethod
+    def _has_person_firm_context(clause: ClauseUnit, cluster: EntityCluster) -> bool:
+        return PolishPublicContractFrameExtractor._cluster_has_context_marker(
+            clause,
+            cluster,
+            {"firma", "firmy", "prowadzona przez", "prowadzonej przez", "należąca do"},
+            before=34,
+            after=6,
+        )
+
+    @staticmethod
+    def _cluster_has_context_marker(
+        clause: ClauseUnit,
+        cluster: EntityCluster,
+        markers: Iterable[str],
+        *,
+        before: int,
+        after: int,
+    ) -> bool:
+        lowered = clause.text.lower()
+        for mention in cluster.mentions:
+            if mention.sentence_index != clause.sentence_index:
+                continue
+            start = max(0, mention.start_char - clause.start_char)
+            end = max(start, mention.end_char - clause.start_char)
+            window = lowered[max(0, start - before) : min(len(lowered), end + after)]
+            if any(marker in window for marker in markers):
+                return True
+        return False
+
+
+class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
+    def __init__(self, config: PipelineConfig) -> None:
+        self.config = config
+
+    def name(self) -> str:
+        return "polish_anti_corruption_referral_frame_extractor"
+
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        document.anti_corruption_referral_frames = []
+        for clause in document.clause_units:
+            if not self._has_referral_context(document, clause):
+                continue
+            frame = self._extract_frame_from_clause(document, clause)
+            if frame is not None:
+                document.anti_corruption_referral_frames.append(frame)
+        return document
+
+    def _extract_frame_from_clause(
+        self,
+        document: ArticleDocument,
+        clause: ClauseUnit,
+    ) -> AntiCorruptionReferralFrame | None:
+        clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {
+                EntityType.PERSON,
+                EntityType.POLITICAL_PARTY,
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            },
+        )
+        target = self._target_institution(clause, clusters)
+        if target is None:
+            return None
+        complainant = self._complainant_actor(document, clause, clusters, target)
+        if complainant is None:
+            return None
+
+        return AntiCorruptionReferralFrame(
+            frame_id=FrameID(f"referral-frame-{uuid.uuid4().hex[:8]}"),
+            complainant_cluster_id=complainant.cluster_id,
+            target_cluster_id=target.cluster_id,
+            confidence=0.82 if complainant.entity_type == EntityType.PERSON else 0.74,
+            evidence=[
+                EvidenceSpan(
+                    text=clause.text,
+                    sentence_index=clause.sentence_index,
+                    paragraph_index=clause.paragraph_index,
+                    start_char=clause.start_char,
+                    end_char=clause.end_char,
+                )
+            ],
+            extraction_signal="dependency_edge",
+            evidence_scope="same_clause",
+            score_reason="anti_corruption_referral",
+        )
+
+    @staticmethod
+    def _has_referral_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
+        lowered = clause.text.lower()
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        lemmas = {word.lemma.lower() for word in parsed_words}
+        has_trigger = bool(
+            lemmas.intersection(REFERRAL_TRIGGER_LEMMAS)
+            or clause.trigger_head_lemma.lower() in REFERRAL_TRIGGER_LEMMAS
+            or any(trigger in lowered for trigger in ("złoży", "złożą", "skieruj", "zapowied"))
+        )
+        has_noun = bool(
+            lemmas.intersection(REFERRAL_NOUN_LEMMAS)
+            or any(noun in lowered for noun in ("zawiadomienie", "doniesienie", "skarg", "wniosek"))
+        )
+        has_target = any(marker in lowered for marker in ACCOUNTABILITY_INSTITUTION_MARKERS)
+        return has_target and has_noun and (has_trigger or "złożenia zawiadomienia" in lowered)
+
+    def _clusters_for_mentions(
+        self,
+        document: ArticleDocument,
+        mentions: Iterable[ClusterMention],
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        seen: set[ClusterID] = set()
+        clusters: list[EntityCluster] = []
+        for mention in mentions:
+            if mention.entity_type not in entity_types:
+                continue
+            cluster = PolishCompensationFrameExtractor._find_cluster_for_mention(
+                mention,
+                document,
+            )
+            if cluster is None or cluster.cluster_id in seen:
+                continue
+            seen.add(cluster.cluster_id)
+            clusters.append(cluster)
+        return clusters
+
+    @staticmethod
+    def _target_institution(
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+    ) -> EntityCluster | None:
+        target_candidates = [
+            cluster
+            for cluster in clusters
+            if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            and any(
+                marker in cluster.normalized_name.lower()
+                or marker in cluster.canonical_name.lower()
+                for marker in ACCOUNTABILITY_INSTITUTION_MARKERS
+            )
+        ]
+        if target_candidates:
+            return min(
+                target_candidates,
+                key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+                    cluster,
+                    clause,
+                ),
+            )
+        return None
+
+    @staticmethod
+    def _complainant_actor(
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+        target: EntityCluster,
+    ) -> EntityCluster | None:
+        parsed = document.parsed_sentences.get(clause.sentence_index, [])
+        subject_word_indices = {word.index for word in parsed if word.deprel.startswith("nsubj")}
+        person_candidates = [
+            cluster
+            for cluster in clusters
+            if cluster.entity_type == EntityType.PERSON and cluster.cluster_id != target.cluster_id
+        ]
+        for cluster in person_candidates:
+            if PolishAntiCorruptionReferralFrameExtractor._cluster_overlaps_word_indices(
+                clause,
+                cluster,
+                parsed,
+                subject_word_indices,
+            ):
+                return cluster
+        if person_candidates:
+            speech_heads = {word.index for word in parsed if word.lemma.casefold() in SPEECH_LEMMAS}
+            speaker_indices = {
+                word.index
+                for word in parsed
+                if word.head in speech_heads and word.deprel.startswith("nsubj")
+            }
+            non_speakers = [
+                cluster
+                for cluster in person_candidates
+                if not PolishAntiCorruptionReferralFrameExtractor._cluster_overlaps_word_indices(
+                    clause,
+                    cluster,
+                    parsed,
+                    speaker_indices,
+                )
+            ]
+            return (non_speakers or person_candidates)[0]
+
+        party_candidates = [
+            cluster
+            for cluster in clusters
+            if cluster.entity_type == EntityType.POLITICAL_PARTY
+            and cluster.cluster_id != target.cluster_id
+        ]
+        lowered = clause.text.lower()
+        if party_candidates and any(
+            marker in lowered for marker in ("radni", "radnych", "reprezentujący")
+        ):
+            return party_candidates[0]
+        return None
+
+    @staticmethod
+    def _cluster_overlaps_word_indices(
+        clause: ClauseUnit,
+        cluster: EntityCluster,
+        parsed: list[ParsedWord],
+        indices: set[int],
+    ) -> bool:
+        if not indices:
+            return False
+        for mention in cluster.mentions:
+            if mention.sentence_index != clause.sentence_index:
+                continue
+            for word in parsed:
+                abs_start = clause.start_char + word.start
+                if word.index in indices and mention.start_char <= abs_start < mention.end_char:
+                    return True
+        return False
 
 
 class PolishGovernanceFrameExtractor(FrameExtractor):
@@ -523,10 +1102,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
     def _near_family_subject(document: ArticleDocument, clause: ClauseUnit) -> bool:
         for sentence_index in {clause.sentence_index, clause.sentence_index - 1}:
             for word in document.parsed_sentences.get(sentence_index, []):
-                if (
-                    word.lemma.casefold() in KINSHIP_LEMMAS
-                    and word.deprel.startswith("nsubj")
-                ):
+                if word.lemma.casefold() in KINSHIP_LEMMAS and word.deprel.startswith("nsubj"):
                     return True
         return False
 
@@ -584,10 +1160,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 continue
             for word in parsed:
                 abs_start = clause.start_char + word.start
-                if (
-                    word.index in indices
-                    and mention.start_char <= abs_start < mention.end_char
-                ):
+                if word.index in indices and mention.start_char <= abs_start < mention.end_char:
                     return True
         return False
 

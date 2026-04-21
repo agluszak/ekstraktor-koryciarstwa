@@ -20,6 +20,10 @@ from pipeline.models import (
     Fact,
 )
 from pipeline.normalization import DocumentEntityCanonicalizer
+from pipeline.public_facts import (
+    AntiCorruptionReferralFactBuilder,
+    PublicContractFactBuilder,
+)
 from pipeline.utils import stable_id
 
 from .candidate_graph import CandidateGraphBuilder
@@ -38,6 +42,8 @@ class PolishFactExtractor(FactExtractor):
         self.governance_fact_builder = GovernanceFactBuilder()
         self.compensation_fact_builder = CompensationFactBuilder()
         self.funding_fact_builder = FundingFactBuilder()
+        self.public_contract_fact_builder = PublicContractFactBuilder()
+        self.anti_corruption_referral_fact_builder = AntiCorruptionReferralFactBuilder()
         self.fact_extractors = [
             PoliticalProfileFactExtractor(),
             TieFactExtractor(),
@@ -87,6 +93,8 @@ class PolishFactExtractor(FactExtractor):
         facts.extend(self.governance_fact_builder.build(document))
         facts.extend(self.compensation_fact_builder.build(document))
         facts.extend(self.funding_fact_builder.build(document))
+        facts.extend(self.public_contract_fact_builder.build(document))
+        facts.extend(self.anti_corruption_referral_fact_builder.build(document))
         facts.extend(self._cross_sentence_party_facts(document, candidate_graph))
 
         document.facts = self._deduplicate_facts(facts)
