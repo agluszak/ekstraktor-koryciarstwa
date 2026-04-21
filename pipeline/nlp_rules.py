@@ -60,7 +60,7 @@ APPOINTMENT_TRIGGER_LEMMAS = frozenset(
         "zostać",
     }
 )
-DISMISSAL_TRIGGER_LEMMAS = frozenset({"odwołać", "zrezygnować"})
+DISMISSAL_TRIGGER_LEMMAS = frozenset({"odwołać", "odwoływać", "zrezygnować"})
 APPOINTMENT_TRIGGER_TEXTS = frozenset(
     {
         "został prezesem",
@@ -87,6 +87,9 @@ DISMISSAL_TRIGGER_TEXTS = frozenset(
         "złożyła rezygnację",
         "przyjęła rezygnację",
         "przyjął rezygnację",
+        "odwołano",
+        "został odwołany",
+        "została odwołana",
     }
 )
 
@@ -131,6 +134,8 @@ OWNER_CONTEXT_TERMS = frozenset(
         "ministerstwo",
         "minister",
         "krajowy ośrodek",
+        "krajowy ośrodek wsparcia rolnictwa",
+        "kowr",
         "krajowy zasób",
         "skarbu państwa",
         "nadzór",

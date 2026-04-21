@@ -76,6 +76,12 @@ class ClauseParser(PipelineStage):
         raise NotImplementedError
 
 
+class IdentityResolver(PipelineStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
+
+
 class FrameExtractor(PipelineStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:

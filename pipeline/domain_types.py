@@ -54,6 +54,7 @@ class OrganizationKind(StrEnum):
 
 
 class RelationshipType(StrEnum):
+    FAMILY = "family"
     ASSOCIATE = "associate"
     COLLABORATOR = "collaborator"
     FRIEND = "friend"
@@ -61,6 +62,32 @@ class RelationshipType(StrEnum):
     BODYGUARD = "bodyguard"
     RECOMMENDER = "recommender"
     OFFICE_CHIEF = "office_chief"
+
+
+class IdentityHypothesisStatus(StrEnum):
+    POSSIBLE = "possible"
+    PROBABLE = "probable"
+    CONFIRMED = "confirmed"
+
+
+class IdentityHypothesisReason(StrEnum):
+    SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY = "same_anchor_compatible_family_proxy"
+    SURNAME_COMPATIBLE_FAMILY_PROXY = "surname_compatible_family_proxy"
+    SURNAME_COMPATIBLE_NEAR_FAMILY_CONTEXT = "surname_compatible_near_family_context"
+    HONORIFIC_SURNAME_ONLY = "honorific_surname_only"
+
+
+class ProxyKind(StrEnum):
+    FAMILY = "family"
+
+
+class KinshipDetail(StrEnum):
+    SPOUSE = "spouse"
+    PARTNER = "partner"
+    SIBLING_SISTER = "sibling_sister"
+    SIBLING_BROTHER = "sibling_brother"
+    CHILD_DAUGHTER = "child_daughter"
+    CHILD_SON = "child_son"
 
 
 class RoleKind(StrEnum):
@@ -85,6 +112,12 @@ class EntityAttributes(TypedDict, total=False):
     registry_id: str
     lemmas: list[str]
     organization_kind: OrganizationKind
+    is_proxy_person: bool
+    is_honorific_person_ref: bool
+    proxy_kind: ProxyKind
+    kinship_detail: KinshipDetail
+    proxy_anchor_entity_id: str
+    proxy_surface: str
 
 
 class ConfidenceBreakdown(TypedDict, total=False):
@@ -113,6 +146,9 @@ class FactAttributes(TypedDict, total=False):
     amount_text: str | None
     period: str | None
     relationship_type: RelationshipType | None
+    kinship_detail: KinshipDetail | None
+    identity_resolution: dict[str, str | float | IdentityHypothesisStatus] | None
+    possible_identity_matches: list[str]
     extraction_signal: str | None
     evidence_scope: str | None
     overlaps_governance: bool

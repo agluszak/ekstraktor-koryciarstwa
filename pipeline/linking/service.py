@@ -44,6 +44,13 @@ class SQLiteEntityLinker(EntityLinker):
             self._seed_knowledge_graph()
             self._knowledge_seeded = True
         for entity in document.entities:
+            if entity.attributes.get("is_proxy_person") or entity.attributes.get(
+                "is_honorific_person_ref"
+            ):
+                entity.attributes["registry_id"] = stable_id(
+                    "document_local_ref", document.document_id, entity.entity_id
+                )
+                continue
             fingerprint = self._fingerprint(entity)
             registry_id = self._match_or_create(entity, fingerprint)
             entity.attributes["registry_id"] = registry_id
@@ -420,6 +427,11 @@ class SQLiteEntityLinker(EntityLinker):
         id_remap: dict[str, str] = {}
         result: list[Entity] = []
         for entity in entities:
+            if entity.attributes.get("is_proxy_person") or entity.attributes.get(
+                "is_honorific_person_ref"
+            ):
+                result.append(entity)
+                continue
             rid = entity.attributes.get("registry_id")
             if rid is None or rid not in registry_map:
                 if rid is not None:
@@ -442,6 +454,11 @@ class SQLiteEntityLinker(EntityLinker):
         result: list[Entity] = []
         related_types = {EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value}
         for entity in entities:
+            if entity.attributes.get("is_proxy_person") or entity.attributes.get(
+                "is_honorific_person_ref"
+            ):
+                result.append(entity)
+                continue
             key_type = entity.entity_type.value
             if key_type in related_types:
                 key_type = "org-or-party"

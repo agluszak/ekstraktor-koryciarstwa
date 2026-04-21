@@ -570,6 +570,54 @@ Important text cues:
 Expected comparison standard:
 - This article should yield one appointment, one dismissal/change fact, one party tie, and one state-ownership signal.
 
+## 16. eM Kielce: Zarzuty o nepotyzm i ostre personalne spory w kieleckim Ratuszu
+
+Source:
+- https://emkielce.pl/miasto-4/zarzuty-o-nepotyzm-i-ostre-personalne-spory-w-kieleckim-ratuszu-80925
+
+Expectation:
+- This article is **in scope**, but most relevant claims appear as quoted political allegations and
+  rebuttals during a city council dispute.
+- Extraction should preserve caution: the article reports allegations of nepotism and employment of
+  politically/family-connected people, not confirmed wrongdoing.
+- Focus benchmark interpretation on the section beginning with "Żona Karola Wilczyńskiego".
+
+Expected core entities:
+- Karol Wilczyński
+- wife / partner of Karol Wilczyński
+- Maciej Jakubczyk
+- Agata Wojda
+- Koalicja Obywatelska
+- Miejski Urząd Pracy
+- Kielecki Park Technologiczny
+- Radio Kielce / public-linked company connected with Radio Kielce
+
+Expected facts:
+- Wife/partner of Karol Wilczyński -> `PERSONAL_OR_POLITICAL_TIE` -> Karol Wilczyński
+  Expected relation: spouse/partner/family tie.
+- Wife/partner of Karol Wilczyński -> employment / `APPOINTMENT`-style fact -> public-linked unit
+  connected with Radio Kielce or Kielecki Park Technologiczny.
+  This should be marked as weak/allegation or quoted context if the output model supports it.
+- Sister of Karol Wilczyński -> `PERSONAL_OR_POLITICAL_TIE` -> Karol Wilczyński
+  Expected relation: sibling/family tie.
+- Sister of Karol Wilczyński -> `APPOINTMENT` or role fact -> Miejski Urząd Pracy
+  Expected role: dyrektor / pełniąca obowiązki dyrektora.
+- Karol Wilczyński -> `PARTY_MEMBERSHIP` or political affiliation -> Koalicja Obywatelska.
+
+Important text cues:
+- "Żona Karola Wilczyńskiego była zatrudniona..."
+- "Moja partnerka jest zatrudniona od 10 lat w jednostce publicznej w Kieleckim Parku Technologicznym"
+- "Siostra pana przewodniczącego została dyrektorem Miejskiego Urzędu Pracy"
+- "radny Karol Wilczyński z Koalicji Obywatelskiej"
+
+Expected comparison standard:
+- This article should not be treated as a clean direct appointment article only.
+- A useful extraction should recover the family-tie structure and the employment/role targets while
+  retaining quoted/allegation context where possible.
+- The spouse/partner mention should not be merged into Karol Wilczyński as the same person.
+- Generic council-session conflict, culture-of-debate, and procedural dispute content should not
+  produce unrelated appointment facts.
+
 ## Comparison Guidance
 
 When comparing current output against this file:

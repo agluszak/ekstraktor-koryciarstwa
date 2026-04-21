@@ -544,6 +544,85 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
     assert any(entity.canonical_name == "A. Góralczyk" for entity in extracted.entities)
 
 
+def test_headline_party_context_links_next_sentence_person() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = (
+        "Działaczka Polskiego Stronnictwa Ludowego A. Góralczyk awansowała na stanowisko prezesa."
+    )
+    document = ArticleDocument(
+        document_id="doc-party-discourse",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[
+            "Działaczka Polskiego Stronnictwa Ludowego",
+            "A. Góralczyk awansowała na stanowisko prezesa.",
+        ],
+        sentences=[
+            SentenceFragment(
+                text="Działaczka Polskiego Stronnictwa Ludowego",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=41,
+            ),
+            SentenceFragment(
+                text="A. Góralczyk awansowała na stanowisko prezesa.",
+                paragraph_index=1,
+                sentence_index=1,
+                start_char=42,
+                end_char=len(text),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id="party-org",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Polskiego Stronnictwa Ludowego",
+                normalized_name="Polskiego Stronnictwa Ludowego",
+            ),
+            Entity(
+                entity_id="person-1",
+                entity_type=EntityType.PERSON,
+                canonical_name="A. Góralczyk",
+                normalized_name="A. Góralczyk",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Polskiego Stronnictwa Ludowego",
+                normalized_text="Polskiego Stronnictwa Ludowego",
+                mention_type="Organization",
+                sentence_index=0,
+                entity_id="party-org",
+            ),
+            Mention(
+                text="A. Góralczyk",
+                normalized_text="A. Góralczyk",
+                mention_type="Person",
+                sentence_index=1,
+                entity_id="person-1",
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(
+        document,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+    )
+
+    party_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.PARTY_MEMBERSHIP]
+    entity_names = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+
+    assert party_facts
+    assert party_facts[0].object_entity_id is not None
+    assert entity_names[party_facts[0].object_entity_id] == "Polskie Stronnictwo Ludowe"
+
+
 def test_segmenter_keeps_initials_with_surname() -> None:
     config = PipelineConfig.from_file("config.yaml")
     segmenter = ParagraphSentenceSegmenter(config)

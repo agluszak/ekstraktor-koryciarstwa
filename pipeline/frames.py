@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType, EventType, RoleKind
+from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
 from pipeline.models import (
     ArticleDocument,
@@ -84,11 +85,12 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         document.governance_frames = []
+        context = ExtractionContext.build(document)
         for clause in document.clause_units:
             event_type = self._detect_event_type(clause)
             if event_type is None:
                 continue
-            frame = self._extract_frame_from_clause(clause, document, event_type)
+            frame = self._extract_discourse_frame(clause, document, context, event_type)
             if frame is not None:
                 document.governance_frames.append(frame)
         return document
@@ -105,6 +107,162 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         ):
             return EventType.DISMISSAL
         return None
+
+    def _extract_discourse_frame(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        context: ExtractionContext,
+        event_type: EventType,
+    ) -> GovernanceFrame | None:
+        person_clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.PERSON},
+        )
+        if not person_clusters:
+            person_clusters = self._sort_clusters_by_clause_distance(
+                context.previous_clusters(
+                    clause,
+                    {EntityType.PERSON},
+                    max_distance=2,
+                ),
+                clause,
+            )
+            if not person_clusters and event_type == EventType.DISMISSAL:
+                person_clusters = self._sort_clusters_by_clause_distance(
+                    context.following_clusters(
+                        clause,
+                        {EntityType.PERSON},
+                        max_distance=1,
+                    ),
+                    clause,
+                )
+        elif event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+            person_clusters = self._merge_clusters(
+                person_clusters,
+                self._sort_clusters_by_clause_distance(
+                    context.previous_clusters(
+                        clause,
+                        {EntityType.PERSON},
+                        max_distance=2,
+                    ),
+                    clause,
+                ),
+            )
+        if not person_clusters:
+            return None
+
+        role_clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.POSITION},
+        )
+        role_cluster = (
+            role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
+        )
+        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause)
+
+        clause_orgs = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+        )
+        discourse_orgs = self._merge_clusters(
+            clause_orgs,
+            self._merge_clusters(
+                context.following_clusters(
+                    clause,
+                    {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+                    max_distance=2,
+                    same_paragraph=False,
+                ),
+                context.previous_clusters(
+                    clause,
+                    {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+                    max_distance=2,
+                ),
+            ),
+        )
+        org_clusters = self._sort_clusters_by_clause_distance(discourse_orgs, clause)
+        if not org_clusters:
+            return None
+
+        person_cluster_id, appointing_authority_id = self._resolve_people(
+            clause,
+            document,
+            person_clusters,
+        )
+        if person_cluster_id is None:
+            return None
+
+        target_resolution = self.target_resolver.resolve(
+            document=document,
+            clause=clause,
+            org_clusters=org_clusters,
+            role_cluster=role_cluster,
+        )
+        if target_resolution.target_org is None:
+            return None
+
+        attributes = {"target_resolution": target_resolution.reason}
+        if role_text:
+            attributes["found_role"] = role_text
+        if (
+            not clause_orgs
+            or len(
+                {
+                    evidence.sentence_index
+                    for evidence in context.evidence_window(
+                        clause,
+                        [
+                            *person_clusters,
+                            *org_clusters,
+                            *([role_cluster] if role_cluster is not None else []),
+                        ],
+                    )
+                }
+            )
+            > 1
+        ):
+            attributes["evidence_scope"] = "discourse_window"
+
+        evidence = context.evidence_window(
+            clause,
+            [
+                *person_clusters,
+                target_resolution.target_org,
+                *(
+                    [target_resolution.owner_context]
+                    if target_resolution.owner_context is not None
+                    else []
+                ),
+                *(
+                    [target_resolution.governing_body]
+                    if target_resolution.governing_body is not None
+                    else []
+                ),
+                *([role_cluster] if role_cluster is not None else []),
+            ],
+        )
+
+        return GovernanceFrame(
+            frame_id=f"frame-{uuid.uuid4().hex[:8]}",
+            event_type=event_type,
+            person_cluster_id=person_cluster_id,
+            role_cluster_id=role_cluster.cluster_id if role_cluster is not None else None,
+            target_org_cluster_id=target_resolution.target_org.cluster_id,
+            owner_context_cluster_id=target_resolution.owner_context.cluster_id
+            if target_resolution.owner_context
+            else None,
+            governing_body_cluster_id=target_resolution.governing_body.cluster_id
+            if target_resolution.governing_body
+            else None,
+            appointing_authority_cluster_id=appointing_authority_id,
+            confidence=target_resolution.confidence,
+            evidence=evidence,
+            attributes=attributes,
+        )
 
     def _extract_frame_from_clause(
         self,
@@ -359,6 +517,19 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             seen.add(cluster.cluster_id)
             merged.append(cluster)
         return merged
+
+    @staticmethod
+    def _sort_clusters_by_clause_distance(
+        clusters: list[EntityCluster],
+        clause: ClauseUnit,
+    ) -> list[EntityCluster]:
+        return sorted(
+            clusters,
+            key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+                cluster,
+                clause,
+            ),
+        )
 
     @staticmethod
     def _cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> tuple[int, int]:
@@ -703,6 +874,8 @@ class PolishFundingFrameExtractor(FrameExtractor):
             if not self._has_funding_context(document, clause):
                 continue
             amount_match = COMPENSATION_PATTERN.search(clause.text)
+            if self._is_reporting_przekazac_without_amount(document, clause, amount_match):
+                continue
             frame = self._extract_frame_from_clause(document, clause, amount_match)
             if frame is not None:
                 document.funding_frames.append(frame)
@@ -776,6 +949,25 @@ class PolishFundingFrameExtractor(FrameExtractor):
             or "dotacj" in lowered
             or "dofinansowa" in lowered
         )
+
+    @staticmethod
+    def _is_reporting_przekazac_without_amount(
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        amount_match,
+    ) -> bool:
+        if amount_match is not None:
+            return False
+        lowered = clause.text.lower()
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        has_przekazac = clause.trigger_head_lemma.lower() == "przekazać" or any(
+            word.lemma.lower() == "przekazać" for word in parsed_words
+        )
+        if not has_przekazac:
+            return False
+        if "dotacj" in lowered or "dofinansowa" in lowered:
+            return False
+        return True
 
     def _clusters_for_mentions(
         self,

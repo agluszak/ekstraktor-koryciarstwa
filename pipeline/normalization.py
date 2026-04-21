@@ -183,6 +183,14 @@ class DocumentEntityCanonicalizer:
 
     def _entities_compatible(self, left: Entity, right: Entity) -> bool:
         if (
+            left.attributes.get("is_proxy_person")
+            or right.attributes.get("is_proxy_person")
+            or left.attributes.get("is_honorific_person_ref")
+            or right.attributes.get("is_honorific_person_ref")
+        ):
+            return left.entity_id == right.entity_id
+
+        if (
             left.entity_type == EntityType.POLITICAL_PARTY
             or right.entity_type == EntityType.POLITICAL_PARTY
         ):

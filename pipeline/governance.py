@@ -315,7 +315,7 @@ class GovernanceFactBuilder:
         fact_type = (
             FactType.DISMISSAL if frame.event_type == EventType.DISMISSAL else FactType.APPOINTMENT
         )
-        evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
+        evidence = self._combined_evidence(frame.evidence)
         attributes = self._attributes_for_frame(frame, cluster_to_entity_id, role_id, role_text)
         return Fact(
             fact_id=stable_id(
@@ -380,6 +380,20 @@ class GovernanceFactBuilder:
     def _string_attribute_from_mapping(mapping: dict[str, object], key: str) -> str | None:
         value = mapping.get(key)
         return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _combined_evidence(evidence: list[EvidenceSpan]) -> EvidenceSpan:
+        if not evidence:
+            return EvidenceSpan(text="")
+        if len(evidence) == 1:
+            return evidence[0]
+        return EvidenceSpan(
+            text=" ".join(span.text for span in evidence if span.text),
+            sentence_index=evidence[0].sentence_index,
+            paragraph_index=evidence[0].paragraph_index,
+            start_char=evidence[0].start_char,
+            end_char=evidence[-1].end_char,
+        )
 
     @classmethod
     def _deduplicate_governance_facts(cls, facts: list[Fact]) -> list[Fact]:

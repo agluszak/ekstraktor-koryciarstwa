@@ -49,9 +49,7 @@ class PolishEntityClusterer(EntityClusterer):
                 cluster_id = entity_to_cluster_id[mention.entity_id]
                 cluster = next(c for c in clusters if c.cluster_id == cluster_id)
 
-                m_start = mention.attributes.get("start_char", 0)
-                m_end = mention.attributes.get("end_char", 0)
-                m_para = mention.attributes.get("paragraph_index", 0)
+                m_start, m_end, m_para = self._mention_location(document, mention)
 
                 if not any(
                     (m.start_char == m_start and m.sentence_index == mention.sentence_index)
@@ -79,6 +77,14 @@ class PolishEntityClusterer(EntityClusterer):
         return document
 
     def _entity_matches_cluster(self, entity: Entity, cluster: EntityCluster) -> bool:
+        if (
+            entity.attributes.get("is_proxy_person")
+            or cluster.attributes.get("is_proxy_person")
+            or entity.attributes.get("is_honorific_person_ref")
+            or cluster.attributes.get("is_honorific_person_ref")
+        ):
+            return entity.entity_id == cluster.attributes.get("proxy_entity_id")
+
         temp_entity = Entity(
             entity_id=cluster.cluster_id,
             entity_type=cluster.entity_type,
@@ -98,9 +104,11 @@ class PolishEntityClusterer(EntityClusterer):
                     text=evidence.text,
                     entity_type=entity.entity_type,
                     sentence_index=evidence.sentence_index or 0,
-                    paragraph_index=evidence.paragraph_index or 0,
-                    start_char=evidence.start_char or 0,
-                    end_char=evidence.end_char or 0,
+                    paragraph_index=0
+                    if evidence.paragraph_index is None
+                    else evidence.paragraph_index,
+                    start_char=0 if evidence.start_char is None else evidence.start_char,
+                    end_char=0 if evidence.end_char is None else evidence.end_char,
                     entity_id=entity.entity_id,
                 )
             )
@@ -146,9 +154,40 @@ class PolishEntityClusterer(EntityClusterer):
                         text=evidence.text,
                         entity_type=entity.entity_type,
                         sentence_index=evidence.sentence_index or 0,
-                        paragraph_index=evidence.paragraph_index or 0,
-                        start_char=evidence.start_char or 0,
-                        end_char=evidence.end_char or 0,
+                        paragraph_index=0
+                        if evidence.paragraph_index is None
+                        else evidence.paragraph_index,
+                        start_char=0 if evidence.start_char is None else evidence.start_char,
+                        end_char=0 if evidence.end_char is None else evidence.end_char,
                         entity_id=entity.entity_id,
                     )
                 )
+
+    @staticmethod
+    def _mention_location(document: ArticleDocument, mention) -> tuple[int, int, int]:
+        start = mention.attributes.get("start_char")
+        end = mention.attributes.get("end_char")
+        paragraph = mention.attributes.get("paragraph_index")
+        if isinstance(start, int) and isinstance(end, int) and isinstance(paragraph, int):
+            return start, end, paragraph
+
+        sentence = next(
+            (
+                sentence
+                for sentence in document.sentences
+                if sentence.sentence_index == mention.sentence_index
+            ),
+            None,
+        )
+        if sentence is None:
+            return 0, 0, 0
+
+        local_start = sentence.text.lower().find(mention.text.lower())
+        if local_start < 0:
+            tokens = [token for token in mention.text.split() if token]
+            if tokens:
+                local_start = sentence.text.lower().find(tokens[-1].lower())
+        if local_start < 0:
+            return 0, 0, sentence.paragraph_index
+        abs_start = sentence.start_char + local_start
+        return abs_start, abs_start + len(mention.text), sentence.paragraph_index

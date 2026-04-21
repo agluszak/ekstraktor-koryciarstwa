@@ -230,7 +230,27 @@ class OrganizationMentionClassifier:
             canonical = canonical_by_name.get(normalized.lower())
             if canonical is not None:
                 return canonical
+            for alias, canonical_name in canonical_by_name.items():
+                if self._looks_like_inflected_party_alias(normalized.lower(), alias):
+                    return canonical_name
         return None
+
+    @staticmethod
+    def _looks_like_inflected_party_alias(surface: str, party_name: str) -> bool:
+        surface_tokens = surface.split()
+        party_tokens = party_name.split()
+        if len(surface_tokens) != len(party_tokens) or not party_tokens:
+            return False
+        matched = 0
+        for surface_token, party_token in zip(surface_tokens, party_tokens, strict=True):
+            if len(party_token) < 4:
+                if surface_token == party_token:
+                    matched += 1
+                continue
+            stem = party_token[: max(4, len(party_token) - 1)]
+            if surface_token.startswith(stem):
+                matched += 1
+        return matched == len(party_tokens)
 
     @staticmethod
     def _features_for_span(

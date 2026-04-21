@@ -1,7 +1,11 @@
 from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType, EventType
-from pipeline.frames import PolishCompensationFrameExtractor, PolishFundingFrameExtractor
+from pipeline.frames import (
+    PolishCompensationFrameExtractor,
+    PolishFundingFrameExtractor,
+    PolishGovernanceFrameExtractor,
+)
 from pipeline.funding import FundingFactBuilder
 from pipeline.governance import GovernanceFactBuilder, GovernanceTargetResolver
 from pipeline.models import (
@@ -9,11 +13,14 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     CompensationFrame,
+    Entity,
     EntityCluster,
     EvidenceSpan,
     FundingFrame,
     GovernanceFrame,
+    Mention,
     ParsedWord,
+    SentenceFragment,
 )
 
 
@@ -136,6 +143,196 @@ def test_target_resolver_does_not_use_party_as_target() -> None:
     )
 
     assert result.target_org is None
+
+
+def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "A. Góralczyk, działaczka PSL, pracowała wcześniej w urzędzie. "
+        "Teraz awansowała na stanowisko prezesa zarządu. "
+        "Chodzi o Stadninę Koni Iwno, spółkę Skarbu Państwa."
+    )
+    person = cluster("cluster-person", "A. Góralczyk", EntityType.PERSON, sentence_index=0)
+    target_start = text.index("Stadninę Koni Iwno")
+    target = cluster(
+        "cluster-target",
+        "Stadnina Koni Iwno",
+        sentence_index=2,
+        start_char=target_start,
+        end_char=target_start + len("Stadninę Koni Iwno"),
+    )
+    owner_start = text.index("Skarbu Państwa")
+    owner = cluster(
+        "cluster-owner",
+        "Skarbu Państwa",
+        sentence_index=2,
+        start_char=owner_start,
+    )
+    doc = document([person, target, owner])
+    doc.cleaned_text = text
+    doc.paragraphs = [text]
+    sentence_texts = [
+        "A. Góralczyk, działaczka PSL, pracowała wcześniej w urzędzie.",
+        "Teraz awansowała na stanowisko prezesa zarządu.",
+        "Chodzi o Stadninę Koni Iwno, spółkę Skarbu Państwa.",
+    ]
+    doc.sentences = [
+        SentenceFragment(
+            text=sentence_text,
+            paragraph_index=0,
+            sentence_index=sentence_index,
+            start_char=text.index(sentence_text),
+            end_char=text.index(sentence_text) + len(sentence_text),
+        )
+        for sentence_index, sentence_text in enumerate(sentence_texts)
+    ]
+    doc.clause_units = [
+        ClauseUnit(
+            clause_id="clause-appointment",
+            text=doc.sentences[1].text,
+            trigger_head_text="awansowała",
+            trigger_head_lemma="awansować",
+            sentence_index=1,
+            paragraph_index=0,
+            start_char=doc.sentences[1].start_char,
+            end_char=doc.sentences[1].end_char,
+            cluster_mentions=[],
+        )
+    ]
+
+    extracted = PolishGovernanceFrameExtractor(config).run(doc)
+
+    assert len(extracted.governance_frames) == 1
+    frame = extracted.governance_frames[0]
+    assert frame.person_cluster_id == "cluster-person"
+    assert frame.target_org_cluster_id == "cluster-target"
+    assert frame.owner_context_cluster_id == "cluster-owner"
+    assert frame.attributes["found_role"] == "Prezes"
+    assert frame.attributes["evidence_scope"] == "discourse_window"
+    assert {evidence.sentence_index for evidence in frame.evidence} == {0, 1, 2}
+
+
+def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Odwołano poprzedniego prezesa. Był nim Przemysław Pacia. Chodzi o Stadninę Koni Iwno."
+    person_start = text.index("Przemysław Pacia")
+    person = cluster(
+        "cluster-person",
+        "Przemysław Pacia",
+        EntityType.PERSON,
+        sentence_index=1,
+        start_char=person_start,
+    )
+    target_start = text.index("Stadninę Koni Iwno")
+    target = cluster(
+        "cluster-target",
+        "Stadnina Koni Iwno",
+        sentence_index=2,
+        start_char=target_start,
+        end_char=target_start + len("Stadninę Koni Iwno"),
+    )
+    doc = document([person, target])
+    doc.cleaned_text = text
+    doc.paragraphs = [text]
+    sentence_texts = [
+        "Odwołano poprzedniego prezesa.",
+        "Był nim Przemysław Pacia.",
+        "Chodzi o Stadninę Koni Iwno.",
+    ]
+    doc.sentences = [
+        SentenceFragment(
+            text=sentence_text,
+            paragraph_index=0,
+            sentence_index=sentence_index,
+            start_char=text.index(sentence_text),
+            end_char=text.index(sentence_text) + len(sentence_text),
+        )
+        for sentence_index, sentence_text in enumerate(sentence_texts)
+    ]
+    doc.clause_units = [
+        ClauseUnit(
+            clause_id="clause-dismissal",
+            text=doc.sentences[0].text,
+            trigger_head_text="Odwołano",
+            trigger_head_lemma="odwołać",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=doc.sentences[0].start_char,
+            end_char=doc.sentences[0].end_char,
+            cluster_mentions=[],
+        )
+    ]
+
+    extracted = PolishGovernanceFrameExtractor(config).run(doc)
+
+    assert len(extracted.governance_frames) == 1
+    frame = extracted.governance_frames[0]
+    assert frame.event_type == EventType.DISMISSAL
+    assert frame.person_cluster_id == "cluster-person"
+    assert frame.target_org_cluster_id == "cluster-target"
+    assert frame.attributes["found_role"] == "Prezes"
+
+
+def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Pierwszy akapit.\n\nDrugi akapit wymienia Stadninę Koni Iwno."
+    start = text.index("Stadninę Koni Iwno")
+    doc = ArticleDocument(
+        document_id="doc-provenance",
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=["Pierwszy akapit.", "Drugi akapit wymienia Stadninę Koni Iwno."],
+        sentences=[
+            SentenceFragment(
+                text="Pierwszy akapit.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=15,
+            ),
+            SentenceFragment(
+                text="Drugi akapit wymienia Stadninę Koni Iwno.",
+                paragraph_index=1,
+                sentence_index=1,
+                start_char=17,
+                end_char=len(text),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id="org-1",
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Stadnina Koni Iwno",
+                normalized_name="Stadnina Koni Iwno",
+            )
+        ],
+        mentions=[
+            Mention(
+                text="Stadninę Koni Iwno",
+                normalized_text="Stadnina Koni Iwno",
+                mention_type="Organization",
+                sentence_index=1,
+                entity_id="org-1",
+                attributes={
+                    "start_char": start,
+                    "end_char": start + len("Stadninę Koni Iwno"),
+                    "paragraph_index": 1,
+                },
+            )
+        ],
+    )
+
+    from pipeline.clustering import PolishEntityClusterer
+
+    clustered = PolishEntityClusterer(config).run(doc)
+
+    mention = clustered.clusters[0].mentions[0]
+    assert mention.paragraph_index == 1
+    assert mention.start_char == start
+    assert mention.end_char == start + len("Stadninę Koni Iwno")
 
 
 def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:

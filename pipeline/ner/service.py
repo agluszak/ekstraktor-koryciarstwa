@@ -74,12 +74,14 @@ class SpacyPolishNERExtractor(NERExtractor):
                 entity.normalized_name = display_name
                 entity_display_score[key] = display_score
             entity.aliases = list(dict.fromkeys([*entity.aliases, ent.text]))
+            sentence = self._sentence_for_offset(document, ent.start_char)
             entity.evidence.append(
                 EvidenceSpan(
                     text=ent.text,
                     start_char=ent.start_char,
                     end_char=ent.end_char,
-                    sentence_index=self._sentence_index(document, ent.start_char),
+                    sentence_index=sentence.sentence_index if sentence is not None else 0,
+                    paragraph_index=sentence.paragraph_index if sentence is not None else 0,
                 )
             )
             document.mentions.append(
@@ -87,9 +89,14 @@ class SpacyPolishNERExtractor(NERExtractor):
                     text=ent.text,
                     normalized_text=display_name,
                     mention_type=entity_type,
-                    sentence_index=self._sentence_index(document, ent.start_char),
+                    sentence_index=sentence.sentence_index if sentence is not None else 0,
                     entity_id=entity.entity_id,
-                    attributes={"lemmas": lemmas},
+                    attributes={
+                        "lemmas": lemmas,
+                        "start_char": ent.start_char,
+                        "end_char": ent.end_char,
+                        "paragraph_index": sentence.paragraph_index if sentence is not None else 0,
+                    },
                 )
             )
 
@@ -158,10 +165,15 @@ class SpacyPolishNERExtractor(NERExtractor):
 
     @staticmethod
     def _sentence_index(document: ArticleDocument, start_char: int) -> int:
+        sentence = SpacyPolishNERExtractor._sentence_for_offset(document, start_char)
+        return sentence.sentence_index if sentence is not None else 0
+
+    @staticmethod
+    def _sentence_for_offset(document: ArticleDocument, start_char: int):
         for sentence in document.sentences:
             if sentence.start_char <= start_char <= sentence.end_char:
-                return sentence.sentence_index
-        return 0
+                return sentence
+        return None
 
     def _canonical_party_name(self, text: str) -> str:
         normalized = normalize_entity_name(text)

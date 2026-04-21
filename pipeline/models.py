@@ -12,6 +12,8 @@ from pipeline.domain_types import (
     EventType,
     FactAttributes,
     FactType,
+    IdentityHypothesisReason,
+    IdentityHypothesisStatus,
     TimeScope,
 )
 
@@ -42,6 +44,16 @@ class Entity:
     aliases: list[str] = field(default_factory=list)
     attributes: EntityAttributes = field(default_factory=lambda: cast(EntityAttributes, {}))
     evidence: list[EvidenceSpan] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class IdentityHypothesis:
+    left_entity_id: str
+    right_entity_id: str
+    confidence: float
+    reason: IdentityHypothesisReason
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+    status: IdentityHypothesisStatus = IdentityHypothesisStatus.POSSIBLE
 
 
 @dataclass(slots=True)
@@ -248,6 +260,7 @@ class ArticleDocument:
     governance_frames: list[GovernanceFrame] = field(default_factory=list)
     compensation_frames: list[CompensationFrame] = field(default_factory=list)
     funding_frames: list[FundingFrame] = field(default_factory=list)
+    identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -260,6 +273,7 @@ class ExtractionResult:
     entities: list[Entity]
     facts: list[Fact]
     score: ScoreResult | None
+    identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -275,6 +289,7 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         entities=document.entities,
         facts=document.facts,
         score=document.score,
+        identity_hypotheses=document.identity_hypotheses,
     )
 
 
