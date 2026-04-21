@@ -37,8 +37,9 @@ class InMemoryEntityLinker(EntityLinker):
         self.runtime = runtime or PipelineRuntime(config)
         # registry_id -> entry
         self._registry: dict[str, _RegistryEntry] = {}
-        # alias string -> registry_id  (first-write-wins, same semantics as INSERT OR IGNORE)
-        self._alias_to_registry: dict[str, str] = {}
+        # alias string -> list of registry_ids ordered by insertion
+        # (UNIQUE(registry_id, alias) semantics: a registry_id appears at most once per alias)
+        self._alias_to_registry: dict[str, list[str]] = {}
         self._knowledge_seeded = False
         self.canonicalizer = DocumentEntityCanonicalizer(config)
 
@@ -105,9 +106,15 @@ class InMemoryEntityLinker(EntityLinker):
         }
 
     def _add_alias(self, registry_id: str, alias: str) -> None:
-        """Add alias -> registry_id mapping; first-write-wins (INSERT OR IGNORE semantics)."""
-        if alias not in self._alias_to_registry:
-            self._alias_to_registry[alias] = registry_id
+        """Add alias -> registry_id mapping.
+
+        Matches UNIQUE(registry_id, alias) semantics: a registry_id is added
+        at most once per alias, but the same alias may point to several registry
+        entries (different entities / types).
+        """
+        bucket = self._alias_to_registry.setdefault(alias, [])
+        if registry_id not in bucket:
+            bucket.append(registry_id)
 
     def _seed_knowledge_graph(self) -> None:
         # Group aliases by canonical party name so all aliases of one party
@@ -199,8 +206,7 @@ class InMemoryEntityLinker(EntityLinker):
         search_names = self._alias_search_names(entity)
         for name in search_names:
             for variant in {name, name.title(), name.lower()}:
-                match_id = self._alias_to_registry.get(variant)
-                if match_id is not None:
+                for match_id in self._alias_to_registry.get(variant, []):
                     entry = self._registry.get(match_id)
                     if entry is not None:
                         match_type = entry["entity_type"]
@@ -213,10 +219,7 @@ class InMemoryEntityLinker(EntityLinker):
                             return match_id
 
         # Candidate search
-        entity_embedding = self.runtime.get_sentence_transformer_model().encode(
-            self._embedding_text(entity),
-            normalize_embeddings=True,
-        )
+        entity_embedding = self._encode_embedding(self._embedding_text(entity))
 
         if entity.entity_type == EntityType.PERSON:
             search_term = entity.normalized_name.split()[-1].lower()

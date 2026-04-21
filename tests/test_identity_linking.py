@@ -245,14 +245,15 @@ def test_exact_name_party_and_organization_are_not_merged_after_linking(linker):
 
 def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):
     # Simulate a stale registry entry (wrong capitalisation) for PiS
-    # by directly patching the in-memory registry before seeding.
+    # by injecting it via _upsert_registry before seeding runs.
     registry_id = "politicalparty_registry_1a32b79340a35c3d"
-    linker._registry[registry_id] = {
-        "entity_type": EntityType.POLITICAL_PARTY.value,
-        "canonical_name": "Prawo I Sprawiedliwość",
-        "fingerprint": {},
-        "embedding": [],
-    }
+    linker._upsert_registry(
+        registry_id,
+        EntityType.POLITICAL_PARTY.value,
+        "Prawo I Sprawiedliwość",
+        {},
+        [],
+    )
     linker._knowledge_seeded = False
 
     doc = ArticleDocument(
