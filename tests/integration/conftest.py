@@ -1,5 +1,3 @@
-import pytest
-
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """
     Hook to print execution times at the end of the test session.
