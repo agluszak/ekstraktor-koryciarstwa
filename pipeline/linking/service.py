@@ -168,7 +168,7 @@ class InMemoryEntityLinker(EntityLinker):
         for normalized, aliases in media_groups.items():
             registry_id = stable_id("organization_registry", "media", normalized)
             if registry_id not in self._registry:
-                fingerprint_media: EntityFingerprint = {
+                fingerprint: EntityFingerprint = {
                     "normalized_name": normalized,
                     "name_tokens": normalized.split(),
                     "lemmas": [t.lower() for t in normalized.split()],
@@ -179,7 +179,7 @@ class InMemoryEntityLinker(EntityLinker):
                     registry_id,
                     EntityType.ORGANIZATION.value,
                     normalized,
-                    fingerprint_media,
+                    fingerprint,
                     embedding.tolist(),
                 )
             for alias_text in aliases:
