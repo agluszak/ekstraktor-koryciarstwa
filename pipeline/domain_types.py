@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import TypedDict
+from typing import NewType
+
+EntityID = NewType("EntityID", str)
+FactID = NewType("FactID", str)
+ClusterID = NewType("ClusterID", str)
+DocumentID = NewType("DocumentID", str)
+CandidateID = NewType("CandidateID", str)
+ClauseID = NewType("ClauseID", str)
+FrameID = NewType("FrameID", str)
 
 
 class EntityType(StrEnum):
@@ -107,50 +115,12 @@ class RoleKind(StrEnum):
     WICEPREZYDENT = "wiceprezydent"
     WICEWOJEWODA = "wicewojewoda"
 
-
-class EntityAttributes(TypedDict, total=False):
-    registry_id: str
-    lemmas: list[str]
-    organization_kind: OrganizationKind
-    is_proxy_person: bool
-    is_honorific_person_ref: bool
-    proxy_kind: ProxyKind
-    kinship_detail: KinshipDetail
-    proxy_anchor_entity_id: str
-    proxy_surface: str
-
-
-class ConfidenceBreakdown(TypedDict, total=False):
-    person_role: float | None
-    role_org: float | None
-
-
-class CandidateAttributes(TypedDict, total=False):
-    organization_kind: OrganizationKind
-    role_kind: str
-
-
-class FactAttributes(TypedDict, total=False):
-    position_entity_id: str | None
-    role: str | None
-    role_kind: str | None
-    board_role: bool
-    organization_kind: OrganizationKind | None
-    owner_context_entity_id: str | None
-    appointing_authority_entity_id: str | None
-    governing_body_entity_id: str | None
-    confidence_breakdown: ConfidenceBreakdown | None
-    party: str | None
-    office_type: str | None
-    candidacy_scope: str | None
-    amount_text: str | None
-    period: str | None
-    relationship_type: RelationshipType | None
-    kinship_detail: KinshipDetail | None
-    identity_resolution: dict[str, str | float | IdentityHypothesisStatus] | None
-    possible_identity_matches: list[str]
-    extraction_signal: str | None
-    evidence_scope: str | None
-    overlaps_governance: bool
-    source_extractor: str | None
-    score_reason: str | None
+    @classmethod
+    def from_str(cls, value: str | None) -> RoleKind | None:
+        if not value:
+            return None
+        normalized = value.lower()
+        for member in cls:
+            if member.value == normalized:
+                return member
+        return None

@@ -1,5 +1,9 @@
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
+    ClauseID,
+    ClusterID,
+    DocumentID,
+    EntityID,
     EntityType,
     FactType,
     IdentityHypothesisReason,
@@ -59,14 +63,14 @@ def _person_cluster(
         end_char=start_char + len(name),
     )
     entity = Entity(
-        entity_id=entity_id,
+        entity_id=EntityID(entity_id),
         entity_type=EntityType.PERSON,
         canonical_name=name,
         normalized_name=name,
         evidence=[evidence],
     )
     cluster = EntityCluster(
-        cluster_id=f"cluster-{entity_id}",
+        cluster_id=ClusterID(f"cluster-{entity_id}"),
         entity_type=EntityType.PERSON,
         canonical_name=name,
         normalized_name=name,
@@ -78,7 +82,7 @@ def _person_cluster(
                 paragraph_index=paragraph_index,
                 start_char=start_char,
                 end_char=start_char + len(name),
-                entity_id=entity_id,
+                entity_id=EntityID(entity_id),
             )
         ],
     )
@@ -93,7 +97,7 @@ def _document(sentences: list[str], parsed: dict[int, list[ParsedWord]]) -> Arti
         cursor += len(sentence) + 1
     text = " ".join(sentences)
     return ArticleDocument(
-        document_id="family-doc",
+        document_id=DocumentID("family-doc"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -113,7 +117,7 @@ def _document(sentences: list[str], parsed: dict[int, list[ParsedWord]]) -> Arti
         parsed_sentences=parsed,
         clause_units=[
             ClauseUnit(
-                clause_id=f"clause-{index}",
+                clause_id=ClauseID(f"clause-{index}"),
                 text=sentence,
                 trigger_head_text="",
                 trigger_head_lemma="",
@@ -152,16 +156,16 @@ def test_creates_spouse_proxy_and_family_tie() -> None:
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
-    proxy = next(entity for entity in resolved.entities if entity.attributes.get("is_proxy_person"))
-    assert proxy.attributes["kinship_detail"] == KinshipDetail.SPOUSE
-    assert proxy.attributes["proxy_anchor_entity_id"] == "person-karol"
+    proxy = next(entity for entity in resolved.entities if entity.is_proxy_person)
+    assert proxy.kinship_detail == KinshipDetail.SPOUSE
+    assert proxy.proxy_anchor_entity_id == "person-karol"
     family_facts = [
         fact for fact in resolved.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
     ]
     assert family_facts
     assert family_facts[0].subject_entity_id == proxy.entity_id
     assert family_facts[0].object_entity_id == "person-karol"
-    assert family_facts[0].attributes["relationship_type"] == RelationshipType.FAMILY
+    assert family_facts[0].relationship_type == RelationshipType.FAMILY
 
 
 def test_sister_proxy_is_separate_from_spouse_proxy() -> None:
@@ -198,11 +202,7 @@ def test_sister_proxy_is_separate_from_spouse_proxy() -> None:
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
-    proxy_kinds = {
-        entity.attributes["kinship_detail"]
-        for entity in resolved.entities
-        if entity.attributes.get("is_proxy_person")
-    }
+    proxy_kinds = {entity.kinship_detail for entity in resolved.entities if entity.is_proxy_person}
     assert {KinshipDetail.SPOUSE, KinshipDetail.SIBLING_SISTER} <= proxy_kinds
     assert not any(
         hypothesis.status == IdentityHypothesisStatus.PROBABLE
@@ -300,9 +300,7 @@ def test_honorific_surname_only_stays_possible() -> None:
     canonicalized = DocumentEntityCanonicalizer(PipelineConfig.from_file("config.yaml")).run(
         resolved
     )
-    assert any(
-        entity.attributes.get("is_honorific_person_ref") for entity in canonicalized.entities
-    )
+    assert any(entity.is_honorific_person_ref for entity in canonicalized.entities)
     assert any(entity.entity_id == "person-karol" for entity in canonicalized.entities)
 
 
@@ -389,13 +387,13 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
     )
     org_start = len(sentences[0]) + 1 + sentences[1].index("Miejskiego")
     org = Entity(
-        entity_id="org-mup",
+        entity_id=EntityID("org-mup"),
         entity_type=EntityType.PUBLIC_INSTITUTION,
         canonical_name="Miejski Urząd Pracy",
         normalized_name="Miejski Urząd Pracy",
     )
     org_cluster = EntityCluster(
-        cluster_id="cluster-mup",
+        cluster_id=ClusterID("cluster-mup"),
         entity_type=EntityType.PUBLIC_INSTITUTION,
         canonical_name="Miejski Urząd Pracy",
         normalized_name="Miejski Urząd Pracy",
@@ -407,7 +405,7 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
                 paragraph_index=0,
                 start_char=org_start,
                 end_char=org_start + len("Miejskiego Urzędu Pracy"),
-                entity_id="org-mup",
+                entity_id=EntityID("org-mup"),
             )
         ],
     )
@@ -425,7 +423,7 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
     proxy_cluster_ids = {
         cluster.cluster_id
         for cluster in framed.clusters
-        if cluster.attributes.get("kinship_detail") == KinshipDetail.SIBLING_SISTER
+        if cluster.kinship_detail == KinshipDetail.SIBLING_SISTER
     }
     assert frame.person_cluster_id in proxy_cluster_ids
     assert frame.person_cluster_id != "cluster-person-karol"

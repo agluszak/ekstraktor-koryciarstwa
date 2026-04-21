@@ -53,21 +53,25 @@ class SpacyPolishNERExtractor(NERExtractor):
                     display_score = 100
                     lemmas = [token.lower() for token in canonical_party.split()]
 
+            from pipeline.domain_types import EntityID
+
             key = (entity_type, merge_key)
             if key not in entity_index:
                 entity_index[key] = Entity(
-                    entity_id=stable_id(entity_type.lower(), document.document_id, merge_key),
+                    entity_id=EntityID(
+                        stable_id(entity_type.lower(), document.document_id, merge_key)
+                    ),
                     entity_type=entity_type,
                     canonical_name=display_name,
                     normalized_name=display_name,
+                    lemmas=lemmas,
                 )
-                entity_index[key].attributes["lemmas"] = lemmas
                 entity_display_score[key] = display_score
             entity = entity_index[key]
 
             # Update lemmas if we found a more "complete" version
-            if len(lemmas) > len(entity.attributes.get("lemmas", [])):
-                entity.attributes["lemmas"] = lemmas
+            if len(lemmas) > len(entity.lemmas):
+                entity.lemmas = lemmas
 
             if display_score > entity_display_score[key]:
                 entity.canonical_name = display_name
@@ -90,13 +94,11 @@ class SpacyPolishNERExtractor(NERExtractor):
                     normalized_text=display_name,
                     mention_type=entity_type,
                     sentence_index=sentence.sentence_index if sentence is not None else 0,
+                    paragraph_index=sentence.paragraph_index if sentence is not None else 0,
+                    start_char=ent.start_char,
+                    end_char=ent.end_char,
                     entity_id=entity.entity_id,
-                    attributes={
-                        "lemmas": lemmas,
-                        "start_char": ent.start_char,
-                        "end_char": ent.end_char,
-                        "paragraph_index": sentence.paragraph_index if sentence is not None else 0,
-                    },
+                    lemmas=lemmas,
                 )
             )
 

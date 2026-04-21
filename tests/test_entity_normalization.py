@@ -1,5 +1,9 @@
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import (
+    DocumentID,
+    EntityID,
+    EntityType,
+)
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.normalization import DocumentEntityCanonicalizer
 
@@ -8,7 +12,7 @@ def test_party_aliases_expand_to_canonical_name() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-party",
+        document_id=DocumentID("doc-normalize-party"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -17,7 +21,7 @@ def test_party_aliases_expand_to_canonical_name() -> None:
         paragraphs=["PSL"],
         entities=[
             Entity(
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
                 entity_type=EntityType.POLITICAL_PARTY,
                 canonical_name="PSL",
                 normalized_name="PSL",
@@ -30,7 +34,7 @@ def test_party_aliases_expand_to_canonical_name() -> None:
                 normalized_text="PSL",
                 mention_type=EntityType.POLITICAL_PARTY,
                 sentence_index=0,
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
             )
         ],
     )
@@ -48,7 +52,7 @@ def test_wfosigw_acronym_and_full_name_are_deduplicated() -> None:
     full_surface = "Wojewódzkim Funduszu Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
     full_normalized = "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
     document = ArticleDocument(
-        document_id="doc-normalize-org",
+        document_id=DocumentID("doc-normalize-org"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -57,30 +61,28 @@ def test_wfosigw_acronym_and_full_name_are_deduplicated() -> None:
         paragraphs=["WFOŚiGW"],
         entities=[
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="WFOŚiGW",
                 normalized_name="WFOŚiGW",
                 aliases=[],
-                attributes={"lemmas": ["wfośigw"]},
+                lemmas=["wfośigw"],
             ),
             Entity(
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name=full_surface,
                 normalized_name=full_normalized,
                 aliases=[],
-                attributes={
-                    "lemmas": [
-                        "wojewódzki",
-                        "fundusz",
-                        "ochrona",
-                        "środowisko",
-                        "gospodarka",
-                        "wodny",
-                        "lublin",
-                    ]
-                },
+                lemmas=[
+                    "wojewódzki",
+                    "fundusz",
+                    "ochrona",
+                    "środowisko",
+                    "gospodarka",
+                    "wodny",
+                    "lublin",
+                ],
             ),
         ],
         mentions=[
@@ -89,14 +91,14 @@ def test_wfosigw_acronym_and_full_name_are_deduplicated() -> None:
                 normalized_text="WFOŚiGW",
                 mention_type=EntityType.ORGANIZATION,
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
             Mention(
                 text=full_surface,
                 normalized_text=full_normalized,
                 mention_type=EntityType.ORGANIZATION,
                 sentence_index=0,
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
             ),
         ],
     )
@@ -112,7 +114,7 @@ def test_duplicate_organization_aliases_collapse_to_one_entity() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-natura",
+        document_id=DocumentID("doc-normalize-natura"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -121,13 +123,13 @@ def test_duplicate_organization_aliases_collapse_to_one_entity() -> None:
         paragraphs=["Natura Tour"],
         entities=[
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Natura Tour",
                 normalized_name="Natura Tour",
             ),
             Entity(
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Natura Tour",
                 normalized_name="Natura Tour",
@@ -145,7 +147,7 @@ def test_institution_aliases_expand_and_retype_to_public_institution() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-institution",
+        document_id=DocumentID("doc-normalize-institution"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -154,13 +156,13 @@ def test_institution_aliases_expand_and_retype_to_public_institution() -> None:
         paragraphs=["MON i AMW"],
         entities=[
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="MON",
                 normalized_name="MON",
             ),
             Entity(
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="AMW",
                 normalized_name="AMW",
@@ -179,7 +181,7 @@ def test_inflected_full_person_name_variants_merge_to_nominative_canonical() -> 
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-person",
+        document_id=DocumentID("doc-normalize-person"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -188,13 +190,13 @@ def test_inflected_full_person_name_variants_merge_to_nominative_canonical() -> 
         paragraphs=["Kosiniak-Kamysz"],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Władysława Kosiniaka-Kamysza",
                 normalized_name="Władysława Kosiniaka-Kamysza",
             ),
             Entity(
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Władysław Kosiniak-Kamysz",
                 normalized_name="Władysław Kosiniak-Kamysz",
@@ -212,7 +214,7 @@ def test_single_token_inflected_person_variants_merge_into_full_name_cluster() -
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-person-short",
+        document_id=DocumentID("doc-normalize-person-short"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -221,19 +223,19 @@ def test_single_token_inflected_person_variants_merge_into_full_name_cluster() -
         paragraphs=["Marek Rząsowski"],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marek Rząsowski",
                 normalized_name="Marek Rząsowski",
             ),
             Entity(
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Rząsowskiego",
                 normalized_name="Rząsowskiego",
             ),
             Entity(
-                entity_id="person-3",
+                entity_id=EntityID("person-3"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marku",
                 normalized_name="Marku",
@@ -251,7 +253,7 @@ def test_organization_canonical_prefers_acronym_preserving_alias() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-amw-rewita",
+        document_id=DocumentID("doc-normalize-amw-rewita"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -260,7 +262,7 @@ def test_organization_canonical_prefers_acronym_preserving_alias() -> None:
         paragraphs=["AMW Rewita"],
         entities=[
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Amw Rewita",
                 normalized_name="Amw Rewita",
@@ -278,7 +280,7 @@ def test_inflected_short_organization_prefers_observed_nominative_alias() -> Non
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-totalizator",
+        document_id=DocumentID("doc-normalize-totalizator"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -287,12 +289,12 @@ def test_inflected_short_organization_prefers_observed_nominative_alias() -> Non
         paragraphs=["Totalizatorze Sportowym"],
         entities=[
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Totalizatorze Sportowym",
                 normalized_name="Totalizatorze Sportowym",
                 aliases=["Totalizator Sportowy"],
-                attributes={"lemmas": ["totalizator", "sportowy"]},
+                lemmas=["totalizator", "sportowy"],
             )
         ],
     )
@@ -306,7 +308,7 @@ def test_inflected_party_name_maps_to_configured_canonical_name() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-pis-inflected",
+        document_id=DocumentID("doc-normalize-pis-inflected"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -315,7 +317,7 @@ def test_inflected_party_name_maps_to_configured_canonical_name() -> None:
         paragraphs=["Prawa i Sprawiedliwości"],
         entities=[
             Entity(
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
                 entity_type=EntityType.POLITICAL_PARTY,
                 canonical_name="Prawa i Sprawiedliwości",
                 normalized_name="Prawa i Sprawiedliwości",
@@ -332,7 +334,7 @@ def test_noisy_canonical_candidate_loses_to_clean_alias() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-noisy-person",
+        document_id=DocumentID("doc-normalize-noisy-person"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -341,7 +343,7 @@ def test_noisy_canonical_candidate_loses_to_clean_alias() -> None:
         paragraphs=["Sławomir Czwałga"],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Sławomir Czwalgamateriały",
                 normalized_name="Sławomir Czwalgamateriały",
@@ -359,7 +361,7 @@ def test_multiline_organization_block_does_not_become_joined_canonical_name() ->
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
-        document_id="doc-normalize-multiline-org",
+        document_id=DocumentID("doc-normalize-multiline-org"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -368,15 +370,15 @@ def test_multiline_organization_block_does_not_become_joined_canonical_name() ->
         paragraphs=["Fundacja Lux Veritatis"],
         entities=[
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Fundacja Lux Veritatis",
                 normalized_name="Fundacja Lux Veritatis",
                 aliases=["Lux Veritatis"],
-                attributes={"lemmas": ["fundacja", "lux", "veritatis"]},
+                lemmas=["fundacja", "lux", "veritatis"],
             ),
             Entity(
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name=(
                     "Ministerstwo Kultury i Dziedzictwa Narodowego\nFundacja Lux Veritatis\n"
@@ -384,17 +386,15 @@ def test_multiline_organization_block_does_not_become_joined_canonical_name() ->
                 normalized_name=(
                     "Ministerstwo Kultury i Dziedzictwa Narodowego\nFundacja Lux Veritatis\n"
                 ),
-                attributes={
-                    "lemmas": [
-                        "ministerstwo",
-                        "kultura",
-                        "dziedzictwo",
-                        "narodowy",
-                        "fundacja",
-                        "lux",
-                        "veritatis",
-                    ]
-                },
+                lemmas=[
+                    "ministerstwo",
+                    "kultura",
+                    "dziedzictwo",
+                    "narodowy",
+                    "fundacja",
+                    "lux",
+                    "veritatis",
+                ],
             ),
         ],
     )

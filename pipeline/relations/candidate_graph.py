@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import cast
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
-    CandidateAttributes,
+    CandidateID,
     CandidateType,
+    EntityID,
     EntityType,
     OrganizationKind,
+    RoleKind,
 )
 from pipeline.models import (
     ArticleDocument,
@@ -101,7 +102,8 @@ class CandidateGraphBuilder:
         entity_id = entity.entity_id
         canonical_name = entity.canonical_name
         normalized_name = entity.normalized_name
-        attributes = cast(CandidateAttributes, dict(entity.attributes))
+
+        organization_kind = entity.organization_kind
 
         if entity.entity_type == EntityType.ORGANIZATION:
             typing_result = self.organization_classifier.classify(
@@ -133,23 +135,24 @@ class CandidateGraphBuilder:
                 entity_id = institution.entity_id
                 canonical_name = institution.canonical_name
                 normalized_name = institution.normalized_name
-                attributes["organization_kind"] = OrganizationKind.PUBLIC_INSTITUTION
-                institution.attributes["organization_kind"] = OrganizationKind.PUBLIC_INSTITUTION
+                organization_kind = OrganizationKind.PUBLIC_INSTITUTION
+                institution.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
             else:
                 organization_kind = typing_result.organization_kind
-                attributes["organization_kind"] = organization_kind
-                entity.attributes["organization_kind"] = organization_kind
+                entity.organization_kind = organization_kind
                 if organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
                     candidate_type = CandidateType.PUBLIC_INSTITUTION
 
         return EntityCandidate(
-            candidate_id=stable_id(
-                "candidate",
-                document.document_id,
-                entity_id or canonical_name,
-                str(sentence.sentence_index),
-                str(anchor.start),
-                str(anchor.end),
+            candidate_id=CandidateID(
+                stable_id(
+                    "candidate",
+                    document.document_id,
+                    entity_id or canonical_name,
+                    str(sentence.sentence_index),
+                    str(anchor.start),
+                    str(anchor.end),
+                )
             ),
             entity_id=entity_id,
             candidate_type=candidate_type,
@@ -160,7 +163,7 @@ class CandidateGraphBuilder:
             start_char=anchor.start,
             end_char=anchor.end,
             source="mention",
-            attributes=attributes,
+            organization_kind=organization_kind,
         )
 
     def _derived_person_candidates(
@@ -194,13 +197,15 @@ class CandidateGraphBuilder:
             person = self._get_or_create_person_entity(document=document, surface=surface)
             candidates.append(
                 EntityCandidate(
-                    candidate_id=stable_id(
-                        "candidate",
-                        document.document_id,
-                        person.entity_id,
-                        str(sentence.sentence_index),
-                        str(match.start()),
-                        str(match.end()),
+                    candidate_id=CandidateID(
+                        stable_id(
+                            "candidate",
+                            document.document_id,
+                            person.entity_id,
+                            str(sentence.sentence_index),
+                            str(match.start()),
+                            str(match.end()),
+                        )
                     ),
                     entity_id=person.entity_id,
                     candidate_type=CandidateType.PERSON,
@@ -243,13 +248,15 @@ class CandidateGraphBuilder:
                 )
                 candidates.append(
                     EntityCandidate(
-                        candidate_id=stable_id(
-                            "candidate",
-                            document.document_id,
-                            position.entity_id,
-                            str(sentence.sentence_index),
-                            str(match.start()),
-                            str(match.end()),
+                        candidate_id=CandidateID(
+                            stable_id(
+                                "candidate",
+                                document.document_id,
+                                position.entity_id,
+                                str(sentence.sentence_index),
+                                str(match.start()),
+                                str(match.end()),
+                            )
                         ),
                         entity_id=position.entity_id,
                         candidate_type=CandidateType.POSITION,
@@ -260,7 +267,7 @@ class CandidateGraphBuilder:
                         start_char=match.start(),
                         end_char=match.end(),
                         source="derived_position",
-                        attributes={"role_kind": position.normalized_name.lower()},
+                        role_kind=RoleKind.from_str(position.normalized_name),
                     )
                 )
                 occupied_spans.append((match.start(), match.end()))
@@ -297,13 +304,15 @@ class CandidateGraphBuilder:
                 continue
             candidates.append(
                 EntityCandidate(
-                    candidate_id=stable_id(
-                        "candidate",
-                        document.document_id,
-                        party.entity_id,
-                        str(sentence.sentence_index),
-                        str(match.start()),
-                        str(match.end()),
+                    candidate_id=CandidateID(
+                        stable_id(
+                            "candidate",
+                            document.document_id,
+                            party.entity_id,
+                            str(sentence.sentence_index),
+                            str(match.start()),
+                            str(match.end()),
+                        )
                     ),
                     entity_id=party.entity_id,
                     candidate_type=CandidateType.POLITICAL_PARTY,
@@ -645,7 +654,9 @@ class CandidateGraphBuilder:
             return existing
 
         entity = Entity(
-            entity_id=stable_id(entity_type.lower(), document.document_id, canonical_name),
+            entity_id=EntityID(
+                stable_id(entity_type.lower(), document.document_id, canonical_name)
+            ),
             entity_type=entity_type,
             canonical_name=canonical_name,
             normalized_name=canonical_name,

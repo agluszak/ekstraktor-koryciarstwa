@@ -4,6 +4,8 @@
 - If a task starts needing environment or sandbox workarounds, stop and notify the user instead of adding a workaround.
 - When lint or formatting tools support autofix, run the autofix path first and only do manual cleanup for remaining issues.
 - `uv sync` does not install the spaCy/Stanza model assets required by this repo. In any fresh or rebuilt `.venv`, run `uv run python scripts/setup_models.py` before running the pipeline or tests. Do not skip model-dependent tests; provision the models instead.
+- **Typing Hygiene**: Avoid "messy" weak typing like `dict[str, Any]` or broad unions in dictionaries. Prefer `NewType` for IDs and structured `TypedDict` or `dataclasses` for nested metadata.
+- **Proper Logic**: Do not use `try-except` blocks for expected control flow (e.g., checking if a value is in an Enum). Use explicit checks or safe helper methods (e.g., `Enum.from_str()`) to handle optionality.
 
 # Project Context
 

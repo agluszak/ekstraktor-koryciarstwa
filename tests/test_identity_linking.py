@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import DocumentID, EntityID, EntityType
 from pipeline.linking.service import SQLiteEntityLinker
 from pipeline.models import ArticleDocument, Entity
 
@@ -34,7 +34,7 @@ def test_onet_deduplication(linker):
     # Its lemmas will be ["onet"]
 
     doc = ArticleDocument(
-        document_id="test-doc",
+        document_id=DocumentID("test-doc"),
         source_url=None,
         raw_html="",
         title="Test Doc",
@@ -43,28 +43,28 @@ def test_onet_deduplication(linker):
         paragraphs=["Onetowi Onetem Onet"],
         entities=[
             Entity(
-                entity_id="e1",
+                entity_id=EntityID("e1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Onetowi",
                 normalized_name="Onetowi",
                 aliases=[],
-                attributes={"lemmas": ["onet"]},
+                lemmas=["onet"],
             ),
             Entity(
-                entity_id="e2",
+                entity_id=EntityID("e2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Onetem",
                 normalized_name="Onetem",
                 aliases=[],
-                attributes={"lemmas": ["onet"]},
+                lemmas=["onet"],
             ),
             Entity(
-                entity_id="e3",
+                entity_id=EntityID("e3"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Onet",
                 normalized_name="Onet",
                 aliases=[],
-                attributes={"lemmas": ["onet"]},
+                lemmas=["onet"],
             ),
         ],
     )
@@ -75,13 +75,13 @@ def test_onet_deduplication(linker):
     assert len(linked_doc.entities) == 1
     assert linked_doc.entities[0].canonical_name == "Onet"
     # The registry_id should be stable across runs for the same seeded data
-    assert linked_doc.entities[0].attributes["registry_id"] is not None
+    assert linked_doc.entities[0].registry_id is not None
 
 
 def test_wp_deduplication(linker):
     # WP and Wirtualna Polska share same registry_id in seeding.
     doc = ArticleDocument(
-        document_id="test-doc-wp",
+        document_id=DocumentID("test-doc-wp"),
         source_url=None,
         raw_html="",
         title="Test WP",
@@ -90,20 +90,20 @@ def test_wp_deduplication(linker):
         paragraphs=["Wirtualna Polska WP"],
         entities=[
             Entity(
-                entity_id="e1",
+                entity_id=EntityID("e1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Wp",
                 normalized_name="Wp",
                 aliases=[],
-                attributes={"lemmas": ["wp"]},
+                lemmas=["wp"],
             ),
             Entity(
-                entity_id="e2",
+                entity_id=EntityID("e2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Wirtualna Polska",
                 normalized_name="Wirtualna Polska",
                 aliases=[],
-                attributes={"lemmas": ["wirtualna", "polska"]},
+                lemmas=["wirtualna", "polska"],
             ),
         ],
     )
@@ -117,7 +117,7 @@ def test_wp_deduplication(linker):
 
 def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
     doc = ArticleDocument(
-        document_id="test-doc-amw-rewita",
+        document_id=DocumentID("test-doc-amw-rewita"),
         source_url=None,
         raw_html="",
         title="Test AMW Rewita",
@@ -126,7 +126,7 @@ def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
         paragraphs=["AMW Rewita"],
         entities=[
             Entity(
-                entity_id="e1",
+                entity_id=EntityID("e1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="AMW Rewita",
                 normalized_name="AMW Rewita",
@@ -143,7 +143,7 @@ def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
 def test_pis_deduplication(linker):
     # Prawo I Sprawiedliwość (seeded)
     doc = ArticleDocument(
-        document_id="test-doc-pis",
+        document_id=DocumentID("test-doc-pis"),
         source_url=None,
         raw_html="",
         title="Test PiS",
@@ -152,20 +152,20 @@ def test_pis_deduplication(linker):
         paragraphs=["Prawa I Sprawiedliwości"],
         entities=[
             Entity(
-                entity_id="e1",
+                entity_id=EntityID("e1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="PiS",
                 normalized_name="PiS",
                 aliases=[],
-                attributes={"lemmas": ["pis"]},
+                lemmas=["pis"],
             ),
             Entity(
-                entity_id="e2",
+                entity_id=EntityID("e2"),
                 entity_type=EntityType.POLITICAL_PARTY,
                 canonical_name="Prawa I Sprawiedliwości",
                 normalized_name="Prawa I Sprawiedliwości",
                 aliases=[],
-                attributes={"lemmas": ["prawo", "i", "sprawiedliwość"]},
+                lemmas=["prawo", "i", "sprawiedliwość"],
             ),
         ],
     )
@@ -180,7 +180,7 @@ def test_pis_deduplication(linker):
 
 def test_exact_duplicate_canonical_names_are_merged_after_linking(linker):
     doc = ArticleDocument(
-        document_id="test-doc-duplicate-org",
+        document_id=DocumentID("test-doc-duplicate-org"),
         source_url=None,
         raw_html="",
         title="Test Natura Tour",
@@ -189,14 +189,14 @@ def test_exact_duplicate_canonical_names_are_merged_after_linking(linker):
         paragraphs=["Natura Tour Natura Tour"],
         entities=[
             Entity(
-                entity_id="e1",
+                entity_id=EntityID("e1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Natura Tour",
                 normalized_name="Natura Tour",
                 aliases=[],
             ),
             Entity(
-                entity_id="e2",
+                entity_id=EntityID("e2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Natura Tour",
                 normalized_name="Natura Tour",
@@ -231,7 +231,7 @@ def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):
     linker._knowledge_seeded = False
 
     doc = ArticleDocument(
-        document_id="test-doc-refresh-party",
+        document_id=DocumentID("test-doc-refresh-party"),
         source_url=None,
         raw_html="",
         title="Test PiS Refresh",
@@ -240,12 +240,12 @@ def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):
         paragraphs=["PiS"],
         entities=[
             Entity(
-                entity_id="e1",
+                entity_id=EntityID("e1"),
                 entity_type=EntityType.POLITICAL_PARTY,
                 canonical_name="PiS",
                 normalized_name="PiS",
                 aliases=[],
-                attributes={"lemmas": ["pis"]},
+                lemmas=["pis"],
             )
         ],
     )

@@ -148,7 +148,7 @@ class DocumentEntityCanonicalizer:
             entity.canonical_name = canonical
             entity.normalized_name = canonical
             entity.aliases = unique_preserve_order([*alias_pool, canonical])
-            entity.attributes["lemmas"] = [token.lower() for token in canonical.split()]
+            entity.lemmas = [token.lower() for token in canonical.split()]
             return
 
         if entity.entity_type == EntityType.PERSON:
@@ -156,7 +156,7 @@ class DocumentEntityCanonicalizer:
             entity.canonical_name = canonical
             entity.normalized_name = canonical
             entity.aliases = unique_preserve_order([*alias_pool, canonical])
-            entity.attributes["lemmas"] = self._person_lemmas(canonical)
+            entity.lemmas = self._person_lemmas(canonical)
             return
 
         specific_acronym_alias = self._specific_acronym_organization_alias(alias_pool)
@@ -173,7 +173,7 @@ class DocumentEntityCanonicalizer:
             entity.canonical_name = institution_canonical
             entity.normalized_name = institution_canonical
             entity.aliases = self._organization_aliases(alias_pool, institution_canonical)
-            entity.attributes["organization_kind"] = OrganizationKind.PUBLIC_INSTITUTION
+            entity.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
             return
 
         canonical = self._best_organization_name(entity, alias_pool)
@@ -183,10 +183,10 @@ class DocumentEntityCanonicalizer:
 
     def _entities_compatible(self, left: Entity, right: Entity) -> bool:
         if (
-            left.attributes.get("is_proxy_person")
-            or right.attributes.get("is_proxy_person")
-            or left.attributes.get("is_honorific_person_ref")
-            or right.attributes.get("is_honorific_person_ref")
+            left.is_proxy_person
+            or right.is_proxy_person
+            or left.is_honorific_person_ref
+            or right.is_honorific_person_ref
         ):
             return left.entity_id == right.entity_id
 
@@ -218,17 +218,16 @@ class DocumentEntityCanonicalizer:
         )
         target.evidence.extend(source.evidence)
         if len(source.aliases) > len(target.aliases):
-            target.attributes["lemmas"] = source.attributes.get(
-                "lemmas",
-                target.attributes.get("lemmas", []),
-            )
+            target.lemmas = source.lemmas if source.lemmas else target.lemmas
 
     def _remap_mentions(self, document: ArticleDocument, remap: dict[str, str]) -> None:
         entity_by_id = {entity.entity_id: entity for entity in document.entities}
         deduplicated_mentions: dict[tuple[str | None, int, str], Mention] = {}
+        from pipeline.domain_types import EntityID
+
         for mention in document.mentions:
             if mention.entity_id:
-                mention.entity_id = remap.get(mention.entity_id, mention.entity_id)
+                mention.entity_id = EntityID(remap.get(mention.entity_id, mention.entity_id))
             if mention.entity_id and mention.entity_id in entity_by_id:
                 mention.normalized_text = entity_by_id[mention.entity_id].canonical_name
             key = (mention.entity_id, mention.sentence_index, mention.text)
@@ -242,19 +241,25 @@ class DocumentEntityCanonicalizer:
     def _remap_fact_graph(self, document: ArticleDocument, remap: dict[str, str]) -> None:
         if not remap:
             return
+        from pipeline.domain_types import EntityID
+
         for fact in document.facts:
-            fact.subject_entity_id = remap.get(fact.subject_entity_id, fact.subject_entity_id)
+            fact.subject_entity_id = EntityID(
+                remap.get(fact.subject_entity_id, fact.subject_entity_id)
+            )
             if fact.object_entity_id:
-                fact.object_entity_id = remap.get(fact.object_entity_id, fact.object_entity_id)
-            for attr_key in (
+                fact.object_entity_id = EntityID(
+                    remap.get(fact.object_entity_id, fact.object_entity_id)
+                )
+            for field_name in (
                 "position_entity_id",
                 "owner_context_entity_id",
                 "appointing_authority_entity_id",
                 "governing_body_entity_id",
             ):
-                attr_value = fact.attributes.get(attr_key)
-                if isinstance(attr_value, str):
-                    fact.attributes[attr_key] = remap.get(attr_value, attr_value)
+                val = getattr(fact, field_name)
+                if isinstance(val, str):
+                    setattr(fact, field_name, EntityID(remap.get(val, val)))
 
     def _persons_compatible(self, left: Entity, right: Entity) -> bool:
         left_tokens = left.normalized_name.split()
@@ -420,9 +425,7 @@ class DocumentEntityCanonicalizer:
     @staticmethod
     def _lemma_name_candidates(entity: Entity) -> list[str]:
         lemmas = [
-            lemma
-            for lemma in entity.attributes.get("lemmas", [])
-            if isinstance(lemma, str) and compact_whitespace(lemma)
+            lemma for lemma in entity.lemmas if isinstance(lemma, str) and compact_whitespace(lemma)
         ]
         if len(lemmas) < 2:
             return []
@@ -505,11 +508,7 @@ class DocumentEntityCanonicalizer:
 
     @classmethod
     def _lemma_match_score(cls, entity: Entity, name: str) -> int:
-        lemmas = {
-            str(lemma).lower()
-            for lemma in entity.attributes.get("lemmas", [])
-            if isinstance(lemma, str) and lemma
-        }
+        lemmas = {str(lemma).lower() for lemma in entity.lemmas if isinstance(lemma, str) and lemma}
         if not lemmas:
             return 0
         return sum(1 for token in name.split() if cls._org_token_base(token.lower()) in lemmas)
@@ -765,7 +764,7 @@ class DocumentEntityCanonicalizer:
     def _organization_signature(entity: Entity) -> tuple[str, ...]:
         lemmas = [
             lemma.lower()
-            for lemma in entity.attributes.get("lemmas", [])
+            for lemma in entity.lemmas
             if lemma and lemma.lower() not in {"i", "w", "z", "na", "do"}
         ]
         if lemmas:

@@ -44,16 +44,14 @@ class SQLiteEntityLinker(EntityLinker):
             self._seed_knowledge_graph()
             self._knowledge_seeded = True
         for entity in document.entities:
-            if entity.attributes.get("is_proxy_person") or entity.attributes.get(
-                "is_honorific_person_ref"
-            ):
-                entity.attributes["registry_id"] = stable_id(
+            if entity.is_proxy_person or entity.is_honorific_person_ref:
+                entity.registry_id = stable_id(
                     "document_local_ref", document.document_id, entity.entity_id
                 )
                 continue
             fingerprint = self._fingerprint(entity)
             registry_id = self._match_or_create(entity, fingerprint)
-            entity.attributes["registry_id"] = registry_id
+            entity.registry_id = registry_id
 
             # Update entity name to the canonical form from the registry
             rows = list(
@@ -73,17 +71,19 @@ class SQLiteEntityLinker(EntityLinker):
 
         # Remap entity references in extracted facts
         if id_remap:
+            from pipeline.domain_types import EntityID
+
             for fact in document.facts:
-                fact.subject_entity_id = id_remap.get(
-                    fact.subject_entity_id, fact.subject_entity_id
+                fact.subject_entity_id = EntityID(
+                    id_remap.get(fact.subject_entity_id, fact.subject_entity_id)
                 )
                 if fact.object_entity_id:
-                    fact.object_entity_id = id_remap.get(
-                        fact.object_entity_id, fact.object_entity_id
+                    fact.object_entity_id = EntityID(
+                        id_remap.get(fact.object_entity_id, fact.object_entity_id)
                     )
             for mention in document.mentions:
                 if mention.entity_id:
-                    mention.entity_id = id_remap.get(mention.entity_id, mention.entity_id)
+                    mention.entity_id = EntityID(id_remap.get(mention.entity_id, mention.entity_id))
 
         return self.canonicalizer.run(document)
 
@@ -427,12 +427,10 @@ class SQLiteEntityLinker(EntityLinker):
         id_remap: dict[str, str] = {}
         result: list[Entity] = []
         for entity in entities:
-            if entity.attributes.get("is_proxy_person") or entity.attributes.get(
-                "is_honorific_person_ref"
-            ):
+            if entity.is_proxy_person or entity.is_honorific_person_ref:
                 result.append(entity)
                 continue
-            rid = entity.attributes.get("registry_id")
+            rid = entity.registry_id
             if rid is None or rid not in registry_map:
                 if rid is not None:
                     registry_map[rid] = entity
@@ -454,9 +452,7 @@ class SQLiteEntityLinker(EntityLinker):
         result: list[Entity] = []
         related_types = {EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value}
         for entity in entities:
-            if entity.attributes.get("is_proxy_person") or entity.attributes.get(
-                "is_honorific_person_ref"
-            ):
+            if entity.is_proxy_person or entity.is_honorific_person_ref:
                 result.append(entity)
                 continue
             key_type = entity.entity_type.value
@@ -495,17 +491,16 @@ class SQLiteEntityLinker(EntityLinker):
 
     @staticmethod
     def _fingerprint(entity: Entity) -> EntityFingerprint:
-        attributes = entity.attributes
         tokens = entity.normalized_name.split()
         return {
             "normalized_name": entity.normalized_name,
             "name_tokens": tokens,
-            "lemmas": attributes.get("lemmas", []),
-            "organizations": attributes.get("organizations", []),
-            "education": attributes.get("education", []),
-            "positions": attributes.get("positions", []),
-            "parties": attributes.get("parties", []),
-            "is_media": attributes.get("is_media", False),
+            "lemmas": entity.lemmas,
+            "organizations": [],
+            "education": [],
+            "positions": [],
+            "parties": [],
+            "is_media": False,
         }
 
     def _match_score(
@@ -539,10 +534,5 @@ class SQLiteEntityLinker(EntityLinker):
 
     @staticmethod
     def _embedding_text(entity: Entity) -> str:
-        if entity.entity_type != EntityType.PERSON:
-            return entity.normalized_name
-
-        organizations = " ".join(entity.attributes.get("organizations", []))
-        positions = " ".join(entity.attributes.get("positions", []))
-        education = " ".join(entity.attributes.get("education", []))
-        return f"{entity.normalized_name} {organizations} {positions} {education}".strip()
+        # Since these were not inlined in models.py, we just use name.
+        return entity.normalized_name.strip()

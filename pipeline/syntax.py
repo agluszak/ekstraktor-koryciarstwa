@@ -5,6 +5,7 @@ from typing import Any
 
 from pipeline.base import ClauseParser
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import ClauseID
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -40,7 +41,7 @@ class StanzaClauseParser(ClauseParser):
                 roots = [parsed_words[0]]
 
             for root in roots:
-                clause_id = f"clause-{uuid.uuid4().hex[:8]}"
+                clause_id = ClauseID(f"clause-{uuid.uuid4().hex[:8]}")
                 clause_mentions: list[ClusterMention] = []
                 mention_roles: dict[str, str] = {}
 

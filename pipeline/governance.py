@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import cast
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
+    EntityID,
     EventType,
-    FactAttributes,
+    FactID,
     FactType,
     OrganizationKind,
+    RoleKind,
     TimeScope,
 )
 from pipeline.models import (
@@ -84,7 +85,7 @@ class GovernanceTargetResolver:
             for alias in [
                 cluster.canonical_name,
                 cluster.normalized_name,
-                *cluster.attributes.get("aliases", []),
+                *cluster.aliases,
             ]
             if isinstance(alias, str)
         }
@@ -162,14 +163,14 @@ class GovernanceTargetResolver:
         normalized = cluster.normalized_name.lower()
         if "skarbu państwa" in normalized:
             return True
-        if cluster.attributes.get("organization_kind") == OrganizationKind.PUBLIC_INSTITUTION:
+        if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
             return any(term in normalized for term in OWNER_CONTEXT_TERMS)
         return any(term in normalized for term in OWNER_CONTEXT_TERMS)
 
     @staticmethod
     def _is_body_like_cluster(cluster: EntityCluster) -> bool:
         normalized = cluster.normalized_name.lower()
-        kind = cluster.attributes.get("organization_kind")
+        kind = cluster.organization_kind
         if kind == OrganizationKind.GOVERNING_BODY:
             return True
         if normalized in BODY_CONTEXT_TERMS:
@@ -179,7 +180,7 @@ class GovernanceTargetResolver:
     @staticmethod
     def _is_target_like_cluster(cluster: EntityCluster) -> bool:
         normalized = cluster.normalized_name.lower()
-        if cluster.attributes.get("organization_kind") == OrganizationKind.COMPANY:
+        if cluster.organization_kind == OrganizationKind.COMPANY:
             return True
         return any(
             marker in normalized
@@ -223,9 +224,9 @@ class GovernanceTargetResolver:
             "tvp",
             "interia",
         }
-        return bool(cluster.attributes.get("is_media")) or any(
-            marker in normalized for marker in media_markers
-        )
+        # Note: 'is_media' was not in EntityCluster fields but used in attributes.get before.
+        # It's not in the new model either, so I'll just check markers.
+        return any(marker in normalized for marker in media_markers)
 
     @staticmethod
     def _is_expanded_name(cluster: EntityCluster) -> bool:
@@ -278,8 +279,9 @@ class GovernanceTargetResolver:
 
 class GovernanceFactBuilder:
     def build(self, document: ArticleDocument) -> list[Fact]:
-        cluster_to_entity_id = {
-            cluster.cluster_id: self._get_best_entity_id(cluster) for cluster in document.clusters
+        cluster_to_entity_id: dict[str, str] = {
+            str(cluster.cluster_id): str(self._get_best_entity_id(cluster))
+            for cluster in document.clusters
         }
         facts = [
             fact
@@ -308,66 +310,56 @@ class GovernanceFactBuilder:
             ),
             None,
         )
-        role_text = role_name or self._string_attribute_from_mapping(
-            frame.attributes,
-            "found_role",
-        )
+        role_text = role_name or frame.found_role
         fact_type = (
             FactType.DISMISSAL if frame.event_type == EventType.DISMISSAL else FactType.APPOINTMENT
         )
         evidence = self._combined_evidence(frame.evidence)
-        attributes = self._attributes_for_frame(frame, cluster_to_entity_id, role_id, role_text)
-        return Fact(
-            fact_id=stable_id(
-                "fact",
-                document.document_id,
-                fact_type,
-                subject_id,
-                target_id,
-                role_text or "",
-                frame.frame_id,
+
+        fact = Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    fact_type,
+                    subject_id,
+                    target_id,
+                    role_text or "",
+                    frame.frame_id,
+                )
             ),
             fact_type=fact_type,
-            subject_entity_id=subject_id,
-            object_entity_id=target_id,
+            subject_entity_id=EntityID(subject_id),
+            object_entity_id=EntityID(target_id),
             value_text=role_text,
             value_normalized=role_text.lower() if role_text else None,
             time_scope=TimeScope.CURRENT,
             event_date=document.publication_date,
             confidence=frame.confidence,
             evidence=evidence,
-            attributes=attributes,
-        )
-
-    @staticmethod
-    def _attributes_for_frame(
-        frame: GovernanceFrame,
-        cluster_to_entity_id: dict[str, str],
-        role_id: str | None,
-        role_text: str | None,
-    ) -> FactAttributes:
-        attributes = cast(
-            FactAttributes,
-            {
-                "position_entity_id": role_id or None,
-                "owner_context_entity_id": cluster_to_entity_id.get(
-                    frame.owner_context_cluster_id or ""
-                ),
-                "governing_body_entity_id": cluster_to_entity_id.get(
-                    frame.governing_body_cluster_id or ""
-                ),
-                "appointing_authority_entity_id": cluster_to_entity_id.get(
-                    frame.appointing_authority_cluster_id or ""
-                ),
-            },
+            position_entity_id=EntityID(role_id) if role_id else None,
+            owner_context_entity_id=EntityID(
+                cluster_to_entity_id.get(frame.owner_context_cluster_id or "") or ""
+            )
+            if frame.owner_context_cluster_id
+            else None,
+            governing_body_entity_id=EntityID(
+                cluster_to_entity_id.get(frame.governing_body_cluster_id or "") or ""
+            )
+            if frame.governing_body_cluster_id
+            else None,
+            appointing_authority_entity_id=EntityID(
+                cluster_to_entity_id.get(frame.appointing_authority_cluster_id or "") or ""
+            )
+            if frame.appointing_authority_cluster_id
+            else None,
+            source_extractor="governance_frame",
         )
         if role_text:
-            attributes["role"] = role_text
-            attributes["role_kind"] = role_text.lower()
-            attributes["board_role"] = role_text.lower() in {
-                kind.value for kind in BOARD_ROLE_KINDS
-            }
-        return attributes
+            fact.role = role_text
+            fact.role_kind = RoleKind.from_str(role_text)
+            fact.board_role = role_text.lower() in {kind.value for kind in BOARD_ROLE_KINDS}
+        return fact
 
     @staticmethod
     def _get_best_entity_id(cluster: EntityCluster) -> str:
@@ -375,11 +367,6 @@ class GovernanceFactBuilder:
         if entity_ids:
             return Counter(entity_ids).most_common(1)[0][0]
         return cluster.cluster_id
-
-    @staticmethod
-    def _string_attribute_from_mapping(mapping: dict[str, object], key: str) -> str | None:
-        value = mapping.get(key)
-        return value if isinstance(value, str) else None
 
     @staticmethod
     def _combined_evidence(evidence: list[EvidenceSpan]) -> EvidenceSpan:
@@ -419,10 +406,19 @@ class GovernanceFactBuilder:
         right_has_role = bool(right.value_text)
         winner = right if right_has_role and not left_has_role else left
         loser = left if winner is right else right
-        winner_attributes = cast(dict[str, object], winner.attributes)
-        loser_attributes = cast(dict[str, object], loser.attributes)
-        for key, value in loser_attributes.items():
-            if key not in winner_attributes or winner_attributes[key] is None:
-                winner_attributes[key] = value
+
+        # Merge optional fields from loser to winner if winner's fields are None
+        for field_name in [
+            "position_entity_id",
+            "owner_context_entity_id",
+            "governing_body_entity_id",
+            "appointing_authority_entity_id",
+            "role",
+            "role_kind",
+            "board_role",
+        ]:
+            if getattr(winner, field_name, None) is None:
+                setattr(winner, field_name, getattr(loser, field_name, None))
+
         winner.confidence = max(winner.confidence, loser.confidence)
         return winner

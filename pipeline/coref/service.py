@@ -53,7 +53,6 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                         mention_type="ResolvedPersonReference",
                         sentence_index=sentence_index,
                         entity_id=representative_entity.entity_id,
-                        attributes={"representative_text": representative_text},
                     )
                     resolved_mentions.append(resolved)
         finally:

@@ -1,5 +1,10 @@
 from unittest.mock import MagicMock
 
+from pipeline.domain_types import (
+    CandidateID,
+    DocumentID,
+    EntityID,
+)
 from pipeline.models import ArticleDocument, CandidateGraph, EntityCandidate, ParsedWord
 from pipeline.relations.fact_extractors import CandidateType, SentenceContext
 
@@ -12,8 +17,8 @@ def test_kinship_proxy_skips_speaker() -> None:
     # Paragraph: Renata, Dariusz
 
     dariusz_candidate = EntityCandidate(
-        candidate_id="p1",
-        entity_id="p1",
+        candidate_id=CandidateID("p1"),
+        entity_id=EntityID("p1"),
         candidate_type=CandidateType.PERSON,
         canonical_name="Dariusz",
         normalized_name="Dariusz",
@@ -22,12 +27,11 @@ def test_kinship_proxy_skips_speaker() -> None:
         start_char=27,  # Start of 'mówi' (approx)
         end_char=39,
         source="text",
-        attributes={},
     )
 
     renata_candidate = EntityCandidate(
-        candidate_id="p0",
-        entity_id="p0",
+        candidate_id=CandidateID("p0"),
+        entity_id=EntityID("p0"),
         candidate_type=CandidateType.PERSON,
         canonical_name="Renata",
         normalized_name="Renata",
@@ -36,7 +40,6 @@ def test_kinship_proxy_skips_speaker() -> None:
         start_char=0,
         end_char=6,
         source="text",
-        attributes={},
     )
 
     # Words according to ParsedWord(index, text, lemma, upos, head, deprel, start, end)
@@ -51,7 +54,7 @@ def test_kinship_proxy_skips_speaker() -> None:
     ]
 
     mock_doc = MagicMock(spec=ArticleDocument)
-    mock_doc.document_id = "test-doc"
+    mock_doc.document_id = DocumentID("test-doc")
     mock_sentence = MagicMock()
     mock_sentence.text = "- Moja żona zrezygnowała - mówi Dariusz."
     mock_graph = MagicMock(spec=CandidateGraph)

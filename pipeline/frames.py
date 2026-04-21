@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType, EventType, RoleKind
+from pipeline.domain_types import ClusterID, EntityType, EventType, FrameID, RoleKind
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
 from pipeline.models import (
@@ -205,9 +205,9 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         if target_resolution.target_org is None:
             return None
 
-        attributes = {"target_resolution": target_resolution.reason}
-        if role_text:
-            attributes["found_role"] = role_text
+        target_res_reason = target_resolution.reason
+        found_role = role_text
+        evidence_scope = None
         if (
             not clause_orgs
             or len(
@@ -225,7 +225,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             )
             > 1
         ):
-            attributes["evidence_scope"] = "discourse_window"
+            evidence_scope = "discourse_window"
 
         evidence = context.evidence_window(
             clause,
@@ -247,9 +247,9 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         )
 
         return GovernanceFrame(
-            frame_id=f"frame-{uuid.uuid4().hex[:8]}",
+            frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
             event_type=event_type,
-            person_cluster_id=person_cluster_id,
+            person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
             role_cluster_id=role_cluster.cluster_id if role_cluster is not None else None,
             target_org_cluster_id=target_resolution.target_org.cluster_id,
             owner_context_cluster_id=target_resolution.owner_context.cluster_id
@@ -258,10 +258,14 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             governing_body_cluster_id=target_resolution.governing_body.cluster_id
             if target_resolution.governing_body
             else None,
-            appointing_authority_cluster_id=appointing_authority_id,
+            appointing_authority_cluster_id=ClusterID(appointing_authority_id)
+            if appointing_authority_id
+            else None,
             confidence=target_resolution.confidence,
             evidence=evidence,
-            attributes=attributes,
+            target_resolution=target_res_reason,
+            found_role=found_role,
+            evidence_scope=evidence_scope,
         )
 
     def _extract_frame_from_clause(
@@ -333,14 +337,10 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         if target_resolution.target_org is None:
             return None
 
-        attributes = {"target_resolution": target_resolution.reason}
-        if role_text:
-            attributes["found_role"] = role_text
-
         return GovernanceFrame(
-            frame_id=f"frame-{uuid.uuid4().hex[:8]}",
+            frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
             event_type=event_type,
-            person_cluster_id=person_cluster_id,
+            person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
             role_cluster_id=role_cluster_id,
             target_org_cluster_id=target_resolution.target_org.cluster_id,
             owner_context_cluster_id=target_resolution.owner_context.cluster_id
@@ -349,7 +349,9 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             governing_body_cluster_id=target_resolution.governing_body.cluster_id
             if target_resolution.governing_body
             else None,
-            appointing_authority_cluster_id=appointing_authority_id,
+            appointing_authority_cluster_id=ClusterID(appointing_authority_id)
+            if appointing_authority_id
+            else None,
             confidence=target_resolution.confidence,
             evidence=[
                 EvidenceSpan(
@@ -360,7 +362,8 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                     end_char=clause.end_char,
                 )
             ],
-            attributes=attributes,
+            target_resolution=target_resolution.reason,
+            found_role=role_text,
         )
 
     def _clusters_for_mentions(
@@ -667,7 +670,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             context_reason=context_reason,
         )
         return CompensationFrame(
-            frame_id=f"comp-frame-{uuid.uuid4().hex[:8]}",
+            frame_id=FrameID(f"comp-frame-{uuid.uuid4().hex[:8]}"),
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()),
             period=normalize_entity_name(period.lower()) if period else None,
@@ -684,14 +687,10 @@ class PolishCompensationFrameExtractor(FrameExtractor):
                     end_char=clause.end_char,
                 )
             ],
-            attributes={
-                "extraction_signal": self._extraction_signal(score_reason),
-                "evidence_scope": "same_clause"
-                if context_reason == "same_clause"
-                else "same_paragraph",
-                "score_reason": score_reason,
-                "context_reason": context_reason,
-            },
+            extraction_signal=self._extraction_signal(score_reason),
+            evidence_scope="same_clause" if context_reason == "same_clause" else "same_paragraph",
+            score_reason=score_reason,
+            context_reason=context_reason,
         )
 
     def _has_compensation_context(self, document: ArticleDocument, clause: ClauseUnit) -> bool:
@@ -914,7 +913,7 @@ class PolishFundingFrameExtractor(FrameExtractor):
             same_clause_org_count=len(org_clusters),
         )
         return FundingFrame(
-            frame_id=f"funding-frame-{uuid.uuid4().hex[:8]}",
+            frame_id=FrameID(f"funding-frame-{uuid.uuid4().hex[:8]}"),
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()) if amount_text else None,
             funder_cluster_id=funder.cluster_id if funder else None,
@@ -930,11 +929,9 @@ class PolishFundingFrameExtractor(FrameExtractor):
                     end_char=clause.end_char,
                 )
             ],
-            attributes={
-                "extraction_signal": self._extraction_signal(score_reason),
-                "evidence_scope": "same_clause" if len(org_clusters) >= 2 else "same_paragraph",
-                "score_reason": score_reason,
-            },
+            extraction_signal=self._extraction_signal(score_reason),
+            evidence_scope="same_clause" if len(org_clusters) >= 2 else "same_paragraph",
+            score_reason=score_reason,
         )
 
     @staticmethod

@@ -1,4 +1,5 @@
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import DocumentID
 from pipeline.models import ArticleDocument
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.segmentation import ParagraphSentenceSegmenter
@@ -9,7 +10,7 @@ def test_person_name_normalization_uses_lemmas() -> None:
     segmenter = ParagraphSentenceSegmenter(config)
     extractor = SpacyPolishNERExtractor(config)
     document = ArticleDocument(
-        document_id="doc-1",
+        document_id=DocumentID("doc-1"),
         source_url=None,
         raw_html="",
         title="Test",

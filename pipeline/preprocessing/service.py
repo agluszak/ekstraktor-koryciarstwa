@@ -8,8 +8,8 @@ import trafilatura
 from bs4 import BeautifulSoup
 
 from pipeline.base import Preprocessor
-from pipeline.models import ArticleDocument, PipelineInput, default_document_id
-from pipeline.utils import compact_whitespace
+from pipeline.models import ArticleDocument, PipelineInput
+from pipeline.utils import compact_whitespace, generate_document_id
 
 SCRIPT_JSON_RE = re.compile(
     r"window\.(?:__newsData|__NEXT_DATA__)\s*=\s*(\{.*?\})\s*;",
@@ -64,7 +64,7 @@ class TrafilaturaPreprocessor(Preprocessor):
 
         lead_text = metadata.get("lead")
         return ArticleDocument(
-            document_id=data.document_id or default_document_id(data.source_url, publication_date),
+            document_id=data.document_id or generate_document_id(data.source_url, publication_date),
             source_url=data.source_url or self._extract_canonical_url(soup),
             raw_html=data.raw_html,
             title=title,

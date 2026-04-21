@@ -4,6 +4,8 @@ from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     CandidateType,
+    DocumentID,
+    EntityID,
     EntityType,
     FactType,
     OrganizationKind,
@@ -19,7 +21,7 @@ from pipeline.models import (
 from pipeline.relations import PolishFactExtractor
 from pipeline.relations.candidate_graph import CandidateGraphBuilder
 from pipeline.runtime import PipelineRuntime
-from pipeline.segmentation import ParagraphSentenceSegmenter
+from pipeline.segmentation.service import ParagraphSentenceSegmenter
 from pipeline.syntax import StanzaClauseParser
 
 
@@ -71,7 +73,7 @@ def test_party_aliases_match_whole_tokens_only() -> None:
     config = PipelineConfig.from_file("config.yaml")
     extractor = PolishFactExtractor(config)
     document = ArticleDocument(
-        document_id="doc-1",
+        document_id=DocumentID("doc-1"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -89,7 +91,7 @@ def test_party_aliases_match_whole_tokens_only() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="Jan Kowalski",
@@ -101,7 +103,7 @@ def test_party_aliases_match_whole_tokens_only() -> None:
                 normalized_text="Jan Kowalski",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             )
         ],
     )
@@ -125,7 +127,7 @@ def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
     extractor = PolishFactExtractor(config)
     text = 'Jest to niestety prosta droga do "syndromu Rybnika" - pisze Dorota Połedniok.'
     document = ArticleDocument(
-        document_id="doc-2",
+        document_id=DocumentID("doc-2"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -143,7 +145,7 @@ def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Dorota Połedniok",
                 normalized_name="Dorota Połedniok",
@@ -155,7 +157,7 @@ def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
                 normalized_text="Dorota Połedniok",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             )
         ],
     )
@@ -174,7 +176,7 @@ def test_compensation_relation_is_extracted() -> None:
     extractor = PolishFactExtractor(config)
     text = "Łukasz Bałajewicz zarabia miesięcznie ponad 31 tys. zł brutto jako prezes KZN."
     document = ArticleDocument(
-        document_id="doc-3",
+        document_id=DocumentID("doc-3"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -192,13 +194,13 @@ def test_compensation_relation_is_extracted() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Łukasz Bałajewicz",
                 normalized_name="Łukasz Bałajewicz",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="KZN",
                 normalized_name="KZN",
@@ -210,14 +212,14 @@ def test_compensation_relation_is_extracted() -> None:
                 normalized_text="Łukasz Bałajewicz",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="KZN",
                 normalized_text="KZN",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -232,14 +234,10 @@ def test_compensation_relation_is_extracted() -> None:
         fact for fact in extracted.facts if fact.fact_type == FactType.COMPENSATION
     ]
     assert compensation_facts
-    assert compensation_facts[0].attributes["amount_text"] == "31 Tys. Zł Brutto"
-    compensation_facts = [
-        fact for fact in extracted.facts if fact.fact_type == FactType.COMPENSATION
-    ]
-    assert compensation_facts
+    assert compensation_facts[0].amount_text == "31 Tys. Zł Brutto"
     assert compensation_facts[0].confidence >= 0.7
-    assert compensation_facts[0].attributes["source_extractor"] == "compensation_frame"
-    assert compensation_facts[0].attributes["extraction_signal"] in {
+    assert compensation_facts[0].source_extractor == "compensation_frame"
+    assert compensation_facts[0].extraction_signal in {
         "syntactic_direct",
         "dependency_edge",
     }
@@ -250,7 +248,7 @@ def test_party_cannot_become_appointment_destination() -> None:
     extractor = PolishFactExtractor(config)
     text = "Stanisław Mazur, polityk Lewicy, został prezesem."
     document = ArticleDocument(
-        document_id="doc-4",
+        document_id=DocumentID("doc-4"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -268,13 +266,13 @@ def test_party_cannot_become_appointment_destination() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Stanisław Mazur",
                 normalized_name="Stanisław Mazur",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Lewicy",
                 normalized_name="Lewicy",
@@ -286,14 +284,14 @@ def test_party_cannot_become_appointment_destination() -> None:
                 normalized_text="Stanisław Mazur",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="Lewicy",
                 normalized_text="Lewicy",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -312,7 +310,7 @@ def test_party_membership_requires_local_structural_support() -> None:
     extractor = PolishFactExtractor(config)
     text = "Donald Tusk skrytykował PSL za decyzję w sprawie budżetu."
     document = ArticleDocument(
-        document_id="doc-5",
+        document_id=DocumentID("doc-5"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -330,13 +328,13 @@ def test_party_membership_requires_local_structural_support() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Donald Tusk",
                 normalized_name="Donald Tusk",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="PSL",
                 normalized_name="PSL",
@@ -348,14 +346,14 @@ def test_party_membership_requires_local_structural_support() -> None:
                 normalized_text="Donald Tusk",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="PSL",
                 normalized_text="PSL",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -377,7 +375,7 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
     extractor = PolishFactExtractor(config)
     text = "Jan Kowalski, działacz PSL, został powołany do rady."
     document = ArticleDocument(
-        document_id="doc-party-score",
+        document_id=DocumentID("doc-party-score"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -395,13 +393,13 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="Jan Kowalski",
             ),
             Entity(
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="PSL",
                 normalized_name="PSL",
@@ -413,14 +411,14 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
                 normalized_text="Jan Kowalski",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="PSL",
                 normalized_text="PSL",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
             ),
         ],
     )
@@ -439,8 +437,8 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
 
     assert party_facts
     assert party_facts[0].confidence >= 0.7
-    assert party_facts[0].attributes["source_extractor"] == "political_profile"
-    assert party_facts[0].attributes["extraction_signal"] in {
+    assert party_facts[0].source_extractor == "political_profile"
+    assert party_facts[0].extraction_signal in {
         "syntactic_direct",
         "appositive_context",
         "dependency_edge",
@@ -456,7 +454,7 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
         "Chodzi o Stadninę Koni Iwno."
     )
     document = ArticleDocument(
-        document_id="doc-6",
+        document_id=DocumentID("doc-6"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -488,19 +486,19 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-initial",
+                entity_id=EntityID("person-initial"),
                 entity_type=EntityType.PERSON,
                 canonical_name="A",
                 normalized_name="A",
             ),
             Entity(
-                entity_id="person-surname",
+                entity_id=EntityID("person-surname"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Góralczyk",
                 normalized_name="Góralczyk",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Stadnina Koni Iwno",
                 normalized_name="Stadnina Koni Iwno",
@@ -512,21 +510,21 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
                 normalized_text="A",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-initial",
+                entity_id=EntityID("person-initial"),
             ),
             Mention(
                 text="Góralczyk",
                 normalized_text="Góralczyk",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-surname",
+                entity_id=EntityID("person-surname"),
             ),
             Mention(
                 text="Stadninę Koni Iwno",
                 normalized_text="Stadnina Koni Iwno",
                 mention_type="Organization",
                 sentence_index=2,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -538,13 +536,11 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
     )
 
     appointments = [
-        fact
-        for fact in extracted.facts
-        if fact.fact_type == FactType.APPOINTMENT and fact.attributes.get("role")
+        fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT and fact.role
     ]
 
     assert appointments
-    assert appointments[0].attributes["role"] == "Zastępca Prezesa"
+    assert appointments[0].role == "Zastępca Prezesa"
     assert any(entity.canonical_name == "A. Góralczyk" for entity in extracted.entities)
 
 
@@ -555,7 +551,7 @@ def test_headline_party_context_links_next_sentence_person() -> None:
         "Działaczka Polskiego Stronnictwa Ludowego A. Góralczyk awansowała na stanowisko prezesa."
     )
     document = ArticleDocument(
-        document_id="doc-party-discourse",
+        document_id=DocumentID("doc-party-discourse"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -583,13 +579,13 @@ def test_headline_party_context_links_next_sentence_person() -> None:
         ],
         entities=[
             Entity(
-                entity_id="party-org",
+                entity_id=EntityID("party-org"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Polskiego Stronnictwa Ludowego",
                 normalized_name="Polskiego Stronnictwa Ludowego",
             ),
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="A. Góralczyk",
                 normalized_name="A. Góralczyk",
@@ -601,14 +597,14 @@ def test_headline_party_context_links_next_sentence_person() -> None:
                 normalized_text="Polskiego Stronnictwa Ludowego",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="party-org",
+                entity_id=EntityID("party-org"),
             ),
             Mention(
                 text="A. Góralczyk",
                 normalized_text="A. Góralczyk",
                 mention_type="Person",
                 sentence_index=1,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
         ],
     )
@@ -635,7 +631,7 @@ def test_segmenter_keeps_initials_with_surname() -> None:
         "Teraz awansowała na stanowisko prezesa."
     )
     document = ArticleDocument(
-        document_id="doc-7",
+        document_id=DocumentID("doc-7"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -656,7 +652,7 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
     institution_normalized = "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Lublinie"
     text = f"Stanisław Mazur odebrał nominację w {institution_surface}."
     document = ArticleDocument(
-        document_id="doc-8",
+        document_id=DocumentID("doc-8"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -674,13 +670,13 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Stanisław Mazur",
                 normalized_name="Stanisław Mazur",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name=institution_surface,
                 normalized_name=institution_normalized,
@@ -692,14 +688,14 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
                 normalized_text="Stanisław Mazur",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text=institution_surface,
                 normalized_text=institution_normalized,
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -726,7 +722,7 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
     extractor = PolishFactExtractor(config)
     text = "Jan Kowalski, polityk Koalicji 15 Października, został powołany."
     document = ArticleDocument(
-        document_id="doc-9",
+        document_id=DocumentID("doc-9"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -744,13 +740,13 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="Jan Kowalski",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Koalicji 15 Października",
                 normalized_name="Koalicja 15 Października",
@@ -762,14 +758,14 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
                 normalized_text="Jan Kowalski",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="Koalicji 15 Października",
                 normalized_text="Koalicja 15 Października",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -797,7 +793,7 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
     extractor = PolishFactExtractor(config)
     text = "Marcin Horyń złożył rezygnację ze stanowiska prezesa PSL Fundacji Rozwoju."
     document = ArticleDocument(
-        document_id="doc-9b",
+        document_id=DocumentID("doc-9b"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -815,13 +811,13 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marcin Horyń",
                 normalized_name="Marcin Horyń",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="PSL Fundacji Rozwoju",
                 normalized_name="PSL Fundacji Rozwoju",
@@ -833,14 +829,14 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
                 normalized_text="Marcin Horyń",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="PSL Fundacji Rozwoju",
                 normalized_text="PSL Fundacji Rozwoju",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -863,7 +859,7 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
     extractor = PolishFactExtractor(config)
     text = "Marcin Horyń został dyrektorem AMW. MON sprawuje nadzór nad agencją."
     document = ArticleDocument(
-        document_id="doc-10a",
+        document_id=DocumentID("doc-10a"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -888,19 +884,19 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marcin Horyń",
                 normalized_name="Marcin Horyń",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="AMW",
                 normalized_name="AMW",
             ),
             Entity(
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="MON",
                 normalized_name="MON",
@@ -912,21 +908,21 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
                 normalized_text="Marcin Horyń",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="AMW",
                 normalized_text="AMW",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
             Mention(
                 text="MON",
                 normalized_text="MON",
                 mention_type="Organization",
                 sentence_index=1,
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
             ),
         ],
     )
@@ -959,7 +955,7 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
         "Premier Donald Tusk powołuje go na stanowisko dyrektora AMW."
     )
     document = ArticleDocument(
-        document_id="doc-10b",
+        document_id=DocumentID("doc-10b"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -984,19 +980,19 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marcin Horyń",
                 normalized_name="Marcin Horyń",
             ),
             Entity(
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Donald Tusk",
                 normalized_name="Donald Tusk",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="AMW",
                 normalized_name="AMW",
@@ -1008,21 +1004,21 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
                 normalized_text="Marcin Horyń",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="Donald Tusk",
                 normalized_text="Donald Tusk",
                 mention_type="Person",
                 sentence_index=1,
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
             ),
             Mention(
                 text="AMW",
                 normalized_text="AMW",
                 mention_type="Organization",
                 sentence_index=1,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -1046,7 +1042,7 @@ def test_party_affiliation_supports_lider_psl_phrase() -> None:
     extractor = PolishFactExtractor(config)
     text = "Marcin Horyń, lider PSL, objął stanowisko dyrektora AMW."
     document = ArticleDocument(
-        document_id="doc-10c",
+        document_id=DocumentID("doc-10c"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -1064,19 +1060,19 @@ def test_party_affiliation_supports_lider_psl_phrase() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marcin Horyń",
                 normalized_name="Marcin Horyń",
             ),
             Entity(
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="PSL",
                 normalized_name="PSL",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="AMW",
                 normalized_name="AMW",
@@ -1088,21 +1084,21 @@ def test_party_affiliation_supports_lider_psl_phrase() -> None:
                 normalized_text="Marcin Horyń",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="PSL",
                 normalized_text="PSL",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
             ),
             Mention(
                 text="AMW",
                 normalized_text="AMW",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -1127,7 +1123,7 @@ def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
     extractor = PolishFactExtractor(config)
     text = "Marcin Horyń jest jednym z zaufanych ludzi Władysława Kosiniaka-Kamysza."
     document = ArticleDocument(
-        document_id="doc-10d",
+        document_id=DocumentID("doc-10d"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -1145,13 +1141,13 @@ def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marcin Horyń",
                 normalized_name="Marcin Horyń",
             ),
             Entity(
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Władysław Kosiniak-Kamysz",
                 normalized_name="Władysław Kosiniak-Kamysz",
@@ -1163,14 +1159,14 @@ def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
                 normalized_text="Marcin Horyń",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="Władysława Kosiniaka-Kamysza",
                 normalized_text="Władysław Kosiniak-Kamysz",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
             ),
         ],
     )
@@ -1187,8 +1183,8 @@ def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
 
     assert tie_facts
     assert tie_facts[0].confidence >= 0.55
-    assert tie_facts[0].attributes["source_extractor"] == "tie"
-    assert tie_facts[0].attributes["extraction_signal"] in {
+    assert tie_facts[0].source_extractor == "tie"
+    assert tie_facts[0].extraction_signal in {
         "dependency_edge",
         "syntactic_direct",
     }
@@ -1226,7 +1222,7 @@ def test_clause_parser_parses_syntax_once_per_document() -> None:
     extractor = PolishFactExtractor(config)
     text = "Jan awansował. Objął stanowisko."
     document = ArticleDocument(
-        document_id="doc-10",
+        document_id=DocumentID("doc-10"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -1251,7 +1247,7 @@ def test_clause_parser_parses_syntax_once_per_document() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan",
                 normalized_name="Jan",
@@ -1263,7 +1259,7 @@ def test_clause_parser_parses_syntax_once_per_document() -> None:
                 normalized_text="Jan",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             )
         ],
     )
@@ -1282,7 +1278,7 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
     extractor = PolishFactExtractor(config)
     text = "A. Góralczyk została prezeską Stadniny Koni Iwno, państwowej spółki Skarbu Państwa."
     document = ArticleDocument(
-        document_id="doc-11",
+        document_id=DocumentID("doc-11"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -1300,19 +1296,19 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="A. Góralczyk",
                 normalized_name="A. Góralczyk",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Stadnina Koni Iwno",
                 normalized_name="Stadnina Koni Iwno",
             ),
             Entity(
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Skarbu Państwa",
                 normalized_name="Skarbu Państwa",
@@ -1324,21 +1320,21 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
                 normalized_text="A. Góralczyk",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="Stadniny Koni Iwno",
                 normalized_text="Stadnina Koni Iwno",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
             Mention(
                 text="Skarbu Państwa",
                 normalized_text="Skarbu Państwa",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
             ),
         ],
     )
@@ -1365,7 +1361,7 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
         "spółki podległej Ministerstwu Obrony Narodowej."
     )
     document = ArticleDocument(
-        document_id="doc-12",
+        document_id=DocumentID("doc-12"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -1383,24 +1379,24 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Marcin Horyń",
                 normalized_name="Marcin Horyń",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Rewita Hoteli",
                 normalized_name="Rewita Hoteli",
-                attributes={"organization_kind": OrganizationKind.COMPANY},
+                organization_kind=OrganizationKind.COMPANY,
             ),
             Entity(
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
                 entity_type=EntityType.PUBLIC_INSTITUTION,
                 canonical_name="Ministerstwo Obrony Narodowej",
                 normalized_name="Ministerstwo Obrony Narodowej",
-                attributes={"organization_kind": OrganizationKind.PUBLIC_INSTITUTION},
+                organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
             ),
         ],
         mentions=[
@@ -1409,21 +1405,21 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
                 normalized_text="Marcin Horyń",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="Rewita Hoteli",
                 normalized_text="Rewita Hoteli",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
             Mention(
                 text="Ministerstwu Obrony Narodowej",
                 normalized_text="Ministerstwo Obrony Narodowej",
                 mention_type="PublicInstitution",
                 sentence_index=0,
-                entity_id="org-2",
+                entity_id=EntityID("org-2"),
             ),
         ],
     )
@@ -1440,7 +1436,7 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
     assert appointments
     assert appointments[0].object_entity_id is not None
     assert entity_names[appointments[0].object_entity_id] == "Rewita Hoteli"
-    owner_id = appointments[0].attributes.get("owner_context_entity_id")
+    owner_id = appointments[0].owner_context_entity_id
     assert isinstance(owner_id, str)
     assert entity_names[owner_id] == "Ministerstwo Obrony Narodowej"
 
@@ -1450,7 +1446,7 @@ def test_candidacy_requires_explicit_election_context() -> None:
     extractor = PolishFactExtractor(config)
     text = "Tadeusz Rydzyk dostał 300 tys. zł dotacji na projekt fundacji."
     document = ArticleDocument(
-        document_id="doc-13",
+        document_id=DocumentID("doc-13"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -1468,13 +1464,13 @@ def test_candidacy_requires_explicit_election_context() -> None:
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Tadeusz Rydzyk",
                 normalized_name="Tadeusz Rydzyk",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Fundacja Lux Veritatis",
                 normalized_name="Fundacja Lux Veritatis",
@@ -1486,14 +1482,14 @@ def test_candidacy_requires_explicit_election_context() -> None:
                 normalized_text="Tadeusz Rydzyk",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="fundacji",
                 normalized_text="Fundacja Lux Veritatis",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )
@@ -1512,7 +1508,7 @@ def test_party_membership_does_not_cross_attach_between_multiple_people() -> Non
     extractor = PolishFactExtractor(config)
     text = "Stanisław Mazur z Lewicy i Andrzej Kloc z PSL będą kierować funduszem."
     document = ArticleDocument(
-        document_id="doc-14",
+        document_id=DocumentID("doc-14"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -1530,31 +1526,31 @@ def test_party_membership_does_not_cross_attach_between_multiple_people() -> Non
         ],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Stanisław Mazur",
                 normalized_name="Stanisław Mazur",
             ),
             Entity(
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Andrzej Kloc",
                 normalized_name="Andrzej Kloc",
             ),
             Entity(
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Lewicy",
                 normalized_name="Lewica",
             ),
             Entity(
-                entity_id="party-2",
+                entity_id=EntityID("party-2"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="PSL",
                 normalized_name="PSL",
             ),
             Entity(
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="funduszem",
                 normalized_name="fundusz",
@@ -1566,35 +1562,35 @@ def test_party_membership_does_not_cross_attach_between_multiple_people() -> Non
                 normalized_text="Stanisław Mazur",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             ),
             Mention(
                 text="Andrzej Kloc",
                 normalized_text="Andrzej Kloc",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-2",
+                entity_id=EntityID("person-2"),
             ),
             Mention(
                 text="Lewicy",
                 normalized_text="Lewica",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="party-1",
+                entity_id=EntityID("party-1"),
             ),
             Mention(
                 text="PSL",
                 normalized_text="PSL",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="party-2",
+                entity_id=EntityID("party-2"),
             ),
             Mention(
                 text="funduszem",
                 normalized_text="fundusz",
                 mention_type="Organization",
                 sentence_index=0,
-                entity_id="org-1",
+                entity_id=EntityID("org-1"),
             ),
         ],
     )

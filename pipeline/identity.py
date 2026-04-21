@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import cast
 
 from pipeline.base import IdentityResolver
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
-    EntityAttributes,
+    ClusterID,
+    EntityID,
     EntityType,
-    FactAttributes,
+    FactID,
     FactType,
     IdentityHypothesisReason,
     IdentityHypothesisStatus,
@@ -310,12 +310,14 @@ class PolishFamilyIdentityResolver(IdentityResolver):
     ) -> _ProxyRecord:
         anchor_entity_id = self._best_entity_id(anchor)
         canonical_name = normalize_entity_name(surface)
-        entity_id = stable_id(
-            "proxy_person",
-            document.document_id,
-            canonical_name,
-            anchor_entity_id,
-            kinship_detail.value,
+        entity_id = EntityID(
+            stable_id(
+                "proxy_person",
+                document.document_id,
+                canonical_name,
+                anchor_entity_id,
+                kinship_detail.value,
+            )
         )
         existing_entity = next(
             (entity for entity in document.entities if entity.entity_id == entity_id),
@@ -328,17 +330,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             start_char=start_char,
             end_char=end_char,
         )
-        attributes = cast(
-            EntityAttributes,
-            {
-                "is_proxy_person": True,
-                "proxy_kind": ProxyKind.FAMILY,
-                "kinship_detail": kinship_detail,
-                "proxy_anchor_entity_id": anchor_entity_id,
-                "proxy_surface": surface,
-                "lemmas": [kinship_detail.value],
-            },
-        )
         if existing_entity is None:
             existing_entity = Entity(
                 entity_id=entity_id,
@@ -346,7 +337,12 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 canonical_name=canonical_name,
                 normalized_name=canonical_name,
                 aliases=[surface],
-                attributes=attributes,
+                is_proxy_person=True,
+                proxy_kind=ProxyKind.FAMILY,
+                kinship_detail=kinship_detail,
+                proxy_anchor_entity_id=EntityID(anchor_entity_id),
+                proxy_surface=surface,
+                lemmas=[kinship_detail.value],
                 evidence=[evidence],
             )
             document.entities.append(existing_entity)
@@ -356,12 +352,10 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                     normalized_text=canonical_name,
                     mention_type=EntityType.PERSON.value,
                     sentence_index=sentence_index,
+                    paragraph_index=paragraph_index,
+                    start_char=start_char,
+                    end_char=end_char,
                     entity_id=entity_id,
-                    attributes={
-                        "start_char": start_char,
-                        "end_char": end_char,
-                        "paragraph_index": paragraph_index,
-                    },
                 )
             )
         elif not any(
@@ -402,7 +396,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             (
                 cluster
                 for cluster in document.clusters
-                if cluster.attributes.get("proxy_entity_id") == entity.entity_id
+                if cluster.proxy_entity_id == entity.entity_id
             ),
             None,
         )
@@ -417,19 +411,17 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         )
         if existing is None:
             cluster = EntityCluster(
-                cluster_id=f"cluster-proxy-{uuid.uuid4().hex[:8]}",
+                cluster_id=ClusterID(f"cluster-proxy-{uuid.uuid4().hex[:8]}"),
                 entity_type=EntityType.PERSON,
                 canonical_name=entity.canonical_name,
                 normalized_name=entity.normalized_name,
                 mentions=[mention],
-                attributes={
-                    "aliases": list(entity.aliases),
-                    "is_proxy_person": True,
-                    "proxy_entity_id": entity.entity_id,
-                    "proxy_kind": ProxyKind.FAMILY,
-                    "kinship_detail": entity.attributes.get("kinship_detail"),
-                    "proxy_anchor_entity_id": entity.attributes.get("proxy_anchor_entity_id"),
-                },
+                aliases=list(entity.aliases),
+                is_proxy_person=True,
+                proxy_entity_id=entity.entity_id,
+                proxy_kind=ProxyKind.FAMILY,
+                kinship_detail=entity.kinship_detail,
+                proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
             )
             document.clusters.append(cluster)
             return cluster
@@ -448,13 +440,15 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         seen = {fact.fact_id for fact in document.facts}
         for proxy in proxies:
             evidence = proxy.entity.evidence[-1] if proxy.entity.evidence else EvidenceSpan(text="")
-            fact_id = stable_id(
-                "fact",
-                document.document_id,
-                FactType.PERSONAL_OR_POLITICAL_TIE,
-                proxy.entity.entity_id,
-                proxy.anchor_entity_id,
-                proxy.kinship_detail.value,
+            fact_id = FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    FactType.PERSONAL_OR_POLITICAL_TIE,
+                    proxy.entity.entity_id,
+                    proxy.anchor_entity_id,
+                    proxy.kinship_detail.value,
+                )
             )
             if fact_id in seen:
                 continue
@@ -463,22 +457,17 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                     fact_id=fact_id,
                     fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
                     subject_entity_id=proxy.entity.entity_id,
-                    object_entity_id=proxy.anchor_entity_id,
+                    object_entity_id=EntityID(proxy.anchor_entity_id),
                     value_text=proxy.kinship_detail.value,
                     value_normalized=proxy.kinship_detail.value,
                     time_scope=TimeScope.CURRENT,
                     event_date=document.publication_date,
                     confidence=0.86,
                     evidence=evidence,
-                    attributes=cast(
-                        FactAttributes,
-                        {
-                            "relationship_type": RelationshipType.FAMILY,
-                            "kinship_detail": proxy.kinship_detail,
-                            "source_extractor": "family_identity_resolver",
-                            "extraction_signal": "family_proxy",
-                        },
-                    ),
+                    relationship_type=RelationshipType.FAMILY,
+                    kinship_detail=proxy.kinship_detail,
+                    source_extractor="family_identity_resolver",
+                    extraction_signal="family_proxy",
                 )
             )
             seen.add(fact_id)
@@ -512,25 +501,25 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         proxies = [
             entity
             for entity in document.entities
-            if entity.entity_type == EntityType.PERSON and entity.attributes.get("is_proxy_person")
+            if entity.entity_type == EntityType.PERSON and entity.is_proxy_person
         ]
         full_people = [
             entity
             for entity in document.entities
             if entity.entity_type == EntityType.PERSON
-            and not entity.attributes.get("is_proxy_person")
-            and not entity.attributes.get("is_honorific_person_ref")
+            and not entity.is_proxy_person
+            and not entity.is_honorific_person_ref
             and len(entity.canonical_name.split()) >= 2
         ]
         for proxy in proxies:
-            anchor_id = proxy.attributes.get("proxy_anchor_entity_id")
-            if not isinstance(anchor_id, str):
+            anchor_id = proxy.proxy_anchor_entity_id
+            if anchor_id is None:
                 continue
             anchor = self._entity_by_id(document, anchor_id)
             if anchor is None:
                 continue
             anchor_surname = self._surname(anchor.canonical_name)
-            proxy_kind = proxy.attributes.get("kinship_detail")
+            proxy_kind = proxy.kinship_detail
             for person in full_people:
                 if person.entity_id == anchor_id:
                     continue
@@ -612,7 +601,9 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         canonical = normalize_entity_name(surface)
         if not canonical:
             raise ValueError("Cannot create honorific person reference from an empty surface.")
-        entity_id = stable_id("person_ref", document.document_id, canonical, str(start_char))
+        entity_id = EntityID(
+            stable_id("person_ref", document.document_id, canonical, str(start_char))
+        )
         existing = self._entity_by_id(document, entity_id)
         if existing is not None:
             return existing
@@ -624,12 +615,12 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             end_char=end_char,
         )
         entity = Entity(
-            entity_id=entity_id,
+            entity_id=EntityID(entity_id),
             entity_type=EntityType.PERSON,
             canonical_name=canonical,
             normalized_name=canonical,
             aliases=[surface],
-            attributes=cast(EntityAttributes, {"is_honorific_person_ref": True}),
+            is_honorific_person_ref=True,
             evidence=[evidence],
         )
         document.entities.append(entity)
@@ -639,17 +630,15 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 normalized_text=canonical,
                 mention_type=EntityType.PERSON.value,
                 sentence_index=sentence_index,
-                entity_id=entity_id,
-                attributes={
-                    "start_char": start_char,
-                    "end_char": end_char,
-                    "paragraph_index": paragraph_index,
-                },
+                paragraph_index=paragraph_index,
+                start_char=start_char,
+                end_char=end_char,
+                entity_id=EntityID(entity_id),
             )
         )
         document.clusters.append(
             EntityCluster(
-                cluster_id=f"cluster-ref-{uuid.uuid4().hex[:8]}",
+                cluster_id=ClusterID(f"cluster-ref-{uuid.uuid4().hex[:8]}"),
                 entity_type=EntityType.PERSON,
                 canonical_name=canonical,
                 normalized_name=canonical,
@@ -661,10 +650,10 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                         paragraph_index=paragraph_index,
                         start_char=start_char,
                         end_char=end_char,
-                        entity_id=entity_id,
+                        entity_id=EntityID(entity_id),
                     )
                 ],
-                attributes={"aliases": [surface]},
+                aliases=[surface],
             )
         )
         return entity
@@ -725,10 +714,10 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             cluster
             for cluster in document.clusters
             if cluster.entity_type == EntityType.PERSON
-            and not cluster.attributes.get("is_proxy_person")
+            and not cluster.is_proxy_person
             and (
                 cluster.canonical_name == normalized
-                or normalized in cluster.attributes.get("aliases", [])
+                or normalized in cluster.aliases
                 or self._surnames_compatible(cluster.canonical_name, normalized)
             )
         ]
@@ -764,7 +753,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         if sentence and (
             sentence.text.strip().startswith("–")
             or sentence.text.strip().startswith("—")
-            or sentence.text.strip().startswith("\"")
+            or sentence.text.strip().startswith('"')
         ):
             next_index = sentence_index + 1
             next_sentence = next(
@@ -777,7 +766,10 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         return None
 
     @staticmethod
-    def _speaker_cluster_raw(document: ArticleDocument, sentence_index: int) -> EntityCluster | None:
+    def _speaker_cluster_raw(
+        document: ArticleDocument,
+        sentence_index: int,
+    ) -> EntityCluster | None:
         parsed = document.parsed_sentences.get(sentence_index, [])
         speech_heads = {word.index for word in parsed if word.lemma.casefold() in SPEECH_LEMMAS}
         if not speech_heads:
@@ -792,9 +784,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             word for word in parsed if word.head in speech_heads and word.deprel.startswith("nsubj")
         ]
         for cluster in document.clusters:
-            if cluster.entity_type != EntityType.PERSON or cluster.attributes.get(
-                "is_proxy_person"
-            ):
+            if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
                 continue
             for mention in cluster.mentions:
                 if mention.sentence_index != sentence_index:
@@ -817,7 +807,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             cluster
             for cluster in document.clusters
             if cluster.entity_type == EntityType.PERSON
-            and not cluster.attributes.get("is_proxy_person")
+            and not cluster.is_proxy_person
             and any(
                 sentence_index - before <= mention.sentence_index <= sentence_index + after
                 for mention in cluster.mentions
@@ -897,8 +887,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         if existing is None:
             document.identity_hypotheses.append(
                 IdentityHypothesis(
-                    left_entity_id=left_entity_id,
-                    right_entity_id=right_entity_id,
+                    left_entity_id=EntityID(left_entity_id),
+                    right_entity_id=EntityID(right_entity_id),
                     confidence=confidence,
                     reason=reason,
                     evidence=evidence,

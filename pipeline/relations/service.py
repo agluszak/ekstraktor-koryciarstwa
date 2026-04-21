@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import cast
-
 from pipeline.base import FactExtractor
 from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import CandidateType, FactAttributes, FactType, TimeScope
+from pipeline.domain_types import (
+    CandidateType,
+    FactID,
+    FactType,
+    TimeScope,
+)
 from pipeline.funding import FundingFactBuilder
 from pipeline.governance import GovernanceFactBuilder
 from pipeline.models import (
@@ -143,40 +146,40 @@ class PolishFactExtractor(FactExtractor):
                 continue
             person = min(persons, key=lambda candidate: candidate.start_char)
             for party in parties:
+                assert person.entity_id is not None
+                assert party.entity_id is not None
+                fact_id = FactID(
+                    stable_id(
+                        "fact",
+                        document.document_id,
+                        FactType.PARTY_MEMBERSHIP,
+                        person.entity_id,
+                        party.entity_id,
+                        str(sentence.sentence_index),
+                    )
+                )
                 facts.append(
                     Fact(
-                        fact_id=stable_id(
-                            "fact",
-                            document.document_id,
-                            FactType.PARTY_MEMBERSHIP,
-                            person.entity_id or "",
-                            party.entity_id or "",
-                            str(sentence.sentence_index),
-                        ),
+                        fact_id=fact_id,
                         fact_type=FactType.PARTY_MEMBERSHIP,
-                        subject_entity_id=person.entity_id or "",
+                        subject_entity_id=person.entity_id,
                         object_entity_id=party.entity_id,
                         value_text=party.canonical_name,
                         value_normalized=party.normalized_name,
+                        confidence=0.92,
                         time_scope=TimeScope.CURRENT,
                         event_date=document.publication_date,
-                        confidence=0.68,
                         evidence=EvidenceSpan(
-                            text=f"{sentence.text} {next_sentence.text}",
-                            sentence_index=next_sentence.sentence_index,
-                            paragraph_index=next_sentence.paragraph_index,
-                            start_char=sentence.start_char,
-                            end_char=next_sentence.end_char,
+                            text=f"{person.canonical_name} ({party.canonical_name})",
+                            sentence_index=sentence.sentence_index,
+                            paragraph_index=sentence.paragraph_index,
+                            start_char=min(person.start_char, party.start_char),
+                            end_char=max(person.end_char, party.end_char),
                         ),
-                        attributes=cast(
-                            FactAttributes,
-                            {
-                                "source_extractor": "political_profile",
-                                "extraction_signal": "discourse_window",
-                                "evidence_scope": "adjacent_sentence",
-                                "party": party.canonical_name,
-                            },
-                        ),
+                        source_extractor="party_membership_relation_extractor",
+                        extraction_signal="discourse_window",
+                        evidence_scope="adjacent_sentence",
+                        party=party.canonical_name,
                     )
                 )
         return facts

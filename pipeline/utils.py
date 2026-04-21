@@ -4,6 +4,13 @@ import re
 import uuid
 from collections.abc import Iterable
 
+from pipeline.domain_types import (
+    ClusterID,
+    DocumentID,
+    EntityID,
+    FactID,
+)
+
 WHITESPACE_RE = re.compile(r"\s+")
 DATE_RE = re.compile(r"\b(20\d{2}[-./]\d{2}[-./]\d{2}|\d{1,2}[.-]\d{1,2}[.-]20\d{2})\b")
 LOWERCASE_CONNECTORS = frozenset(
@@ -65,6 +72,26 @@ def find_dates(text: str) -> list[str]:
 def stable_id(prefix: str, *parts: str) -> str:
     base = "::".join(part for part in parts if part)
     return f"{prefix}_{uuid.uuid5(uuid.NAMESPACE_URL, base or prefix).hex[:16]}"
+
+
+def generate_entity_id(prefix: str, *parts: str) -> EntityID:
+    return EntityID(stable_id(prefix, *parts))
+
+
+def generate_fact_id(prefix: str, *parts: str) -> FactID:
+    return FactID(stable_id(prefix, *parts))
+
+
+def generate_cluster_id(prefix: str, *parts: str) -> ClusterID:
+    return ClusterID(stable_id(prefix, *parts))
+
+
+def generate_document_id(source_url: str | None, publication_date: str | None) -> DocumentID:
+    from datetime import date
+
+    slug = (source_url or "local-document").rstrip("/").split("/")[-1] or "document"
+    date_prefix = publication_date or date.today().isoformat()
+    return DocumentID(f"{date_prefix}:{slug}")
 
 
 def unique_preserve_order(values: Iterable[str]) -> list[str]:

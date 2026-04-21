@@ -7,7 +7,11 @@ from pipeline.base import Preprocessor, RelevanceFilter
 from pipeline.cli import build_pipeline
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import (
+    DocumentID,
+    EntityID,
+    EntityType,
+)
 from pipeline.models import (
     ArticleDocument,
     CoreferenceResult,
@@ -78,7 +82,7 @@ class StubPreprocessor(Preprocessor):
 
     def run(self, data: PipelineInput) -> ArticleDocument:
         return ArticleDocument(
-            document_id="doc-1",
+            document_id=DocumentID("doc-1"),
             source_url=data.source_url,
             raw_html=data.raw_html,
             title="Test",
@@ -177,7 +181,7 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
     runtime = PipelineRuntime(config, stanza_factory=fake_stanza_factory)
     resolver = StanzaCoreferenceResolver(config, runtime=runtime)
     document = ArticleDocument(
-        document_id="doc-1",
+        document_id=DocumentID("doc-1"),
         source_url=None,
         raw_html="",
         title="Test",
@@ -186,7 +190,7 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
         paragraphs=["Jan Kowalski został powołany."],
         entities=[
             Entity(
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="Jan Kowalski",
@@ -198,7 +202,7 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
                 normalized_text="Jan Kowalski",
                 mention_type="Person",
                 sentence_index=0,
-                entity_id="person-1",
+                entity_id=EntityID("person-1"),
             )
         ],
     )

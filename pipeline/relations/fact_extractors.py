@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import AbstractSet, cast
+from typing import AbstractSet
 
 from pipeline.domain_types import (
     CandidateType,
-    FactAttributes,
+    EntityID,
+    FactID,
     FactType,
     OrganizationKind,
     RoleKind,
@@ -352,26 +353,6 @@ class SentenceContext:
         )
 
 
-def _secondary_attributes(
-    *,
-    source_extractor: str,
-    score: SecondaryFactScore,
-    context: SentenceContext,
-    extra: FactAttributes | None = None,
-) -> FactAttributes:
-    attributes = dict(extra or {})
-    attributes.update(
-        {
-            "extraction_signal": score.extraction_signal,
-            "evidence_scope": score.evidence_scope,
-            "overlaps_governance": context.overlaps_governance,
-            "source_extractor": source_extractor,
-            "score_reason": score.reason,
-        }
-    )
-    return cast(FactAttributes, attributes)
-
-
 def _fact(
     *,
     document: ArticleDocument,
@@ -382,29 +363,44 @@ def _fact(
     value_text: str | None,
     value_normalized: str | None,
     confidence: float,
-    attributes: FactAttributes | None = None,
+    score: SecondaryFactScore,
+    source_extractor: str,
+    **extra_fields,
 ) -> Fact:
-    return Fact(
-        fact_id=stable_id(
-            "fact",
-            document.document_id,
-            fact_type,
-            subject.entity_id or subject.candidate_id,
-            object_candidate.entity_id or object_candidate.candidate_id if object_candidate else "",
-            value_normalized or value_text or "",
-            sentence_context.evidence.text,
+    f = Fact(
+        fact_id=FactID(
+            stable_id(
+                "fact",
+                document.document_id,
+                fact_type,
+                subject.entity_id or subject.candidate_id,
+                object_candidate.entity_id or object_candidate.candidate_id
+                if object_candidate
+                else "",
+                value_normalized or value_text or "",
+                sentence_context.evidence.text,
+            )
         ),
         fact_type=fact_type,
-        subject_entity_id=subject.entity_id or subject.candidate_id,
-        object_entity_id=object_candidate.entity_id if object_candidate else None,
+        subject_entity_id=EntityID(subject.entity_id or subject.candidate_id),
+        object_entity_id=EntityID(object_candidate.entity_id or object_candidate.candidate_id)
+        if object_candidate
+        else None,
         value_text=value_text,
         value_normalized=value_normalized,
         time_scope=sentence_context.time_scope,
         event_date=sentence_context.event_date,
         confidence=round(confidence, 3),
         evidence=sentence_context.evidence,
-        attributes=cast(FactAttributes, attributes or {}),
+        extraction_signal=score.extraction_signal,
+        evidence_scope=score.evidence_scope,
+        overlaps_governance=sentence_context.overlaps_governance,
+        source_extractor=source_extractor,
+        score_reason=score.reason,
     )
+    for k, v in extra_fields.items():
+        setattr(f, k, v)
+    return f
 
 
 class PoliticalProfileFactExtractor:
@@ -452,12 +448,9 @@ class PoliticalProfileFactExtractor:
                         value_text=party.canonical_name,
                         value_normalized=party.normalized_name,
                         confidence=score.confidence,
-                        attributes=_secondary_attributes(
-                            source_extractor="political_profile",
-                            score=score,
-                            context=context,
-                            extra={"party": party.canonical_name},
-                        ),
+                        score=score,
+                        source_extractor="political_profile",
+                        party=party.canonical_name,
                     )
                 )
 
@@ -483,12 +476,9 @@ class PoliticalProfileFactExtractor:
                         value_text=role.canonical_name,
                         value_normalized=role.normalized_name,
                         confidence=score.confidence,
-                        attributes=_secondary_attributes(
-                            source_extractor="political_profile",
-                            score=score,
-                            context=context,
-                            extra={"office_type": role.canonical_name},
-                        ),
+                        score=score,
+                        source_extractor="political_profile",
+                        office_type=role.canonical_name,
                     )
                 )
 
@@ -504,12 +494,9 @@ class PoliticalProfileFactExtractor:
                         value_text=None,
                         value_normalized=None,
                         confidence=candidacy_score.confidence,
-                        attributes=_secondary_attributes(
-                            source_extractor="political_profile",
-                            score=candidacy_score,
-                            context=context,
-                            extra={"candidacy_scope": "mentioned"},
-                        ),
+                        score=candidacy_score,
+                        source_extractor="political_profile",
+                        candidacy_scope="mentioned",
                     )
                 )
         return facts
@@ -549,21 +536,14 @@ class CompensationFactExtractor:
                 value_text=match.group("amount"),
                 value_normalized=normalize_entity_name(match.group("amount").lower()),
                 confidence=score.confidence,
-                attributes=_secondary_attributes(
-                    source_extractor="compensation",
-                    score=score,
-                    context=context,
-                    extra={
-                        "amount_text": normalize_entity_name(match.group("amount").lower()),
-                        "period": normalize_entity_name(match.group("period").lower())
-                        if match.group("period")
-                        else None,
-                        "position_entity_id": role.entity_id if role else None,
-                        "organization_kind": organization.attributes.get("organization_kind")
-                        if organization
-                        else None,
-                    },
-                ),
+                score=score,
+                source_extractor="compensation",
+                amount_text=normalize_entity_name(match.group("amount").lower()),
+                period=normalize_entity_name(match.group("period").lower())
+                if match.group("period")
+                else None,
+                position_entity_id=role.entity_id or EntityID(role.candidate_id) if role else None,
+                organization_kind=organization.organization_kind if organization else None,
             )
         ]
 
@@ -595,17 +575,12 @@ class FundingFactExtractor:
                 if amount
                 else None,
                 confidence=score.confidence,
-                attributes=_secondary_attributes(
-                    source_extractor="funding",
-                    score=score,
-                    context=context,
-                    extra={
-                        "amount_text": normalize_entity_name(amount.group("amount").lower())
-                        if amount
-                        else None,
-                        "organization_kind": source.attributes.get("organization_kind"),
-                    },
-                ),
+                score=score,
+                source_extractor="funding",
+                amount_text=normalize_entity_name(amount.group("amount").lower())
+                if amount
+                else None,
+                organization_kind=source.organization_kind,
             )
         ]
 
@@ -651,12 +626,9 @@ class TieFactExtractor:
                     value_text=TIE_WORDS[trigger].value,
                     value_normalized=TIE_WORDS[trigger].value,
                     confidence=score.confidence,
-                    attributes=_secondary_attributes(
-                        source_extractor="tie",
-                        score=score,
-                        context=context,
-                        extra={"relationship_type": TIE_WORDS[trigger]},
-                    ),
+                    score=score,
+                    source_extractor="tie",
+                    relationship_type=TIE_WORDS[trigger],
                 )
             )
         return facts
@@ -937,7 +909,7 @@ def _candidate_organization_pool(
 
 def _organization_priority(candidate: EntityCandidate) -> float:
     normalized = candidate.normalized_name.lower()
-    kind = candidate.attributes.get("organization_kind")
+    kind = candidate.organization_kind
     if kind == OrganizationKind.PUBLIC_INSTITUTION:
         base = 0.9
     elif kind == OrganizationKind.COMPANY:
@@ -1198,7 +1170,7 @@ def _is_target_like_org(candidate: EntityCandidate) -> bool:
     normalized = candidate.normalized_name.lower()
     if _is_body_like_org(candidate) or _is_owner_like_org(candidate):
         return False
-    if candidate.attributes.get("organization_kind") == OrganizationKind.COMPANY:
+    if candidate.organization_kind == OrganizationKind.COMPANY:
         return True
     return any(
         term in normalized
@@ -1210,7 +1182,7 @@ def _is_owner_like_org(candidate: EntityCandidate) -> bool:
     normalized = candidate.normalized_name.lower()
     if "skarbu państwa" in normalized:
         return True
-    if candidate.attributes.get("organization_kind") == OrganizationKind.PUBLIC_INSTITUTION and any(
+    if candidate.organization_kind == OrganizationKind.PUBLIC_INSTITUTION and any(
         term in normalized for term in OWNER_CONTEXT_TERMS
     ):
         return True
@@ -1219,7 +1191,7 @@ def _is_owner_like_org(candidate: EntityCandidate) -> bool:
 
 def _is_body_like_org(candidate: EntityCandidate) -> bool:
     normalized = candidate.normalized_name.lower()
-    kind = candidate.attributes.get("organization_kind")
+    kind = candidate.organization_kind
     return kind == OrganizationKind.GOVERNING_BODY or any(
         normalized.startswith(term) for term in BODY_CONTEXT_TERMS
     )

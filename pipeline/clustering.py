@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from typing import cast
 
 from pipeline.base import EntityClusterer
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityAttributes, EntityType
-from pipeline.models import ArticleDocument, ClusterMention, Entity, EntityCluster
+from pipeline.domain_types import ClusterID, EntityID, EntityType
+from pipeline.models import ArticleDocument, ClusterMention, Entity, EntityCluster, Mention
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.utils import unique_preserve_order
 
@@ -36,7 +35,7 @@ class PolishEntityClusterer(EntityClusterer):
             )
 
             if match is None:
-                cluster_id = f"cluster-{uuid.uuid4().hex[:8]}"
+                cluster_id = ClusterID(f"cluster-{uuid.uuid4().hex[:8]}")
                 cluster = self._create_cluster(cluster_id, entity)
                 clusters.append(cluster)
                 entity_to_cluster_id[entity.entity_id] = cluster_id
@@ -78,24 +77,24 @@ class PolishEntityClusterer(EntityClusterer):
 
     def _entity_matches_cluster(self, entity: Entity, cluster: EntityCluster) -> bool:
         if (
-            entity.attributes.get("is_proxy_person")
-            or cluster.attributes.get("is_proxy_person")
-            or entity.attributes.get("is_honorific_person_ref")
-            or cluster.attributes.get("is_honorific_person_ref")
+            entity.is_proxy_person or cluster.is_proxy_person or entity.is_honorific_person_ref
+            # Note: EntityCluster doesn't have is_honorific_person_ref,
+            # it was only in Entity.attributes before.
         ):
-            return entity.entity_id == cluster.attributes.get("proxy_entity_id")
+            return entity.entity_id == cluster.proxy_entity_id
 
         temp_entity = Entity(
-            entity_id=cluster.cluster_id,
+            entity_id=EntityID(str(cluster.cluster_id)),
             entity_type=cluster.entity_type,
             canonical_name=cluster.canonical_name,
             normalized_name=cluster.normalized_name,
-            aliases=list(cluster.attributes.get("aliases", [])),
-            attributes=cast(EntityAttributes, cluster.attributes),
+            aliases=list(cluster.aliases),
+            lemmas=cluster.lemmas,
+            organization_kind=cluster.organization_kind,
         )
         return self.canonicalizer._entities_compatible(entity, temp_entity)
 
-    def _create_cluster(self, cluster_id: str, entity: Entity) -> EntityCluster:
+    def _create_cluster(self, cluster_id: ClusterID, entity: Entity) -> EntityCluster:
         mentions = []
         # Add mentions from entity evidence
         for evidence in entity.evidence:
@@ -119,18 +118,21 @@ class PolishEntityClusterer(EntityClusterer):
             canonical_name=entity.canonical_name,
             normalized_name=entity.normalized_name,
             mentions=mentions,
-            attributes={
-                "aliases": entity.aliases,
-                "lemmas": entity.attributes.get("lemmas", []),
-                "organization_kind": entity.attributes.get("organization_kind"),
-            },
+            aliases=list(entity.aliases),
+            lemmas=list(entity.lemmas),
+            organization_kind=entity.organization_kind,
+            is_proxy_person=entity.is_proxy_person,
+            proxy_entity_id=entity.entity_id if entity.is_proxy_person else None,
+            proxy_kind=entity.proxy_kind,
+            kinship_detail=entity.kinship_detail,
+            proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
         )
 
     def _add_to_cluster(self, cluster: EntityCluster, entity: Entity) -> None:
         all_names = unique_preserve_order(
             [
                 cluster.canonical_name,
-                *cluster.attributes.get("aliases", []),
+                *cluster.aliases,
                 entity.canonical_name,
                 *entity.aliases,
             ]
@@ -142,7 +144,7 @@ class PolishEntityClusterer(EntityClusterer):
             cluster.canonical_name = self.canonicalizer._best_organization_name(entity, all_names)
 
         cluster.normalized_name = cluster.canonical_name
-        cluster.attributes["aliases"] = all_names
+        cluster.aliases = all_names
 
         for evidence in entity.evidence:
             if not any(
@@ -164,12 +166,13 @@ class PolishEntityClusterer(EntityClusterer):
                 )
 
     @staticmethod
-    def _mention_location(document: ArticleDocument, mention) -> tuple[int, int, int]:
-        start = mention.attributes.get("start_char")
-        end = mention.attributes.get("end_char")
-        paragraph = mention.attributes.get("paragraph_index")
-        if isinstance(start, int) and isinstance(end, int) and isinstance(paragraph, int):
-            return start, end, paragraph
+    def _mention_location(document: ArticleDocument, mention: Mention) -> tuple[int, int, int]:
+        if (
+            isinstance(mention.start_char, int)
+            and isinstance(mention.end_char, int)
+            and isinstance(mention.paragraph_index, int)
+        ):
+            return mention.start_char, mention.end_char, mention.paragraph_index
 
         sentence = next(
             (

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from pipeline.cli import emit_json, handle_worker_request, iter_batch_inputs, run_batch
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import EntityID, EntityType
 from pipeline.models import (
     Entity,
     ExtractionResult,
@@ -29,7 +29,7 @@ class StubPipeline:
             relevance=RelevanceDecision(is_relevant=True, score=1.0, reasons=["test"]),
             entities=[
                 Entity(
-                    entity_id="person-1",
+                    entity_id=EntityID("person-1"),
                     entity_type=EntityType.PERSON,
                     canonical_name="Jan Kowalski",
                     normalized_name="Jan Kowalski",

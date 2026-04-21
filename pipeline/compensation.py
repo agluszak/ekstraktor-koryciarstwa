@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import cast
 
-from pipeline.domain_types import EntityType, FactAttributes, FactType, TimeScope
+from pipeline.domain_types import EntityID, EntityType, FactID, FactType, TimeScope
 from pipeline.models import ArticleDocument, CompensationFrame, EntityCluster, EvidenceSpan, Fact
 from pipeline.utils import stable_id
 
 
 class CompensationFactBuilder:
     def build(self, document: ArticleDocument) -> list[Fact]:
-        cluster_to_entity_id = {
-            cluster.cluster_id: self._get_best_entity_id(cluster) for cluster in document.clusters
+        cluster_to_entity_id: dict[str, str] = {
+            str(cluster.cluster_id): str(self._get_best_entity_id(cluster))
+            for cluster in document.clusters
         }
         facts = [
             fact
@@ -43,37 +43,7 @@ class CompensationFactBuilder:
         )
         role_text = self._cluster_name(document, frame.role_cluster_id)
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-        attributes = self._attributes_for_frame(document, frame, role_id, role_text)
-        return Fact(
-            fact_id=stable_id(
-                "fact",
-                document.document_id,
-                FactType.COMPENSATION,
-                subject_id,
-                object_id or "",
-                frame.amount_normalized,
-                frame.period or "",
-                str(evidence.start_char or ""),
-            ),
-            fact_type=FactType.COMPENSATION,
-            subject_entity_id=subject_id,
-            object_entity_id=object_id,
-            value_text=frame.amount_text,
-            value_normalized=frame.amount_normalized,
-            time_scope=TimeScope.CURRENT,
-            event_date=document.publication_date,
-            confidence=round(frame.confidence, 3),
-            evidence=evidence,
-            attributes=attributes,
-        )
 
-    @staticmethod
-    def _attributes_for_frame(
-        document: ArticleDocument,
-        frame: CompensationFrame,
-        role_id: str | None,
-        role_text: str | None,
-    ) -> FactAttributes:
         organization = next(
             (
                 cluster
@@ -82,24 +52,41 @@ class CompensationFactBuilder:
             ),
             None,
         )
-        attributes = cast(
-            FactAttributes,
-            {
-                "amount_text": frame.amount_normalized,
-                "period": frame.period,
-                "position_entity_id": role_id,
-                "role": role_text,
-                "organization_kind": organization.attributes.get("organization_kind")
-                if organization is not None
-                else None,
-                "extraction_signal": frame.attributes.get("extraction_signal"),
-                "evidence_scope": frame.attributes.get("evidence_scope"),
-                "overlaps_governance": bool(frame.attributes.get("overlaps_governance", False)),
-                "source_extractor": "compensation_frame",
-                "score_reason": frame.attributes.get("score_reason"),
-            },
+
+        return Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    FactType.COMPENSATION,
+                    subject_id,
+                    object_id or "",
+                    frame.amount_normalized,
+                    frame.period or "",
+                    str(evidence.start_char or ""),
+                )
+            ),
+            fact_type=FactType.COMPENSATION,
+            subject_entity_id=EntityID(subject_id),
+            object_entity_id=EntityID(object_id) if object_id else None,
+            value_text=frame.amount_text,
+            value_normalized=frame.amount_normalized,
+            time_scope=TimeScope.CURRENT,
+            event_date=document.publication_date,
+            confidence=round(frame.confidence, 3),
+            evidence=evidence,
+            amount_text=frame.amount_normalized,
+            period=frame.period,
+            position_entity_id=EntityID(role_id) if role_id else None,
+            role=role_text,
+            organization_kind=organization.organization_kind if organization is not None else None,
+            extraction_signal=frame.extraction_signal,
+            evidence_scope=frame.evidence_scope,
+            overlaps_governance=False,
+            # Compensation frames don't have this in their attributes definition
+            source_extractor="compensation_frame",
+            score_reason=frame.score_reason,
         )
-        return attributes
 
     @staticmethod
     def _get_best_entity_id(cluster: EntityCluster) -> str:

@@ -30,8 +30,7 @@ class RuleBasedNepotismScorer(Scorer):
             reasons.append("detected family or acquaintance tie")
 
         has_board = any(
-            f.fact_type in {FactType.APPOINTMENT, FactType.DISMISSAL}
-            and f.attributes.get("board_role")
+            f.fact_type in {FactType.APPOINTMENT, FactType.DISMISSAL} and f.board_role
             for f in document.facts
         )
         if has_board:
