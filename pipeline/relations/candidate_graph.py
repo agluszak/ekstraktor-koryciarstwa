@@ -20,7 +20,7 @@ from pipeline.models import (
     EntityCandidate,
     ParsedWord,
 )
-from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, ROLE_PATTERNS
+from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, ROLE_LEMMAS
 from pipeline.utils import extract_role_from_text, normalize_entity_name, stable_id
 
 from .org_typing import OrganizationMentionClassifier
@@ -225,55 +225,64 @@ class CandidateGraphBuilder:
         sentence,
         parsed_words: list[ParsedWord],
     ) -> list[EntityCandidate]:
-        text = sentence.text
         candidates: list[EntityCandidate] = []
-        occupied_spans: list[tuple[int, int]] = []
-        for role, modifier, pattern in sorted(
-            ROLE_PATTERNS,
-            key=lambda item: len(item[0].value) + (len(item[1].value) if item[1] else 0),
-            reverse=True,
-        ):
-            for match in pattern.finditer(text):
-                if any(
-                    start <= match.start() < end or start < match.end() <= end
-                    for start, end in occupied_spans
-                ):
-                    continue
-                base_name = normalize_entity_name(role.value)
-                full_name = f"{modifier.value} {base_name}" if modifier else base_name
+        occupied_word_indices: set[int] = set()
 
-                position = self._get_or_create_entity(
-                    document=document,
-                    entity_type=EntityType.POSITION,
-                    canonical_name=full_name,
-                    alias=match.group(0),
-                )
-                candidates.append(
-                    EntityCandidate(
-                        candidate_id=CandidateID(
-                            stable_id(
-                                "candidate",
-                                document.document_id,
-                                position.entity_id,
-                                str(sentence.sentence_index),
-                                str(match.start()),
-                                str(match.end()),
-                            )
-                        ),
-                        entity_id=position.entity_id,
-                        candidate_type=CandidateType.POSITION,
-                        canonical_name=position.canonical_name,
-                        normalized_name=position.normalized_name,
-                        sentence_index=sentence.sentence_index,
-                        paragraph_index=sentence.paragraph_index,
-                        start_char=match.start(),
-                        end_char=match.end(),
-                        source="derived_position",
-                        role_kind=extract_role_from_text(position.normalized_name)[0],
-                        role_modifier=extract_role_from_text(position.normalized_name)[1],
+        sorted_roles = sorted(
+            ROLE_LEMMAS,
+            key=lambda item: len(item[2]),
+            reverse=True,
+        )
+
+        for role_kind, modifier, lemmas in sorted_roles:
+            n_lemmas = len(lemmas)
+            for i in range(len(parsed_words) - n_lemmas + 1):
+                if any(idx in occupied_word_indices for idx in range(i, i + n_lemmas)):
+                    continue
+
+                if all(parsed_words[i + j].lemma.lower() == lemmas[j].lower() for j in range(n_lemmas)):
+                    match_words = parsed_words[i : i + n_lemmas]
+                    match_start = match_words[0].start
+                    match_end = match_words[-1].end
+
+                    alias = sentence.text[match_start - sentence.start_char : match_end - sentence.start_char]
+
+                    base_name = normalize_entity_name(role_kind.value)
+                    full_name = f"{modifier.value} {base_name}" if modifier else base_name
+
+                    position = self._get_or_create_entity(
+                        document=document,
+                        entity_type=EntityType.POSITION,
+                        canonical_name=full_name,
+                        alias=alias,
                     )
-                )
-                occupied_spans.append((match.start(), match.end()))
+
+                    candidates.append(
+                        EntityCandidate(
+                            candidate_id=CandidateID(
+                                stable_id(
+                                    "candidate",
+                                    document.document_id,
+                                    position.entity_id,
+                                    str(sentence.sentence_index),
+                                    str(match_start - sentence.start_char),
+                                    str(match_end - sentence.start_char),
+                                )
+                            ),
+                            entity_id=position.entity_id,
+                            candidate_type=CandidateType.POSITION,
+                            canonical_name=position.canonical_name,
+                            normalized_name=position.normalized_name,
+                            sentence_index=sentence.sentence_index,
+                            paragraph_index=sentence.paragraph_index,
+                            start_char=match_start - sentence.start_char,
+                            end_char=match_end - sentence.start_char,
+                            source="derived_position",
+                            role_kind=extract_role_from_text(position.normalized_name)[0],
+                            role_modifier=extract_role_from_text(position.normalized_name)[1],
+                        )
+                    )
+                    occupied_word_indices.update(range(i, i + n_lemmas))
         return candidates
 
     def _derived_party_candidates(
