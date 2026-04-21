@@ -620,6 +620,7 @@ class DocumentEntityCanonicalizer:
             "ę",
             "a",
             "u",
+            "y",
         ):
             if token.endswith(suffix) and len(token) - len(suffix) >= 3:
                 candidate = token[: -len(suffix)]

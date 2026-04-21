@@ -58,12 +58,16 @@ APPOINTMENT_TRIGGER_LEMMAS = frozenset(
         "zająć",
         "awansować",
         "zostać",
+        "zatrudnić",
+        "zatrudnienie",
+        "pracować",
     }
 )
 DISMISSAL_TRIGGER_LEMMAS = frozenset({"odwołać", "odwoływać", "zrezygnować"})
 APPOINTMENT_TRIGGER_TEXTS = frozenset(
     {
         "został prezesem",
+        "została prezesem",
         "została prezeską",
         "został wiceprezesem",
         "została wiceprezeską",
@@ -76,7 +80,18 @@ APPOINTMENT_TRIGGER_TEXTS = frozenset(
         "awansowała na stanowisko",
         "zajął funkcję",
         "zajęła funkcję",
+        "powołany na",
+        "powołana na",
+        "zasiądzie w",
+        "zasiadł w",
+        "zasiadła w",
         "ma zostać",
+        "jest zatrudniona",
+        "była zatrudniona",
+        "jest zatrudniony",
+        "był zatrudniony",
+        "pracuje w",
+        "pracowała w",
     }
 )
 DISMISSAL_TRIGGER_TEXTS = frozenset(

@@ -766,6 +766,8 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
             "szwagier",
             "szwagierka",
             "kuzyn",
+            "partnerka",
+            "partner",
         }
         if word.upos == "NOUN" or word.text.lower() in kinship_markers:
             # Identify the speaker(s) in this sentence by name to avoid self-attribution

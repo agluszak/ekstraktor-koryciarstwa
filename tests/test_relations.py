@@ -537,7 +537,11 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
         coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
-    appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
+    appointments = [
+        fact
+        for fact in extracted.facts
+        if fact.fact_type == FactType.APPOINTMENT and fact.attributes.get("role")
+    ]
 
     assert appointments
     assert appointments[0].attributes["role"] == "Zastępca Prezesa"

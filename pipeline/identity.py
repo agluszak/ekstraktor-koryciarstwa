@@ -46,7 +46,21 @@ KINSHIP_BY_LEMMA: dict[str, KinshipDetail] = {
 }
 POSSESSIVE_LEMMAS = {"mój"}
 HONORIFIC_LEMMAS = {"pani"}
-SPEECH_LEMMAS = {"mówić", "powiedzieć", "tłumaczyć", "przekonywać", "dodać"}
+SPEECH_LEMMAS = {
+    "mówić",
+    "powiedzieć",
+    "tłumaczyć",
+    "przekonywać",
+    "dodać",
+    "komentować",
+    "zaznaczyć",
+    "podkreślić",
+    "wyjaśnić",
+    "ocenić",
+    "przypomnieć",
+    "stwierdzić",
+    "odnieść",
+}
 
 
 @dataclass(slots=True)
@@ -733,10 +747,37 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         speaker = self._speaker_cluster(document, sentence_index)
         if speaker is not None:
             return speaker
-        return self._nearest_person_cluster(document, sentence_index, before=2, after=0)
+        # If it looks like a quote, the speaker might be in the NEXT sentence
+        return self._nearest_person_cluster(document, sentence_index, before=2, after=1)
 
     @staticmethod
     def _speaker_cluster(document: ArticleDocument, sentence_index: int) -> EntityCluster | None:
+        cluster = PolishFamilyIdentityResolver._speaker_cluster_raw(document, sentence_index)
+        if cluster is not None:
+            return cluster
+
+        # Fallback for split quotes: check the next sentence if current is a quote
+        sentence = next(
+            (item for item in document.sentences if item.sentence_index == sentence_index),
+            None,
+        )
+        if sentence and (
+            sentence.text.strip().startswith("–")
+            or sentence.text.strip().startswith("—")
+            or sentence.text.strip().startswith("\"")
+        ):
+            next_index = sentence_index + 1
+            next_sentence = next(
+                (item for item in document.sentences if item.sentence_index == next_index),
+                None,
+            )
+            if next_sentence and next_sentence.paragraph_index == sentence.paragraph_index:
+                return PolishFamilyIdentityResolver._speaker_cluster_raw(document, next_index)
+
+        return None
+
+    @staticmethod
+    def _speaker_cluster_raw(document: ArticleDocument, sentence_index: int) -> EntityCluster | None:
         parsed = document.parsed_sentences.get(sentence_index, [])
         speech_heads = {word.index for word in parsed if word.lemma.casefold() in SPEECH_LEMMAS}
         if not speech_heads:
