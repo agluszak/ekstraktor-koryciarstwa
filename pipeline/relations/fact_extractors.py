@@ -408,11 +408,9 @@ class PoliticalProfileFactExtractor:
         RoleKind.RADNY.value,
         RoleKind.POSEL.value,
         RoleKind.SENATOR.value,
-        RoleKind.WICEMINISTER.value,
         RoleKind.MINISTER.value,
         RoleKind.PREZYDENT_MIASTA.value,
-        RoleKind.WICEPREZYDENT.value,
-        RoleKind.WICEWOJEWODA.value,
+        RoleKind.WOJEWODA.value,
     }
 
     def extract(self, context: SentenceContext) -> list[Fact]:

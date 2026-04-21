@@ -10,7 +10,6 @@ from pipeline.domain_types import (
     EntityID,
     EntityType,
     OrganizationKind,
-    RoleKind,
 )
 from pipeline.models import (
     ArticleDocument,
@@ -22,7 +21,7 @@ from pipeline.models import (
     ParsedWord,
 )
 from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, ROLE_PATTERNS
-from pipeline.utils import normalize_entity_name, stable_id
+from pipeline.utils import extract_role_from_text, normalize_entity_name, stable_id
 
 from .org_typing import OrganizationMentionClassifier
 
@@ -229,9 +228,9 @@ class CandidateGraphBuilder:
         text = sentence.text
         candidates: list[EntityCandidate] = []
         occupied_spans: list[tuple[int, int]] = []
-        for role_name, pattern in sorted(
-            ROLE_PATTERNS.items(),
-            key=lambda item: len(item[0].value),
+        for role, modifier, pattern in sorted(
+            ROLE_PATTERNS,
+            key=lambda item: len(item[0].value) + (len(item[1].value) if item[1] else 0),
             reverse=True,
         ):
             for match in pattern.finditer(text):
@@ -240,11 +239,15 @@ class CandidateGraphBuilder:
                     for start, end in occupied_spans
                 ):
                     continue
+                base_name = normalize_entity_name(role.value)
+                full_name = f"{modifier.value} {base_name}" if modifier else base_name
+
                 position = self._get_or_create_entity(
                     document=document,
                     entity_type=EntityType.POSITION,
-                    canonical_name=normalize_entity_name(role_name.value),
+                    canonical_name=full_name,
                     alias=match.group(0),
+
                 )
                 candidates.append(
                     EntityCandidate(
@@ -267,7 +270,8 @@ class CandidateGraphBuilder:
                         start_char=match.start(),
                         end_char=match.end(),
                         source="derived_position",
-                        role_kind=RoleKind.from_str(position.normalized_name),
+                        role_kind=extract_role_from_text(position.normalized_name)[0],
+                        role_modifier=extract_role_from_text(position.normalized_name)[1],
                     )
                 )
                 occupied_spans.append((match.start(), match.end()))

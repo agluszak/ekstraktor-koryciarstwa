@@ -10,7 +10,6 @@ from pipeline.domain_types import (
     FactID,
     FactType,
     OrganizationKind,
-    RoleKind,
     TimeScope,
 )
 from pipeline.models import (
@@ -22,7 +21,7 @@ from pipeline.models import (
     GovernanceFrame,
 )
 from pipeline.nlp_rules import BOARD_ROLE_KINDS, BODY_CONTEXT_TERMS, OWNER_CONTEXT_TERMS
-from pipeline.utils import stable_id
+from pipeline.utils import extract_role_from_text, stable_id
 
 
 @dataclass(slots=True)
@@ -357,8 +356,10 @@ class GovernanceFactBuilder:
         )
         if role_text:
             fact.role = role_text
-            fact.role_kind = RoleKind.from_str(role_text)
-            fact.board_role = role_text.lower() in {kind.value for kind in BOARD_ROLE_KINDS}
+            role_kind, role_modifier = extract_role_from_text(role_text)
+            fact.role_kind = role_kind
+            fact.role_modifier = role_modifier
+            fact.board_role = role_kind in BOARD_ROLE_KINDS if role_kind else False
         return fact
 
     @staticmethod

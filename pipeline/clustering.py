@@ -126,6 +126,8 @@ class PolishEntityClusterer(EntityClusterer):
             proxy_kind=entity.proxy_kind,
             kinship_detail=entity.kinship_detail,
             proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
+            role_kind=entity.role_kind,
+            role_modifier=entity.role_modifier,
         )
 
     def _add_to_cluster(self, cluster: EntityCluster, entity: Entity) -> None:

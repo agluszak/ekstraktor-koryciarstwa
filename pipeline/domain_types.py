@@ -98,29 +98,20 @@ class KinshipDetail(StrEnum):
     CHILD_SON = "child_son"
 
 
+class RoleModifier(StrEnum):
+    DEPUTY = "wice/zastępca"
+    ACTING = "p.o."
+
+
 class RoleKind(StrEnum):
     PREZES = "prezes"
-    WICEPREZES = "wiceprezes"
-    ZASTEPCA_PREZESA = "zastępca prezesa"
     DYREKTOR = "dyrektor"
     CZLONEK_ZARZADU = "członek zarządu"
     RADA_NADZORCZA = "rada nadzorcza"
-    WICEPRZEWODNICZACY_RADY_NADZORCZEJ = "wiceprzewodniczący rady nadzorczej"
+    PRZEWODNICZACY_RADY_NADZORCZEJ = "przewodniczący rady nadzorczej"
     RADNY = "radny"
     POSEL = "poseł"
     SENATOR = "senator"
-    WICEMINISTER = "wiceminister"
     MINISTER = "minister"
     PREZYDENT_MIASTA = "prezydent miasta"
-    WICEPREZYDENT = "wiceprezydent"
-    WICEWOJEWODA = "wicewojewoda"
-
-    @classmethod
-    def from_str(cls, value: str | None) -> RoleKind | None:
-        if not value:
-            return None
-        normalized = value.lower()
-        for member in cls:
-            if member.value == normalized:
-                return member
-        return None
+    WOJEWODA = "wojewoda"

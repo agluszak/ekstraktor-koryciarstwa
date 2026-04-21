@@ -22,6 +22,7 @@ from pipeline.domain_types import (
     ProxyKind,
     RelationshipType,
     RoleKind,
+    RoleModifier,
     TimeScope,
 )
 
@@ -62,6 +63,8 @@ class Entity:
     kinship_detail: KinshipDetail | None = None
     proxy_anchor_entity_id: EntityID | None = None
     proxy_surface: str | None = None
+    role_kind: RoleKind | None = None
+    role_modifier: RoleModifier | None = None
 
 
 @dataclass(slots=True)
@@ -102,6 +105,7 @@ class Fact:
     position_entity_id: EntityID | None = None
     role: str | None = None
     role_kind: RoleKind | None = None
+    role_modifier: RoleModifier | None = None
     board_role: bool = False
     organization_kind: OrganizationKind | None = None
     owner_context_entity_id: EntityID | None = None
@@ -146,6 +150,7 @@ class EntityCandidate:
     # Inlined attributes
     organization_kind: OrganizationKind | None = None
     role_kind: RoleKind | None = None
+    role_modifier: RoleModifier | None = None
 
 
 @dataclass(slots=True)
@@ -235,6 +240,8 @@ class EntityCluster:
     proxy_kind: ProxyKind | None = None
     kinship_detail: KinshipDetail | None = None
     proxy_anchor_entity_id: EntityID | None = None
+    role_kind: RoleKind | None = None
+    role_modifier: RoleModifier | None = None
 
 
 @dataclass(slots=True)
@@ -267,6 +274,7 @@ class GovernanceFrame:
     # Inlined attributes
     target_resolution: str | None = None
     found_role: str | None = None
+    role_modifier: RoleModifier | None = None
     evidence_scope: str | None = None
 
 

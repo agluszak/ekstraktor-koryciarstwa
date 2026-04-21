@@ -540,7 +540,7 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
     ]
 
     assert appointments
-    assert appointments[0].role == "Zastępca Prezesa"
+    assert appointments[0].role == "wice/zastępca Prezes"
     assert any(entity.canonical_name == "A. Góralczyk" for entity in extracted.entities)
 
 

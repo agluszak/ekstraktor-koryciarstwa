@@ -442,13 +442,14 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
 
     @staticmethod
     def _find_role_text_from_text(clause: ClauseUnit) -> str | None:
-        for role, pattern in sorted(
-            ROLE_PATTERNS.items(),
-            key=lambda item: len(item[0].value),
+        for role, modifier, pattern in sorted(
+            ROLE_PATTERNS,
+            key=lambda item: len(item[0].value) + (len(item[1].value) if item[1] else 0),
             reverse=True,
         ):
             if pattern.search(clause.text):
-                return normalize_entity_name(role.value)
+                base_name = normalize_entity_name(role.value)
+                return f"{modifier.value} {base_name}" if modifier else base_name
         return None
 
     def _find_cluster_for_mention(

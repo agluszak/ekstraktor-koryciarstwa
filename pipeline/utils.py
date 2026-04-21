@@ -9,9 +9,13 @@ from pipeline.domain_types import (
     DocumentID,
     EntityID,
     FactID,
+    RoleKind,
+    RoleModifier,
 )
+from pipeline.nlp_rules import ROLE_PATTERNS
 
 WHITESPACE_RE = re.compile(r"\s+")
+
 DATE_RE = re.compile(r"\b(20\d{2}[-./]\d{2}[-./]\d{2}|\d{1,2}[.-]\d{1,2}[.-]20\d{2})\b")
 LOWERCASE_CONNECTORS = frozenset(
     {
@@ -145,3 +149,10 @@ def _looks_like_acronym(token: str) -> bool:
     if len(letters) >= 2 and all(char.isupper() for char in letters):
         return True
     return any(char.isupper() for char in token[1:])
+
+
+def extract_role_from_text(text: str) -> tuple[RoleKind | None, RoleModifier | None]:
+    for role_kind, role_modifier, pattern in ROLE_PATTERNS:
+        if pattern.search(text):
+            return role_kind, role_modifier
+    return None, None

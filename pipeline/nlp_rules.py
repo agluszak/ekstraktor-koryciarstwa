@@ -3,49 +3,83 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from pipeline.domain_types import RelationshipType, RoleKind
+from pipeline.domain_types import RelationshipType, RoleKind, RoleModifier
 
 BOARD_ROLE_KINDS = {
     RoleKind.PREZES,
-    RoleKind.WICEPREZES,
     RoleKind.CZLONEK_ZARZADU,
     RoleKind.RADA_NADZORCZA,
-    RoleKind.WICEPRZEWODNICZACY_RADY_NADZORCZEJ,
-    RoleKind.ZASTEPCA_PREZESA,
+    RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
 }
 
-ROLE_PATTERNS: Mapping[RoleKind, re.Pattern[str]] = {
-    RoleKind.PREZES: re.compile(r"\bprezes(?:em|a)?\b|\bprezesk(?:ą|a)\b", re.IGNORECASE),
-    RoleKind.WICEPREZES: re.compile(
-        r"\bwiceprezes(?:em|a)?\b|\bwiceprezesk(?:ą|a)\b",
-        re.IGNORECASE,
+ROLE_PATTERNS: list[tuple[RoleKind, RoleModifier | None, re.Pattern[str]]] = [
+    (
+        RoleKind.PREZES,
+        None,
+        re.compile(r"\bprezes(?:em|a)?\b|\bprezesk(?:ą|a)\b", re.IGNORECASE),
     ),
-    RoleKind.ZASTEPCA_PREZESA: re.compile(
-        r"\bzastępc(?:a|ą|y)\s+prezesa\b",
-        re.IGNORECASE,
+    (
+        RoleKind.PREZES,
+        RoleModifier.DEPUTY,
+        re.compile(r"\bwiceprezes(?:em|a)?\b|\bwiceprezesk(?:ą|a)\b", re.IGNORECASE),
     ),
-    RoleKind.DYREKTOR: re.compile(r"\bdyrektor(?:em|a)?\b|\bdyrektork(?:ą|a)\b", re.IGNORECASE),
-    RoleKind.CZLONEK_ZARZADU: re.compile(
-        r"\bczłonk(?:iem|a)\s+zarządu\b",
-        re.IGNORECASE,
+    (
+        RoleKind.PREZES,
+        RoleModifier.DEPUTY,
+        re.compile(r"\bzastępc(?:a|ą|y)\s+prezesa\b", re.IGNORECASE),
     ),
-    RoleKind.RADA_NADZORCZA: re.compile(r"\brad(?:y|zie|a)\s+nadzorczej\b", re.IGNORECASE),
-    RoleKind.WICEPRZEWODNICZACY_RADY_NADZORCZEJ: re.compile(
-        r"\bwiceprzewodnicząc(?:y|ego)\s+rady\s+nadzorczej\b",
-        re.IGNORECASE,
+    (
+        RoleKind.DYREKTOR,
+        None,
+        re.compile(r"\bdyrektor(?:em|a)?\b|\bdyrektork(?:ą|a)\b", re.IGNORECASE),
     ),
-    RoleKind.RADNY: re.compile(r"\bradn(?:y|ego|a|ą)\b", re.IGNORECASE),
-    RoleKind.POSEL: re.compile(r"\bpos(?:eł|ła|łem|łanka|łem)\b", re.IGNORECASE),
-    RoleKind.SENATOR: re.compile(r"\bsenator(?:em|a)?\b", re.IGNORECASE),
-    RoleKind.WICEMINISTER: re.compile(r"\bwiceminister(?:em|a)?\b", re.IGNORECASE),
-    RoleKind.MINISTER: re.compile(r"\bminister(?:em|a)?\b", re.IGNORECASE),
-    RoleKind.PREZYDENT_MIASTA: re.compile(
-        r"\bprezydent(?:em|a)?\s+miasta\b",
-        re.IGNORECASE,
+    (
+        RoleKind.CZLONEK_ZARZADU,
+        None,
+        re.compile(r"\bczłonk(?:iem|a)\s+zarządu\b", re.IGNORECASE),
     ),
-    RoleKind.WICEPREZYDENT: re.compile(r"\bwiceprezydent(?:em|a)?\b", re.IGNORECASE),
-    RoleKind.WICEWOJEWODA: re.compile(r"\bwicewojewod(?:a|ą|y)\b", re.IGNORECASE),
-}
+    (
+        RoleKind.RADA_NADZORCZA,
+        None,
+        re.compile(r"\brad(?:y|zie|a)\s+nadzorczej\b", re.IGNORECASE),
+    ),
+    (
+        RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
+        None,
+        re.compile(r"\bprzewodnicząc(?:y|ego)\s+rady\s+nadzorczej\b", re.IGNORECASE),
+    ),
+    (
+        RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
+        RoleModifier.DEPUTY,
+        re.compile(r"\bwiceprzewodnicząc(?:y|ego)\s+rady\s+nadzorczej\b", re.IGNORECASE),
+    ),
+    (RoleKind.RADNY, None, re.compile(r"\bradn(?:y|ego|a|ą)\b", re.IGNORECASE)),
+    (RoleKind.POSEL, None, re.compile(r"\bpos(?:eł|ła|łem|łanka|łem)\b", re.IGNORECASE)),
+    (RoleKind.SENATOR, None, re.compile(r"\bsenator(?:em|a)?\b", re.IGNORECASE)),
+    (RoleKind.MINISTER, None, re.compile(r"\bminister(?:em|a)?\b", re.IGNORECASE)),
+    (
+        RoleKind.MINISTER,
+        RoleModifier.DEPUTY,
+        re.compile(r"\bwiceminister(?:em|a)?\b", re.IGNORECASE),
+    ),
+    (
+        RoleKind.PREZYDENT_MIASTA,
+        None,
+        re.compile(r"\bprezydent(?:em|a)?\s+miasta\b", re.IGNORECASE),
+    ),
+    (
+        RoleKind.PREZYDENT_MIASTA,
+        RoleModifier.DEPUTY,
+        re.compile(r"\bwiceprezydent(?:em|a)?\b", re.IGNORECASE),
+    ),
+    (RoleKind.WOJEWODA, None, re.compile(r"\bwojewod(?:a|ą|y)\b", re.IGNORECASE)),
+    (
+        RoleKind.WOJEWODA,
+        RoleModifier.DEPUTY,
+        re.compile(r"\bwicewojewod(?:a|ą|y)\b", re.IGNORECASE),
+    ),
+]
+
 
 APPOINTMENT_TRIGGER_LEMMAS = frozenset(
     {
