@@ -383,6 +383,7 @@ class ArticleDocument:
     public_contract_frames: list[PublicContractFrame] = field(default_factory=list)
     anti_corruption_referral_frames: list[AntiCorruptionReferralFrame] = field(default_factory=list)
     identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
+    execution_times: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -396,6 +397,7 @@ class ExtractionResult:
     facts: list[Fact]
     score: ScoreResult | None
     identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
+    execution_times: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -412,4 +414,5 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         facts=document.facts,
         score=document.score,
         identity_hypotheses=document.identity_hypotheses,
+        execution_times=document.execution_times,
     )

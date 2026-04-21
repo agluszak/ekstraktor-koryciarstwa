@@ -41,3 +41,8 @@ select = [
   "F",
   "I",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest-subtests>=0.15.0",
+]
