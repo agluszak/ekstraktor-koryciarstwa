@@ -18,7 +18,7 @@ jobs:
           python-version-file: ".python-version"
 
       - name: Install dev dependencies
-        run: uv sync --group dev --extra dev
+        run: uv sync --frozen --group dev --extra dev
 
       - name: ruff format check
         run: uv run ruff format --check .
@@ -41,7 +41,7 @@ jobs:
           python-version-file: ".python-version"
 
       - name: Install dependencies
-        run: uv sync --group dev --extra dev
+        run: uv sync --frozen --group dev --extra dev
 
       - name: Run unit tests
         run: uv run pytest tests/ --ignore=tests/integration -v
@@ -58,7 +58,7 @@ jobs:
           python-version-file: ".python-version"
 
       - name: Install dependencies
-        run: uv sync --group dev --extra dev
+        run: uv sync --frozen --group dev --extra dev
 
       - name: Cache ML models
         uses: actions/cache@v4
@@ -66,9 +66,15 @@ jobs:
           path: |
             models/
             ~/stanza_resources
-          key: ml-models-${{ hashFiles('scripts/setup_models.py') }}
+          key: ml-models-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ hashFiles('scripts/setup_models.py') }}
 
-      - name: Set up ML models
+      - name: Install spaCy models via uv
+        run: |
+          uv pip install \
+            "pl_core_news_lg @ https://github.com/explosion/spacy-models/releases/download/pl_core_news_lg-3.8.0/pl_core_news_lg-3.8.0-py3-none-any.whl" \
+            "pl_core_news_md @ https://github.com/explosion/spacy-models/releases/download/pl_core_news_md-3.8.0/pl_core_news_md-3.8.0-py3-none-any.whl"
+
+      - name: Set up ML models (stanza + coref)
         run: uv run python scripts/setup_models.py
 
       - name: Run integration tests
