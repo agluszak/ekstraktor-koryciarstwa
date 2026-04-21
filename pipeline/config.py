@@ -36,7 +36,6 @@ class ScoreConfig:
 
 @dataclass(slots=True)
 class RegistryConfig:
-    sqlite_path: str
     similarity_threshold: float
 
 

@@ -112,5 +112,4 @@ score_weights:
   dismissal_signal: 0.1
 
 registry:
-  sqlite_path: output/entity_registry.sqlite3
   similarity_threshold: 0.92

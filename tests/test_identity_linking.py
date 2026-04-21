@@ -5,7 +5,7 @@ import pytest
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import DocumentID, EntityID, EntityType
-from pipeline.linking.service import SQLiteEntityLinker
+from pipeline.linking.service import InMemoryEntityLinker
 from pipeline.models import ArticleDocument, Entity
 
 
@@ -20,13 +20,9 @@ def mock_runtime():
 
 
 @pytest.fixture
-def linker(tmp_path, mock_runtime):
-    db_path = tmp_path / "test_registry.sqlite3"
+def linker(mock_runtime):
     config = PipelineConfig.from_file("config.yaml")
-    config.registry.sqlite_path = str(db_path)
-    # Ensure seeding happens in the test DB
-    linker = SQLiteEntityLinker(config, runtime=mock_runtime)
-    return linker
+    return InMemoryEntityLinker(config, runtime=mock_runtime)
 
 
 def test_onet_deduplication(linker):
@@ -248,22 +244,15 @@ def test_exact_name_party_and_organization_are_not_merged_after_linking(linker):
 
 
 def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):
+    # Simulate a stale registry entry (wrong capitalisation) for PiS
+    # by directly patching the in-memory registry before seeding.
     registry_id = "politicalparty_registry_1a32b79340a35c3d"
-    linker.connection.execute(
-        (
-            "INSERT OR REPLACE INTO entity_registry "
-            "(registry_id, entity_type, canonical_name, fingerprint, embedding) "
-            "VALUES (?, ?, ?, ?, ?)"
-        ),
-        (
-            registry_id,
-            EntityType.POLITICAL_PARTY.value,
-            "Prawo I Sprawiedliwość",
-            "{}",
-            "[]",
-        ),
-    )
-    linker.connection.commit()
+    linker._registry[registry_id] = {
+        "entity_type": EntityType.POLITICAL_PARTY.value,
+        "canonical_name": "Prawo I Sprawiedliwość",
+        "fingerprint": {},
+        "embedding": [],
+    }
     linker._knowledge_seeded = False
 
     doc = ArticleDocument(

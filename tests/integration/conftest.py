@@ -1,4 +1,3 @@
-import pytest
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """

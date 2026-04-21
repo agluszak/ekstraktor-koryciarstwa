@@ -13,7 +13,7 @@ from pipeline.coref import StanzaCoreferenceResolver
 from pipeline.filtering import KeywordRelevanceFilter
 from pipeline.frames import PolishFrameExtractor
 from pipeline.identity import PolishFamilyIdentityResolver
-from pipeline.linking import SQLiteEntityLinker
+from pipeline.linking import InMemoryEntityLinker
 from pipeline.models import ExtractionResult, PipelineInput
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.orchestrator import NepotismPipeline
@@ -87,7 +87,7 @@ def build_pipeline(
         ner_extractor=SpacyPolishNERExtractor(config, runtime=shared_runtime),
         coreference_resolver=StanzaCoreferenceResolver(config, runtime=shared_runtime),
         fact_extractor=PolishFactExtractor(config),
-        entity_linker=SQLiteEntityLinker(config, runtime=shared_runtime),
+        entity_linker=InMemoryEntityLinker(config, runtime=shared_runtime),
         entity_clusterer=PolishEntityClusterer(config),
         clause_parser=StanzaClauseParser(config, runtime=shared_runtime),
         identity_resolver=PolishFamilyIdentityResolver(config),
