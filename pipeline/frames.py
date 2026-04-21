@@ -776,7 +776,11 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         role_cluster = (
             role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
         )
-        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause, document.parsed_sentences)
+        role_text = (
+            None
+            if role_cluster is not None
+            else self._find_role_text_from_text(clause, document.parsed_sentences)
+        )
 
         clause_orgs = self._clusters_for_mentions(
             document,
@@ -943,7 +947,11 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
         )
         role_cluster_id = role_cluster.cluster_id if role_cluster is not None else None
-        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause, document.parsed_sentences)
+        role_text = (
+            None
+            if role_cluster is not None
+            else self._find_role_text_from_text(clause, document.parsed_sentences)
+        )
 
         target_resolution = self.target_resolver.resolve(
             document=document,
@@ -1181,9 +1189,12 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         return None
 
     @staticmethod
-    def _find_role_text_from_text(clause: ClauseUnit, parsed_sentences: dict[int, list[ParsedWord]]) -> str | None:
+    def _find_role_text_from_text(
+        clause: ClauseUnit, parsed_sentences: dict[int, list[ParsedWord]]
+    ) -> str | None:
         if clause.sentence_index not in parsed_sentences:
             from pipeline.utils import extract_role_from_text
+
             extracted = extract_role_from_text(clause.text)
             if extracted[0]:
                 base_name = normalize_entity_name(extracted[0].value)
@@ -1221,7 +1232,9 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         for role_kind, modifier, lemmas in sorted_roles:
             n_lemmas = len(lemmas)
             for i in range(len(clause_words) - n_lemmas + 1):
-                if all(clause_words[i + j].lemma.lower() == lemmas[j].lower() for j in range(n_lemmas)):
+                if all(
+                    clause_words[i + j].lemma.lower() == lemmas[j].lower() for j in range(n_lemmas)
+                ):
                     base_name = normalize_entity_name(role_kind.value)
                     return f"{modifier.value} {base_name}" if modifier else base_name
         return None
@@ -1567,7 +1580,9 @@ class PolishCompensationFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
     ) -> EntityCluster | None:
-        role_text = PolishGovernanceFrameExtractor._find_role_text_from_text(clause, document.parsed_sentences)
+        role_text = PolishGovernanceFrameExtractor._find_role_text_from_text(
+            clause, document.parsed_sentences
+        )
         if role_text is None:
             return None
         for cluster in document.clusters:

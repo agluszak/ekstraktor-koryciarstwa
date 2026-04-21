@@ -23,7 +23,7 @@ doc = ArticleDocument(
     title="",
     publication_date=None,
     cleaned_text=text,
-    paragraphs=[text]
+    paragraphs=[text],
 )
 doc = ParagraphSentenceSegmenter(config).run(doc)
 doc = StanzaClauseParser(config, runtime).run(doc)
@@ -36,8 +36,11 @@ for clause in doc.clause_units:
 for clause in doc.clause_units:
     if clause.sentence_index == 1:
         clause_words = [
-            w for w in doc.parsed_sentences[clause.sentence_index]
+            w
+            for w in doc.parsed_sentences[clause.sentence_index]
             if w.start >= clause.start_char and w.end <= clause.end_char
         ]
         for w in clause_words:
-            print(f"  {w.text} ({w.lemma}) [{w.start}-{w.end}] (clause: {clause.start_char}-{clause.end_char})")
+            print(
+                f"  {w.text} ({w.lemma}) [{w.start}-{w.end}] (clause: {clause.start_char}-{clause.end_char})"
+            )

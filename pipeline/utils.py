@@ -151,7 +151,6 @@ def _looks_like_acronym(token: str) -> bool:
     return any(char.isupper() for char in token[1:])
 
 
-
 def extract_role_from_text(text: str) -> tuple[RoleKind | None, RoleModifier | None]:
     normalized_text = normalize_entity_name(text).lower()
 

@@ -21,7 +21,7 @@ doc = ArticleDocument(
     title="",
     publication_date=None,
     cleaned_text=text,
-    paragraphs=[text]
+    paragraphs=[text],
 )
 doc = ParagraphSentenceSegmenter(config).run(doc)
 doc = StanzaClauseParser(config, runtime).run(doc)

@@ -23,7 +23,11 @@ ROLE_LEMMAS: list[tuple[RoleKind, RoleModifier | None, tuple[str, ...]]] = [
     (RoleKind.CZLONEK_ZARZADU, None, ("członek", "zarząd")),
     (RoleKind.RADA_NADZORCZA, None, ("rada", "nadzorczy")),
     (RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ, None, ("przewodniczący", "rada", "nadzorczy")),
-    (RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ, RoleModifier.DEPUTY, ("wiceprzewodniczący", "rada", "nadzorczy")),
+    (
+        RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
+        RoleModifier.DEPUTY,
+        ("wiceprzewodniczący", "rada", "nadzorczy"),
+    ),
     (RoleKind.RADNY, None, ("radny",)),
     (RoleKind.POSEL, None, ("poseł",)),
     (RoleKind.POSEL, None, ("posłanka",)),

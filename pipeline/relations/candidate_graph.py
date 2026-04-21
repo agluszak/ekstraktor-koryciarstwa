@@ -240,12 +240,16 @@ class CandidateGraphBuilder:
                 if any(idx in occupied_word_indices for idx in range(i, i + n_lemmas)):
                     continue
 
-                if all(parsed_words[i + j].lemma.lower() == lemmas[j].lower() for j in range(n_lemmas)):
+                if all(
+                    parsed_words[i + j].lemma.lower() == lemmas[j].lower() for j in range(n_lemmas)
+                ):
                     match_words = parsed_words[i : i + n_lemmas]
                     match_start = match_words[0].start
                     match_end = match_words[-1].end
 
-                    alias = sentence.text[match_start - sentence.start_char : match_end - sentence.start_char]
+                    alias = sentence.text[
+                        match_start - sentence.start_char : match_end - sentence.start_char
+                    ]
 
                     base_name = normalize_entity_name(role_kind.value)
                     full_name = f"{modifier.value} {base_name}" if modifier else base_name
