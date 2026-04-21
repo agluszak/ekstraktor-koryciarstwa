@@ -140,8 +140,9 @@ def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
     assert linked_doc.entities[0].canonical_name == "AMW Rewita"
 
 
-def test_pis_deduplication(linker):
-    # Prawo I Sprawiedliwość (seeded)
+def test_org_typed_party_alias_does_not_link_to_seeded_party(linker):
+    # Generic Organization entities are not silently retyped to configured parties.
+    # NER/candidate generation is responsible for creating PoliticalParty entities.
     doc = ArticleDocument(
         document_id=DocumentID("test-doc-pis"),
         source_url=None,
@@ -172,10 +173,10 @@ def test_pis_deduplication(linker):
 
     linked_doc = linker.run(doc)
 
-    # Should link to the seeded PoliticalParty "Prawo i Sprawiedliwość"
-    # and deduplicate correctly.
-    assert len(linked_doc.entities) == 1
-    assert linked_doc.entities[0].canonical_name == "Prawo i Sprawiedliwość"
+    assert {(entity.entity_type, entity.canonical_name) for entity in linked_doc.entities} == {
+        (EntityType.ORGANIZATION, "PiS"),
+        (EntityType.POLITICAL_PARTY, "Prawo i Sprawiedliwość"),
+    }
 
 
 def test_exact_duplicate_canonical_names_are_merged_after_linking(linker):
@@ -209,6 +210,41 @@ def test_exact_duplicate_canonical_names_are_merged_after_linking(linker):
 
     assert len(linked_doc.entities) == 1
     assert linked_doc.entities[0].canonical_name == "Natura Tour"
+
+
+def test_exact_name_party_and_organization_are_not_merged_after_linking(linker):
+    doc = ArticleDocument(
+        document_id=DocumentID("test-doc-party-org-exact"),
+        source_url=None,
+        raw_html="",
+        title="Test KO Org",
+        publication_date=None,
+        cleaned_text="Koalicja Obywatelska Koalicja Obywatelska",
+        paragraphs=["Koalicja Obywatelska Koalicja Obywatelska"],
+        entities=[
+            Entity(
+                entity_id=EntityID("org-1"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Koalicja Obywatelska",
+                normalized_name="Koalicja Obywatelska",
+                aliases=[],
+            ),
+            Entity(
+                entity_id=EntityID("party-1"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="KO",
+                normalized_name="KO",
+                aliases=[],
+            ),
+        ],
+    )
+
+    linked_doc = linker.run(doc)
+
+    assert {(entity.entity_type, entity.canonical_name) for entity in linked_doc.entities} == {
+        (EntityType.ORGANIZATION, "Koalicja Obywatelska"),
+        (EntityType.POLITICAL_PARTY, "Koalicja Obywatelska"),
+    }
 
 
 def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):

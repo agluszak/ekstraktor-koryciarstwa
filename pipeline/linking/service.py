@@ -284,12 +284,6 @@ class SQLiteEntityLinker(EntityLinker):
         # Try alias-based match first (case-insensitive via multiple
         # candidate forms: canonical_name, normalized_name, raw aliases).
         search_names = self._alias_search_names(entity)
-        related_types = {
-            EntityType.ORGANIZATION.value,
-            EntityType.POLITICAL_PARTY.value,
-            EntityType.PUBLIC_INSTITUTION.value,
-        }
-
         for name in search_names:
             for variant in {name, name.title(), name.lower()}:
                 alias_matches = list(
@@ -307,9 +301,9 @@ class SQLiteEntityLinker(EntityLinker):
                     )
                     if type_row:
                         match_type = type_row[0][0]
-                        type_match = match_type == entity.entity_type.value or (
-                            match_type in related_types
-                            and entity.entity_type.value in related_types
+                        type_match = self._registry_types_compatible(
+                            entity.entity_type.value,
+                            match_type,
                         )
                         if type_match:
                             self._upsert_alias(match_id, entity)
@@ -328,16 +322,16 @@ class SQLiteEntityLinker(EntityLinker):
                 )
             )
         else:
-            # For non-persons, search all entities of the same type (or related types for Org/Party)
-            # to allow matching via lemmas even if the canonical name is different (inflection).
-            if entity.entity_type.value in related_types:
+            # For non-persons, search compatible registry classes to allow
+            # lemma matching across Organization/PublicInstitution inflection.
+            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
                 rows = list(
                     self.connection.execute(
                         (
                             "SELECT registry_id, canonical_name, fingerprint, embedding "
                             "FROM entity_registry WHERE entity_type IN (?, ?)"
                         ),
-                        (EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value),
+                        (EntityType.ORGANIZATION.value, EntityType.PUBLIC_INSTITUTION.value),
                     )
                 )
             else:
@@ -450,14 +444,13 @@ class SQLiteEntityLinker(EntityLinker):
         exact_name_map: dict[tuple[str, str], Entity] = {}
         id_remap: dict[str, str] = {}
         result: list[Entity] = []
-        related_types = {EntityType.ORGANIZATION.value, EntityType.POLITICAL_PARTY.value}
         for entity in entities:
             if entity.is_proxy_person or entity.is_honorific_person_ref:
                 result.append(entity)
                 continue
             key_type = entity.entity_type.value
-            if key_type in related_types:
-                key_type = "org-or-party"
+            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+                key_type = "org-or-public-institution"
             key = (key_type, entity.canonical_name.casefold())
             existing = exact_name_map.get(key)
             if existing is None:
@@ -470,6 +463,15 @@ class SQLiteEntityLinker(EntityLinker):
             existing.evidence.extend(entity.evidence)
             id_remap[entity.entity_id] = existing.entity_id
         return result, id_remap
+
+    @staticmethod
+    def _registry_types_compatible(entity_type: str, match_type: str) -> bool:
+        if entity_type == match_type:
+            return True
+        return {entity_type, match_type} <= {
+            EntityType.ORGANIZATION.value,
+            EntityType.PUBLIC_INSTITUTION.value,
+        }
 
     def _upsert_alias(self, registry_id: str, entity: Entity) -> None:
         aliases = {

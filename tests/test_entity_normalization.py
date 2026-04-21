@@ -3,8 +3,11 @@ from pipeline.domain_types import (
     DocumentID,
     EntityID,
     EntityType,
+    FactID,
+    FactType,
+    TimeScope,
 )
-from pipeline.models import ArticleDocument, Entity, Mention
+from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Fact, Mention
 from pipeline.normalization import DocumentEntityCanonicalizer
 
 
@@ -210,6 +213,116 @@ def test_inflected_full_person_name_variants_merge_to_nominative_canonical() -> 
     assert normalized.entities[0].canonical_name == "Władysław Kosiniak-Kamysz"
 
 
+def test_different_full_people_with_shared_surname_do_not_merge() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-stefaniuk"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Renata Stefaniuk Dariusz Stefaniuk",
+        paragraphs=["Renata Stefaniuk Dariusz Stefaniuk"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-renata"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Renata Stefaniuk",
+                normalized_name="Renata Stefaniuk",
+            ),
+            Entity(
+                entity_id=EntityID("person-dariusz"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Dariusz Stefaniuk",
+                normalized_name="Dariusz Stefaniuk",
+            ),
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert {entity.canonical_name for entity in normalized.entities} == {
+        "Renata Stefaniuk",
+        "Dariusz Stefaniuk",
+    }
+
+
+def test_inflected_full_person_name_merges_when_given_and_surname_are_compatible() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-dariusz"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Dariusz Stefaniuk Dariusza Stefaniuka",
+        paragraphs=["Dariusz Stefaniuk Dariusza Stefaniuka"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-dariusz"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Dariusz Stefaniuk",
+                normalized_name="Dariusz Stefaniuk",
+            ),
+            Entity(
+                entity_id=EntityID("person-dariusza"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Dariusza Stefaniuka",
+                normalized_name="Dariusza Stefaniuka",
+            ),
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert len(normalized.entities) == 1
+    assert normalized.entities[0].canonical_name == "Dariusz Stefaniuk"
+
+
+def test_ambiguous_surname_only_person_reference_does_not_hard_merge() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-stefaniuk-short"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Renata Stefaniuk Dariusz Stefaniuk Stefaniuk",
+        paragraphs=["Renata Stefaniuk Dariusz Stefaniuk Stefaniuk"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-renata"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Renata Stefaniuk",
+                normalized_name="Renata Stefaniuk",
+            ),
+            Entity(
+                entity_id=EntityID("person-dariusz"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Dariusz Stefaniuk",
+                normalized_name="Dariusz Stefaniuk",
+            ),
+            Entity(
+                entity_id=EntityID("person-short"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Stefaniuk",
+                normalized_name="Stefaniuk",
+            ),
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert {entity.canonical_name for entity in normalized.entities} == {
+        "Renata Stefaniuk",
+        "Dariusz Stefaniuk",
+        "Stefaniuk",
+    }
+
+
 def test_single_token_inflected_person_variants_merge_into_full_name_cluster() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
@@ -328,6 +441,98 @@ def test_inflected_party_name_maps_to_configured_canonical_name() -> None:
     normalized = canonicalizer.run(document)
 
     assert normalized.entities[0].canonical_name == "Prawo i Sprawiedliwość"
+
+
+def test_party_and_organization_with_same_name_do_not_deduplicate() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-party-org-separate"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Koalicja Obywatelska",
+        paragraphs=["Koalicja Obywatelska"],
+        entities=[
+            Entity(
+                entity_id=EntityID("party-1"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="KO",
+                normalized_name="KO",
+            ),
+            Entity(
+                entity_id=EntityID("org-1"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Koalicja Obywatelska",
+                normalized_name="Koalicja Obywatelska",
+            ),
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert {(entity.entity_type, entity.canonical_name) for entity in normalized.entities} == {
+        (EntityType.POLITICAL_PARTY, "Koalicja Obywatelska"),
+        (EntityType.ORGANIZATION, "Koalicja Obywatelska"),
+    }
+
+
+def test_party_membership_fact_object_is_remapped_to_party_entity() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-party-fact"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date="2026-04-21",
+        cleaned_text="Karol Wilczyński z Koalicji Obywatelskiej",
+        paragraphs=["Karol Wilczyński z Koalicji Obywatelskiej"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-karol"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Karol Wilczyński",
+                normalized_name="Karol Wilczyński",
+            ),
+            Entity(
+                entity_id=EntityID("org-muzeum"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Muzeum Wsi Kieleckiej",
+                normalized_name="Muzeum Wsi Kieleckiej",
+            ),
+            Entity(
+                entity_id=EntityID("party-ko"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="KO",
+                normalized_name="KO",
+            ),
+        ],
+        facts=[
+            Fact(
+                fact_id=FactID("fact-party"),
+                fact_type=FactType.PARTY_MEMBERSHIP,
+                subject_entity_id=EntityID("person-karol"),
+                object_entity_id=EntityID("org-muzeum"),
+                value_text="Koalicja Obywatelska",
+                value_normalized="Koalicja Obywatelska",
+                time_scope=TimeScope.CURRENT,
+                event_date="2026-04-21",
+                confidence=0.92,
+                evidence=EvidenceSpan(text="Karol Wilczyński z Koalicji Obywatelskiej"),
+                party="Koalicja Obywatelska",
+            )
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+    entity_by_id = {entity.entity_id: entity for entity in normalized.entities}
+
+    assert normalized.facts[0].object_entity_id is not None
+    object_entity = entity_by_id[normalized.facts[0].object_entity_id]
+    assert object_entity.entity_type == EntityType.POLITICAL_PARTY
+    assert normalized.facts[0].party == "Koalicja Obywatelska"
 
 
 def test_noisy_canonical_candidate_loses_to_clean_alias() -> None:

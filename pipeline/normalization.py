@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType, OrganizationKind
+from pipeline.domain_types import EntityID, EntityType, FactType, OrganizationKind
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.utils import (
     acronym_from_lemmas,
@@ -81,6 +81,7 @@ class _EntityCluster:
 class DocumentEntityCanonicalizer:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
+        self.ambiguous_person_singletons: set[str] = set()
         self.party_lookup = {
             normalize_party_name(alias).lower(): compact_whitespace(canonical)
             for alias, canonical in config.party_aliases.items()
@@ -110,6 +111,8 @@ class DocumentEntityCanonicalizer:
         for entity in document.entities:
             self._normalize_entity(entity)
 
+        self.ambiguous_person_singletons = self._ambiguous_person_singletons(document.entities)
+
         remap: dict[str, str] = {}
         deduplicated: list[Entity] = []
         for entity in document.entities:
@@ -131,6 +134,7 @@ class DocumentEntityCanonicalizer:
         self._remap_mentions(document, remap)
         self._remap_fact_graph(document, remap)
         self._refresh_entity_names(document.entities)
+        self._validate_party_membership_objects(document)
         return document
 
     def _normalize_entity(self, entity: Entity) -> None:
@@ -194,6 +198,8 @@ class DocumentEntityCanonicalizer:
             left.entity_type == EntityType.POLITICAL_PARTY
             or right.entity_type == EntityType.POLITICAL_PARTY
         ):
+            if left.entity_type != right.entity_type:
+                return False
             return self._canonical_party_name(
                 self._names_for_entity(left)
             ) == self._canonical_party_name(self._names_for_entity(right))
@@ -271,25 +277,25 @@ class DocumentEntityCanonicalizer:
         if left.normalized_name == right.normalized_name:
             return True
         if left_full and right_full:
-            left_bases = {
-                self._person_token_base(token.rstrip(".").lower()) for token in left_tokens
-            }
-            right_bases = {
-                self._person_token_base(token.rstrip(".").lower()) for token in right_tokens
-            }
-            if left_tokens[-1].lower() != right_tokens[-1].lower():
-                if not self._person_tokens_compatible(left_tokens[-1], right_tokens[-1]) and not (
-                    left_bases & right_bases
-                ):
-                    return False
-            return self._person_tokens_compatible(left_tokens[0], right_tokens[0]) or bool(
-                left_bases & right_bases
-            )
+            return self._person_tokens_compatible(
+                left_tokens[-1],
+                right_tokens[-1],
+            ) and self._person_tokens_compatible(left_tokens[0], right_tokens[0])
         if len(left_tokens) == 1 and right_full:
+            if self._person_singleton_is_ambiguous(left_tokens[0]):
+                return False
             return self._single_token_matches_person_cluster(left_tokens[0], right_tokens)
         if len(right_tokens) == 1 and left_full:
+            if self._person_singleton_is_ambiguous(right_tokens[0]):
+                return False
             return self._single_token_matches_person_cluster(right_tokens[0], left_tokens)
         return False
+
+    def _person_singleton_is_ambiguous(self, token: str) -> bool:
+        return bool(
+            self._person_token_variants(token.rstrip(".").lower())
+            & self.ambiguous_person_singletons
+        )
 
     def _organizations_compatible(self, left: Entity, right: Entity) -> bool:
         left_names = self._names_for_entity(left)
@@ -543,6 +549,25 @@ class DocumentEntityCanonicalizer:
         ]
 
     @classmethod
+    def _ambiguous_person_singletons(cls, entities: list[Entity]) -> set[str]:
+        surname_to_given_bases: dict[str, set[str]] = {}
+        for entity in entities:
+            if entity.entity_type != EntityType.PERSON or entity.is_proxy_person:
+                continue
+            tokens = normalize_entity_name(entity.normalized_name).split()
+            if len(tokens) < 2:
+                continue
+            surname_variants = cls._person_token_variants(tokens[-1].rstrip(".").lower())
+            given_base = cls._person_token_base(tokens[0].rstrip(".").lower())
+            for surname_variant in surname_variants:
+                surname_to_given_bases.setdefault(surname_variant, set()).add(given_base)
+        return {
+            surname
+            for surname, given_bases in surname_to_given_bases.items()
+            if len(given_bases) > 1
+        }
+
+    @classmethod
     def _person_name_nominality_score(cls, name: str) -> int:
         tokens = [token for token in name.split() if token]
         if not tokens:
@@ -783,3 +808,61 @@ class DocumentEntityCanonicalizer:
         if len(tokens) >= 2 and tokens[-2].lower() in {"w", "we", "z", "na"}:
             tokens = tokens[:-2]
         return [token for token in tokens if token.lower() not in {"w"}]
+
+    def _validate_party_membership_objects(self, document: ArticleDocument) -> None:
+        if not document.facts:
+            return
+        entity_by_id = {entity.entity_id: entity for entity in document.entities}
+        party_by_name: dict[str, Entity] = {}
+        for entity in document.entities:
+            if entity.entity_type != EntityType.POLITICAL_PARTY:
+                continue
+            for name in self._names_for_entity(entity):
+                party_by_name[normalize_party_name(name).casefold()] = entity
+            canonical = self._canonical_party_name(self._names_for_entity(entity))
+            if canonical:
+                party_by_name[normalize_party_name(canonical).casefold()] = entity
+
+        validated = []
+        for fact in document.facts:
+            if fact.fact_type not in {
+                FactType.PARTY_MEMBERSHIP,
+                FactType.FORMER_PARTY_MEMBERSHIP,
+            }:
+                validated.append(fact)
+                continue
+            if fact.object_entity_id is not None:
+                entity = entity_by_id.get(fact.object_entity_id)
+                if entity is not None and entity.entity_type == EntityType.POLITICAL_PARTY:
+                    validated.append(fact)
+                    continue
+
+            remap_party = self._party_entity_for_fact(
+                fact.party,
+                fact.value_normalized,
+                party_by_name=party_by_name,
+            )
+            if remap_party is None:
+                continue
+            fact.object_entity_id = EntityID(remap_party.entity_id)
+            fact.value_text = remap_party.canonical_name
+            fact.value_normalized = remap_party.normalized_name
+            fact.party = remap_party.canonical_name
+            validated.append(fact)
+        document.facts = validated
+
+    def _party_entity_for_fact(
+        self,
+        *names: str | None,
+        party_by_name: dict[str, Entity],
+    ) -> Entity | None:
+        for name in names:
+            if not name:
+                continue
+            canonical = self._canonical_party_name([name])
+            for candidate in (name, canonical):
+                normalized = normalize_party_name(candidate).casefold()
+                party = party_by_name.get(normalized)
+                if party is not None:
+                    return party
+        return None

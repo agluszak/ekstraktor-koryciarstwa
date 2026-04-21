@@ -733,11 +733,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         document: ArticleDocument,
         sentence_index: int,
     ) -> EntityCluster | None:
-        speaker = self._speaker_cluster(document, sentence_index)
-        if speaker is not None:
-            return speaker
-        # If it looks like a quote, the speaker might be in the NEXT sentence
-        return self._nearest_person_cluster(document, sentence_index, before=2, after=1)
+        return self._speaker_cluster(document, sentence_index)
 
     @staticmethod
     def _speaker_cluster(document: ArticleDocument, sentence_index: int) -> EntityCluster | None:

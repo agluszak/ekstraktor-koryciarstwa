@@ -247,7 +247,6 @@ class CandidateGraphBuilder:
                     entity_type=EntityType.POSITION,
                     canonical_name=full_name,
                     alias=match.group(0),
-
                 )
                 candidates.append(
                     EntityCandidate(

@@ -255,6 +255,45 @@ def test_possessive_partner_is_probable_same_person_as_spouse_proxy() -> None:
     )
 
 
+def test_possessive_spouse_without_resolved_speaker_does_not_attach_to_nearest_person() -> None:
+    sentences = [
+        "Agata Wojda przyszła na sesję.",
+        "Moja żona nie dostała stanowiska.",
+    ]
+    doc = _document(
+        sentences,
+        {
+            0: [
+                _word(1, "Agata", "Agata", "PROPN", 2, "nsubj", 0),
+                _word(2, "Wojda", "Wojda", "PROPN", 3, "flat", 6),
+                _word(3, "przyszła", "przyjść", "VERB", 0, "root", 12),
+            ],
+            1: [
+                _word(1, "Moja", "mój", "DET", 2, "det:poss", 0),
+                _word(2, "żona", "żona", "NOUN", 4, "nsubj", 5),
+                _word(3, "nie", "nie", "PART", 4, "advmod", 10),
+                _word(4, "dostała", "dostać", "VERB", 0, "root", 14),
+            ],
+        },
+    )
+    entity, cluster = _person_cluster(
+        "person-agata",
+        "Agata Wojda",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+    )
+    doc.entities.append(entity)
+    doc.clusters.append(cluster)
+
+    resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+    assert not any(
+        entity.is_proxy_person and entity.proxy_anchor_entity_id == "person-agata"
+        for entity in resolved.entities
+    )
+
+
 def test_honorific_surname_only_stays_possible() -> None:
     sentences = [
         "Żona Karola Wilczyńskiego była zatrudniona.",

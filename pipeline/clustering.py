@@ -25,6 +25,10 @@ class PolishEntityClusterer(EntityClusterer):
         for entity in document.entities:
             self.canonicalizer._normalize_entity(entity)
 
+        self.canonicalizer.ambiguous_person_singletons = (
+            self.canonicalizer._ambiguous_person_singletons(document.entities)
+        )
+
         clusters: list[EntityCluster] = []
         entity_to_cluster_id: dict[str, str] = {}
 
