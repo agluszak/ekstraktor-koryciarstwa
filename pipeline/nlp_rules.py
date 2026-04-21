@@ -12,72 +12,30 @@ BOARD_ROLE_KINDS = {
     RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
 }
 
-ROLE_PATTERNS: list[tuple[RoleKind, RoleModifier | None, re.Pattern[str]]] = [
-    (
-        RoleKind.PREZES,
-        None,
-        re.compile(r"\bprezes(?:em|a)?\b|\bprezesk(?:ą|a)\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.PREZES,
-        RoleModifier.DEPUTY,
-        re.compile(r"\bwiceprezes(?:em|a)?\b|\bwiceprezesk(?:ą|a)\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.PREZES,
-        RoleModifier.DEPUTY,
-        re.compile(r"\bzastępc(?:a|ą|y)\s+prezesa\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.DYREKTOR,
-        None,
-        re.compile(r"\bdyrektor(?:em|a)?\b|\bdyrektork(?:ą|a)\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.CZLONEK_ZARZADU,
-        None,
-        re.compile(r"\bczłonk(?:iem|a)\s+zarządu\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.RADA_NADZORCZA,
-        None,
-        re.compile(r"\brad(?:y|zie|a)\s+nadzorczej\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
-        None,
-        re.compile(r"\bprzewodnicząc(?:y|ego)\s+rady\s+nadzorczej\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
-        RoleModifier.DEPUTY,
-        re.compile(r"\bwiceprzewodnicząc(?:y|ego)\s+rady\s+nadzorczej\b", re.IGNORECASE),
-    ),
-    (RoleKind.RADNY, None, re.compile(r"\bradn(?:y|ego|a|ą)\b", re.IGNORECASE)),
-    (RoleKind.POSEL, None, re.compile(r"\bpos(?:eł|ła|łem|łanka|łem)\b", re.IGNORECASE)),
-    (RoleKind.SENATOR, None, re.compile(r"\bsenator(?:em|a)?\b", re.IGNORECASE)),
-    (RoleKind.MINISTER, None, re.compile(r"\bminister(?:em|a)?\b", re.IGNORECASE)),
-    (
-        RoleKind.MINISTER,
-        RoleModifier.DEPUTY,
-        re.compile(r"\bwiceminister(?:em|a)?\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.PREZYDENT_MIASTA,
-        None,
-        re.compile(r"\bprezydent(?:em|a)?\s+miasta\b", re.IGNORECASE),
-    ),
-    (
-        RoleKind.PREZYDENT_MIASTA,
-        RoleModifier.DEPUTY,
-        re.compile(r"\bwiceprezydent(?:em|a)?\b", re.IGNORECASE),
-    ),
-    (RoleKind.WOJEWODA, None, re.compile(r"\bwojewod(?:a|ą|y)\b", re.IGNORECASE)),
-    (
-        RoleKind.WOJEWODA,
-        RoleModifier.DEPUTY,
-        re.compile(r"\bwicewojewod(?:a|ą|y)\b", re.IGNORECASE),
-    ),
+ROLE_LEMMAS: list[tuple[RoleKind, RoleModifier | None, tuple[str, ...]]] = [
+    (RoleKind.PREZES, None, ("prezes",)),
+    (RoleKind.PREZES, None, ("prezeska",)),
+    (RoleKind.PREZES, RoleModifier.DEPUTY, ("wiceprezes",)),
+    (RoleKind.PREZES, RoleModifier.DEPUTY, ("wiceprezeska",)),
+    (RoleKind.PREZES, RoleModifier.DEPUTY, ("zastępca", "prezes")),
+    (RoleKind.DYREKTOR, None, ("dyrektor",)),
+    (RoleKind.DYREKTOR, None, ("dyrektorka",)),
+    (RoleKind.CZLONEK_ZARZADU, None, ("członek", "zarząd")),
+    (RoleKind.RADA_NADZORCZA, None, ("rada", "nadzorczy")),
+    (RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ, None, ("przewodniczący", "rada", "nadzorczy")),
+    (RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ, RoleModifier.DEPUTY, ("wiceprzewodniczący", "rada", "nadzorczy")),
+    (RoleKind.RADNY, None, ("radny",)),
+    (RoleKind.POSEL, None, ("poseł",)),
+    (RoleKind.POSEL, None, ("posłanka",)),
+    (RoleKind.SENATOR, None, ("senator",)),
+    (RoleKind.SENATOR, None, ("senatorka",)),
+    (RoleKind.MINISTER, None, ("minister",)),
+    (RoleKind.MINISTER, None, ("ministra",)),
+    (RoleKind.MINISTER, RoleModifier.DEPUTY, ("wiceminister",)),
+    (RoleKind.PREZYDENT_MIASTA, None, ("prezydent", "miasto")),
+    (RoleKind.PREZYDENT_MIASTA, RoleModifier.DEPUTY, ("wiceprezydent",)),
+    (RoleKind.WOJEWODA, None, ("wojewoda",)),
+    (RoleKind.WOJEWODA, RoleModifier.DEPUTY, ("wicewojewoda",)),
 ]
 
 

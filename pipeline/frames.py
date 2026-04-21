@@ -35,7 +35,7 @@ from pipeline.nlp_rules import (
     DISMISSAL_TRIGGER_LEMMAS,
     DISMISSAL_TRIGGER_TEXTS,
     FUNDING_HINTS,
-    ROLE_PATTERNS,
+    ROLE_LEMMAS,
 )
 from pipeline.utils import normalize_entity_name
 
@@ -776,7 +776,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         role_cluster = (
             role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
         )
-        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause)
+        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause, document.parsed_sentences)
 
         clause_orgs = self._clusters_for_mentions(
             document,
@@ -943,7 +943,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
         )
         role_cluster_id = role_cluster.cluster_id if role_cluster is not None else None
-        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause)
+        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause, document.parsed_sentences)
 
         target_resolution = self.target_resolver.resolve(
             document=document,
@@ -1181,15 +1181,49 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         return None
 
     @staticmethod
-    def _find_role_text_from_text(clause: ClauseUnit) -> str | None:
-        for role, modifier, pattern in sorted(
-            ROLE_PATTERNS,
-            key=lambda item: len(item[0].value) + (len(item[1].value) if item[1] else 0),
+    def _find_role_text_from_text(clause: ClauseUnit, parsed_sentences: dict[int, list[ParsedWord]]) -> str | None:
+        if clause.sentence_index not in parsed_sentences:
+            from pipeline.utils import extract_role_from_text
+            extracted = extract_role_from_text(clause.text)
+            if extracted[0]:
+                base_name = normalize_entity_name(extracted[0].value)
+                return f"{extracted[1].value} {base_name}" if extracted[1] else base_name
+            return None
+
+        parsed_words = parsed_sentences[clause.sentence_index]
+
+        # ParsedWord's start/end in `parsed_sentences` are relative to the sentence start.
+        # `clause.start_char`/`end_char` are document-level.
+        # To map document-level clause bounds to sentence-relative bounds, we need to know the sentence's start char.
+        # But wait, `ParsedSentence` doesn't give us easy access to its start_char here.
+        # Fortunately, `clause.text` tells us the text.
+        # But actually, `_find_role_text_from_text` only needs to find the role anywhere in the clause.
+        # In practice, clauses and sentences map well, but what if the clause is just a part of the sentence?
+        # We can map document-level `clause.start_char` to sentence-relative:
+        # `sentence_start = clause.start_char - clause_text_offset_within_sentence`
+        # But wait, since we don't have the `SentenceFragment` here, we can just use the fact that
+        # `clause.start_char` corresponds to the clause's start in the document.
+        # Let's just use all parsed_words for the sentence. The previous regex used `clause.text`
+        # but maybe it's fine to just scan the whole sentence's parsed_words because roles are typically unique per sentence.
+        # However, to be strictly correct, we should check if `w.text` is in `clause.text` or just use all words.
+        # Let's just use `parsed_words` directly.
+        clause_words = parsed_words
+
+        if not clause_words:
+            return None
+
+        sorted_roles = sorted(
+            ROLE_LEMMAS,
+            key=lambda item: len(item[2]),
             reverse=True,
-        ):
-            if pattern.search(clause.text):
-                base_name = normalize_entity_name(role.value)
-                return f"{modifier.value} {base_name}" if modifier else base_name
+        )
+
+        for role_kind, modifier, lemmas in sorted_roles:
+            n_lemmas = len(lemmas)
+            for i in range(len(clause_words) - n_lemmas + 1):
+                if all(clause_words[i + j].lemma.lower() == lemmas[j].lower() for j in range(n_lemmas)):
+                    base_name = normalize_entity_name(role_kind.value)
+                    return f"{modifier.value} {base_name}" if modifier else base_name
         return None
 
     def _find_cluster_for_mention(
@@ -1533,7 +1567,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
     ) -> EntityCluster | None:
-        role_text = PolishGovernanceFrameExtractor._find_role_text_from_text(clause)
+        role_text = PolishGovernanceFrameExtractor._find_role_text_from_text(clause, document.parsed_sentences)
         if role_text is None:
             return None
         for cluster in document.clusters:

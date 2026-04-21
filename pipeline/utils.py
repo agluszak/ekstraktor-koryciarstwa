@@ -12,7 +12,7 @@ from pipeline.domain_types import (
     RoleKind,
     RoleModifier,
 )
-from pipeline.nlp_rules import ROLE_PATTERNS
+from pipeline.nlp_rules import ROLE_LEMMAS
 
 WHITESPACE_RE = re.compile(r"\s+")
 
@@ -151,8 +151,81 @@ def _looks_like_acronym(token: str) -> bool:
     return any(char.isupper() for char in token[1:])
 
 
+
 def extract_role_from_text(text: str) -> tuple[RoleKind | None, RoleModifier | None]:
-    for role_kind, role_modifier, pattern in ROLE_PATTERNS:
+    normalized_text = normalize_entity_name(text).lower()
+
+    # We must support inflected forms in raw text since this acts as a fallback for parsing
+    # and processes extracted span strings.
+    mapping: list[tuple[RoleKind, RoleModifier | None, re.Pattern[str]]] = [
+        (
+            RoleKind.PREZES,
+            None,
+            re.compile(r"\bprezes(?:em|a)?\b|\bprezesk(?:ą|a)\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.PREZES,
+            RoleModifier.DEPUTY,
+            re.compile(r"\bwiceprezes(?:em|a)?\b|\bwiceprezesk(?:ą|a)\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.PREZES,
+            RoleModifier.DEPUTY,
+            re.compile(r"\bzastępc(?:a|ą|y)\s+prezesa\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.DYREKTOR,
+            None,
+            re.compile(r"\bdyrektor(?:em|a)?\b|\bdyrektork(?:ą|a)\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.CZLONEK_ZARZADU,
+            None,
+            re.compile(r"\bczłonk(?:iem|a)\s+zarządu\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.RADA_NADZORCZA,
+            None,
+            re.compile(r"\brad(?:y|zie|a)\s+nadzorczej\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
+            None,
+            re.compile(r"\bprzewodnicząc(?:y|ego)\s+rady\s+nadzorczej\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.PRZEWODNICZACY_RADY_NADZORCZEJ,
+            RoleModifier.DEPUTY,
+            re.compile(r"\bwiceprzewodnicząc(?:y|ego)\s+rady\s+nadzorczej\b", re.IGNORECASE),
+        ),
+        (RoleKind.RADNY, None, re.compile(r"\bradn(?:y|ego|a|ą)\b", re.IGNORECASE)),
+        (RoleKind.POSEL, None, re.compile(r"\bpos(?:eł|ła|łem|łanka|łem)\b", re.IGNORECASE)),
+        (RoleKind.SENATOR, None, re.compile(r"\bsenator(?:em|a)?\b", re.IGNORECASE)),
+        (RoleKind.MINISTER, None, re.compile(r"\bminister(?:em|a)?\b", re.IGNORECASE)),
+        (
+            RoleKind.MINISTER,
+            RoleModifier.DEPUTY,
+            re.compile(r"\bwiceminister(?:em|a)?\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.PREZYDENT_MIASTA,
+            None,
+            re.compile(r"\bprezydent(?:em|a)?\s+miasta\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.PREZYDENT_MIASTA,
+            RoleModifier.DEPUTY,
+            re.compile(r"\bwiceprezydent(?:em|a)?\b", re.IGNORECASE),
+        ),
+        (RoleKind.WOJEWODA, None, re.compile(r"\bwojewod(?:a|ą|y)\b", re.IGNORECASE)),
+        (
+            RoleKind.WOJEWODA,
+            RoleModifier.DEPUTY,
+            re.compile(r"\bwicewojewod(?:a|ą|y)\b", re.IGNORECASE),
+        ),
+    ]
+
+    for role_kind, modifier, pattern in mapping:
         if pattern.search(text):
-            return role_kind, role_modifier
+            return role_kind, modifier
     return None, None
