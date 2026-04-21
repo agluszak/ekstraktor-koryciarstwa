@@ -26,7 +26,11 @@ class EntityFingerprint(TypedDict, total=False):
 
 
 class SQLiteEntityLinker(EntityLinker):
-    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+    ) -> None:
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
         self.db_path = Path(config.registry.sqlite_path)
@@ -66,7 +70,9 @@ class SQLiteEntityLinker(EntityLinker):
 
         # Deduplicate: merge entities that resolved to the same registry_id
         document.entities, id_remap = self._deduplicate_by_registry(document.entities)
-        document.entities, exact_name_remap = self._deduplicate_exact_names(document.entities)
+        document.entities, exact_name_remap = self._deduplicate_exact_names(
+            document.entities,
+        )
         id_remap.update(exact_name_remap)
 
         # Remap entity references in extracted facts
@@ -83,7 +89,9 @@ class SQLiteEntityLinker(EntityLinker):
                     )
             for mention in document.mentions:
                 if mention.entity_id:
-                    mention.entity_id = EntityID(id_remap.get(mention.entity_id, mention.entity_id))
+                    mention.entity_id = EntityID(
+                        id_remap.get(mention.entity_id, mention.entity_id),
+                    )
 
         return self.canonicalizer.run(document)
 
@@ -179,7 +187,11 @@ class SQLiteEntityLinker(EntityLinker):
             institution_groups[normalized_canonical].add(canonical)
 
         for normalized, aliases in institution_groups.items():
-            registry_id = stable_id("publicinstitution_registry", normalized, normalized)
+            registry_id = stable_id(
+                "publicinstitution_registry",
+                normalized,
+                normalized,
+            )
             fingerprint = self._fingerprint_from_name(normalized)
             fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
             embedding = self._encode_embedding(normalized)
@@ -324,14 +336,20 @@ class SQLiteEntityLinker(EntityLinker):
         else:
             # For non-persons, search compatible registry classes to allow
             # lemma matching across Organization/PublicInstitution inflection.
-            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            if entity.entity_type in {
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            }:
                 rows = list(
                     self.connection.execute(
                         (
                             "SELECT registry_id, canonical_name, fingerprint, embedding "
                             "FROM entity_registry WHERE entity_type IN (?, ?)"
                         ),
-                        (EntityType.ORGANIZATION.value, EntityType.PUBLIC_INSTITUTION.value),
+                        (
+                            EntityType.ORGANIZATION.value,
+                            EntityType.PUBLIC_INSTITUTION.value,
+                        ),
                     )
                 )
             else:
@@ -364,7 +382,9 @@ class SQLiteEntityLinker(EntityLinker):
                 return registry_id
 
         registry_id = stable_id(
-            f"{entity.entity_type.value.lower()}_registry", entity.normalized_name, entity.entity_id
+            f"{entity.entity_type.value.lower()}_registry",
+            entity.normalized_name,
+            entity.entity_id,
         )
         self.connection.execute(
             (
@@ -411,7 +431,9 @@ class SQLiteEntityLinker(EntityLinker):
         return names
 
     @staticmethod
-    def _deduplicate_by_registry(entities: list[Entity]) -> tuple[list[Entity], dict[str, str]]:
+    def _deduplicate_by_registry(
+        entities: list[Entity],
+    ) -> tuple[list[Entity], dict[str, str]]:
         """Merge entities that resolved to the same registry_id.
 
         Returns the deduplicated list and a mapping from removed entity_ids
@@ -433,14 +455,18 @@ class SQLiteEntityLinker(EntityLinker):
                 # Merge aliases and evidence into the first entity
                 primary = registry_map[rid]
                 primary.aliases = list(
-                    dict.fromkeys([*primary.aliases, *entity.aliases, entity.canonical_name])
+                    dict.fromkeys(
+                        [*primary.aliases, *entity.aliases, entity.canonical_name],
+                    )
                 )
                 primary.evidence.extend(entity.evidence)
                 id_remap[entity.entity_id] = primary.entity_id
         return result, id_remap
 
     @staticmethod
-    def _deduplicate_exact_names(entities: list[Entity]) -> tuple[list[Entity], dict[str, str]]:
+    def _deduplicate_exact_names(
+        entities: list[Entity],
+    ) -> tuple[list[Entity], dict[str, str]]:
         exact_name_map: dict[tuple[str, str], Entity] = {}
         id_remap: dict[str, str] = {}
         result: list[Entity] = []
@@ -449,7 +475,10 @@ class SQLiteEntityLinker(EntityLinker):
                 result.append(entity)
                 continue
             key_type = entity.entity_type.value
-            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            if entity.entity_type in {
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            }:
                 key_type = "org-or-public-institution"
             key = (key_type, entity.canonical_name.casefold())
             existing = exact_name_map.get(key)
@@ -458,7 +487,9 @@ class SQLiteEntityLinker(EntityLinker):
                 result.append(entity)
                 continue
             existing.aliases = list(
-                dict.fromkeys([*existing.aliases, existing.canonical_name, *entity.aliases])
+                dict.fromkeys(
+                    [*existing.aliases, existing.canonical_name, *entity.aliases],
+                )
             )
             existing.evidence.extend(entity.evidence)
             id_remap[entity.entity_id] = existing.entity_id
@@ -476,7 +507,11 @@ class SQLiteEntityLinker(EntityLinker):
     def _upsert_alias(self, registry_id: str, entity: Entity) -> None:
         aliases = {
             alias
-            for alias in {entity.canonical_name, entity.normalized_name, *entity.aliases}
+            for alias in {
+                entity.canonical_name,
+                entity.normalized_name,
+                *entity.aliases,
+            }
             if "\n" not in alias and "\r" not in alias
         }
         for alias in aliases:
@@ -532,7 +567,8 @@ class SQLiteEntityLinker(EntityLinker):
             if current_lemmas and stored_lemmas and current_lemmas == stored_lemmas:
                 return 1.0
 
-        return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
+        pairs = zip(current_embedding, stored_embedding, strict=False)
+        return float(sum(a * b for a, b in pairs))
 
     @staticmethod
     def _embedding_text(entity: Entity) -> str:

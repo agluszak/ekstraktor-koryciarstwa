@@ -43,7 +43,8 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["E501"]
+"tests/integration/test_benchmark.py" = ["E501"]
+"tests/test_preprocessing.py" = ["E501"]
 
 [dependency-groups]
 dev = [
