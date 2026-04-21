@@ -160,11 +160,6 @@ def extract_role_from_text(text: str) -> tuple[RoleKind | None, RoleModifier | N
     mapping: list[tuple[RoleKind, RoleModifier | None, re.Pattern[str]]] = [
         (
             RoleKind.PREZES,
-            None,
-            re.compile(r"\bprezes(?:em|a)?\b|\bprezesk(?:ą|a)\b", re.IGNORECASE),
-        ),
-        (
-            RoleKind.PREZES,
             RoleModifier.DEPUTY,
             re.compile(r"\bwiceprezes(?:em|a)?\b|\bwiceprezesk(?:ą|a)\b", re.IGNORECASE),
         ),
@@ -172,6 +167,11 @@ def extract_role_from_text(text: str) -> tuple[RoleKind | None, RoleModifier | N
             RoleKind.PREZES,
             RoleModifier.DEPUTY,
             re.compile(r"\bzastępc(?:a|ą|y)\s+prezesa\b", re.IGNORECASE),
+        ),
+        (
+            RoleKind.PREZES,
+            None,
+            re.compile(r"\bprezes(?:em|a)?\b|\bprezesk(?:ą|a)\b", re.IGNORECASE),
         ),
         (
             RoleKind.DYREKTOR,
