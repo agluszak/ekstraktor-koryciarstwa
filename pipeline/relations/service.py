@@ -14,7 +14,6 @@ from pipeline.governance import GovernanceFactBuilder
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
-    CoreferenceResult,
     EntityCandidate,
     EvidenceSpan,
     Fact,
@@ -52,10 +51,9 @@ class PolishFactExtractor(FactExtractor):
     def name(self) -> str:
         return "polish_fact_extractor"
 
-    def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
+    def run(self, document: ArticleDocument) -> ArticleDocument:
         candidate_graph = self.graph_builder.build(
             document=document,
-            coreference=coreference,
             parsed_sentences=document.parsed_sentences,
         )
         facts: list[Fact] = list(document.facts)

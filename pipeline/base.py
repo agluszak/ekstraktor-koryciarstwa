@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 
 from pipeline.models import (
     ArticleDocument,
-    CoreferenceResult,
     PipelineInput,
     RelevanceDecision,
 )
@@ -40,15 +39,9 @@ class NERExtractor(PipelineStage):
         raise NotImplementedError
 
 
-class CoreferenceResolver(PipelineStage):
-    @abstractmethod
-    def run(self, document: ArticleDocument) -> CoreferenceResult:
-        raise NotImplementedError
-
-
 class FactExtractor(PipelineStage):
     @abstractmethod
-    def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
+    def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 

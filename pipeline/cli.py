@@ -9,7 +9,6 @@ from urllib.request import Request, urlopen
 
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
-from pipeline.coref import StanzaCoreferenceResolver
 from pipeline.filtering import KeywordRelevanceFilter
 from pipeline.frames import PolishFrameExtractor
 from pipeline.identity import PolishFamilyIdentityResolver
@@ -85,7 +84,6 @@ def build_pipeline(
         relevance_filter=KeywordRelevanceFilter(config),
         segmenter=ParagraphSentenceSegmenter(config),
         ner_extractor=SpacyPolishNERExtractor(config, runtime=shared_runtime),
-        coreference_resolver=StanzaCoreferenceResolver(config, runtime=shared_runtime),
         fact_extractor=PolishFactExtractor(config),
         entity_linker=SQLiteEntityLinker(config, runtime=shared_runtime),
         entity_clusterer=PolishEntityClusterer(config),
