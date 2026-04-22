@@ -8,38 +8,48 @@ from pytest import Subtests
 
 
 @pytest.fixture(scope="session")
-def benchmark_results(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> dict[str, Any]:
+def benchmark_results(
+    tmp_path_factory: pytest.TempPathFactory,
+    request: pytest.FixtureRequest,
+) -> dict[str, Any]:
     """
     Runs the pipeline in batch mode over all inputs and returns the parsed JSON results.
     """
     output_dir = tmp_path_factory.mktemp("benchmark_output")
     inputs_dir = Path("inputs")
-    
+
     if not inputs_dir.exists():
         pytest.skip("No inputs directory found")
-        
+
     # Run the batch pipeline
     subprocess.run(
         [
-            "uv", "run", "python", "main.py",
-            "--input-dir", str(inputs_dir),
-            "--glob", "*.html",
-            "--output-dir", str(output_dir)
+            "uv",
+            "run",
+            "python",
+            "main.py",
+            "--input-dir",
+            str(inputs_dir),
+            "--glob",
+            "*.html",
+            "--output-dir",
+            str(output_dir),
         ],
         check=True,
-        capture_output=True
+        capture_output=True,
     )
-    
+
     results: dict[str, Any] = {}
     for json_file in output_dir.glob("*.json"):
         with open(json_file, encoding="utf-8") as f:
             data = json.load(f)
             results[json_file.stem] = data
-            
+
     # Store results in config for the terminal summary hook
     setattr(request.config, "_benchmark_results", results)
-                
+
     return results
+
 
 def get_entity_name(doc: dict[str, Any], entity_id: str | None) -> str:
     """Helper to resolve entity ID to name."""
@@ -50,8 +60,10 @@ def get_entity_name(doc: dict[str, Any], entity_id: str | None) -> str:
             return str(e["canonical_name"])
     return entity_id or ""
 
+
 def get_facts_by_type(doc: dict[str, Any], fact_type: str) -> list[dict[str, Any]]:
     return [f for f in doc.get("facts", []) if f["fact_type"] == fact_type]
+
 
 def target_assert(subtests: Subtests, condition: bool, message: str) -> None:
     """
@@ -62,7 +74,9 @@ def target_assert(subtests: Subtests, condition: bool, message: str) -> None:
         if not condition:
             pytest.xfail(f"TARGET_FAIL: {message}")
 
+
 # --- Benchmarks ---
+
 
 def test_wp_lubczyk(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -76,18 +90,27 @@ def test_wp_lubczyk(benchmark_results: dict[str, Any], subtests: Subtests) -> No
     key = "wp_lubczyk"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
-    
+
     assert doc["relevance"]["is_relevant"] is True
-    
+
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Lubczyk" in e for e in entities)
     assert any("Radosław" in e for e in entities)
-    
+
     # Target: recover the institution and other people
-    target_assert(subtests, any("Sejm" in e or "Kancelaria Sejmu" in e for e in entities), "Should recover Sejm/Kancelaria Sejmu")
-    target_assert(subtests, any("Hołownia" in e for e in entities), "Should recover Szymon Hołownia")
+    target_assert(
+        subtests,
+        any("Sejm" in e or "Kancelaria Sejmu" in e for e in entities),
+        "Should recover Sejm/Kancelaria Sejmu",
+    )
+    target_assert(
+        subtests,
+        any("Hołownia" in e for e in entities),
+        "Should recover Szymon Hołownia",
+    )
+
 
 def test_onet_totalizator(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -103,26 +126,46 @@ def test_onet_totalizator(benchmark_results: dict[str, Any], subtests: Subtests)
     key = "onet_totalizator"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Totalizator" in e for e in entities)
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
-    assert any("Adam Sekuła" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments)
-    
+    assert any(
+        "Adam Sekuła" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments
+    )
+
     # Target assertions
-    target_assert(subtests, len(appointments) >= 3, f"Expected many appointments in Totalizator article, found {len(appointments)}")
-    target_assert(subtests, any("Nitras" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments), "Should find Sławomir Nitras")
-    
-    parties = [get_entity_name(doc, f.get("object_entity_id")) for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")]
-    target_assert(subtests, any("PO" in p or "Platforma" in p or "Koalicja Obywatelska" in p for p in parties), "Should recover PO membership")
+    target_assert(
+        subtests,
+        len(appointments) >= 3,
+        f"Expected many appointments in Totalizator article, found {len(appointments)}",
+    )
+    target_assert(
+        subtests,
+        any("Nitras" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments),
+        "Should find Sławomir Nitras",
+    )
+
+    parties = [
+        get_entity_name(doc, f.get("object_entity_id"))
+        for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    ]
+    target_assert(
+        subtests,
+        any("PO" in p or "Platforma" in p or "Koalicja Obywatelska" in p for p in parties),
+        "Should recover PO membership",
+    )
     target_assert(subtests, any("PSL" in p for p in parties), "Should recover PSL membership")
 
     compensation = get_facts_by_type(doc, "COMPENSATION")
-    target_assert(subtests, len(compensation) > 0, "Should extract compensation metadata (20 tys. zł)")
+    target_assert(
+        subtests, len(compensation) > 0, "Should extract compensation metadata (20 tys. zł)"
+    )
+
 
 def test_pleszew24_stadnina(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -137,20 +180,34 @@ def test_pleszew24_stadnina(benchmark_results: dict[str, Any], subtests: Subtest
     key = "pleszew24.info__pl__12_biznes__16076_radna-powiatowa-z-posada-zmiana-prezesa-slynnej-panstwowej-stadniny-koni"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
-    assert any("Góralczyk" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments)
-    
-    target_assert(subtests, any("Iwno" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments), "Object should be Stadnina Koni Iwno")
+    assert any(
+        "Góralczyk" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments
+    )
+
+    target_assert(
+        subtests,
+        any("Iwno" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments),
+        "Object should be Stadnina Koni Iwno",
+    )
 
     dismissals = get_facts_by_type(doc, "DISMISSAL")
     assert any("Pacie" in get_entity_name(doc, f.get("subject_entity_id")) for f in dismissals)
-    
-    parties = [get_entity_name(doc, f.get("object_entity_id")) for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")]
-    target_assert(subtests, any("PSL" in p or "Polskie Stronnictwo Ludowe" in p for p in parties), "Should recover PSL membership for Góralczyk")
+
+    parties = [
+        get_entity_name(doc, f.get("object_entity_id"))
+        for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    ]
+    target_assert(
+        subtests,
+        any("PSL" in p or "Polskie Stronnictwo Ludowe" in p for p in parties),
+        "Should recover PSL membership for Góralczyk",
+    )
+
 
 def test_oko_rydzyk_funding(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -164,17 +221,26 @@ def test_oko_rydzyk_funding(benchmark_results: dict[str, Any], subtests: Subtest
     key = "oko_miliony_pajeczyna_rydzyka"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Lux Veritatis" in e for e in entities)
     assert any("Rydzyk" in e for e in entities)
-    
+
     funding_facts = get_facts_by_type(doc, "FUNDING")
     target_assert(subtests, len(funding_facts) > 0, "Expected FUNDING facts in OKO Rydzyk article")
-    target_assert(subtests, any("Wojewódzki Fundusz Ochrony Środowiska" in get_entity_name(doc, f.get("subject_entity_id")) for f in funding_facts), "Should find WFOŚiGW as funder")
+    target_assert(
+        subtests,
+        any(
+            "Wojewódzki Fundusz Ochrony Środowiska"
+            in get_entity_name(doc, f.get("subject_entity_id"))
+            for f in funding_facts
+        ),
+        "Should find WFOŚiGW as funder",
+    )
+
 
 def test_rp_klich(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -188,19 +254,32 @@ def test_rp_klich(benchmark_results: dict[str, Any], subtests: Subtests) -> None
     key = "rp_klich"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
     subjects = [get_entity_name(doc, f.get("subject_entity_id")) for f in appointments]
-    
-    target_assert(subtests, any("Hodura" in s for s in subjects), "Should find Jarosław Hodura appointment")
-    target_assert(subtests, any("Dulian" in s for s in subjects), "Should find Marcin Dulian appointment")
+
+    target_assert(
+        subtests, any("Hodura" in s for s in subjects), "Should find Jarosław Hodura appointment"
+    )
+    target_assert(
+        subtests, any("Dulian" in s for s in subjects), "Should find Marcin Dulian appointment"
+    )
 
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
     assert any("Klich" in get_entity_name(doc, t.get("object_entity_id")) for t in ties)
-    target_assert(subtests, any("friend" in str(t.get("value_normalized")) or "acquaintance" in str(t.get("value_normalized")) for t in ties), "Should extract tie semantics")
+    target_assert(
+        subtests,
+        any(
+            "friend" in str(t.get("value_normalized"))
+            or "acquaintance" in str(t.get("value_normalized"))
+            for t in ties
+        ),
+        "Should extract tie semantics",
+    )
+
 
 def test_niezalezna_synekury(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -215,20 +294,35 @@ def test_niezalezna_synekury(benchmark_results: dict[str, Any], subtests: Subtes
     key = "niezalezna_polski2050_synekury"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
-    appointments = get_facts_by_type(doc, "APPOINTMENT")
-    assert any("Bałajewicz" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments)
-    
-    target_assert(subtests, any("Krajowy Zasób Nieruchomości" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments), "KZN should be the object")
 
-    parties = [get_entity_name(doc, f.get("object_entity_id")) for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")]
-    target_assert(subtests, any("Polska 2050" in p for p in parties), "Should recover Polska 2050 membership")
-    
+    appointments = get_facts_by_type(doc, "APPOINTMENT")
+    assert any(
+        "Bałajewicz" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments
+    )
+
+    target_assert(
+        subtests,
+        any(
+            "Krajowy Zasób Nieruchomości" in get_entity_name(doc, f.get("object_entity_id"))
+            for f in appointments
+        ),
+        "KZN should be the object",
+    )
+
+    parties = [
+        get_entity_name(doc, f.get("object_entity_id"))
+        for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    ]
+    target_assert(
+        subtests, any("Polska 2050" in p for p in parties), "Should recover Polska 2050 membership"
+    )
+
     compensation = get_facts_by_type(doc, "COMPENSATION")
     target_assert(subtests, len(compensation) > 0, "Should extract compensation (31 tys. zł)")
+
 
 def test_radomszczanska_rzasowski(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -243,17 +337,31 @@ def test_radomszczanska_rzasowski(benchmark_results: dict[str, Any], subtests: S
     key = "radomszczanska.pl__artykul__nowy-zaciag-tlustych-n1256470"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
-    assert any("Rząsowski" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments)
-        
-    target_assert(subtests, any("Rewita" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments), "AMW Rewita should be the object")
-    
-    parties = [get_entity_name(doc, f.get("object_entity_id")) for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")]
-    target_assert(subtests, any("Platforma Obywatelska" in p or "PO" in p for p in parties), "Should recover PO membership")
+    assert any(
+        "Rząsowski" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments
+    )
+
+    target_assert(
+        subtests,
+        any("Rewita" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments),
+        "AMW Rewita should be the object",
+    )
+
+    parties = [
+        get_entity_name(doc, f.get("object_entity_id"))
+        for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    ]
+    target_assert(
+        subtests,
+        any("Platforma Obywatelska" in p or "PO" in p for p in parties),
+        "Should recover PO membership",
+    )
+
 
 def test_natura_tour(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -267,17 +375,29 @@ def test_natura_tour(benchmark_results: dict[str, Any], subtests: Subtests) -> N
     key = "wiadomosci.onet.pl__kraj__tak-psl-obsadzil-panstwowa-spolke-prace-dostal-min-29-letni-brat-wiceministra__ezt8y9t"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
     assert any("Sobczyk" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments)
-        
-    target_assert(subtests, any("Natura Tour" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments), "Natura Tour should be the object")
-    
-    parties = [get_entity_name(doc, f.get("object_entity_id")) for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")]
-    target_assert(subtests, any("PSL" in p or "Polskie Stronnictwo Ludowe" in p for p in parties), "Should recover PSL context")
+
+    target_assert(
+        subtests,
+        any("Natura Tour" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments),
+        "Natura Tour should be the object",
+    )
+
+    parties = [
+        get_entity_name(doc, f.get("object_entity_id"))
+        for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    ]
+    target_assert(
+        subtests,
+        any("PSL" in p or "Polskie Stronnictwo Ludowe" in p for p in parties),
+        "Should recover PSL context",
+    )
+
 
 def test_nfosigw_odpartyjnienie(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -290,20 +410,29 @@ def test_nfosigw_odpartyjnienie(benchmark_results: dict[str, Any], subtests: Sub
     key = "wiadomosci.wp.pl__odpartyjnienie-rad-nadzorczych-nie-tak-mialo-byc-wyglada-to-bardzo-zle__6996280410176160a"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
     board_members = get_facts_by_type(doc, "MEMBER_OF_BOARD")
     target_assert(
         subtests,
-        any("Wasielewska" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments + board_members), 
-        "Emilia Wasielewska should be found as board member or appointment"
+        any(
+            "Wasielewska" in get_entity_name(doc, f.get("subject_entity_id"))
+            for f in appointments + board_members
+        ),
+        "Emilia Wasielewska should be found as board member or appointment",
     )
-    
-    parties = [get_entity_name(doc, f.get("object_entity_id")) for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")]
-    target_assert(subtests, any("Polska 2050" in p for p in parties), "Should recover Polska 2050 membership")
+
+    parties = [
+        get_entity_name(doc, f.get("object_entity_id"))
+        for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    ]
+    target_assert(
+        subtests, any("Polska 2050" in p for p in parties), "Should recover Polska 2050 membership"
+    )
+
 
 def test_sloma_olsztyn(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -316,14 +445,19 @@ def test_sloma_olsztyn(benchmark_results: dict[str, Any], subtests: Subtests) ->
     key = "olsztyn.tvp.pl__41863255__z-wiceprezydenta-na-wiceprezesa-jaroslaw-sloma-w-zarzadzie-olsztynskich-wodociagow"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
     assert any("Słoma" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments)
-        
-    target_assert(subtests, any("Wodociąg" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments), "Object should be PWiK Olsztyn")
+
+    target_assert(
+        subtests,
+        any("Wodociąg" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments),
+        "Object should be PWiK Olsztyn",
+    )
+
 
 def test_zona_posla_pis(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -337,20 +471,25 @@ def test_zona_posla_pis(benchmark_results: dict[str, Any], subtests: Subtests) -
     key = "zona-posla-pis"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     dismissals = get_facts_by_type(doc, "DISMISSAL")
     assert any("Stefaniuk" in get_entity_name(doc, f.get("subject_entity_id")) for f in dismissals)
-        
+
     target_assert(subtests, len(dismissals) >= 2, "Should find multiple dismissals (Enea, Jelcz)")
-    
+
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
-    target_assert(subtests, any(t.get("relationship_type") == "wife" for t in ties), "Should identify wife relationship")
-    
+    target_assert(
+        subtests,
+        any(t.get("relationship_type") == "wife" for t in ties),
+        "Should identify wife relationship",
+    )
+
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Dariusz Stefaniuk" in e for e in entities)
+
 
 def test_olsztyn_wodkan(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -365,17 +504,18 @@ def test_olsztyn_wodkan(benchmark_results: dict[str, Any], subtests: Subtests) -
     key = "olsztyn_wodkan"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Pancer" in e for e in entities)
-        
+
     target_assert(subtests, any("Milcarz" in e for e in entities), "Should recover Henryk Milcarz")
-    
+
     compensation = get_facts_by_type(doc, "COMPENSATION")
     target_assert(subtests, len(compensation) >= 2, "Should extract multiple compensation facts")
+
 
 def test_tvn24_siemianowice(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -389,15 +529,16 @@ def test_tvn24_siemianowice(benchmark_results: dict[str, Any], subtests: Subtest
     key = "tvn24.pl__polska__kolesiostwo-i-rozdawanie-posad-miasto-umiera-radna-po-ze-slaska-pisze-do-premiera-ra323735-ls3431831__webarchive_20250427191848"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Połedniok" in e for e in entities)
-    
+
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
     target_assert(subtests, len(ties) > 0, "Should extract political ties / patronage signal")
+
 
 def test_dziennik_zachodni_bytom(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -413,21 +554,32 @@ def test_dziennik_zachodni_bytom(benchmark_results: dict[str, Any], subtests: Su
     key = "dziennikzachodni.pl__nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zawiadomienie-cba__c1-16375383"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Bartków" in e for e in entities)
     assert any("Wnuk" in e for e in entities)
-    
-    target_assert(subtests, any("CBA" in e or "Centralne Biuro" in e for e in entities), "Should recover CBA institution")
-    
+
+    target_assert(
+        subtests,
+        any("CBA" in e or "Centralne Biuro" in e for e in entities),
+        "Should recover CBA institution",
+    )
+
     funding = get_facts_by_type(doc, "FUNDING")
-    target_assert(subtests, len(funding) > 0, "Should extract contract/funding facts (Wnuk Consulting)")
-    
+    target_assert(
+        subtests, len(funding) > 0, "Should extract contract/funding facts (Wnuk Consulting)"
+    )
+
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
-    target_assert(subtests, any("Wołosz" in get_entity_name(doc, t.get("subject_entity_id")) for t in ties), "Should find Wołosz-Wnuk link")
+    target_assert(
+        subtests,
+        any("Wołosz" in get_entity_name(doc, t.get("subject_entity_id")) for t in ties),
+        "Should find Wołosz-Wnuk link",
+    )
+
 
 @pytest.mark.xfail(reason="Known relevance failure documented in AGENTS.md")
 def test_wfosigw_lublin_xfail(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
@@ -444,13 +596,22 @@ def test_wfosigw_lublin_xfail(benchmark_results: dict[str, Any], subtests: Subte
     key = "wiadomosci.onet.pl__lublin__nowe-wladze-wfosigw-w-lublinie-bez-konkursu-i-bez-wysluchania-kandydatow__cpw9ltt"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is True
-    
+
     appointments = get_facts_by_type(doc, "APPOINTMENT")
-    target_assert(subtests, any("Mazur" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments), "Should find Mazur appointment")
-    target_assert(subtests, any("Kloc" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments), "Should find Kloc appointment")
+    target_assert(
+        subtests,
+        any("Mazur" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments),
+        "Should find Mazur appointment",
+    )
+    target_assert(
+        subtests,
+        any("Kloc" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments),
+        "Should find Kloc appointment",
+    )
+
 
 def test_wp_meloni_negative(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -461,10 +622,11 @@ def test_wp_meloni_negative(benchmark_results: dict[str, Any], subtests: Subtest
     key = "wp_meloni_negative"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is False
     assert len(doc.get("facts", [])) == 0
+
 
 def test_olsztyn_roosevelta_negative(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -475,10 +637,11 @@ def test_olsztyn_roosevelta_negative(benchmark_results: dict[str, Any], subtests
     key = "olsztyn_roosevelta_negative"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     assert doc["relevance"]["is_relevant"] is False
     assert len(doc.get("facts", [])) == 0
+
 
 def test_rp_tk_negative(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -489,8 +652,10 @@ def test_rp_tk_negative(benchmark_results: dict[str, Any], subtests: Subtests) -
     key = "rp_tk_negative"
     if key not in benchmark_results:
         pytest.skip(f"{key} not found")
-        
+
     doc = benchmark_results[key]
     # Known relevance false positive in current version
-    target_assert(subtests, doc["relevance"]["is_relevant"] is False, "Should be irrelevant (legal analysis)")
+    target_assert(
+        subtests, doc["relevance"]["is_relevant"] is False, "Should be irrelevant (legal analysis)"
+    )
     assert len(doc.get("facts", [])) == 0

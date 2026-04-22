@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict, cast
+from typing import TypedDict
 
 import numpy as np
 
@@ -68,7 +68,9 @@ class InMemoryEntityLinker(EntityLinker):
 
         # Deduplicate: merge entities that resolved to the same registry_id
         document.entities, id_remap = self._deduplicate_by_registry(document.entities)
-        document.entities, exact_name_remap = self._deduplicate_exact_names(document.entities)
+        document.entities, exact_name_remap = self._deduplicate_exact_names(
+            document.entities,
+        )
         id_remap.update(exact_name_remap)
 
         # Remap entity references in extracted facts
@@ -85,7 +87,9 @@ class InMemoryEntityLinker(EntityLinker):
                     )
             for mention in document.mentions:
                 if mention.entity_id:
-                    mention.entity_id = EntityID(id_remap.get(mention.entity_id, mention.entity_id))
+                    mention.entity_id = EntityID(
+                        id_remap.get(mention.entity_id, mention.entity_id),
+                    )
 
         return self.canonicalizer.run(document)
 
@@ -149,7 +153,11 @@ class InMemoryEntityLinker(EntityLinker):
             institution_groups[normalized_canonical].add(canonical)
 
         for normalized, aliases in institution_groups.items():
-            registry_id = stable_id("publicinstitution_registry", normalized, normalized)
+            registry_id = stable_id(
+                "publicinstitution_registry",
+                normalized,
+                normalized,
+            )
             fingerprint = self._fingerprint_from_name(normalized)
             fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
             embedding = self._encode_embedding(normalized)
@@ -249,7 +257,7 @@ class InMemoryEntityLinker(EntityLinker):
 
         for registry_id in candidate_ids:
             entry = self._registry[registry_id]
-            stored = cast(EntityFingerprint, entry["fingerprint"])
+            stored = entry["fingerprint"]
             score = self._match_score(
                 entity.entity_type,
                 fingerprint,
@@ -262,7 +270,9 @@ class InMemoryEntityLinker(EntityLinker):
                 return registry_id
 
         registry_id = stable_id(
-            f"{entity.entity_type.value.lower()}_registry", entity.normalized_name, entity.entity_id
+            f"{entity.entity_type.value.lower()}_registry",
+            entity.normalized_name,
+            entity.entity_id,
         )
         self._upsert_registry(
             registry_id,
@@ -301,7 +311,9 @@ class InMemoryEntityLinker(EntityLinker):
         return names
 
     @staticmethod
-    def _deduplicate_by_registry(entities: list[Entity]) -> tuple[list[Entity], dict[str, str]]:
+    def _deduplicate_by_registry(
+        entities: list[Entity],
+    ) -> tuple[list[Entity], dict[str, str]]:
         """Merge entities that resolved to the same registry_id.
 
         Returns the deduplicated list and a mapping from removed entity_ids
@@ -323,14 +335,18 @@ class InMemoryEntityLinker(EntityLinker):
                 # Merge aliases and evidence into the first entity
                 primary = registry_map[rid]
                 primary.aliases = list(
-                    dict.fromkeys([*primary.aliases, *entity.aliases, entity.canonical_name])
+                    dict.fromkeys(
+                        [*primary.aliases, *entity.aliases, entity.canonical_name],
+                    )
                 )
                 primary.evidence.extend(entity.evidence)
                 id_remap[entity.entity_id] = primary.entity_id
         return result, id_remap
 
     @staticmethod
-    def _deduplicate_exact_names(entities: list[Entity]) -> tuple[list[Entity], dict[str, str]]:
+    def _deduplicate_exact_names(
+        entities: list[Entity],
+    ) -> tuple[list[Entity], dict[str, str]]:
         exact_name_map: dict[tuple[str, str], Entity] = {}
         id_remap: dict[str, str] = {}
         result: list[Entity] = []
@@ -339,7 +355,10 @@ class InMemoryEntityLinker(EntityLinker):
                 result.append(entity)
                 continue
             key_type = entity.entity_type.value
-            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            if entity.entity_type in {
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            }:
                 key_type = "org-or-public-institution"
             key = (key_type, entity.canonical_name.casefold())
             existing = exact_name_map.get(key)
@@ -348,7 +367,9 @@ class InMemoryEntityLinker(EntityLinker):
                 result.append(entity)
                 continue
             existing.aliases = list(
-                dict.fromkeys([*existing.aliases, existing.canonical_name, *entity.aliases])
+                dict.fromkeys(
+                    [*existing.aliases, existing.canonical_name, *entity.aliases],
+                )
             )
             existing.evidence.extend(entity.evidence)
             id_remap[entity.entity_id] = existing.entity_id
@@ -366,7 +387,11 @@ class InMemoryEntityLinker(EntityLinker):
     def _upsert_alias(self, registry_id: str, entity: Entity) -> None:
         aliases = {
             alias
-            for alias in {entity.canonical_name, entity.normalized_name, *entity.aliases}
+            for alias in {
+                entity.canonical_name,
+                entity.normalized_name,
+                *entity.aliases,
+            }
             if "\n" not in alias and "\r" not in alias
         }
         for alias in aliases:
@@ -418,9 +443,7 @@ class InMemoryEntityLinker(EntityLinker):
             if current_lemmas and stored_lemmas and current_lemmas == stored_lemmas:
                 return 1.0
 
-        return float(
-            sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False))
-        )
+        return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
 
     @staticmethod
     def _embedding_text(entity: Entity) -> str:
