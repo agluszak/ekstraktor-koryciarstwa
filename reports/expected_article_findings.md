@@ -943,3 +943,73 @@ Expected comparison standard:
   - the family tie to the city spokesperson if the entity can be represented.
 - If the pipeline only emits generic `radny` political-office facts and misses the CBA,
   contract-money, and conflict-of-interest structure, it is underperforming.
+
+## 21. naTemat: 24 lata i już została wiceprezeską elektrociepłowni w Skierniewicach
+
+Source:
+- https://natemat.pl/141731,24-lata-i-juz-zostala-wiceprezeska-elektrocieplowni-skierniewice-takie-kariery-tylko-z-psl
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a classic nepotism story about a young person with no experience being appointed to a management board of a municipal utility due to her relationship with a high-ranking politician.
+
+Expected core entities:
+- Marta Giermasińska
+- Dariusz Klimczak
+- Paweł Bejda
+- Energetyka Cieplna w Skierniewicach / Energetyka Cieplna
+- Polskie Stronnictwo Ludowe / PSL
+- Jan Woźniak
+
+Expected facts:
+- Marta Giermasińska -> APPOINTMENT / HOLDS_POSITION_AT -> Energetyka Cieplna w Skierniewicach
+  Expected role: wiceprezes / wiceprezeska
+- Marta Giermasińska -> PERSONAL_OR_POLITICAL_TIE -> Dariusz Klimczak
+  Expected relationship type: fiancée / narzeczona
+- Dariusz Klimczak -> PARTY_MEMBERSHIP -> PSL
+- Dariusz Klimczak -> HOLDS_POSITION_AT -> Urząd Marszałkowski Województwa Łódzkiego
+  Expected role: wicemarszałek
+- Paweł Bejda -> HOLDS_POSITION_AT -> Energetyka Cieplna w Skierniewicach
+  Expected role: przewodniczący rady nadzorczej
+- Paweł Bejda -> PARTY_MEMBERSHIP -> PSL
+
+Important text cues:
+- "została wiceprezeską elektrociepłowni"
+- "narzeczoną wicemarszałka województwa łódzkiego"
+- "Dariusz Klimczak"
+- "Paweł Bejda, wiceprezes zarządu wojewódzkiego PSL"
+- "przewodniczącym [rady nadzorczej] jest Paweł Bejda"
+- "24-letnia wiceprezes odchodzi" (indicates a dismissal/resignation event shortly after)
+
+Expected comparison standard:
+- The system MUST recover the appointment of Marta Giermasińska to the board.
+- It SHOULD recover the "fiancée" link to Dariusz Klimczak.
+- It SHOULD identify the PSL connection for both Klimczak and Bejda.
+
+## 21. naTemat: 24 lata i już została wiceprezeską elektrociepłowni w Skierniewicach (Baseline Run Review)
+
+Run Date: 2026-04-22
+Result Path: output/natemat_test/2026-04-22:local-document.json
+
+Current Pipeline Performance:
+- Relevance: Correctly identified as relevant (score 1.0).
+- Entities:
+  - Marta Giermasińska: Found as "Marta Giermasińk" (lemmatization artifact but recognizable).
+  - Dariusz Klimczak: Correctly identified.
+  - Paweł Bejda: Correctly identified.
+  - Energetyka Cieplna: Found as "Energetyki Cieplnej".
+  - PSL: Correctly identified as "Polskie Stronnictwo Ludowe".
+- Facts:
+  - MISSING: Marta Giermasińska -> APPOINTMENT/POSITION -> Energetyka Cieplna.
+  - MISSING: Marta Giermasińska -> PERSONAL_OR_POLITICAL_TIE -> Dariusz Klimczak.
+  - PARTIAL: Found family ties for Eugeniusza Kłopotka and Stanisława Żelichowskiego (historical context in the article).
+  - PARTIAL: Found party membership for various people in the historical context section.
+
+Critical Gaps:
+- Failed to link the main subject (Marta Giermasińska) to her new position.
+- Failed to link the main subject to her fiancé (Dariusz Klimczak), even though "narzeczona" is a key signal.
+- "Marta Giermasińk" lemma is slightly off due to Stanza's pdb model behavior on this specific surname.
+
+Comparison Standard for Next Iteration:
+- Fix the appointment extraction for the main subject.
+- Ensure "narzeczona" (fiancée) is recognized as a personal tie signal.
