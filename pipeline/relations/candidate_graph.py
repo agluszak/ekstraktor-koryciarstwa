@@ -22,9 +22,15 @@ from pipeline.models import (
     EntityCandidate,
     ParsedWord,
 )
-from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, PARTY_PROFILE_CONTEXT_LEMMAS, ROLE_PATTERNS
+from pipeline.nlp_rules import (
+    KINSHIP_LEMMAS,
+    PARTY_CONTEXT_LEMMAS,
+    PARTY_PROFILE_CONTEXT_LEMMAS,
+    ROLE_PATTERNS,
+    TIE_WORDS,
+)
 from pipeline.role_matching import RoleMatch, match_role_mentions
-from pipeline.utils import extract_role_from_text, normalize_entity_name, stable_id
+from pipeline.utils import extract_role_from_text, normalize_entity_name, stable_id, unique_preserve_order
 
 from .org_typing import OrganizationMentionClassifier
 
@@ -481,15 +487,12 @@ class CandidateGraphBuilder:
 
             if any(
                 word in text_lower
-                for word in (
-                    "znajomy",
-                    "współpracownik",
-                    "przyjaciel",
-                    "doradca",
-                    "zaufany",
-                    "szef gabinetu",
-                    "gabinetu politycznego",
-                )
+                for word in {
+                    *TIE_WORDS.keys(),
+                    *KINSHIP_LEMMAS,
+                    "narzeczona",
+                    "narzeczony",
+                }
             ):
                 edges.extend(
                     self._tie_edges_from_anchors(
@@ -509,14 +512,16 @@ class CandidateGraphBuilder:
         persons: list[EntityCandidate],
     ) -> list[CandidateEdge]:
         lowered = sentence_text.lower()
-        relation_markers = (
-            "współpracownik",
+        relation_markers = unique_preserve_order([
+            *TIE_WORDS.keys(),
+            *KINSHIP_LEMMAS,
+            "narzeczon",
             "koleg",
             "znajom",
             "przyjaciel",
             "doradc",
             "zaufan",
-        )
+        ])
         owner_markers = ("firma", "firmy", "spółka", "spółki", "właściciel", "prowadz")
         public_role_markers = (
             "prezydent",

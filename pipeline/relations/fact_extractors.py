@@ -34,6 +34,7 @@ from pipeline.nlp_rules import (
     DISMISSAL_TRIGGER_TEXTS,
     FORMER_MARKERS,
     FUNDING_HINTS,
+    KINSHIP_LEMMAS,
     OFFICE_CANDIDACY_LEMMAS,
     OWNER_CONTEXT_TERMS,
     PARTY_CONTEXT_LEMMAS,
@@ -862,20 +863,7 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
 
         # C: Referential proxy (Noun looking backwards)
         # We also check the word text for kinship markers in case POS is noisy.
-        kinship_markers = {
-            "żona",
-            "mąż",
-            "syn",
-            "córka",
-            "brat",
-            "siostra",
-            "szwagier",
-            "szwagierka",
-            "kuzyn",
-            "partnerka",
-            "partner",
-        }
-        if word.upos == "NOUN" or word.text.lower() in kinship_markers:
+        if word.upos == "NOUN" or word.text.lower() in KINSHIP_LEMMAS:
             # Identify the speaker(s) in this sentence by name to avoid self-attribution
             speaker_names = {
                 c.canonical_name

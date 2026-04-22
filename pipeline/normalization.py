@@ -88,6 +88,8 @@ class DocumentEntityCanonicalizer:
         self.morphology = morphology
         self.ambiguous_person_singletons: set[str] = set()
         self._gender_cache: dict[str, str | None] = {} # name -> gender string
+        self._nominative_cache: dict[str, bool] = {} # name -> is_nominative
+        self._morphology_cache: dict[str, MorphologicalAnalysis] = {} # name -> analysis
         self.party_lookup = {
             normalize_party_name(alias).lower(): compact_whitespace(canonical)
             for alias, canonical in config.party_aliases.items()
@@ -124,8 +126,10 @@ class DocumentEntityCanonicalizer:
                 if name and compact_whitespace(name)
             }
             for name in all_person_names:
-                lemma, gender = self.morphology.get_lemma_and_gender(name)
-                self._gender_cache[name] = gender
+                analysis = self.morphology.analyze(name)
+                self._morphology_cache[name] = analysis
+                self._gender_cache[name] = analysis.gender
+                self._nominative_cache[name] = analysis.is_nominative
 
         for entity in document.entities:
             self._normalize_entity(entity)
@@ -214,7 +218,8 @@ class DocumentEntityCanonicalizer:
         for name in self._raw_names_for_entity(entity):
             if not name or not compact_whitespace(name):
                 continue
-            lemma, _ = self.morphology.get_lemma_and_gender(name)
+            analysis = self.morphology.analyze(name)
+            lemma = analysis.full_lemma
             if lemma and lemma.lower() != name.lower():
                 candidates.append(lemma)
         return candidates
@@ -398,6 +403,7 @@ class DocumentEntityCanonicalizer:
             normalized,
             key=lambda name: (
                 -self._canonical_noise_score(name),
+                self._nominative_cache.get(name, False),  # Strong preference for Nominative surface form
                 not self._looks_like_inflected_single_token_person(name),
                 len(name.split()) >= 2,
                 self._person_name_observed_variant_bonus(name, observed_tokens),
@@ -705,6 +711,17 @@ class DocumentEntityCanonicalizer:
         return bonus
 
     @classmethod
+    def _person_stem(cls, token: str) -> str:
+        t = token.rstrip(".").lower()
+        if len(t) <= 4:
+            return t
+        # Remove common inflections to get a core stem
+        for suffix in ("owego", "iego", "emu", "owi", "ego", "ami", "ach", "om", "em", "ie", "iej", "ą", "ę", "a", "u", "y", "ej", "i", "ska", "ski", "cka", "cki"):
+            if t.endswith(suffix) and len(t) - len(suffix) >= 3:
+                return t[:-len(suffix)]
+        return t
+
+    @classmethod
     def _person_tokens_compatible(cls, left: str, right: str) -> bool:
         left_clean = left.rstrip(".").lower()
         right_clean = right.rstrip(".").lower()
@@ -718,6 +735,24 @@ class DocumentEntityCanonicalizer:
 
         if left_clean == right_clean:
             return True
+
+        # Fuzzy match for broken lemmas or typos
+        l_stem = cls._person_stem(left_clean)
+        r_stem = cls._person_stem(right_clean)
+        if l_stem == r_stem:
+            return True
+        
+        # Levenshtein fallback for stems (handling Giermasińk vs Giermasińsk)
+        if len(l_stem) >= 4 and len(r_stem) >= 4:
+            # We don't want a heavy dependency, so use a simple check for 1-char difference
+            if abs(len(l_stem) - len(r_stem)) <= 1:
+                matches = 0
+                for c1, c2 in zip(l_stem, r_stem):
+                    if c1 == c2:
+                        matches += 1
+                if matches >= max(len(l_stem), len(r_stem)) - 1:
+                    return True
+
         if "-" in left_clean or "-" in right_clean:
             left_parts = left_clean.split("-")
             right_parts = right_clean.split("-")
@@ -784,22 +819,8 @@ class DocumentEntityCanonicalizer:
             if cls._person_tokens_compatible(t_clean, ct_clean):
                 return True
 
-        # Fallback for initials or partial matches if needed, but still respect gender
-        token_variants = cls._person_token_variants(t_clean)
-        for ct in cluster_tokens:
-            ct_clean = ct.rstrip(".").lower()
-            cluster_variants = cls._person_token_variants(ct_clean)
-            for tv in token_variants:
-                for cv in cluster_variants:
-                    if tv == cv:
-                        # Double check gender even for variant match
-                        if cls._person_tokens_compatible(t_clean, ct_clean):
-                            return True
-                    if len(tv) >= 4 and len(cv) >= 4 and (cv.startswith(tv) or tv.startswith(cv)):
-                        if cls._person_tokens_compatible(t_clean, ct_clean):
-                            return True
-
         if len(cluster_tokens) >= 2:
+            # Check first/last name compatibility
             for ct in (cluster_tokens[0], cluster_tokens[-1]):
                 if cls._person_tokens_compatible(t_clean, ct.rstrip(".").lower()):
                     return True

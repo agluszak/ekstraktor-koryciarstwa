@@ -39,7 +39,11 @@ from pipeline.nlp_rules import (
     FUNDING_HINTS,
     ROLE_PATTERNS,
 )
-from pipeline.role_matching import has_copular_role_appointment, match_role_mentions
+from pipeline.role_matching import (
+    has_copular_role_appointment,
+    has_governance_verb_with_role,
+    match_role_mentions,
+)
 from pipeline.utils import normalize_entity_name
 
 COMPENSATION_CONTEXT_LEMMAS = frozenset(
@@ -736,12 +740,14 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             or self._has_appointment_lemma_signal(parsed_words or [])
             or any(trigger in lowered_text for trigger in APPOINTMENT_TRIGGER_TEXTS)
             or has_copular_role_appointment(parsed_words or [])
+            or has_governance_verb_with_role(parsed_words or [], APPOINTMENT_TRIGGER_LEMMAS)
         ):
             return EventType.APPOINTMENT
         if (
             lemma in DISMISSAL_TRIGGER_LEMMAS
             or self._has_dismissal_lemma_signal(parsed_words or [])
             or any(trigger in lowered_text for trigger in DISMISSAL_TRIGGER_TEXTS)
+            or has_governance_verb_with_role(parsed_words or [], DISMISSAL_TRIGGER_LEMMAS)
         ):
             return EventType.DISMISSAL
         return None

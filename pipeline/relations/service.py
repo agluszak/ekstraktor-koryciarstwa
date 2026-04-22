@@ -97,6 +97,7 @@ class PolishFactExtractor(FactExtractor):
         facts.extend(self.public_contract_fact_builder.build(document))
         facts.extend(self.anti_corruption_referral_fact_builder.build(document))
         facts.extend(self._cross_sentence_party_facts(document, candidate_graph))
+        facts.extend(self._cross_sentence_kinship_ties(document, candidate_graph))
 
         document.facts = self._deduplicate_facts(facts)
         return self.canonicalizer.run(document)
@@ -199,6 +200,89 @@ class PolishFactExtractor(FactExtractor):
                         party=party.canonical_name,
                     )
                 )
+        return facts
+
+    @staticmethod
+    def _cross_sentence_kinship_ties(
+        document: ArticleDocument,
+        candidate_graph: CandidateGraph,
+    ) -> list[Fact]:
+        from pipeline.nlp_rules import KINSHIP_LEMMAS, TIE_WORDS
+
+        candidates_by_sentence: dict[int, list[EntityCandidate]] = {}
+        for candidate in candidate_graph.candidates:
+            candidates_by_sentence.setdefault(candidate.sentence_index, []).append(candidate)
+
+        facts: list[Fact] = []
+        kinship_triggers = set(KINSHIP_LEMMAS).union(set(TIE_WORDS.keys()))
+
+        for sentence in document.sentences:
+            lowered = sentence.text.lower()
+            trigger = next((word for word in kinship_triggers if word in lowered), None)
+            if trigger is None:
+                continue
+
+            sentence_candidates = candidates_by_sentence.get(sentence.sentence_index, [])
+            # If a person is mentioned in the same sentence as the trigger, the standard extractor should handle it.
+            # But if there's ONLY one person here, and they are mentioned near the trigger, 
+            # maybe the relationship refers to someone in the PREVIOUS sentence.
+            if len(sentence_candidates) != 1:
+                continue
+            
+            curr_person = sentence_candidates[0]
+            if curr_person.candidate_type != CandidateType.PERSON:
+                continue
+
+            prev_sentence_idx = sentence.sentence_index - 1
+            if prev_sentence_idx < 0:
+                continue
+            
+            prev_candidates = candidates_by_sentence.get(prev_sentence_idx, [])
+            prev_persons = [c for c in prev_candidates if c.candidate_type == CandidateType.PERSON]
+            if not prev_persons:
+                continue
+            
+            # Use the last person from the previous sentence as the potential target
+            target_person = prev_persons[-1]
+            
+            if curr_person.entity_id == target_person.entity_id:
+                continue
+
+            rel_type = TIE_WORDS.get(trigger, RelationshipType.FAMILY)
+            
+            fact_id = FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    FactType.PERSONAL_OR_POLITICAL_TIE,
+                    curr_person.entity_id or curr_person.candidate_id,
+                    target_person.entity_id or target_person.candidate_id,
+                    str(sentence.sentence_index),
+                    "cross-sentence",
+                )
+            )
+            facts.append(
+                Fact(
+                    fact_id=fact_id,
+                    fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+                    subject_entity_id=EntityID(curr_person.entity_id or curr_person.candidate_id),
+                    object_entity_id=EntityID(target_person.entity_id or target_person.candidate_id),
+                    value_text=rel_type.value,
+                    value_normalized=rel_type.value,
+                    confidence=0.65,
+                    time_scope=TimeScope.CURRENT,
+                    event_date=document.publication_date,
+                    evidence=EvidenceSpan(
+                        text=f"{target_person.canonical_name} ... {sentence.text}",
+                        sentence_index=sentence.sentence_index,
+                        paragraph_index=sentence.paragraph_index,
+                        start_char=target_person.start_char,
+                        end_char=sentence.end_char,
+                    ),
+                    source_extractor="cross_sentence_kinship_extractor",
+                    relationship_type=rel_type,
+                )
+            )
         return facts
 
     @staticmethod

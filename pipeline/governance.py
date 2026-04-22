@@ -20,7 +20,17 @@ from pipeline.models import (
     Fact,
     GovernanceFrame,
 )
-from pipeline.nlp_rules import BOARD_ROLE_KINDS, BODY_CONTEXT_TERMS, OWNER_CONTEXT_TERMS
+from pipeline.nlp_rules import (
+    APPOINTMENT_TRIGGER_LEMMAS,
+    BOARD_ROLE_KINDS,
+    BODY_CONTEXT_TERMS,
+    DISMISSAL_TRIGGER_LEMMAS,
+    OWNER_CONTEXT_TERMS,
+)
+from pipeline.role_matching import (
+    has_copular_role_appointment,
+    has_governance_verb_with_role,
+)
 from pipeline.utils import extract_role_from_text, stable_id
 
 

@@ -84,18 +84,46 @@ def match_role_mentions(parsed_words: list[ParsedWord]) -> list[RoleMatch]:
 
 def has_copular_role_appointment(parsed_words: list[ParsedWord]) -> bool:
     role_word_indices = {
-        word_index
+        word.index
         for match in match_role_mentions(parsed_words)
         for word_index in match.word_indices
+        for word in parsed_words
+        if word.index == word_index
     }
     if not role_word_indices:
         return False
     return any(
         word.lemma.casefold() == "zostać"
-        and word.deprel.casefold().startswith(("aux", "cop"))
-        and word.head in role_word_indices
+        and (
+            word.deprel.casefold().startswith(("aux", "cop", "root", "xcomp"))
+            or (word.head in role_word_indices and word.deprel.casefold().startswith(("aux", "cop")))
+        )
         for word in parsed_words
     )
+
+
+def has_governance_verb_with_role(
+    parsed_words: list[ParsedWord], trigger_lemmas: frozenset[str]
+) -> bool:
+    role_word_indices = {
+        word.index
+        for match in match_role_mentions(parsed_words)
+        for word_index in match.word_indices
+        for word in parsed_words
+        if word.index == word_index
+    }
+    if not role_word_indices:
+        return False
+    for word in parsed_words:
+        if word.lemma.casefold() in trigger_lemmas:
+            # Check if any role is a child of this verb with appropriate deprel
+            if any(
+                child.head == word.index and child.deprel.casefold() in {"obj", "iobj", "xcomp", "obl"}
+                and child.index in role_word_indices
+                for child in parsed_words
+            ):
+                return True
+    return False
 
 
 def _raw_role_matches(parsed_words: list[ParsedWord]) -> list[RoleMatch]:
