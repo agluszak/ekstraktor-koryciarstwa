@@ -1,3 +1,3 @@
-from pipeline.linking.service import SQLiteEntityLinker
+from pipeline.linking.service import InMemoryEntityLinker
 
-__all__ = ["SQLiteEntityLinker"]
+__all__ = ["InMemoryEntityLinker"]

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
-import sqlite3
-from pathlib import Path
 from typing import TypedDict, cast
+
+import numpy as np
 
 from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
@@ -25,23 +24,27 @@ class EntityFingerprint(TypedDict, total=False):
     is_media: bool
 
 
-class SQLiteEntityLinker(EntityLinker):
-    def __init__(
-        self,
-        config: PipelineConfig,
-        runtime: PipelineRuntime | None = None,
-    ) -> None:
+class _RegistryEntry(TypedDict):
+    entity_type: str
+    canonical_name: str
+    fingerprint: EntityFingerprint
+    embedding: list[float]
+
+
+class InMemoryEntityLinker(EntityLinker):
+    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
-        self.db_path = Path(config.registry.sqlite_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(self.db_path)
+        # registry_id -> entry
+        self._registry: dict[str, _RegistryEntry] = {}
+        # alias string -> list of registry_ids ordered by insertion
+        # (UNIQUE(registry_id, alias) semantics: a registry_id appears at most once per alias)
+        self._alias_to_registry: dict[str, list[str]] = {}
         self._knowledge_seeded = False
         self.canonicalizer = DocumentEntityCanonicalizer(config)
-        self._ensure_schema()
 
     def name(self) -> str:
-        return "sqlite_entity_linker"
+        return "in_memory_entity_linker"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         if not self._knowledge_seeded and document.entities:
@@ -58,15 +61,10 @@ class SQLiteEntityLinker(EntityLinker):
             entity.registry_id = registry_id
 
             # Update entity name to the canonical form from the registry
-            rows = list(
-                self.connection.execute(
-                    "SELECT canonical_name FROM entity_registry WHERE registry_id = ?",
-                    (registry_id,),
-                )
-            )
-            if rows:
-                entity.canonical_name = rows[0][0]
-                entity.normalized_name = rows[0][0]
+            entry = self._registry.get(registry_id)
+            if entry is not None:
+                entity.canonical_name = entry["canonical_name"]
+                entity.normalized_name = entry["canonical_name"]
 
         # Deduplicate: merge entities that resolved to the same registry_id
         document.entities, id_remap = self._deduplicate_by_registry(document.entities)
@@ -95,28 +93,32 @@ class SQLiteEntityLinker(EntityLinker):
 
         return self.canonicalizer.run(document)
 
-    def _ensure_schema(self) -> None:
-        self.connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entity_registry (
-                registry_id TEXT PRIMARY KEY,
-                entity_type TEXT NOT NULL,
-                canonical_name TEXT NOT NULL,
-                fingerprint TEXT NOT NULL,
-                embedding TEXT NOT NULL
-            )
-            """
-        )
-        self.connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS entity_alias (
-                registry_id TEXT NOT NULL,
-                alias TEXT NOT NULL,
-                UNIQUE(registry_id, alias)
-            )
-            """
-        )
-        self.connection.commit()
+    def _upsert_registry(
+        self,
+        registry_id: str,
+        entity_type: str,
+        canonical_name: str,
+        fingerprint: EntityFingerprint,
+        embedding: list[float],
+    ) -> None:
+        """Insert or replace a registry entry (always overwrites, same semantics as seed upsert)."""
+        self._registry[registry_id] = {
+            "entity_type": entity_type,
+            "canonical_name": canonical_name,
+            "fingerprint": fingerprint,
+            "embedding": embedding,
+        }
+
+    def _add_alias(self, registry_id: str, alias: str) -> None:
+        """Add alias -> registry_id mapping.
+
+        Matches UNIQUE(registry_id, alias) semantics: a registry_id is added
+        at most once per alias, but the same alias may point to several registry
+        entries (different entities / types).
+        """
+        bucket = self._alias_to_registry.setdefault(alias, [])
+        if registry_id not in bucket:
+            bucket.append(registry_id)
 
     def _seed_knowledge_graph(self) -> None:
         # Group aliases by canonical party name so all aliases of one party
@@ -132,52 +134,16 @@ class SQLiteEntityLinker(EntityLinker):
             fingerprint = self._fingerprint_from_name(normalized)
             fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
             embedding = self._encode_embedding(normalized)
-            rows = list(
-                self.connection.execute(
-                    "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
-                    (registry_id,),
-                )
+            self._upsert_registry(
+                registry_id,
+                EntityType.POLITICAL_PARTY.value,
+                normalized,
+                fingerprint,
+                embedding.tolist(),
             )
-            if rows:
-                self.connection.execute(
-                    (
-                        "UPDATE entity_registry "
-                        "SET entity_type = ?, canonical_name = ?, fingerprint = ?, embedding = ? "
-                        "WHERE registry_id = ?"
-                    ),
-                    (
-                        EntityType.POLITICAL_PARTY.value,
-                        normalized,
-                        json.dumps(fingerprint, ensure_ascii=False),
-                        json.dumps(embedding.tolist()),
-                        registry_id,
-                    ),
-                )
-            else:
-                self.connection.execute(
-                    (
-                        "INSERT INTO entity_registry "
-                        "(registry_id, entity_type, canonical_name, fingerprint, embedding) "
-                        "VALUES (?, ?, ?, ?, ?)"
-                    ),
-                    (
-                        registry_id,
-                        EntityType.POLITICAL_PARTY.value,
-                        normalized,
-                        json.dumps(fingerprint, ensure_ascii=False),
-                        json.dumps(embedding.tolist()),
-                    ),
-                )
-            # Seed all known surface forms: raw alias, canonical, and
-            # title-cased variants so case-insensitive matching works.
             for alias_text in aliases:
                 for variant in {alias_text, alias_text.title(), alias_text.lower()}:
-                    self.connection.execute(
-                        "INSERT OR IGNORE INTO entity_alias (registry_id, alias) VALUES (?, ?)",
-                        (registry_id, variant),
-                    )
-
-        self.connection.commit()
+                    self._add_alias(registry_id, variant)
 
         institution_groups: dict[str, set[str]] = {}
         for alias, canonical in self.config.institution_aliases.items():
@@ -195,49 +161,16 @@ class SQLiteEntityLinker(EntityLinker):
             fingerprint = self._fingerprint_from_name(normalized)
             fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
             embedding = self._encode_embedding(normalized)
-            rows = list(
-                self.connection.execute(
-                    "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
-                    (registry_id,),
-                )
+            self._upsert_registry(
+                registry_id,
+                EntityType.PUBLIC_INSTITUTION.value,
+                normalized,
+                fingerprint,
+                embedding.tolist(),
             )
-            if rows:
-                self.connection.execute(
-                    (
-                        "UPDATE entity_registry "
-                        "SET entity_type = ?, canonical_name = ?, fingerprint = ?, embedding = ? "
-                        "WHERE registry_id = ?"
-                    ),
-                    (
-                        EntityType.PUBLIC_INSTITUTION.value,
-                        normalized,
-                        json.dumps(fingerprint, ensure_ascii=False),
-                        json.dumps(embedding.tolist()),
-                        registry_id,
-                    ),
-                )
-            else:
-                self.connection.execute(
-                    (
-                        "INSERT INTO entity_registry "
-                        "(registry_id, entity_type, canonical_name, fingerprint, embedding) "
-                        "VALUES (?, ?, ?, ?, ?)"
-                    ),
-                    (
-                        registry_id,
-                        EntityType.PUBLIC_INSTITUTION.value,
-                        normalized,
-                        json.dumps(fingerprint, ensure_ascii=False),
-                        json.dumps(embedding.tolist()),
-                    ),
-                )
             for alias_text in aliases:
                 for variant in {alias_text, alias_text.title(), alias_text.lower()}:
-                    self.connection.execute(
-                        "INSERT OR IGNORE INTO entity_alias (registry_id, alias) VALUES (?, ?)",
-                        (registry_id, variant),
-                    )
-        self.connection.commit()
+                    self._add_alias(registry_id, variant)
 
         # Seed common media organizations with aliases
         media_groups = {
@@ -249,13 +182,7 @@ class SQLiteEntityLinker(EntityLinker):
         }
         for normalized, aliases in media_groups.items():
             registry_id = stable_id("organization_registry", "media", normalized)
-            rows = list(
-                self.connection.execute(
-                    "SELECT registry_id FROM entity_registry WHERE registry_id = ?",
-                    (registry_id,),
-                )
-            )
-            if not rows:
+            if registry_id not in self._registry:
                 fingerprint: EntityFingerprint = {
                     "normalized_name": normalized,
                     "name_tokens": normalized.split(),
@@ -263,34 +190,23 @@ class SQLiteEntityLinker(EntityLinker):
                     "is_media": True,
                 }
                 embedding = self._encode_embedding(normalized)
-                self.connection.execute(
-                    (
-                        "INSERT INTO entity_registry "
-                        "(registry_id, entity_type, canonical_name, fingerprint, embedding) "
-                        "VALUES (?, ?, ?, ?, ?)"
-                    ),
-                    (
-                        registry_id,
-                        EntityType.ORGANIZATION.value,
-                        normalized,
-                        json.dumps(fingerprint, ensure_ascii=False),
-                        json.dumps(embedding.tolist()),
-                    ),
+                self._upsert_registry(
+                    registry_id,
+                    EntityType.ORGANIZATION.value,
+                    normalized,
+                    fingerprint,
+                    embedding.tolist(),
                 )
             for alias_text in aliases:
                 for variant in {alias_text, alias_text.title(), alias_text.lower()}:
-                    self.connection.execute(
-                        "INSERT OR IGNORE INTO entity_alias (registry_id, alias) VALUES (?, ?)",
-                        (registry_id, variant),
-                    )
-        self.connection.commit()
+                    self._add_alias(registry_id, variant)
 
-    def _encode_embedding(self, text: str):
+    def _encode_embedding(self, text: str) -> np.ndarray:
         model = self.runtime.get_sentence_transformer_model()
         try:
-            return model.encode(text, normalize_embeddings=True)
+            return model.encode(text, normalize_embeddings=True)  # type: ignore[no-any-return]
         except TypeError:
-            return model.encode(text)
+            return model.encode(text)  # type: ignore[no-any-return]
 
     def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
         # Try alias-based match first (case-insensitive via multiple
@@ -298,21 +214,10 @@ class SQLiteEntityLinker(EntityLinker):
         search_names = self._alias_search_names(entity)
         for name in search_names:
             for variant in {name, name.title(), name.lower()}:
-                alias_matches = list(
-                    self.connection.execute(
-                        "SELECT registry_id FROM entity_alias WHERE alias = ?",
-                        (variant,),
-                    )
-                )
-                for (match_id,) in alias_matches:
-                    type_row = list(
-                        self.connection.execute(
-                            "SELECT entity_type FROM entity_registry WHERE registry_id = ?",
-                            (match_id,),
-                        )
-                    )
-                    if type_row:
-                        match_type = type_row[0][0]
+                for match_id in self._alias_to_registry.get(variant, []):
+                    entry = self._registry.get(match_id)
+                    if entry is not None:
+                        match_type = entry["entity_type"]
                         type_match = self._registry_types_compatible(
                             entity.entity_type.value,
                             match_type,
@@ -322,60 +227,43 @@ class SQLiteEntityLinker(EntityLinker):
                             return match_id
 
         # Candidate search
+        entity_embedding = self._encode_embedding(self._embedding_text(entity))
+
         if entity.entity_type == EntityType.PERSON:
-            search_term = entity.normalized_name.split()[-1]
-            rows = list(
-                self.connection.execute(
-                    (
-                        "SELECT registry_id, canonical_name, fingerprint, embedding "
-                        "FROM entity_registry WHERE canonical_name LIKE ? AND entity_type = ?"
-                    ),
-                    (f"%{search_term}%", entity.entity_type.value),
-                )
-            )
+            search_term = entity.normalized_name.split()[-1].lower()
+            candidate_ids = [
+                rid
+                for rid, entry in self._registry.items()
+                if entry["entity_type"] == entity.entity_type.value
+                and search_term in entry["canonical_name"].lower()
+            ]
         else:
-            # For non-persons, search compatible registry classes to allow
-            # lemma matching across Organization/PublicInstitution inflection.
-            if entity.entity_type in {
-                EntityType.ORGANIZATION,
-                EntityType.PUBLIC_INSTITUTION,
-            }:
-                rows = list(
-                    self.connection.execute(
-                        (
-                            "SELECT registry_id, canonical_name, fingerprint, embedding "
-                            "FROM entity_registry WHERE entity_type IN (?, ?)"
-                        ),
-                        (
-                            EntityType.ORGANIZATION.value,
-                            EntityType.PUBLIC_INSTITUTION.value,
-                        ),
-                    )
-                )
+            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+                compatible_types = {
+                    EntityType.ORGANIZATION.value,
+                    EntityType.PUBLIC_INSTITUTION.value,
+                }
+                candidate_ids = [
+                    rid
+                    for rid, entry in self._registry.items()
+                    if entry["entity_type"] in compatible_types
+                ]
             else:
-                rows = list(
-                    self.connection.execute(
-                        (
-                            "SELECT registry_id, canonical_name, fingerprint, embedding "
-                            "FROM entity_registry WHERE entity_type = ?"
-                        ),
-                        (entity.entity_type.value,),
-                    )
-                )
+                candidate_ids = [
+                    rid
+                    for rid, entry in self._registry.items()
+                    if entry["entity_type"] == entity.entity_type.value
+                ]
 
-        entity_embedding = self.runtime.get_sentence_transformer_model().encode(
-            self._embedding_text(entity),
-            normalize_embeddings=True,
-        )
-
-        for registry_id, _canonical_name, fingerprint_json, embedding_json in rows:
-            stored = cast(EntityFingerprint, json.loads(fingerprint_json))
+        for registry_id in candidate_ids:
+            entry = self._registry[registry_id]
+            stored = cast(EntityFingerprint, entry["fingerprint"])
             score = self._match_score(
                 entity.entity_type,
                 fingerprint,
                 stored,
                 entity_embedding,
-                cast(list[float], json.loads(embedding_json)),
+                entry["embedding"],
             )
             if score >= self.config.registry.similarity_threshold:
                 self._upsert_alias(registry_id, entity)
@@ -386,22 +274,14 @@ class SQLiteEntityLinker(EntityLinker):
             entity.normalized_name,
             entity.entity_id,
         )
-        self.connection.execute(
-            (
-                "INSERT INTO entity_registry "
-                "(registry_id, entity_type, canonical_name, fingerprint, embedding) "
-                "VALUES (?, ?, ?, ?, ?)"
-            ),
-            (
-                registry_id,
-                entity.entity_type.value,
-                entity.normalized_name,
-                json.dumps(fingerprint, ensure_ascii=False),
-                json.dumps(entity_embedding.tolist()),
-            ),
+        self._upsert_registry(
+            registry_id,
+            entity.entity_type.value,
+            entity.normalized_name,
+            fingerprint,
+            entity_embedding.tolist(),
         )
         self._upsert_alias(registry_id, entity)
-        self.connection.commit()
         return registry_id
 
     @staticmethod
@@ -515,11 +395,7 @@ class SQLiteEntityLinker(EntityLinker):
             if "\n" not in alias and "\r" not in alias
         }
         for alias in aliases:
-            self.connection.execute(
-                "INSERT OR IGNORE INTO entity_alias (registry_id, alias) VALUES (?, ?)",
-                (registry_id, alias),
-            )
-        self.connection.commit()
+            self._add_alias(registry_id, alias)
 
     @staticmethod
     def _fingerprint_from_name(normalized_name: str) -> EntityFingerprint:
@@ -545,7 +421,7 @@ class SQLiteEntityLinker(EntityLinker):
         entity_type: EntityType,
         current: EntityFingerprint,
         stored: EntityFingerprint,
-        current_embedding,
+        current_embedding: np.ndarray,
         stored_embedding: list[float],
     ) -> float:
         current_tokens = current["name_tokens"]
@@ -567,10 +443,10 @@ class SQLiteEntityLinker(EntityLinker):
             if current_lemmas and stored_lemmas and current_lemmas == stored_lemmas:
                 return 1.0
 
-        pairs = zip(current_embedding, stored_embedding, strict=False)
-        return float(sum(a * b for a, b in pairs))
+        return float(
+            sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False))
+        )
 
     @staticmethod
     def _embedding_text(entity: Entity) -> str:
-        # Since these were not inlined in models.py, we just use name.
         return entity.normalized_name.strip()
