@@ -9,6 +9,30 @@ from pipeline.models import ArticleDocument, RelevanceDecision
 
 class KeywordRelevanceFilter(RelevanceFilter):
     patronage_markers = ("kolesiostwo", "rozdawanie posad")
+    anti_corruption_markers = (
+        "cba",
+        "centralne biuro antykorupcyjne",
+        "korupcja",
+        "korupcyj",
+        "łapówka",
+        "łapówki",
+        "łapówkę",
+        "zamówienia publiczne",
+        "zamówień publicznych",
+        "ustawianie zleceń",
+        "ustawiania zleceń",
+        "przekroczenie uprawnień",
+        "przekroczenia uprawnień",
+    )
+    public_office_actor_markers = (
+        "wójt",
+        "wójta",
+        "burmistrz",
+        "starosta",
+        "sekretarz powiatu",
+        "marszałek województwa",
+        "wojewoda",
+    )
 
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
@@ -74,6 +98,19 @@ class KeywordRelevanceFilter(RelevanceFilter):
         if patronage_hits:
             score += 0.25
             reasons.append(f"patronage language: {', '.join(patronage_hits)}")
+
+        anti_corruption_hits = [
+            marker for marker in self.anti_corruption_markers if marker in lowered_full
+        ]
+        public_actor_hits = [
+            marker for marker in self.public_office_actor_markers if marker in lowered_full
+        ]
+        if anti_corruption_hits:
+            score += min(0.35, 0.12 * len(anti_corruption_hits))
+            reasons.append(f"anti-corruption context: {', '.join(anti_corruption_hits[:4])}")
+        if anti_corruption_hits and public_actor_hits:
+            score += 0.18
+            reasons.append(f"public-office actor context: {', '.join(public_actor_hits[:3])}")
 
         # Co-occurrence bonus (structural relevance)
         if co_occurrence_count > 0:

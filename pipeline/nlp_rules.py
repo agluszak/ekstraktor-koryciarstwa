@@ -78,6 +78,18 @@ ROLE_PATTERNS: list[tuple[RoleKind, RoleModifier | None, re.Pattern[str]]] = [
         RoleModifier.DEPUTY,
         re.compile(r"\bwicewojewod(?:a|ą|y)\b", re.IGNORECASE),
     ),
+    (RoleKind.WOJT, None, re.compile(r"\bwójt(?:em|a|owi)?\b", re.IGNORECASE)),
+    (RoleKind.STAROSTA, None, re.compile(r"\bstarost(?:a|ą|y|ę)\b", re.IGNORECASE)),
+    (
+        RoleKind.SEKRETARZ_POWIATU,
+        None,
+        re.compile(r"\bsekretarz(?:em|a)?\s+powiat(?:u|owym)?\b", re.IGNORECASE),
+    ),
+    (
+        RoleKind.MARSZALEK_WOJEWODZTWA,
+        None,
+        re.compile(r"\bmarszał(?:ek|kiem|ka)\s+województw(?:a|em)?\b", re.IGNORECASE),
+    ),
 ]
 
 

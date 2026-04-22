@@ -45,6 +45,8 @@ ROLE_LEMMA_PATTERNS: tuple[LemmaRolePattern, ...] = (
     LemmaRolePattern(("członek", "zarząd"), RoleKind.CZLONEK_ZARZADU),
     LemmaRolePattern(("rada", "nadzorczy"), RoleKind.RADA_NADZORCZA),
     LemmaRolePattern(("prezydent", "miasto"), RoleKind.PREZYDENT_MIASTA),
+    LemmaRolePattern(("sekretarz", "powiat"), RoleKind.SEKRETARZ_POWIATU),
+    LemmaRolePattern(("marszałek", "województwo"), RoleKind.MARSZALEK_WOJEWODZTWA),
     LemmaRolePattern(("wiceprezes",), RoleKind.PREZES, RoleModifier.DEPUTY),
     LemmaRolePattern(("wiceprezeska",), RoleKind.PREZES, RoleModifier.DEPUTY),
     LemmaRolePattern(("prezes",), RoleKind.PREZES),
@@ -61,6 +63,9 @@ ROLE_LEMMA_PATTERNS: tuple[LemmaRolePattern, ...] = (
     LemmaRolePattern(("senatorka",), RoleKind.SENATOR),
     LemmaRolePattern(("wicewojewoda",), RoleKind.WOJEWODA, RoleModifier.DEPUTY),
     LemmaRolePattern(("wojewoda",), RoleKind.WOJEWODA),
+    LemmaRolePattern(("wójt",), RoleKind.WOJT),
+    LemmaRolePattern(("wojt",), RoleKind.WOJT),
+    LemmaRolePattern(("starosta",), RoleKind.STAROSTA),
 )
 
 

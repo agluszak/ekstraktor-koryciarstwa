@@ -75,3 +75,30 @@ def test_patronage_complaint_article_passes_relevance_filter() -> None:
 
     assert decision.is_relevant is True
     assert decision.score >= 0.45
+
+
+def test_cba_procurement_bribery_article_passes_relevance_without_named_person() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    relevance_filter = KeywordRelevanceFilter(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-cba-ostrow"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=(
+            "CBA zatrzymało wójta gminy Ostrów. "
+            "Śledczy opisują łapówki za zamówienia publiczne i ustawianie zleceń."
+        ),
+        paragraphs=[
+            (
+                "CBA zatrzymało wójta gminy Ostrów. "
+                "Śledczy opisują łapówki za zamówienia publiczne i ustawianie zleceń."
+            )
+        ],
+    )
+
+    decision = relevance_filter.run(document)
+
+    assert decision.is_relevant is True
+    assert decision.score >= 0.45

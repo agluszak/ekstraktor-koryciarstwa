@@ -168,6 +168,87 @@ def test_creates_spouse_proxy_and_family_tie() -> None:
     assert family_facts[0].relationship_type == RelationshipType.FAMILY
 
 
+def test_creates_extended_family_proxies() -> None:
+    cases = [
+        ("Kuzyn Artura Sosny dostał pracę.", "Kuzyn", "kuzyn", KinshipDetail.COUSIN),
+        ("Teść Artura Sosny dostał pracę.", "Teść", "teść", KinshipDetail.FATHER_IN_LAW),
+        (
+            "Szwagier Artura Sosny dostał pracę.",
+            "Szwagier",
+            "szwagier",
+            KinshipDetail.BROTHER_IN_LAW,
+        ),
+        (
+            "Szwagierka Artura Sosny dostała pracę.",
+            "Szwagierka",
+            "szwagierka",
+            KinshipDetail.SISTER_IN_LAW,
+        ),
+        ("Bratowa Artura Sosny dostała pracę.", "Bratowa", "bratowa", KinshipDetail.SISTER_IN_LAW),
+        ("Synowa Artura Sosny dostała pracę.", "Synowa", "synowa", KinshipDetail.DAUGHTER_IN_LAW),
+    ]
+
+    for text, surface, lemma, kinship_detail in cases:
+        doc = _document(
+            [text],
+            {
+                0: [
+                    _word(1, surface, lemma, "NOUN", 4, "nsubj", 0),
+                    _word(2, "Artura", "Artur", "PROPN", 1, "nmod", len(surface) + 1),
+                    _word(3, "Sosny", "Sosna", "PROPN", 2, "flat", len(surface) + 8),
+                    _word(4, "dostał", "dostać", "VERB", 0, "root", text.index("dosta")),
+                ]
+            },
+        )
+        entity, cluster = _person_cluster(
+            "person-artur",
+            "Artur Sosna",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=len(surface) + 1,
+        )
+        doc.entities.append(entity)
+        doc.clusters.append(cluster)
+
+        resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+        proxy = next(entity for entity in resolved.entities if entity.is_proxy_person)
+        assert proxy.kinship_detail == kinship_detail
+        assert proxy.proxy_anchor_entity_id == "person-artur"
+
+
+def test_family_proxy_can_anchor_through_public_office_phrase() -> None:
+    text = "Mąż wojewody Moniki Jurek został głównym specjalistą."
+    doc = _document(
+        [text],
+        {
+            0: [
+                _word(1, "Mąż", "mąż", "NOUN", 6, "nsubj", 0),
+                _word(2, "wojewody", "wojewoda", "NOUN", 1, "nmod", 4),
+                _word(3, "Moniki", "Monika", "PROPN", 2, "nmod", 13),
+                _word(4, "Jurek", "Jurek", "PROPN", 3, "flat", 20),
+                _word(5, "został", "zostać", "AUX", 6, "aux", 26),
+                _word(6, "głównym", "główny", "ADJ", 0, "root", 33),
+            ]
+        },
+    )
+    entity, cluster = _person_cluster(
+        "person-monika",
+        "Monika Jurek",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=13,
+    )
+    doc.entities.append(entity)
+    doc.clusters.append(cluster)
+
+    resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+    proxy = next(entity for entity in resolved.entities if entity.is_proxy_person)
+    assert proxy.kinship_detail == KinshipDetail.SPOUSE
+    assert proxy.proxy_anchor_entity_id == "person-monika"
+
+
 def test_sister_proxy_is_separate_from_spouse_proxy() -> None:
     sentences = [
         "Żona Karola Wilczyńskiego pracowała w jednostce.",

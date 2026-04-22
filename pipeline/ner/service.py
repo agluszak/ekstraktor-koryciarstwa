@@ -195,11 +195,34 @@ class SpacyPolishNERExtractor(NERExtractor):
             return display, score
 
         display = SpacyPolishNERExtractor._person_merge_key(ent)
+        surface = normalize_entity_name(ent.text)
+        if SpacyPolishNERExtractor._surface_repairs_broken_person_lemma(surface, display):
+            return surface, 8
         if all_propn:
             return display, 5
 
-        surface = normalize_entity_name(ent.text)
         return surface, -5
+
+    @staticmethod
+    def _surface_repairs_broken_person_lemma(surface: str, display: str) -> bool:
+        surface_tokens = surface.split()
+        display_tokens = display.split()
+        if len(surface_tokens) != len(display_tokens) or len(surface_tokens) < 2:
+            return False
+        repaired = False
+        for surface_token, display_token in zip(surface_tokens, display_tokens, strict=True):
+            surface_lower = surface_token.lower()
+            display_lower = display_token.lower()
+            if surface_lower == display_lower:
+                continue
+            if (
+                surface_lower.startswith(display_lower)
+                and len(surface_lower) - len(display_lower) <= 2
+            ):
+                repaired = True
+                continue
+            return False
+        return repaired
 
     @staticmethod
     def _sentence_index(document: ArticleDocument, start_char: int) -> int:

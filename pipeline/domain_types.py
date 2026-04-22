@@ -98,6 +98,11 @@ class KinshipDetail(StrEnum):
     SIBLING_BROTHER = "sibling_brother"
     CHILD_DAUGHTER = "child_daughter"
     CHILD_SON = "child_son"
+    COUSIN = "cousin"
+    FATHER_IN_LAW = "father_in_law"
+    BROTHER_IN_LAW = "brother_in_law"
+    SISTER_IN_LAW = "sister_in_law"
+    DAUGHTER_IN_LAW = "daughter_in_law"
 
 
 class RoleModifier(StrEnum):
@@ -117,3 +122,7 @@ class RoleKind(StrEnum):
     MINISTER = "minister"
     PREZYDENT_MIASTA = "prezydent miasta"
     WOJEWODA = "wojewoda"
+    WOJT = "wójt"
+    STAROSTA = "starosta"
+    SEKRETARZ_POWIATU = "sekretarz powiatu"
+    MARSZALEK_WOJEWODZTWA = "marszałek województwa"

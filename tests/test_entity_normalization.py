@@ -362,6 +362,51 @@ def test_single_token_inflected_person_variants_merge_into_full_name_cluster() -
     assert normalized.entities[0].canonical_name == "Marek Rząsowski"
 
 
+def test_person_canonical_prefers_observed_surface_over_broken_lemma_stem() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-observed-surface"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Agnieszka Królikowska Szymon Ogłaza Joanna Pszczółkowska",
+        paragraphs=["Agnieszka Królikowska Szymon Ogłaza Joanna Pszczółkowska"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-agnieszka"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Agnieszk Królikowski",
+                normalized_name="Agnieszk Królikowski",
+                aliases=["Agnieszka Królikowska"],
+            ),
+            Entity(
+                entity_id=EntityID("person-szymon"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Szymon Ogłaz",
+                normalized_name="Szymon Ogłaz",
+                aliases=["Szymon Ogłaza"],
+            ),
+            Entity(
+                entity_id=EntityID("person-joanna"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Joann Pszczółkowski",
+                normalized_name="Joann Pszczółkowski",
+                aliases=["Joanna Pszczółkowska"],
+            ),
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert {entity.canonical_name for entity in normalized.entities} == {
+        "Agnieszka Królikowska",
+        "Szymon Ogłaza",
+        "Joanna Pszczółkowska",
+    }
+
+
 def test_organization_canonical_prefers_acronym_preserving_alias() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)

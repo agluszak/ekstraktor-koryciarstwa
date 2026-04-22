@@ -13,6 +13,7 @@ from pipeline.domain_types import (
     OrganizationKind,
     RoleKind,
     RoleModifier,
+    TimeScope,
 )
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
@@ -199,6 +200,37 @@ def test_role_matcher_uses_wojewoda_lemma_for_inflected_surface() -> None:
     assert matches[0].end == len("wojewodą")
 
 
+def test_role_matcher_handles_public_office_roles() -> None:
+    cases = [
+        ([word(1, "wójta", "wójt", 0)], RoleKind.WOJT, "Wójt"),
+        ([word(1, "starosta", "starosta", 0)], RoleKind.STAROSTA, "Starosta"),
+        (
+            [
+                word(1, "sekretarz", "sekretarz", 0),
+                word(2, "powiatu", "powiat", 10),
+            ],
+            RoleKind.SEKRETARZ_POWIATU,
+            "Sekretarz Powiatu",
+        ),
+        (
+            [
+                word(1, "marszałkiem", "marszałek", 0),
+                word(2, "województwa", "województwo", 12),
+            ],
+            RoleKind.MARSZALEK_WOJEWODZTWA,
+            "Marszałek Województwa",
+        ),
+        ([word(1, "wojewodą", "wojewoda", 0)], RoleKind.WOJEWODA, "Wojewoda"),
+    ]
+
+    for parsed_words, role_kind, canonical_name in cases:
+        matches = match_role_mentions(parsed_words)
+
+        assert len(matches) == 1
+        assert matches[0].role_kind == role_kind
+        assert matches[0].canonical_name == canonical_name
+
+
 def test_candidate_graph_uses_wicewojewoda_lemma_for_deputy_role() -> None:
     config = PipelineConfig.from_file("config.yaml")
     text = "Anna Nowak została wicewojewodą."
@@ -244,6 +276,53 @@ def test_candidate_graph_uses_wicewojewoda_lemma_for_deputy_role() -> None:
     assert positions[0].role_modifier == RoleModifier.DEPUTY
     assert positions[0].start_char == role_start
     assert positions[0].end_char == role_start + len("wicewojewodą")
+
+
+def test_role_title_surface_is_not_derived_as_person() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Sekretarz Powiatu podpisała dokumenty."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-role-not-person"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+    )
+    document.parsed_sentences = {
+        0: [
+            word(1, "Sekretarz", "sekretarz", 0),
+            word(2, "Powiatu", "powiat", 10),
+            word(3, "podpisała", "podpisać", 18, upos="VERB"),
+        ]
+    }
+
+    candidate_graph = CandidateGraphBuilder(config).build(
+        document=document,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=document.parsed_sentences,
+    )
+
+    assert not any(
+        candidate.candidate_type == CandidateType.PERSON
+        and candidate.canonical_name == "Sekretarz Powiatu"
+        for candidate in candidate_graph.candidates
+    )
+    assert any(
+        candidate.candidate_type == CandidateType.POSITION
+        and candidate.role_kind == RoleKind.SEKRETARZ_POWIATU
+        for candidate in candidate_graph.candidates
+    )
 
 
 def test_role_matcher_handles_inflected_prezes_family() -> None:
@@ -2020,6 +2099,82 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
     assert facts
     assert facts[0].subject_entity_id == EntityID("person-1")
     assert facts[0].object_entity_id == EntityID("party-1")
+
+
+def test_public_employment_entry_wording_emits_appointment_with_job_label() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Jan Kowalski został koordynatorem projektu w Powiatowym Centrum Pomocy Rodzinie."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-entry",
+        text=text,
+        entities=[
+            ("Jan Kowalski", EntityType.PERSON, "Jan Kowalski"),
+            (
+                "Powiatowym Centrum Pomocy Rodzinie",
+                EntityType.PUBLIC_INSTITUTION,
+                "Powiatowe Centrum Pomocy Rodzinie",
+            ),
+        ],
+        parsed_words=[
+            word(1, "Jan", "Jan", 0, head=3, deprel="nsubj", upos="PROPN"),
+            word(2, "Kowalski", "Kowalski", 4, head=1, deprel="flat", upos="PROPN"),
+            word(3, "został", "zostać", 13, head=4, deprel="aux", upos="AUX"),
+            word(4, "koordynatorem", "koordynator", 20, upos="NOUN"),
+            word(5, "projektu", "projekt", 34, head=4, deprel="nmod"),
+            word(6, "w", "w", 43, head=9, deprel="case", upos="ADP"),
+            word(7, "Powiatowym", "powiatowy", 45, head=9, deprel="amod"),
+            word(8, "Centrum", "centrum", 56, head=9, deprel="flat"),
+            word(9, "Pomocy", "pomoc", 64, head=4, deprel="obl"),
+            word(10, "Rodzinie", "rodzina", 71, head=9, deprel="nmod"),
+        ],
+    )
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
+    assert appointments
+    assert appointments[0].subject_entity_id == EntityID("entity-0")
+    assert appointments[0].object_entity_id == EntityID("entity-1")
+    assert appointments[0].role == "Koordynator Projektu"
+    assert appointments[0].value_text == "Koordynator Projektu"
+
+
+def test_public_employment_status_wording_emits_role_held() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Anna Nowak pracuje jako główny specjalista w Powiatowym Urzędzie Pracy."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-status",
+        text=text,
+        entities=[
+            ("Anna Nowak", EntityType.PERSON, "Anna Nowak"),
+            (
+                "Powiatowym Urzędzie Pracy",
+                EntityType.PUBLIC_INSTITUTION,
+                "Powiatowy Urząd Pracy",
+            ),
+        ],
+        parsed_words=[
+            word(1, "Anna", "Anna", 0, head=3, deprel="nsubj", upos="PROPN"),
+            word(2, "Nowak", "Nowak", 5, head=1, deprel="flat", upos="PROPN"),
+            word(3, "pracuje", "pracować", 11, upos="VERB"),
+            word(4, "jako", "jako", 19, head=6, deprel="case", upos="SCONJ"),
+            word(5, "główny", "główny", 24, head=6, deprel="amod"),
+            word(6, "specjalista", "specjalista", 31, head=3, deprel="xcomp"),
+            word(7, "w", "w", 43, head=9, deprel="case", upos="ADP"),
+            word(8, "Powiatowym", "powiatowy", 45, head=9, deprel="amod"),
+            word(9, "Urzędzie", "urząd", 56, head=3, deprel="obl"),
+            word(10, "Pracy", "praca", 64, head=9, deprel="nmod"),
+        ],
+    )
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
+    assert role_facts
+    assert role_facts[0].subject_entity_id == EntityID("entity-0")
+    assert role_facts[0].object_entity_id == EntityID("entity-1")
+    assert role_facts[0].role == "Główny Specjalista"
+    assert role_facts[0].time_scope == TimeScope.CURRENT
 
 
 def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount() -> None:

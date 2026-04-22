@@ -641,6 +641,217 @@ def test_dziennik_zachodni_bytom(benchmark_results: dict[str, Any], subtests: Su
     )
 
 
+def test_dziennik_polski_charsznica_nepotism(
+    benchmark_results: dict[str, Any],
+    subtests: Subtests,
+) -> None:
+    """
+    Article: Kontrowersje wokół wójta Charsznicy.
+    URL: https://dziennikpolski24.pl/kontrowersje-wokol-wojta-charsznicy-tak-prace-dostala-jego-partnerka-tomasz-koscielniak-zaprzecza-zarzutom/ar/c1p2-28656825
+    Expectation:
+    - Tomasz Kościelniak -> POLITICAL_OFFICE -> wójt.
+    - Unnamed partner / in-law proxies -> employment in municipal units.
+    """
+    key = (
+        "dziennikpolski24.pl__kontrowersje-wokol-wojta-charsznicy-tak-prace-dostala-"
+        "jego-partnerka-tomasz-koscielniak-zaprzecza-zarzutom__c1p2-28656825__"
+        "webarchive_20260422220715"
+    )
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    target_assert(subtests, any("Kościelniak" in e for e in entities), "Should recover Kościelniak")
+    target_assert(
+        subtests,
+        any("Charsznica" in e or "Urząd Gminy" in e for e in entities),
+        "Should recover Charsznica municipal office context",
+    )
+
+    ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
+    target_assert(
+        subtests,
+        any(
+            "Kościelniak" in get_entity_name(doc, f.get("object_entity_id"))
+            or "Kościelniak" in get_entity_name(doc, f.get("subject_entity_id"))
+            for f in ties
+        ),
+        "Should capture at least one partner/family tie involving Kościelniak",
+    )
+
+
+def test_onet_cba_ostrow_bribery(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
+    """
+    Article: CBA. Wójt brał łapówki za zlecanie remontów i zatrudnianie pracowników.
+    URL: https://wiadomosci.onet.pl/krakow/cba-wojt-bral-lapowki-za-zlecanie-remontow-i-zatrudnianie-pracownikow/vdc04xe
+    Expectation:
+    - Wójt gminy Ostrów public-function proxy.
+    - CBA / corruption / public-procurement context.
+    """
+    key = (
+        "wiadomosci.onet.pl__krakow__cba-wojt-bral-lapowki-za-zlecanie-remontow-i-"
+        "zatrudnianie-pracownikow__vdc04xe"
+    )
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    target_assert(subtests, any("CBA" in e for e in entities), "Should recover CBA")
+    target_assert(
+        subtests,
+        any("Ostrów" in e or "urząd gminy" in e.lower() for e in entities),
+        "Should recover Gmina Ostrów / urząd gminy context",
+    )
+
+
+def test_ai42_poczesna_nepotism(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
+    """
+    Article: Czy wójt ukrywa nepotyzm?
+    URL: https://ai42.pl/2024/08/04/czy-wojt-ukrywa-nepotyzm/
+    Expectation:
+    - Rafał Dobosz -> employment -> Gmina Poczesna / urząd.
+    - Rafał Dobosz -> FAMILY -> Artur Sosna, cousin.
+    """
+    key = "ai42.pl__2024__08__04__czy-wojt-ukrywa-nepotyzm"
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    target_assert(
+        subtests, any("Rafał Dobosz" in e for e in entities), "Should recover Rafał Dobosz"
+    )
+    target_assert(subtests, any("Artur Sosna" in e for e in entities), "Should recover Artur Sosna")
+    target_assert(subtests, any("Poczesna" in e for e in entities), "Should recover Gmina Poczesna")
+
+    ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
+    target_assert(
+        subtests,
+        any(
+            "Dobosz" in get_entity_name(doc, f.get("subject_entity_id"))
+            and "Sosna" in get_entity_name(doc, f.get("object_entity_id"))
+            for f in ties
+        ),
+        "Should capture Dobosz/Sosna family tie",
+    )
+
+
+def test_wp_opole_cross_office_family(
+    benchmark_results: dict[str, Any],
+    subtests: Subtests,
+) -> None:
+    """
+    Article: Wiedza, doświadczenie i kompetencje, czyli rodzina na swoim w Opolu.
+    URL: https://wiadomosci.wp.pl/wiedza-doswiadczenie-i-kompetencje-czyli-rodzina-na-swoim-w-opolu-7147022691576352a
+    Expectation:
+    - Agnieszka Królikowska -> OUW, partner of Szymon Ogłaza.
+    - Dariusz Jurek -> UMWO, spouse of Monika Jurek.
+    - Public functions: marszałek województwa, wojewoda.
+    """
+    key = (
+        "wiadomosci.wp.pl__wiedza-doswiadczenie-i-kompetencje-czyli-rodzina-na-"
+        "swoim-w-opolu__7147022691576352a"
+    )
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    for expected_name in (
+        "Agnieszka Królikowska",
+        "Szymon Ogłaza",
+        "Monika Jurek",
+        "Dariusz Jurek",
+    ):
+        target_assert(
+            subtests, any(expected_name in e for e in entities), f"Should recover {expected_name}"
+        )
+    target_assert(
+        subtests,
+        any("Opolski Urząd Wojewódzki" in e or "OUW" in e for e in entities),
+        "Should recover Opolski Urząd Wojewódzki",
+    )
+    target_assert(
+        subtests,
+        any("Urząd Marszałkowski" in e or "UMWO" in e for e in entities),
+        "Should recover Urząd Marszałkowski context",
+    )
+
+    ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
+    target_assert(
+        subtests,
+        any(
+            "Królikowska" in get_entity_name(doc, f.get("subject_entity_id"))
+            and "Ogłaza" in get_entity_name(doc, f.get("object_entity_id"))
+            for f in ties
+        ),
+        "Should capture Królikowska/Ogłaza partner tie",
+    )
+    target_assert(
+        subtests,
+        any(
+            "Dariusz Jurek" in get_entity_name(doc, f.get("subject_entity_id"))
+            and "Monika Jurek" in get_entity_name(doc, f.get("object_entity_id"))
+            for f in ties
+        ),
+        "Should capture Dariusz/Monika Jurek spouse tie",
+    )
+
+
+def test_polsat_ciechanow_family_starostwo(
+    benchmark_results: dict[str, Any],
+    subtests: Subtests,
+) -> None:
+    """
+    Article: Bardzo rodzinne starostwo.
+    URL: https://interwencja.polsatnews.pl/reportaz/2013-11-29/bardzo-rodzinne-starostwo_1329791/
+    Expectation:
+    - Joanna Pszczółkowska -> sekretarz powiatu.
+    - Sławomir Morawski -> starosta.
+    - Relatives -> county subordinate units.
+    """
+    key = "interwencja.polsatnews.pl__reportaz__2013-11-29__bardzo-rodzinne-starostwo_1329791"
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    for expected_name in ("Joanna Pszczółkowska", "Sławomir Morawski"):
+        target_assert(
+            subtests, any(expected_name in e for e in entities), f"Should recover {expected_name}"
+        )
+    target_assert(
+        subtests,
+        any("Bartosz" in e and "Pszczółkowski" in e for e in entities),
+        "Should recover Bartosz Pszczółkowski",
+    )
+    target_assert(
+        subtests,
+        any("Jakub" in e and "Pszczółkowski" in e for e in entities),
+        "Should recover Jakub Mieszko Pszczółkowski",
+    )
+    target_assert(
+        subtests,
+        any(
+            "Powiatowe Centrum Pomocy Rodzinie" in e or "Powiatowy Zarząd Dróg" in e
+            for e in entities
+        ),
+        "Should recover subordinate county units",
+    )
+
+
 @pytest.mark.xfail(reason="Known relevance failure documented in AGENTS.md")
 def test_wfosigw_lublin_xfail(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """

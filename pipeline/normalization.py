@@ -400,6 +400,9 @@ class DocumentEntityCanonicalizer:
         normalized = [normalize_entity_name(name) for name in names if compact_whitespace(name)]
         if not normalized:
             return ""
+        surface_repair = self._surface_repair_for_broken_person_name(normalized)
+        if surface_repair is not None:
+            return surface_repair
         observed_tokens = {
             token.rstrip(".").lower() for name in normalized for token in name.split() if token
         }
@@ -425,6 +428,61 @@ class DocumentEntityCanonicalizer:
                     return candidate
 
         return best
+
+    @classmethod
+    def _surface_repair_for_broken_person_name(cls, names: list[str]) -> str | None:
+        broken_names = [name for name in names if cls._person_name_has_broken_surface_stem(name)]
+        if not broken_names:
+            return None
+        repairs = [
+            candidate
+            for broken in broken_names
+            for candidate in names
+            if candidate != broken and cls._person_surface_repairs_broken_name(candidate, broken)
+        ]
+        if not repairs:
+            return None
+        return max(
+            repairs,
+            key=lambda name: (
+                cls._person_name_nominality_score(name),
+                len(name),
+            ),
+        )
+
+    @staticmethod
+    def _person_name_has_broken_surface_stem(name: str) -> bool:
+        tokens = name.split()
+        if len(tokens) < 2:
+            return False
+        return any(
+            token.lower().endswith(("szk", "łaz", "ann", "ieszk"))
+            or token.lower() in {"agnieszk", "joann", "ogłaz"}
+            for token in tokens
+        )
+
+    @staticmethod
+    def _person_surface_repairs_broken_name(candidate: str, broken: str) -> bool:
+        candidate_tokens = candidate.split()
+        broken_tokens = broken.split()
+        if len(candidate_tokens) != len(broken_tokens):
+            return False
+        repaired = False
+        for candidate_token, broken_token in zip(candidate_tokens, broken_tokens, strict=True):
+            candidate_lower = candidate_token.lower()
+            broken_lower = broken_token.lower()
+            if candidate_lower == broken_lower:
+                continue
+            if candidate_lower.startswith(broken_lower) and len(candidate_lower) > len(
+                broken_lower
+            ):
+                repaired = True
+                continue
+            if broken_lower.endswith("i") and candidate_lower.endswith("a"):
+                repaired = True
+                continue
+            return False
+        return repaired
 
     def _is_broken_stem(self, name: str) -> bool:
         """Checks if a name looks like a lemmatization artifact (broken stem)."""

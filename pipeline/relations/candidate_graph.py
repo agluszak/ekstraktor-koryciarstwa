@@ -207,6 +207,8 @@ class CandidateGraphBuilder:
             ):
                 continue
             surface = match.group(0)
+            if self._looks_like_role_title(surface):
+                continue
             person = self._get_or_create_person_entity(document=document, surface=surface)
             candidates.append(
                 EntityCandidate(
@@ -232,6 +234,23 @@ class CandidateGraphBuilder:
                 )
             )
         return candidates
+
+    @staticmethod
+    def _looks_like_role_title(surface: str) -> bool:
+        normalized = normalize_entity_name(surface).casefold()
+        if normalized in {role.value.casefold() for role in RoleKind}:
+            return True
+        first_token = normalized.split()[0] if normalized.split() else ""
+        return first_token in {
+            "sekretarz",
+            "starosta",
+            "starost",
+            "wójt",
+            "wojt",
+            "marszałek",
+            "marszałkiem",
+            "wojewoda",
+        }
 
     def _position_candidates(
         self,

@@ -43,6 +43,14 @@ KINSHIP_BY_LEMMA: dict[str, KinshipDetail] = {
     "brat": KinshipDetail.SIBLING_BROTHER,
     "córka": KinshipDetail.CHILD_DAUGHTER,
     "syn": KinshipDetail.CHILD_SON,
+    "kuzyn": KinshipDetail.COUSIN,
+    "kuzynka": KinshipDetail.COUSIN,
+    "teść": KinshipDetail.FATHER_IN_LAW,
+    "tesc": KinshipDetail.FATHER_IN_LAW,
+    "szwagier": KinshipDetail.BROTHER_IN_LAW,
+    "szwagierka": KinshipDetail.SISTER_IN_LAW,
+    "bratowa": KinshipDetail.SISTER_IN_LAW,
+    "synowa": KinshipDetail.DAUGHTER_IN_LAW,
 }
 POSSESSIVE_LEMMAS = {"mój"}
 HONORIFIC_LEMMAS = {"pani"}
@@ -260,6 +268,21 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             and after[1].lemma.casefold() == "przewodniczący"
         ):
             return after[:2]
+        if len(after) >= 3 and after[0].lemma.casefold() in {
+            "wójt",
+            "wojt",
+            "wojewoda",
+            "starosta",
+            "marszałek",
+            "sekretarz",
+        }:
+            role_anchor: list[ParsedWord] = []
+            for word in after[1:]:
+                if word.upos != "PROPN":
+                    break
+                role_anchor.append(word)
+            if role_anchor:
+                return role_anchor
         proper: list[ParsedWord] = []
         for word in after:
             if word.upos != "PROPN":
@@ -949,7 +972,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 right_key = right_key[: -len(suffix)]
                 break
         return (
-            len(left_key) >= 5
-            and len(right_key) >= 5
+            len(left_key) >= 4
+            and len(right_key) >= 4
             and (left_key.startswith(right_key) or right_key.startswith(left_key))
         )

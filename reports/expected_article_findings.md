@@ -1013,3 +1013,258 @@ Critical Gaps:
 Comparison Standard for Next Iteration:
 - Fix the appointment extraction for the main subject.
 - Ensure "narzeczona" (fiancée) is recognized as a personal tie signal.
+
+## 22. Dziennik Polski: Kontrowersje wokół wójta Charsznicy. Tak pracę dostała jego partnerka
+
+Source:
+- https://dziennikpolski24.pl/kontrowersje-wokol-wojta-charsznicy-tak-prace-dostala-jego-partnerka-tomasz-koscielniak-zaprzecza-zarzutom/ar/c1p2-28656825
+
+Archived source:
+- https://web.archive.org/web/20260422220715/https://dziennikpolski24.pl/kontrowersje-wokol-wojta-charsznicy-tak-prace-dostala-jego-partnerka-tomasz-koscielniak-zaprzecza-zarzutom/ar/c1p2-28656825
+
+Saved input:
+- inputs/dziennikpolski24.pl__kontrowersje-wokol-wojta-charsznicy-tak-prace-dostala-jego-partnerka-tomasz-koscielniak-zaprzecza-zarzutom__c1p2-28656825__webarchive_20260422220715.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a local-government nepotism article about alleged hiring of the wójt's partner and several relatives or in-laws in the Charsznica municipal office and subordinate local institutions.
+- The live page returned HTTP 403 in this environment; use the archived source above as the canonical benchmark reference.
+
+Expected core entities:
+- Tomasz Kościelniak
+- Urząd Gminy / Urząd Gminy w Charsznicy
+- Urząd Stanu Cywilnego
+- Klub Seniora
+- Gmina Charsznica
+- Rada Gminy
+- Jan Żebrak
+- Szymon Kubit
+- Paweł Janicki
+- Prawo i Sprawiedliwość / PiS
+
+Expected facts:
+- Tomasz Kościelniak -> `POLITICAL_OFFICE` -> wójt gminy Charsznica.
+- partnerka / dziewczyna Tomasza Kościelniaka -> `APPOINTMENT` / employment -> Urząd Gminy w Charsznicy
+  Expected role: `ekodoradca na zastępstwo`.
+- partnerka / dziewczyna Tomasza Kościelniaka -> possible future employment context -> Urząd Stanu Cywilnego.
+- partnerka / dziewczyna Tomasza Kościelniaka -> `PERSONAL_OR_POLITICAL_TIE` -> Tomasz Kościelniak
+  Expected relationship type: partner.
+- przyszły teść Tomasza Kościelniaka -> employment -> Urząd Gminy / gmina
+  Expected role: `pracownik gospodarczy`.
+- szwagierka Tomasza Kościelniaka -> employment -> biblioteka.
+- bratowa Tomasza Kościelniaka -> employment -> dział inwestycji.
+- chłopak szwagierki Tomasza Kościelniaka -> employment -> Urząd Gminy / gmina
+  Expected role: `pracownik gospodarczy`.
+- Paweł Janicki -> `PARTY_MEMBERSHIP` / party-list context -> PiS.
+
+Important text cues:
+- "sprawujący funkcję wójta pierwszą kadencję Tomasz Kościelniak"
+- "zatrudnić w urzędzie swoją dziewczynę na stanowisko ekodoradcy na zastępstwo"
+- "partnerka wójta ma być kandydatką do pracy w Urzędzie Stanu Cywilnego"
+- "wójt zatrudnił swojego przyszłego teścia"
+- "szwagierce dał zatrudnienie w bibliotece"
+- "bratowej w dziale inwestycji"
+- "chłopak szwagierki został zatrudniony jako kolejny pracownik gospodarczy"
+- "Przecież to jest nepotyzm w czystej postaci"
+
+Expected comparison standard:
+- This should be relevant and should not require named relatives to capture proxy-family employment.
+- At minimum, the system should recover Tomasz Kościelniak, the wójt role, the Charsznica municipal-office target, and one partner-family employment tie.
+- A stronger result would preserve the unnamed proxy people and their kinship details instead of attaching every job to the nearest named person.
+
+## 23. Onet: CBA. Wójt brał łapówki za zlecanie remontów i zatrudnianie pracowników
+
+Source:
+- https://wiadomosci.onet.pl/krakow/cba-wojt-bral-lapowki-za-zlecanie-remontow-i-zatrudnianie-pracownikow/vdc04xe
+
+Saved input:
+- inputs/wiadomosci.onet.pl__krakow__cba-wojt-bral-lapowki-za-zlecanie-remontow-i-zatrudnianie-pracownikow__vdc04xe.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is an anti-corruption and public-procurement article about a wójt accused by CBA of rigging repair-work contracts and accepting bribes for public-office employment.
+- The central person is unnamed in the article text, so the extractor should use a public-function proxy rather than invent a person name.
+
+Expected core entities:
+- wójt gminy Ostrów / Wójt Gminy Ostrów
+- Gmina Ostrów
+- urząd gminy
+- Centralne Biuro Antykorupcyjne / CBA
+- Piotr Kaczoruk
+- Delegatura CBA w Rzeszowie
+- prokuratura / Podkarpacki Wydział Zamiejscowy Departamentu do Spraw Przestępczości Zorganizowanej i Korupcji
+
+Expected facts:
+- wójt gminy Ostrów -> `POLITICAL_OFFICE` -> wójt.
+- CBA / investigation context -> wójt gminy Ostrów
+  Expected signal: corruption charges / public-office abuse / detention.
+- wójt gminy Ostrów -> public-procurement / contract-rigging context -> repair-work contracts.
+- wójt gminy Ostrów -> employment-corruption context -> przyjmowanie osób do pracy w urzędzie za łapówki.
+- Amount context:
+  - `5 tys. zł`
+  - `2 tys. zł`
+  - `20 tys. zł` bail.
+
+Important text cues:
+- "Centralnego Biura Antykorupcyjnego"
+- "wójt gminy Ostrów wielokrotnie przekraczał swoje uprawnienia służbowe"
+- "łamał ustawę o zamówieniach publicznych"
+- "ustawiając zlecenia prac remontowych"
+- "przyjmował osoby do pracy w urzędzie w zamian za łapówki"
+- "usłyszeli już zarzuty korupcyjne"
+- "zawiesiła go w pełnieniu jego funkcji publicznej"
+
+Expected comparison standard:
+- This should be relevant even without a named politician or family tie.
+- If the pipeline cannot yet represent CBA investigation, bribery, or public-procurement facts, the run should still recover the public-function proxy, CBA, Gmina Ostrów, and money cues as entities/context.
+
+## 24. AI42: Czy wójt ukrywa nepotyzm?
+
+Source:
+- https://ai42.pl/2024/08/04/czy-wojt-ukrywa-nepotyzm/
+
+Saved input:
+- inputs/ai42.pl__2024__08__04__czy-wojt-ukrywa-nepotyzm.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a local-government nepotism article about the wójt of Poczesna hiring his cousin as administrative help.
+
+Expected core entities:
+- Artur Sosna
+- Rafał Dobosz
+- Gmina Poczesna
+- urząd gminy / samorząd
+
+Expected facts:
+- Artur Sosna -> `POLITICAL_OFFICE` -> wójt gminy Poczesna.
+- Rafał Dobosz -> `APPOINTMENT` / employment -> Urząd Gminy / Gmina Poczesna
+  Expected role: `pomoc administracyjna`.
+- Rafał Dobosz -> `PERSONAL_OR_POLITICAL_TIE` -> Artur Sosna
+  Expected relationship type: family; expected kinship detail: cousin / kuzyn if represented.
+
+Important text cues:
+- "w samorządzie zatrudniono Rafała Dobosza na stanowisko pomocy administracyjnej"
+- "nowy pracownik jest blisko spokrewniony z wójtem Arturem Sosną"
+- "Rafał Dobosz, kuzyn wójta Sosny"
+- "został on zatrudniony jako pomoc administracyjna"
+
+Expected comparison standard:
+- This should be relevant and should recover both named people.
+- The best baseline result is one employment/appointment fact into the municipal office and one family tie with kinship detail `cousin` or equivalent.
+
+## 25. WP: Wiedza, doświadczenie i kompetencje, czyli rodzina na swoim w Opolu
+
+Source:
+- https://wiadomosci.wp.pl/wiedza-doswiadczenie-i-kompetencje-czyli-rodzina-na-swoim-w-opolu-7147022691576352a
+
+Saved input:
+- inputs/wiadomosci.wp.pl__wiedza-doswiadczenie-i-kompetencje-czyli-rodzina-na-swoim-w-opolu__7147022691576352a.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a cross-office nepotism / conflict-of-interest article involving the partner of the Opole voivodeship marshal and the husband of the Opole voivode.
+- It is a high-value benchmark for public functions beyond MPs and board members: `marszałek województwa` and `wojewoda`.
+
+Expected core entities:
+- Agnieszka Królikowska
+- Szymon Ogłaza
+- Monika Jurek
+- Dariusz Jurek
+- Opolski Urząd Wojewódzki / OUW
+- Urząd Marszałkowski Województwa Opolskiego / UMWO
+- Biuro Bezpieczeństwa
+- Platforma Obywatelska / PO
+- Andrzej Buła
+- Krzysztof Izdebski
+- Fundacja im. Stefana Batorego
+
+Expected facts:
+- Agnieszka Królikowska -> `APPOINTMENT` / `HOLDS_POSITION_AT` -> Opolski Urząd Wojewódzki
+  Expected role: `dyrektor generalny`.
+- Agnieszka Królikowska -> `PERSONAL_OR_POLITICAL_TIE` -> Szymon Ogłaza
+  Expected relationship type: partner.
+- Szymon Ogłaza -> `POLITICAL_OFFICE` -> marszałek województwa opolskiego.
+- Szymon Ogłaza -> `PARTY_MEMBERSHIP` -> Platforma Obywatelska.
+- Monika Jurek -> `POLITICAL_OFFICE` -> wojewoda opolska.
+- Monika Jurek -> `PARTY_MEMBERSHIP` -> Platforma Obywatelska.
+- Dariusz Jurek -> `APPOINTMENT` / `HOLDS_POSITION_AT` -> Urząd Marszałkowski Województwa Opolskiego / Biuro Bezpieczeństwa
+  Expected role: `główny specjalista`.
+- Dariusz Jurek -> `PERSONAL_OR_POLITICAL_TIE` -> Monika Jurek
+  Expected relationship type: spouse.
+- Wojewoda / Opolski Urząd Wojewódzki -> oversight context -> samorząd województwa / Urząd Marszałkowski.
+
+Important text cues:
+- "Partnerka marszałka województwa opolskiego na dyrektorskim stanowisku u wojewody opolskiej"
+- "mąż wojewody opolskiej na stanowisku głównego specjalisty u marszałka województwa opolskiego"
+- "Agnieszka Królikowska w OUW jest dyrektorem generalnym"
+- "wojewoda Monika Jurek (Platforma Obywatelska)"
+- "Szymon Ogłaza. To marszałek województwa opolskiego, działacz Platformy Obywatelskiej"
+- "Prywatnie jest partnerem Agnieszki Królikowskiej"
+- "Dariusz Jurek. Prywatnie mąż wojewody Moniki Jurek"
+- "przypadek krzyżowego zatrudnienia"
+
+Expected comparison standard:
+- The system should recover both paired employment facts and both family/partner ties.
+- Public functions `marszałek województwa` and `wojewoda` should be represented as political/public-office context, not mistaken for appointment targets.
+
+## 26. Polsat Interwencja: Bardzo rodzinne starostwo
+
+Source:
+- https://interwencja.polsatnews.pl/reportaz/2013-11-29/bardzo-rodzinne-starostwo_1329791/
+
+Saved input:
+- inputs/interwencja.polsatnews.pl__reportaz__2013-11-29__bardzo-rodzinne-starostwo_1329791.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a county-level nepotism article about close relatives of the county secretary and starosta working in the starostwo or subordinate county units.
+- It is a high-value benchmark for public functions beyond MPs and company boards: `starosta` and `sekretarz powiatu`.
+
+Expected core entities:
+- Starostwo Powiatowe w Ciechanowie
+- Joanna Pszczółkowska
+- Bartosz Pszczółkowski
+- Jakub Mieszko Pszczółkowski
+- Sławomir Morawski
+- Powiatowe Centrum Pomocy Rodzinie w Ciechanowie / PCPR
+- Anna Karaś
+- Powiatowy Zarząd Dróg w Ciechanowie
+- Józef Borkowski
+- Powiatowy Urząd Pracy
+- Roman Nadaj
+- Tygodnik Ciechanowski
+
+Expected facts:
+- Joanna Pszczółkowska -> `POLITICAL_OFFICE` / public function -> sekretarz powiatu ciechanowskiego.
+- mąż Joanny Pszczółkowskiej -> employment -> Powiatowe Centrum Pomocy Rodzinie.
+- mąż Joanny Pszczółkowskiej -> `PERSONAL_OR_POLITICAL_TIE` -> Joanna Pszczółkowska
+  Expected relationship type: spouse.
+- szwagier Joanny Pszczółkowskiej -> employment -> Powiatowe Centrum Pomocy Rodzinie.
+- Bartosz Pszczółkowski -> employment -> Powiatowy Zarząd Dróg w Ciechanowie.
+- Bartosz Pszczółkowski -> `PERSONAL_OR_POLITICAL_TIE` -> Joanna Pszczółkowska
+  Expected relationship type: son / child.
+- Jakub Mieszko Pszczółkowski -> `APPOINTMENT` / employment -> Starostwo Powiatowe / project `e-Integracja`
+  Expected role: coordinator; amount context: `20 milionów złotych`.
+- Jakub Mieszko Pszczółkowski -> `PERSONAL_OR_POLITICAL_TIE` -> Joanna Pszczółkowska
+  Expected relationship type: son / child.
+- Sławomir Morawski -> `POLITICAL_OFFICE` -> starosta ciechanowski.
+- synowa Sławomira Morawskiego -> employment -> Powiatowy Urząd Pracy.
+- synowa Sławomira Morawskiego -> `PERSONAL_OR_POLITICAL_TIE` -> Sławomir Morawski
+  Expected relationship type: daughter-in-law / synowa.
+
+Important text cues:
+- "Starostwo Powiatowe w Ciechanowie to bardzo rodzinna instytucja"
+- "najbliżsi sekretarz powiatu oraz samego starosty"
+- "Oprócz męża i dwóch synów, pracuje jeszcze jej szwagier"
+- "Sekretarz powiatu Joanna Pszczółkowska"
+- "mężowi, który jest zatrudniony w podległym starostwu Powiatowym Centrum Pomocy Rodzinie"
+- "Powiatowym Zarządzie Dróg pracuje starszy syn sekretarz Pszczółkowskiej, Bartosz"
+- "Młodszy syn pani sekretarz, 25-letni Jakub Mieszko został właśnie koordynatorem unijnego projektu e-Integracja"
+- "synowa starosty ciechanowskiego otrzymała pracę w jednostce podlegającej starostwu - Powiatowym Urzędzie Pracy"
+- "Sławomir Morawski, Starosta Ciechanowski"
+
+Expected comparison standard:
+- The system should be relevant and should preserve unnamed proxy relatives for husband, brother-in-law, and daughter-in-law.
+- The most important named expectations are Joanna Pszczółkowska, Sławomir Morawski, Bartosz Pszczółkowski, Jakub Mieszko Pszczółkowski, and their county-unit employment contexts.
+- A strong result should not collapse all relatives into one person or attach every job to the public official directly.

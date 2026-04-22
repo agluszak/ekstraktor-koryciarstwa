@@ -202,6 +202,25 @@ class SecondaryFactScorer:
         )
 
     @classmethod
+    def public_employment(
+        cls,
+        *,
+        person: EntityCandidate,
+        organization: EntityCandidate,
+        has_role_label: bool,
+    ) -> SecondaryFactScore:
+        distance = abs(person.start_char - organization.start_char)
+        confidence = cls.DEPENDENCY_EDGE if has_role_label else cls.SAME_SENTENCE
+        if distance > 120:
+            confidence -= 0.12
+        return cls._score(
+            confidence,
+            "dependency_edge" if has_role_label else "same_sentence",
+            "same_sentence",
+            "public_employment",
+        )
+
+    @classmethod
     def tie(
         cls,
         context: SentenceContext,
@@ -416,6 +435,10 @@ class PoliticalProfileFactExtractor:
         RoleKind.MINISTER.value,
         RoleKind.PREZYDENT_MIASTA.value,
         RoleKind.WOJEWODA.value,
+        RoleKind.WOJT.value,
+        RoleKind.STAROSTA.value,
+        RoleKind.SEKRETARZ_POWIATU.value,
+        RoleKind.MARSZALEK_WOJEWODZTWA.value,
     }
 
     def extract(self, context: SentenceContext) -> list[Fact]:
@@ -592,6 +615,335 @@ class FundingFactExtractor:
                 organization_kind=source.organization_kind,
             )
         ]
+
+
+@dataclass(frozen=True, slots=True)
+class _EmploymentSignal:
+    fact_type: FactType
+    marker: str
+
+
+class PublicEmploymentFactExtractor:
+    PUBLIC_OFFICE_ROLE_KINDS = frozenset(
+        {
+            RoleKind.RADNY,
+            RoleKind.POSEL,
+            RoleKind.SENATOR,
+            RoleKind.MINISTER,
+            RoleKind.PREZYDENT_MIASTA,
+            RoleKind.WOJEWODA,
+            RoleKind.WOJT,
+            RoleKind.STAROSTA,
+            RoleKind.SEKRETARZ_POWIATU,
+            RoleKind.MARSZALEK_WOJEWODZTWA,
+        }
+    )
+    ENTRY_LEMMAS = frozenset({"zatrudnić", "dostać", "objąć", "zostać", "trafić"})
+    STATUS_LEMMAS = frozenset({"pracować", "być"})
+    ENTRY_TEXT_MARKERS = (
+        "dostał pracę",
+        "dostała pracę",
+        "został zatrudniony",
+        "została zatrudniona",
+        "został koordynatorem",
+        "została koordynatorką",
+        "objął funkcję",
+        "objęła funkcję",
+    )
+    STATUS_TEXT_MARKERS = (
+        "pracuje",
+        "pracowała",
+        "pracował",
+        "jest zatrudniona",
+        "jest zatrudniony",
+        "była zatrudniona",
+        "był zatrudniony",
+        "jest dyrektorem",
+        "jest dyrektorką",
+    )
+    PUBLIC_EMPLOYER_TERMS = frozenset(
+        {
+            "urząd",
+            "gmina",
+            "powiat",
+            "wojewódzki",
+            "województwo",
+            "marszałkowski",
+            "centrum pomocy rodzinie",
+            "zarząd dróg",
+            "urząd pracy",
+            "urząd stanu cywilnego",
+        }
+    )
+    ROLE_STOP_WORDS = frozenset(
+        {
+            "w",
+            "we",
+            "do",
+            "na",
+            "od",
+            "przy",
+            "oraz",
+            "i",
+            "a",
+            "ale",
+            "który",
+            "która",
+        }
+    )
+    INVALID_ROLE_LABEL_HEADS = frozenset(
+        {
+            "decyzja",
+            "potrzebny",
+            "stary",
+            "suwerenny",
+            "zatrudnić",
+        }
+    )
+
+    def extract(self, context: SentenceContext) -> list[Fact]:
+        signal = self._signal(context)
+        if signal is None:
+            return []
+        public_orgs = [org for org in context.organizations if self._is_public_employer(org)]
+        if not public_orgs:
+            return []
+
+        facts: list[Fact] = []
+        subject = _subject_candidate(context)
+        if subject is not None:
+            subject = self._proxy_candidate_for_anchor(context, subject) or subject
+        persons = [subject] if subject is not None else context.persons
+        for person in persons:
+            role = _best_role_candidate(context, person)
+            if role is not None and role.role_kind in self.PUBLIC_OFFICE_ROLE_KINDS:
+                role = None
+            organization = min(
+                public_orgs,
+                key=lambda org: abs(org.start_char - (role.end_char if role else person.end_char)),
+            )
+            if self._has_closer_non_public_employer(context, person, role, organization):
+                continue
+            role_label = role.canonical_name if role is not None else self._role_label(context)
+            if self._invalid_role_label(role_label):
+                continue
+            score = SecondaryFactScorer.public_employment(
+                person=person,
+                organization=organization,
+                has_role_label=role_label is not None,
+            )
+            facts.append(
+                _fact(
+                    document=context.document,
+                    sentence_context=context,
+                    fact_type=signal.fact_type,
+                    subject=person,
+                    object_candidate=organization,
+                    value_text=role_label,
+                    value_normalized=role_label,
+                    confidence=score.confidence,
+                    score=score,
+                    source_extractor="public_employment",
+                    role=role_label,
+                    role_kind=role.role_kind if role is not None else None,
+                    role_modifier=role.role_modifier if role is not None else None,
+                    organization_kind=organization.organization_kind,
+                )
+            )
+        return facts
+
+    @classmethod
+    def _invalid_role_label(cls, role_label: str | None) -> bool:
+        if role_label is None:
+            return False
+        first_token = role_label.split()[0].casefold() if role_label.split() else ""
+        return first_token in cls.INVALID_ROLE_LABEL_HEADS
+
+    @staticmethod
+    def _proxy_candidate_for_anchor(
+        context: SentenceContext,
+        subject: EntityCandidate,
+    ) -> EntityCandidate | None:
+        if subject.entity_id is None:
+            return None
+        proxy_entity_ids = {
+            entity.entity_id
+            for entity in context.document.entities
+            if entity.is_proxy_person and entity.proxy_anchor_entity_id == subject.entity_id
+        }
+        if not proxy_entity_ids:
+            return None
+        proxy_candidate = next(
+            (
+                candidate
+                for candidate in context.persons
+                if candidate.entity_id in proxy_entity_ids
+                and candidate.sentence_index == context.sentence.sentence_index
+            ),
+            None,
+        )
+        if proxy_candidate is not None:
+            return proxy_candidate
+        proxy_entity = next(
+            (
+                entity
+                for entity in context.document.entities
+                if entity.entity_id in proxy_entity_ids and entity.evidence
+            ),
+            None,
+        )
+        if proxy_entity is None:
+            return None
+        evidence = next(
+            (
+                span
+                for span in proxy_entity.evidence
+                if span.sentence_index == context.sentence.sentence_index
+                and span.start_char is not None
+                and span.end_char is not None
+            ),
+            None,
+        )
+        if evidence is None or evidence.start_char is None or evidence.end_char is None:
+            return None
+        return EntityCandidate(
+            candidate_id=CandidateID(
+                stable_id(
+                    "candidate",
+                    context.document.document_id,
+                    proxy_entity.entity_id,
+                    str(context.sentence.sentence_index),
+                    str(evidence.start_char),
+                    str(evidence.end_char),
+                )
+            ),
+            entity_id=proxy_entity.entity_id,
+            candidate_type=CandidateType.PERSON,
+            canonical_name=proxy_entity.canonical_name,
+            normalized_name=proxy_entity.normalized_name,
+            sentence_index=context.sentence.sentence_index,
+            paragraph_index=context.sentence.paragraph_index,
+            start_char=evidence.start_char,
+            end_char=evidence.end_char,
+            source="family_proxy",
+        )
+
+    def _signal(self, context: SentenceContext) -> _EmploymentSignal | None:
+        lemmas = lemma_set(context.parsed_words)
+        for marker in self.ENTRY_TEXT_MARKERS:
+            if marker in context.lowered_text:
+                return _EmploymentSignal(FactType.APPOINTMENT, marker)
+        if lemmas.intersection(self.ENTRY_LEMMAS):
+            return _EmploymentSignal(FactType.APPOINTMENT, "entry_lemma")
+        for marker in self.STATUS_TEXT_MARKERS:
+            if marker in context.lowered_text:
+                return _EmploymentSignal(FactType.ROLE_HELD, marker)
+        if lemmas.intersection(self.STATUS_LEMMAS) and "zatrudn" in context.lowered_text:
+            return _EmploymentSignal(FactType.ROLE_HELD, "status_lemma")
+        if "pracuje" in context.lowered_text or "pracował" in context.lowered_text:
+            return _EmploymentSignal(FactType.ROLE_HELD, "status_text")
+        return None
+
+    @classmethod
+    def _is_public_employer(cls, organization: EntityCandidate) -> bool:
+        if organization.candidate_type == CandidateType.PUBLIC_INSTITUTION:
+            return True
+        normalized = organization.normalized_name.casefold()
+        return any(term in normalized for term in cls.PUBLIC_EMPLOYER_TERMS)
+
+    def _has_closer_non_public_employer(
+        self,
+        context: SentenceContext,
+        person: EntityCandidate,
+        role: EntityCandidate | None,
+        public_organization: EntityCandidate,
+    ) -> bool:
+        reference_start = role.end_char if role is not None else person.end_char
+        public_distance = abs(public_organization.start_char - reference_start)
+        for organization in context.organizations:
+            if organization.entity_id == public_organization.entity_id:
+                continue
+            if self._is_public_employer(organization):
+                continue
+            if organization.organization_kind == OrganizationKind.GOVERNING_BODY:
+                continue
+            if abs(organization.start_char - reference_start) < public_distance:
+                return True
+        return False
+
+    def _role_label(self, context: SentenceContext) -> str | None:
+        parsed_label = self._role_label_from_words(context.parsed_words)
+        if parsed_label is not None:
+            return parsed_label
+        text = context.sentence.text
+        lowered = context.lowered_text
+        marker_patterns = (
+            "jako",
+            "na stanowisku",
+            "w charakterze",
+            "został",
+            "została",
+            "dostał pracę jako",
+            "dostała pracę jako",
+            "objął funkcję",
+            "objęła funkcję",
+        )
+        for marker in marker_patterns:
+            marker_index = lowered.find(marker)
+            if marker_index < 0:
+                continue
+            start = marker_index + len(marker)
+            label = self._clean_role_label(text[start:])
+            if label is not None:
+                return label
+        return self._role_label_from_words(context.parsed_words)
+
+    def _role_label_from_words(self, parsed_words: list[ParsedWord]) -> str | None:
+        if not parsed_words:
+            return None
+        marker_indices = [
+            index
+            for index, word in enumerate(parsed_words)
+            if word.lemma.casefold() in self.ENTRY_LEMMAS | self.STATUS_LEMMAS
+            or word.text.casefold() in {"jako"}
+        ]
+        if not marker_indices:
+            return None
+        phrase_words: list[ParsedWord] = []
+        for word in parsed_words[marker_indices[0] + 1 :]:
+            lemma = word.lemma.casefold()
+            if lemma in self.ROLE_STOP_WORDS or word.upos in {"ADP", "SCONJ", "CCONJ", "VERB"}:
+                if phrase_words:
+                    break
+                continue
+            if lemma in self.PUBLIC_EMPLOYER_TERMS:
+                break
+            if word.upos in {"ADJ", "NOUN"}:
+                phrase_words.append(word)
+                if len(phrase_words) >= 4:
+                    break
+            elif phrase_words:
+                break
+        if not phrase_words:
+            return None
+        label_tokens = [
+            word.text if word.deprel.casefold() == "nmod" else word.lemma for word in phrase_words
+        ]
+        return normalize_entity_name(" ".join(label_tokens))
+
+    def _clean_role_label(self, tail: str) -> str | None:
+        words: list[str] = []
+        for raw_word in tail.replace(".", " ").replace(",", " ").split():
+            cleaned = raw_word.strip("()[]:;").casefold()
+            if cleaned in self.ROLE_STOP_WORDS:
+                break
+            if cleaned in {"zatrudniony", "zatrudniona", "pracę", "prace"}:
+                continue
+            words.append(raw_word)
+            if len(words) >= 4:
+                break
+        label = normalize_entity_name(" ".join(words))
+        return label if label else None
 
 
 class TieFactExtractor:

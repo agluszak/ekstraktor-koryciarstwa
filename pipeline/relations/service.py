@@ -40,6 +40,7 @@ from pipeline.utils import stable_id
 from .candidate_graph import CandidateGraphBuilder
 from .fact_extractors import (
     PoliticalProfileFactExtractor,
+    PublicEmploymentFactExtractor,
     SentenceContext,
     TieFactExtractor,
 )
@@ -397,6 +398,7 @@ class PolishFactExtractor(FactExtractor):
         self.kinship_tie_builder = KinshipTieBuilder()
         self.fact_extractors = [
             PoliticalProfileFactExtractor(),
+            PublicEmploymentFactExtractor(),
             TieFactExtractor(),
         ]
 
