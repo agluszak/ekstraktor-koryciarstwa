@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict, cast
+from typing import TypedDict
 
 import numpy as np
 
@@ -257,7 +257,7 @@ class InMemoryEntityLinker(EntityLinker):
 
         for registry_id in candidate_ids:
             entry = self._registry[registry_id]
-            stored = cast(EntityFingerprint, entry["fingerprint"])
+            stored = entry["fingerprint"]
             score = self._match_score(
                 entity.entity_type,
                 fingerprint,
@@ -443,9 +443,7 @@ class InMemoryEntityLinker(EntityLinker):
             if current_lemmas and stored_lemmas and current_lemmas == stored_lemmas:
                 return 1.0
 
-        return float(
-            sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False))
-        )
+        return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
 
     @staticmethod
     def _embedding_text(entity: Entity) -> str:
