@@ -27,6 +27,31 @@ from pipeline.domain_types import (
 )
 
 
+@dataclass(kw_only=True)
+class OrganizationMixin:
+    organization_kind: OrganizationKind | None = None
+
+
+@dataclass(kw_only=True)
+class RoleMixin:
+    role_kind: RoleKind | None = None
+    role_modifier: RoleModifier | None = None
+
+
+@dataclass(kw_only=True)
+class ProxyMixin:
+    is_proxy_person: bool = False
+    proxy_kind: ProxyKind | None = None
+    kinship_detail: KinshipDetail | None = None
+    proxy_anchor_entity_id: EntityID | None = None
+
+
+@dataclass(kw_only=True)
+class ExtractionSignalMixin:
+    extraction_signal: str | None = None
+    evidence_scope: str | None = None
+    score_reason: str | None = None
+
 @dataclass(slots=True)
 class PipelineInput:
     raw_html: str
@@ -45,7 +70,7 @@ class EvidenceSpan:
 
 
 @dataclass(slots=True)
-class Entity:
+class Entity(OrganizationMixin, RoleMixin, ProxyMixin):
     entity_id: EntityID
     entity_type: EntityType
     canonical_name: str
@@ -56,15 +81,8 @@ class Entity:
     # Inlined attributes
     registry_id: str | None = None
     lemmas: list[str] = field(default_factory=list)
-    organization_kind: OrganizationKind | None = None
-    is_proxy_person: bool = False
     is_honorific_person_ref: bool = False
-    proxy_kind: ProxyKind | None = None
-    kinship_detail: KinshipDetail | None = None
-    proxy_anchor_entity_id: EntityID | None = None
     proxy_surface: str | None = None
-    role_kind: RoleKind | None = None
-    role_modifier: RoleModifier | None = None
 
 
 @dataclass(slots=True)
@@ -91,7 +109,7 @@ class IdentityResolutionMetadata:
 
 
 @dataclass(slots=True)
-class Fact:
+class Fact(OrganizationMixin, RoleMixin, ProxyMixin, ExtractionSignalMixin):
     fact_id: FactID
     fact_type: FactType
     subject_entity_id: EntityID
@@ -104,10 +122,7 @@ class Fact:
     evidence: EvidenceSpan
     position_entity_id: EntityID | None = None
     role: str | None = None
-    role_kind: RoleKind | None = None
-    role_modifier: RoleModifier | None = None
     board_role: bool = False
-    organization_kind: OrganizationKind | None = None
     owner_context_entity_id: EntityID | None = None
     appointing_authority_entity_id: EntityID | None = None
     governing_body_entity_id: EntityID | None = None
@@ -118,14 +133,10 @@ class Fact:
     amount_text: str | None = None
     period: str | None = None
     relationship_type: RelationshipType | None = None
-    kinship_detail: KinshipDetail | None = None
     identity_resolution: IdentityResolutionMetadata | None = None
     possible_identity_matches: list[EntityID] = field(default_factory=list)
-    extraction_signal: str | None = None
-    evidence_scope: str | None = None
     overlaps_governance: bool = False
     source_extractor: str | None = None
-    score_reason: str | None = None
 
 
 @dataclass(slots=True)
@@ -135,7 +146,7 @@ class ScoreResult:
 
 
 @dataclass(slots=True)
-class EntityCandidate:
+class EntityCandidate(OrganizationMixin, RoleMixin):
     candidate_id: CandidateID
     entity_id: EntityID | None
     candidate_type: CandidateType
@@ -146,12 +157,6 @@ class EntityCandidate:
     start_char: int
     end_char: int
     source: str
-
-    # Inlined attributes
-    organization_kind: OrganizationKind | None = None
-    role_kind: RoleKind | None = None
-    role_modifier: RoleModifier | None = None
-
 
 @dataclass(slots=True)
 class CandidateEdge:
@@ -224,7 +229,7 @@ class ClusterMention:
 
 
 @dataclass(slots=True)
-class EntityCluster:
+class EntityCluster(OrganizationMixin, RoleMixin, ProxyMixin):
     cluster_id: ClusterID
     entity_type: EntityType
     canonical_name: str
@@ -234,14 +239,7 @@ class EntityCluster:
     # Inlined attributes
     aliases: list[str] = field(default_factory=list)
     lemmas: list[str] = field(default_factory=list)
-    organization_kind: OrganizationKind | None = None
-    is_proxy_person: bool = False
     proxy_entity_id: EntityID | None = None
-    proxy_kind: ProxyKind | None = None
-    kinship_detail: KinshipDetail | None = None
-    proxy_anchor_entity_id: EntityID | None = None
-    role_kind: RoleKind | None = None
-    role_modifier: RoleModifier | None = None
 
 
 @dataclass(slots=True)
@@ -259,7 +257,7 @@ class ClauseUnit:
 
 
 @dataclass(slots=True)
-class GovernanceFrame:
+class GovernanceFrame(ExtractionSignalMixin):
     frame_id: FrameID
     event_type: EventType
     person_cluster_id: ClusterID | None = None
@@ -274,12 +272,10 @@ class GovernanceFrame:
     # Inlined attributes
     target_resolution: str | None = None
     found_role: str | None = None
-    role_modifier: RoleModifier | None = None
-    evidence_scope: str | None = None
 
 
 @dataclass(slots=True)
-class CompensationFrame:
+class CompensationFrame(ExtractionSignalMixin):
     frame_id: FrameID
     amount_text: str
     amount_normalized: str
@@ -291,14 +287,11 @@ class CompensationFrame:
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
     # Inlined attributes
-    extraction_signal: str | None = None
-    evidence_scope: str | None = None
-    score_reason: str | None = None
     context_reason: str | None = None
 
 
 @dataclass(slots=True)
-class FundingFrame:
+class FundingFrame(ExtractionSignalMixin):
     frame_id: FrameID
     amount_text: str | None = None
     amount_normalized: str | None = None
@@ -308,14 +301,8 @@ class FundingFrame:
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
-    # Inlined attributes
-    extraction_signal: str | None = None
-    evidence_scope: str | None = None
-    score_reason: str | None = None
-
-
 @dataclass(slots=True)
-class PublicContractFrame:
+class PublicContractFrame(ExtractionSignalMixin):
     frame_id: FrameID
     contractor_cluster_id: ClusterID
     counterparty_cluster_id: ClusterID
@@ -324,25 +311,13 @@ class PublicContractFrame:
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
-    # Inlined attributes
-    extraction_signal: str | None = None
-    evidence_scope: str | None = None
-    score_reason: str | None = None
-
-
 @dataclass(slots=True)
-class AntiCorruptionReferralFrame:
+class AntiCorruptionReferralFrame(ExtractionSignalMixin):
     frame_id: FrameID
     complainant_cluster_id: ClusterID
     target_cluster_id: ClusterID
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
-
-    # Inlined attributes
-    extraction_signal: str | None = None
-    evidence_scope: str | None = None
-    score_reason: str | None = None
-
 
 @dataclass(slots=True)
 class RelevanceDecision:
