@@ -189,10 +189,8 @@ def test_pleszew24_stadnina(benchmark_results: dict[str, Any], subtests: Subtest
         "Góralczyk" in get_entity_name(doc, f.get("subject_entity_id")) for f in appointments
     )
 
-    target_assert(
-        subtests,
-        any("Iwno" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments),
-        "Object should be Stadnina Koni Iwno",
+    assert any("Iwno" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments), (
+        "Object should be Stadnina Koni Iwno"
     )
 
     dismissals = get_facts_by_type(doc, "DISMISSAL")
@@ -485,10 +483,8 @@ def test_zona_posla_pis(benchmark_results: dict[str, Any], subtests: Subtests) -
     target_assert(subtests, len(dismissals) >= 2, "Should find multiple dismissals (Enea, Jelcz)")
 
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
-    target_assert(
-        subtests,
-        any(t.get("relationship_type") == "wife" for t in ties),
-        "Should identify wife relationship",
+    assert any(t.get("kinship_detail") == "spouse" for t in ties), (
+        "Should identify spouse relationship"
     )
 
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
@@ -521,58 +517,38 @@ def test_wp_zona_posla_pis_lubelskie_koleje(
 
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     assert any("Sobolewska" in e for e in entities)
-    target_assert(
-        subtests,
-        any("Sylwia Sobolewska" in e for e in entities),
-        "Should recover normalized Sylwia Sobolewska",
+    assert any("Sylwia Sobolewska" in e for e in entities), (
+        "Should recover normalized Sylwia Sobolewska"
     )
-    target_assert(
-        subtests,
-        any("Krzysztof Sobolewski" in e for e in entities),
-        "Should recover Krzysztof Sobolewski",
-    )
-    target_assert(
-        subtests,
-        any("Lubelskie Koleje" in e for e in entities),
-        "Should recover Lubelskie Koleje",
-    )
+    assert any("Krzysztof Sobolewski" in e for e in entities), "Should recover Krzysztof Sobolewski"
+    assert any("Lubelskie Koleje" in e for e in entities), "Should recover Lubelskie Koleje"
 
     appointments = get_facts_by_type(doc, "APPOINTMENT")
     board_memberships = get_facts_by_type(doc, "MEMBER_OF_BOARD")
     governance_facts = appointments + board_memberships
-    target_assert(
-        subtests,
-        any(
-            "Sobolewska" in get_entity_name(doc, f.get("subject_entity_id"))
-            for f in governance_facts
-        ),
-        "Should create a governance fact for Sylwia Sobolewska",
-    )
-    target_assert(
-        subtests,
-        any(
-            "Lubelskie Koleje" in get_entity_name(doc, f.get("object_entity_id"))
-            for f in governance_facts
-        ),
-        "Governance target should be Lubelskie Koleje",
-    )
+    assert any(
+        "Sobolewska" in get_entity_name(doc, f.get("subject_entity_id")) for f in governance_facts
+    ), "Should create a governance fact for Sylwia Sobolewska"
+    assert any(
+        "Lubelskie Koleje" in get_entity_name(doc, f.get("object_entity_id"))
+        for f in governance_facts
+    ), "Governance target should be Lubelskie Koleje"
 
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
-    target_assert(
-        subtests,
-        any(
-            "Sobolewska" in get_entity_name(doc, t.get("subject_entity_id"))
-            and "Sobolewski" in get_entity_name(doc, t.get("object_entity_id"))
-            for t in ties
-        ),
-        "Should identify Sobolewska/Sobolewski spouse relationship",
-    )
+    assert any(
+        "Sobolewska" in get_entity_name(doc, t.get("subject_entity_id"))
+        and "Sobolewski" in get_entity_name(doc, t.get("object_entity_id"))
+        and t.get("kinship_detail") == "spouse"
+        for t in ties
+    ), "Should identify Sobolewska/Sobolewski spouse relationship"
 
     parties = [
         get_entity_name(doc, f.get("object_entity_id"))
         for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
     ]
-    target_assert(subtests, any("PiS" in p for p in parties), "Should recover PiS affiliation")
+    assert any("PiS" in p or "Prawo i Sprawiedliwość" in p for p in parties), (
+        "Should recover PiS affiliation"
+    )
 
 
 def test_olsztyn_wodkan(benchmark_results: dict[str, Any], subtests: Subtests) -> None:

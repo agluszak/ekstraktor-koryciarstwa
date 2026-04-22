@@ -8,6 +8,7 @@ from pipeline.domain_types import (
     EntityType,
     EventType,
     FrameID,
+    OrganizationKind,
 )
 from pipeline.frames import (
     PolishCompensationFrameExtractor,
@@ -41,6 +42,7 @@ def cluster(
     start_char: int = 0,
     end_char: int | None = None,
     entity_id: str | None = None,
+    organization_kind: OrganizationKind | None = None,
 ) -> EntityCluster:
     return EntityCluster(
         cluster_id=ClusterID(cluster_id),
@@ -61,6 +63,7 @@ def cluster(
             )
         ],
         aliases=[name],
+        organization_kind=organization_kind,
     )
 
 
@@ -281,6 +284,53 @@ def test_target_resolver_does_not_use_party_as_target() -> None:
     )
 
     assert result.target_org is None
+
+
+def test_target_resolver_prefers_lubelskie_koleje_over_wojewodztwo_context() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    resolver = GovernanceTargetResolver(config)
+    text = (
+        "Marszałek województwa lubelskiego z PiS do rady nadzorczej spółki "
+        "Lubelskie Koleje powołał Sylwię Sobolewską."
+    )
+    owner_start = text.index("województwa lubelskiego")
+    owner = cluster(
+        "cluster-owner",
+        "Województwo Lubelskie",
+        EntityType.PUBLIC_INSTITUTION,
+        start_char=owner_start,
+        end_char=owner_start + len("województwa lubelskiego"),
+        organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
+    )
+    target_start = text.index("Lubelskie Koleje")
+    target = cluster(
+        "cluster-target",
+        "Lubelskie Koleje",
+        start_char=target_start,
+        end_char=target_start + len("Lubelskie Koleje"),
+        organization_kind=OrganizationKind.COMPANY,
+    )
+    body_start = text.index("rady nadzorczej")
+    body = cluster(
+        "cluster-body",
+        "Rada Nadzorcza",
+        start_char=body_start,
+        end_char=body_start + len("rady nadzorczej"),
+        organization_kind=OrganizationKind.GOVERNING_BODY,
+    )
+    doc = document([owner, target, body])
+    doc.cleaned_text = text
+
+    result = resolver.resolve(
+        document=doc,
+        clause=clause(text),
+        org_clusters=[owner, body, target],
+        role_cluster=None,
+    )
+
+    assert result.target_org == target
+    assert result.owner_context == owner
+    assert result.governing_body == body
 
 
 def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
+    ClusterID,
     EntityID,
     EventType,
     FactID,
@@ -37,6 +39,15 @@ class GovernanceTargetResolution:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class GovernanceOrgRoleEvidence:
+    staffed_target: float = 0.0
+    owner_context: float = 0.0
+    governing_body: float = 0.0
+    appointing_authority: float = 0.0
+    reasons: tuple[str, ...] = ()
+
+
 class GovernanceTargetResolver:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
@@ -49,14 +60,33 @@ class GovernanceTargetResolver:
         org_clusters: list[EntityCluster],
         role_cluster: EntityCluster | None,
     ) -> GovernanceTargetResolution:
-        owner_context = self._best_context_cluster(org_clusters, self._is_owner_like_cluster)
-        governing_body = self._best_context_cluster(org_clusters, self._is_body_like_cluster)
+        role_evidence = {
+            cluster.cluster_id: self._role_evidence(document, clause, cluster, role_cluster)
+            for cluster in org_clusters
+        }
+        owner_context = self._best_context_cluster(
+            org_clusters,
+            lambda cluster: (
+                self._is_owner_like_cluster(cluster)
+                or role_evidence[cluster.cluster_id].owner_context > 0.0
+            ),
+            role_evidence=role_evidence,
+            score_attr="owner_context",
+        )
+        governing_body = self._best_context_cluster(
+            org_clusters,
+            lambda cluster: (
+                self._is_body_like_cluster(cluster)
+                or role_evidence[cluster.cluster_id].governing_body > 0.0
+            ),
+            role_evidence=role_evidence,
+            score_attr="governing_body",
+        )
         candidates = [
             cluster
             for cluster in org_clusters
             if not self._is_rejected_target(cluster)
-            and not self._is_owner_like_cluster(cluster)
-            and not self._is_body_like_cluster(cluster)
+            and not self._is_context_only_cluster(cluster, role_evidence[cluster.cluster_id])
         ]
         if not candidates:
             return GovernanceTargetResolution(
@@ -69,9 +99,21 @@ class GovernanceTargetResolver:
 
         target = max(
             candidates,
-            key=lambda cluster: self._target_score(document, clause, cluster, role_cluster),
+            key=lambda cluster: self._target_score(
+                document,
+                clause,
+                cluster,
+                role_cluster,
+                role_evidence[cluster.cluster_id],
+            ),
         )
-        score, reason = self._target_score(document, clause, target, role_cluster)
+        score, reason = self._target_score(
+            document,
+            clause,
+            target,
+            role_cluster,
+            role_evidence[target.cluster_id],
+        )
         confidence = max(0.55, min(0.95, 0.62 + score * 0.08))
         return GovernanceTargetResolution(
             target_org=target,
@@ -112,9 +154,13 @@ class GovernanceTargetResolver:
         clause: ClauseUnit,
         cluster: EntityCluster,
         role_cluster: EntityCluster | None,
+        role_evidence: GovernanceOrgRoleEvidence,
     ) -> tuple[float, str]:
         score = 0.0
         reasons: list[str] = []
+        if role_evidence.staffed_target:
+            score += role_evidence.staffed_target
+            reasons.extend(role_evidence.reasons)
         if self._cluster_in_clause(cluster, clause):
             score += 3.0
             reasons.append("same_clause")
@@ -130,6 +176,15 @@ class GovernanceTargetResolver:
         if self._is_paragraph_continuation(cluster, clause):
             score += 0.5
             reasons.append("paragraph_context")
+        if role_evidence.owner_context:
+            score -= role_evidence.owner_context
+            reasons.append("owner_context")
+        if role_evidence.governing_body:
+            score -= role_evidence.governing_body
+            reasons.append("governing_body")
+        if role_evidence.appointing_authority:
+            score -= role_evidence.appointing_authority
+            reasons.append("appointing_authority")
         if self._is_generic_fragment(cluster):
             score -= 3.0
             reasons.append("generic_fragment")
@@ -147,18 +202,47 @@ class GovernanceTargetResolver:
     @staticmethod
     def _best_context_cluster(
         clusters: list[EntityCluster],
-        predicate,
+        predicate: Callable[[EntityCluster], bool],
+        *,
+        role_evidence: dict[ClusterID, GovernanceOrgRoleEvidence] | None = None,
+        score_attr: str | None = None,
     ) -> EntityCluster | None:
         matches = [cluster for cluster in clusters if predicate(cluster)]
         if not matches:
             return None
-        return max(matches, key=lambda cluster: len(cluster.canonical_name))
+        if role_evidence is None or score_attr is None:
+            return max(matches, key=lambda cluster: len(cluster.canonical_name))
+        return max(
+            matches,
+            key=lambda cluster: (
+                getattr(role_evidence[cluster.cluster_id], score_attr),
+                len(cluster.canonical_name),
+            ),
+        )
 
     def _is_rejected_target(self, cluster: EntityCluster) -> bool:
         return (
             self.is_party_like_cluster(cluster)
             or self._is_generic_fragment(cluster)
             or self._is_media_like_cluster(cluster)
+        )
+
+    def _is_context_only_cluster(
+        self,
+        cluster: EntityCluster,
+        role_evidence: GovernanceOrgRoleEvidence,
+    ) -> bool:
+        if self._is_owner_like_cluster(cluster) or self._is_body_like_cluster(cluster):
+            return True
+        context_score = (
+            role_evidence.owner_context
+            + role_evidence.governing_body
+            + role_evidence.appointing_authority
+        )
+        return (
+            context_score > 0.0
+            and role_evidence.staffed_target == 0.0
+            and not self._is_target_like_cluster(cluster)
         )
 
     @staticmethod
@@ -199,6 +283,119 @@ class GovernanceTargetResolver:
                 "agencja",
             )
         )
+
+    def _role_evidence(
+        self,
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        cluster: EntityCluster,
+        role_cluster: EntityCluster | None,
+    ) -> GovernanceOrgRoleEvidence:
+        staffed_target = 0.0
+        owner_context = 0.0
+        governing_body = 0.0
+        appointing_authority = 0.0
+        reasons: list[str] = []
+
+        if self._is_owner_like_cluster(cluster):
+            owner_context += 3.0
+        if self._is_body_like_cluster(cluster):
+            governing_body += 3.0
+
+        for mention in cluster.mentions:
+            if mention.paragraph_index != clause.paragraph_index:
+                continue
+            before = self._text_before_mention(document, mention.start_char, limit=90).lower()
+            after = self._text_after_mention(document, mention.end_char, limit=70).lower()
+            local = f"{before} {mention.text.lower()} {after}"
+            if self._has_staffed_target_phrase(before, local):
+                staffed_target += 5.0
+                reasons.append("staffed_target_phrase")
+            if self._is_body_like_cluster(cluster) or self._surface_is_governing_body(mention.text):
+                governing_body += 2.0
+            if self._has_owner_context_phrase(local):
+                owner_context += 2.0
+            if self._precedes_appointment_trigger(document, clause, mention.end_char):
+                appointing_authority += 1.5
+
+        if role_cluster is not None and self._cluster_near_role(cluster, role_cluster):
+            staffed_target += 1.0
+            reasons.append("role_org_edge")
+
+        return GovernanceOrgRoleEvidence(
+            staffed_target=staffed_target,
+            owner_context=owner_context,
+            governing_body=governing_body,
+            appointing_authority=appointing_authority,
+            reasons=tuple(dict.fromkeys(reasons)),
+        )
+
+    @staticmethod
+    def _text_before_mention(
+        document: ArticleDocument,
+        start_char: int,
+        *,
+        limit: int,
+    ) -> str:
+        if not document.cleaned_text:
+            return ""
+        return document.cleaned_text[max(0, start_char - limit) : start_char]
+
+    @staticmethod
+    def _text_after_mention(
+        document: ArticleDocument,
+        end_char: int,
+        *,
+        limit: int,
+    ) -> str:
+        if not document.cleaned_text:
+            return ""
+        return document.cleaned_text[end_char : end_char + limit]
+
+    @staticmethod
+    def _has_staffed_target_phrase(before: str, local: str) -> bool:
+        target_heads = ("spółk", "przedsiębiorstw", "stadnin", "kolej", "wodociąg")
+        governance_roles = (
+            "do rady nadzorczej",
+            "członkiem rady",
+            "prezesem",
+            "prezeską",
+            "wiceprezesem",
+            "wiceprezeską",
+            "dyrektorem",
+            "zarządu",
+        )
+        return (
+            any(head in before for head in target_heads)
+            and any(role in before or role in local for role in governance_roles)
+        ) or before.rstrip().endswith(("spółki", "spółce", "stadniny"))
+
+    @staticmethod
+    def _surface_is_governing_body(surface: str) -> bool:
+        normalized = surface.lower().strip(" .,:;")
+        return normalized in BODY_CONTEXT_TERMS or normalized.startswith("rada nadzorcza")
+
+    @staticmethod
+    def _has_owner_context_phrase(local: str) -> bool:
+        owner_terms = OWNER_CONTEXT_TERMS | {
+            "województw",
+            "urząd marszałkowski",
+            "marszałek województwa",
+            "samorząd",
+            "właściciel",
+        }
+        return any(term in local for term in owner_terms)
+
+    @staticmethod
+    def _precedes_appointment_trigger(
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        mention_end: int,
+    ) -> bool:
+        if not document.cleaned_text or mention_end >= clause.end_char:
+            return False
+        between = document.cleaned_text[mention_end : clause.end_char].lower()
+        return any(trigger in between for trigger in (" powoła", " wskaza", " wybra", " mianowa"))
 
     @staticmethod
     def _is_generic_fragment(cluster: EntityCluster) -> bool:

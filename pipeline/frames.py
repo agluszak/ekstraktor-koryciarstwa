@@ -1094,7 +1094,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             role = clause.mention_roles.get(mention.text)
             if role and role.startswith("obj"):
                 appointees.append(cluster.cluster_id)
-            elif role and (role.startswith("nsubj") or role == "appos"):
+            elif role and role.startswith("nsubj"):
                 authorities.append(cluster.cluster_id)
 
         if appointees:
@@ -1127,6 +1127,21 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             if previous_person is None:
                 return None, None
             return previous_person.cluster_id, None
+        if event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+            current_sentence_ids = {
+                cluster.cluster_id
+                for cluster in person_clusters
+                if any(
+                    mention.sentence_index == clause.sentence_index for mention in cluster.mentions
+                )
+            }
+            previous_person = self._nearest_context_person(
+                clause,
+                person_clusters,
+                excluded_cluster_ids=current_sentence_ids | speech_speaker_ids,
+            )
+            if previous_person is not None:
+                return previous_person.cluster_id, None
         candidate_clusters = (
             [
                 cluster
