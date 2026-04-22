@@ -5,8 +5,11 @@ from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     CandidateType,
+    EntityID,
+    EntityType,
     FactID,
     FactType,
+    RelationshipType,
     TimeScope,
 )
 from pipeline.funding import FundingFactBuilder
@@ -216,6 +219,13 @@ class PolishFactExtractor(FactExtractor):
         facts: list[Fact] = []
         kinship_triggers = set(KINSHIP_LEMMAS).union(set(TIE_WORDS.keys()))
 
+        # Map person names to entity IDs for quick lookup if coref fails
+        person_name_to_id: dict[str, EntityID] = {}
+        for entity in document.entities:
+            if entity.entity_type == EntityType.PERSON:
+                for alias in [entity.canonical_name, entity.normalized_name, *entity.aliases]:
+                    person_name_to_id[alias.lower()] = entity.entity_id
+
         for sentence in document.sentences:
             lowered = sentence.text.lower()
             trigger = next((word for word in kinship_triggers if word in lowered), None)
@@ -223,66 +233,115 @@ class PolishFactExtractor(FactExtractor):
                 continue
 
             sentence_candidates = candidates_by_sentence.get(sentence.sentence_index, [])
-            # If a person is mentioned in the same sentence as the trigger, the standard extractor should handle it.
-            # But if there's ONLY one person here, and they are mentioned near the trigger, 
-            # maybe the relationship refers to someone in the PREVIOUS sentence.
-            if len(sentence_candidates) != 1:
-                continue
+            # Target common phrasing where a new person is introduced with a kinship term
+            # relating them to someone mentioned earlier.
+            persons_in_sent = [
+                c for c in sentence_candidates if c.candidate_type == CandidateType.PERSON
+            ]
             
-            curr_person = sentence_candidates[0]
-            if curr_person.candidate_type != CandidateType.PERSON:
+            target_subjects: list[EntityCandidate] = []
+            if persons_in_sent:
+                target_subjects = persons_in_sent
+            else:
+                # Search FORWARD (e.g. "Narzeczona... [new sentence] Marta...")
+                for next_sent_idx in range(sentence.sentence_index + 1, sentence.sentence_index + 3):
+                    if next_sent_idx >= len(document.sentences):
+                        break
+                    next_sent = document.sentences[next_sent_idx]
+                    if next_sent.paragraph_index != sentence.paragraph_index:
+                        break
+                    
+                    next_sent_persons = [
+                        c for c in candidates_by_sentence.get(next_sent_idx, [])
+                        if c.candidate_type == CandidateType.PERSON
+                    ]
+                    if next_sent_persons:
+                        target_subjects = [next_sent_persons[0]]
+                        break
+
+            if not target_subjects:
                 continue
 
-            prev_sentence_idx = sentence.sentence_index - 1
-            if prev_sentence_idx < 0:
-                continue
-            
-            prev_candidates = candidates_by_sentence.get(prev_sentence_idx, [])
-            prev_persons = [c for c in prev_candidates if c.candidate_type == CandidateType.PERSON]
-            if not prev_persons:
-                continue
-            
-            # Use the last person from the previous sentence as the potential target
-            target_person = prev_persons[-1]
-            
-            if curr_person.entity_id == target_person.entity_id:
-                continue
+            # For each subject (curr_person), try to find their relation target
+            for curr_person in target_subjects:
+                target_person: EntityCandidate | None = None
 
-            rel_type = TIE_WORDS.get(trigger, RelationshipType.FAMILY)
-            
-            fact_id = FactID(
-                stable_id(
-                    "fact",
-                    document.document_id,
-                    FactType.PERSONAL_OR_POLITICAL_TIE,
-                    curr_person.entity_id or curr_person.candidate_id,
-                    target_person.entity_id or target_person.candidate_id,
-                    str(sentence.sentence_index),
-                    "cross-sentence",
-                )
-            )
-            facts.append(
-                Fact(
-                    fact_id=fact_id,
-                    fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
-                    subject_entity_id=EntityID(curr_person.entity_id or curr_person.candidate_id),
-                    object_entity_id=EntityID(target_person.entity_id or target_person.candidate_id),
-                    value_text=rel_type.value,
-                    value_normalized=rel_type.value,
-                    confidence=0.65,
-                    time_scope=TimeScope.CURRENT,
-                    event_date=document.publication_date,
-                    evidence=EvidenceSpan(
-                        text=f"{target_person.canonical_name} ... {sentence.text}",
-                        sentence_index=sentence.sentence_index,
-                        paragraph_index=sentence.paragraph_index,
-                        start_char=target_person.start_char,
-                        end_char=sentence.end_char,
-                    ),
-                    source_extractor="cross_sentence_kinship_extractor",
-                    relationship_type=rel_type,
-                )
-            )
+                # Search BACKWARDS in recent discourse
+                for prev_sent_idx in range(sentence.sentence_index - 1, -1, -1):
+                    prev_sent = document.sentences[prev_sent_idx]
+                    prev_persons = [
+                        c
+                        for c in candidates_by_sentence.get(prev_sent_idx, [])
+                        if c.candidate_type == CandidateType.PERSON
+                        and (c.entity_id or c.candidate_id)
+                        != (curr_person.entity_id or curr_person.candidate_id)
+                    ]
+                    if prev_persons:
+                        target_person = prev_persons[0]
+                        break
+
+                # If still nothing, search FORWARDS (excluding curr_person themselves)
+                if not target_person:
+                    for next_sent_idx in range(
+                        sentence.sentence_index + 1, sentence.sentence_index + 4
+                    ):
+                        if next_sent_idx >= len(document.sentences):
+                            break
+                        next_sent = document.sentences[next_sent_idx]
+                        if sentence.paragraph_index - next_sent.paragraph_index > 1:
+                            break
+                        next_persons = [
+                            c
+                            for c in candidates_by_sentence.get(next_sent_idx, [])
+                            if c.candidate_type == CandidateType.PERSON
+                            and (c.entity_id or c.candidate_id)
+                            != (curr_person.entity_id or curr_person.candidate_id)
+                        ]
+                        if next_persons:
+                            target_person = next_persons[0]
+                            break
+
+
+                if target_person:
+                    rel_type = TIE_WORDS.get(trigger, RelationshipType.FAMILY)
+                    fact_id = FactID(
+                        stable_id(
+                            "fact",
+                            document.document_id,
+                            FactType.PERSONAL_OR_POLITICAL_TIE,
+                            curr_person.entity_id or curr_person.candidate_id,
+                            target_person.entity_id or target_person.candidate_id,
+                            str(sentence.sentence_index),
+                            "cross-sentence",
+                        )
+                    )
+                    facts.append(
+                        Fact(
+                            fact_id=fact_id,
+                            fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+                            subject_entity_id=EntityID(
+                                curr_person.entity_id or curr_person.candidate_id
+                            ),
+                            object_entity_id=EntityID(
+                                target_person.entity_id or target_person.candidate_id
+                            ),
+                            value_text=rel_type.value,
+                            value_normalized=rel_type.value,
+                            confidence=0.6,
+                            time_scope=TimeScope.CURRENT,
+                            event_date=document.publication_date,
+                            evidence=EvidenceSpan(
+                                text=f"{target_person.canonical_name} ... {sentence.text}",
+                                sentence_index=sentence.sentence_index,
+                                paragraph_index=sentence.paragraph_index,
+                                start_char=target_person.start_char,
+                                end_char=sentence.end_char,
+                            ),
+                            source_extractor="cross_sentence_kinship_extractor",
+                            relationship_type=rel_type,
+                        )
+                    )
+
         return facts
 
     @staticmethod

@@ -399,7 +399,7 @@ class DocumentEntityCanonicalizer:
         observed_tokens = {
             token.rstrip(".").lower() for name in normalized for token in name.split() if token
         }
-        return max(
+        best = max(
             normalized,
             key=lambda name: (
                 -self._canonical_noise_score(name),
@@ -412,6 +412,48 @@ class DocumentEntityCanonicalizer:
                 sum(1 for token in name.split() if len(token) > 1),
             ),
         )
+
+        # High Fidelity Fallback: if 'best' looks like a broken stem (pdb model artifact),
+        # try to find a better surface form in the same cluster.
+        if self._is_broken_stem(best):
+            for candidate in normalized:
+                if self._is_complete_surname_form(candidate, best):
+                    return candidate
+
+        return best
+
+    def _is_broken_stem(self, name: str) -> bool:
+        """Checks if a name looks like a lemmatization artifact (broken stem)."""
+        tokens = name.split()
+        if not tokens:
+            return False
+        last = tokens[-1].lower()
+        # Common pdb stems often end in a consonant that usually requires a vowel in Nom
+        if last.endswith(("ńk", "ck", "dzk", "sk")) and not name.lower().endswith(
+            ("ska", "ski", "cka", "cki")
+        ):
+            return True
+        return False
+
+    def _is_complete_surname_form(self, candidate: str, stem_name: str) -> bool:
+        """Checks if candidate is a more complete (nominative-like) form of a broken stem."""
+        c_tokens = candidate.split()
+        s_tokens = stem_name.split()
+        if len(c_tokens) != len(s_tokens) or len(c_tokens) < 2:
+            return False
+
+        # Surnames must share the same stem
+        c_last = c_tokens[-1].lower()
+        s_last = s_tokens[-1].lower()
+
+        if not c_last.startswith(s_last):
+            return False
+
+        # Candidate must end in a valid nominative-like suffix
+        if c_last.endswith(("ska", "ski", "cka", "cki", "y", "a")):
+            return True
+
+        return False
 
     def _best_organization_name(self, entity: Entity, names: list[str]) -> str:
         normalized = [

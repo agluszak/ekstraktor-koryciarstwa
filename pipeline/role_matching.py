@@ -105,24 +105,55 @@ def has_copular_role_appointment(parsed_words: list[ParsedWord]) -> bool:
 def has_governance_verb_with_role(
     parsed_words: list[ParsedWord], trigger_lemmas: frozenset[str]
 ) -> bool:
+    role_matches = match_role_mentions(parsed_words)
     role_word_indices = {
         word.index
-        for match in match_role_mentions(parsed_words)
+        for match in role_matches
         for word_index in match.word_indices
         for word in parsed_words
         if word.index == word_index
     }
     if not role_word_indices:
         return False
+
     for word in parsed_words:
         if word.lemma.casefold() in trigger_lemmas:
-            # Check if any role is a child of this verb with appropriate deprel
+            # 1. Direct children (obj, iobj, xcomp, obl)
+            children = [c for c in parsed_words if c.head == word.index]
             if any(
-                child.head == word.index and child.deprel.casefold() in {"obj", "iobj", "xcomp", "obl"}
-                and child.index in role_word_indices
-                for child in parsed_words
+                c.deprel.casefold() in {"obj", "iobj", "xcomp", "obl"}
+                and c.index in role_word_indices
+                for c in children
             ):
                 return True
+
+            # 2. Deep traversal (depth 2) for phrasings like "objął funkcję wiceprezesa"
+            # Intermediate nouns: funkcja, stanowisko, fotel, posada, miejsce
+            intermediate_nouns = {"funkcja", "stanowisko", "fotel", "posada", "miejsce"}
+            for child in children:
+                if (
+                    child.deprel.casefold() in {"obj", "iobj", "xcomp", "obl"}
+                    and child.lemma.casefold() in intermediate_nouns
+                ):
+                    grandchildren = [gc for gc in parsed_words if gc.head == child.index]
+                    if any(
+                        gc.deprel.casefold() in {"nmod", "appos", "flat"}
+                        and gc.index in role_word_indices
+                        for gc in grandchildren
+                    ):
+                        return True
+
+            # 3. Linear proximity fallback: if governance verb and role are close together
+            # in the same clause (roughly, not separated by other verbs)
+            verb_pos = word.index
+            for role_match in role_matches:
+                # Get indices of words in this role match
+                match_indices = sorted(list(role_match.word_indices))
+                # Check distance from verb to closest token of role match
+                dist = min(abs(verb_pos - i) for i in match_indices)
+                if dist <= 4:
+                    return True
+
     return False
 
 
