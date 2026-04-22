@@ -19,6 +19,7 @@ from pipeline.models import (
     EvidenceSpan,
     Fact,
 )
+from pipeline.nlp_rules import PARTY_PROFILE_CONTEXT_LEMMAS
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.public_facts import (
     AntiCorruptionReferralFactBuilder,
@@ -121,9 +122,17 @@ class PolishFactExtractor(FactExtractor):
             if not parties:
                 continue
             lowered = sentence.text.lower()
-            if not any(
-                marker in lowered for marker in ("działacz", "polityk", "radn", "lider", "członk")
-            ):
+            parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+            if parsed_words:
+                has_party_context = any(
+                    word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS for word in parsed_words
+                )
+            else:
+                has_party_context = any(
+                    marker in lowered
+                    for marker in ("działacz", "polityk", "radn", "lider", "członk")
+                )
+            if not has_party_context:
                 continue
             if any(
                 candidate.candidate_type == CandidateType.PERSON

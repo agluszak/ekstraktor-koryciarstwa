@@ -715,7 +715,58 @@ Important text cues:
 Expected comparison standard:
 - This should yield at least one or two board exit facts (dismissal/resignation), a kinship fact (wife/spouse), and a party affiliation.
 
-## 17. Głos Wielkopolski: Nowy prezes WTC Poznań, spółki podległej MTP, wybrany bez konkursu
+## 17. WP: Żona posła PiS odnalazła się w Lublinie. Była "ofiarą" uchwały o nepotyzmie
+
+Source:
+- https://wiadomosci.wp.pl/zona-posla-pis-odnalazla-sie-w-lublinie-byla-ofiara-uchwaly-o-nepotyzmie-7273798906222848a
+
+Expectation:
+- This article is **strongly in scope**.
+- It is about a politician's spouse being appointed to a supervisory board in a regional-government company controlled by PiS.
+- It also recaps earlier anti-nepotism consequences after the 2021 PiS resolution against spouses of PiS MPs and senators sitting on state-company supervisory boards.
+
+Expected core entities:
+- Sylwia Sobolewska
+- Krzysztof Sobolewski
+- Jarosław Stawiarski / lubelski marszałek
+- Piotr Breś
+- Lubelskie Koleje
+- województwo lubelskie / Urząd Marszałkowski
+- Prawo i Sprawiedliwość / PiS
+- Orlen
+- Port Lotniczy Szczecin-Goleniów
+- Przedsiębiorstwo Gospodarki Komunalnej w Kamieniu Pomorskim
+- Zamek w Ogrodzieńcu
+- Mariola Duraj-Majda
+- Łukasz Jakubowski
+
+Expected facts:
+- Sylwia Sobolewska -> `APPOINTMENT` / `MEMBER_OF_BOARD` -> Lubelskie Koleje
+  Expected role: `członkini rady nadzorczej`
+- Sylwia Sobolewska -> `PERSONAL_OR_POLITICAL_TIE` -> Krzysztof Sobolewski
+  Expected relationship type: `wife / spouse`
+- Krzysztof Sobolewski -> `PARTY_MEMBERSHIP` -> PiS
+- Jarosław Stawiarski / zarząd województwa -> governance/control context -> Lubelskie Koleje
+  TODO: encode as a structured owner/controller/governance context once the fact model supports it cleanly.
+- Sylwia Sobolewska -> prior `DISMISSAL` / `LEFT_POSITION` -> Orlen / Orlen-linked supervisory boards / Port Lotniczy Szczecin-Goleniów
+  TODO: this is historical context and may require better event-time handling before hard assertion.
+- Sylwia Sobolewska -> `COMPENSATION` / remuneration signal
+  Expected amounts: 2 tys. zł / 2,3 tys. zł supervisory-board monthly remuneration; historical 500 tys. zł and 700 tys. zł company earnings are useful supporting cues.
+
+Important text cues:
+- "została właśnie członkinią rady nadzorczej"
+- "spółki Lubelskie Koleje"
+- "żona posła PiS Krzysztofa Sobolewskiego"
+- "województwo lubelskie rządzone przez Prawo i Sprawiedliwość"
+- "PiS przyjęło uchwałę zakazującą współmałżonkom posłów i senatorów PiS zasiadania w radach nadzorczych"
+- "odeszła ze stanowiska dyrektorskiego w Orlenie"
+- "straciła także stanowiska w radach nadzorczych"
+
+Expected comparison standard:
+- This should be relevant, recover the Sobolewski/Sobolewska spouse relationship, and emit at least one governance fact placing Sylwia Sobolewska in the supervisory board of Lubelskie Koleje.
+- Secondary target: recover the PiS affiliation/control context and remuneration/public-money cues without confusing PiS itself with the appointment target.
+
+## 18. Głos Wielkopolski: Nowy prezes WTC Poznań, spółki podległej MTP, wybrany bez konkursu
 
 Source:
 - https://gloswielkopolski.pl/nowy-prezes-wtc-poznan-spolki-podleglej-mtp-wybrany-bez-konkursu-ma-dyplom-collegium-humanum/ar/c1p2-27186205
@@ -773,7 +824,7 @@ Expected comparison standard:
   - one company / parent-organization context linking WTC Poznań to MTP
 - A useful future extension would be a qualification-risk or red-flag signal for `Collegium Humanum`, but that is not required for baseline extraction.
 
-## 18. Do Rzeczy: PSL rozdał posady swoim w Agencji Mienia Wojskowego. Bez konkursów
+## 19. Do Rzeczy: PSL rozdał posady swoim w Agencji Mienia Wojskowego. Bez konkursów
 
 Source:
 - https://dorzeczy.pl/kraj/658447/bez-konkursow-desant-psl-na-agencje-mienia-wojskowego.html
@@ -823,7 +874,7 @@ Expected comparison standard:
   - one clear public-institution target (`Agencja Mienia Wojskowego`)
 - If the pipeline only extracts `PSL`, `Kosiniak-Kamysz`, and `AMW` as loose entities, it is underperforming.
 
-## 19. Dziennik Zachodni: Nepotyzm w Bytomiu? Radni PiS zapowiadają zawiadomienie do CBA
+## 20. Dziennik Zachodni: Nepotyzm w Bytomiu? Radni PiS zapowiadają zawiadomienie do CBA
 
 Source:
 - https://dziennikzachodni.pl/nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zapowiedzieli-ze-zloza-zawiadomienie-do-cba-o-mozliwosci-popelnienia-przestepstwa/ar/c1-16375383

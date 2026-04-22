@@ -10,6 +10,8 @@ from pipeline.domain_types import (
     EntityID,
     EntityType,
     OrganizationKind,
+    RoleKind,
+    RoleModifier,
 )
 from pipeline.models import (
     ArticleDocument,
@@ -20,7 +22,8 @@ from pipeline.models import (
     EntityCandidate,
     ParsedWord,
 )
-from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, ROLE_PATTERNS
+from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, PARTY_PROFILE_CONTEXT_LEMMAS, ROLE_PATTERNS
+from pipeline.role_matching import RoleMatch, match_role_mentions
 from pipeline.utils import extract_role_from_text, normalize_entity_name, stable_id
 
 from .org_typing import OrganizationMentionClassifier
@@ -225,8 +228,15 @@ class CandidateGraphBuilder:
         sentence,
         parsed_words: list[ParsedWord],
     ) -> list[EntityCandidate]:
-        text = sentence.text
         candidates: list[EntityCandidate] = []
+        if parsed_words:
+            for match in match_role_mentions(parsed_words):
+                candidates.append(
+                    self._position_candidate_from_role_match(document, sentence, match)
+                )
+            return candidates
+
+        text = sentence.text
         occupied_spans: list[tuple[int, int]] = []
         for role, modifier, pattern in sorted(
             ROLE_PATTERNS,
@@ -247,7 +257,13 @@ class CandidateGraphBuilder:
                     entity_type=EntityType.POSITION,
                     canonical_name=full_name,
                     alias=match.group(0),
+                    role_kind=role,
+                    role_modifier=modifier,
                 )
+                role_kind, role_modifier = extract_role_from_text(position.normalized_name)
+                if role_kind is None:
+                    role_kind = role
+                    role_modifier = modifier
                 candidates.append(
                     EntityCandidate(
                         candidate_id=CandidateID(
@@ -269,12 +285,51 @@ class CandidateGraphBuilder:
                         start_char=match.start(),
                         end_char=match.end(),
                         source="derived_position",
-                        role_kind=extract_role_from_text(position.normalized_name)[0],
-                        role_modifier=extract_role_from_text(position.normalized_name)[1],
+                        role_kind=role_kind,
+                        role_modifier=role_modifier,
                     )
                 )
                 occupied_spans.append((match.start(), match.end()))
         return candidates
+
+    def _position_candidate_from_role_match(
+        self,
+        document: ArticleDocument,
+        sentence,
+        match: RoleMatch,
+    ) -> EntityCandidate:
+        alias = sentence.text[match.start : match.end]
+        position = self._get_or_create_entity(
+            document=document,
+            entity_type=EntityType.POSITION,
+            canonical_name=match.canonical_name,
+            alias=alias,
+            role_kind=match.role_kind,
+            role_modifier=match.role_modifier,
+        )
+        return EntityCandidate(
+            candidate_id=CandidateID(
+                stable_id(
+                    "candidate",
+                    document.document_id,
+                    position.entity_id,
+                    str(sentence.sentence_index),
+                    str(match.start),
+                    str(match.end),
+                )
+            ),
+            entity_id=position.entity_id,
+            candidate_type=CandidateType.POSITION,
+            canonical_name=position.canonical_name,
+            normalized_name=position.normalized_name,
+            sentence_index=sentence.sentence_index,
+            paragraph_index=sentence.paragraph_index,
+            start_char=match.start,
+            end_char=match.end,
+            source="derived_position",
+            role_kind=match.role_kind,
+            role_modifier=match.role_modifier,
+        )
 
     def _derived_party_candidates(
         self,
@@ -553,12 +608,19 @@ class CandidateGraphBuilder:
         preceding_text = lower[max(0, party.start_char - 3) : party.start_char]
         if preceding_text.endswith(" z ") and distance <= 28:
             return True
-        if any(marker in party_window for marker in PARTY_CONTEXT_LEMMAS):
-            if any(
-                marker in between_text
-                for marker in ("lider", "działacz", "polityk", "radny", "radna")
-            ):
+        party_context_words = [
+            word
+            for word in parsed_words
+            if word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS
+            and max(0, party.start_char - 24) <= word.start <= party.end_char + 24
+        ]
+        if party_context_words:
+            if any(between_start <= word.start <= between_end for word in party_context_words):
                 return True
+            return distance <= 36
+        if not parsed_words and any(
+            marker in party_window for marker in PARTY_PROFILE_CONTEXT_LEMMAS
+        ):
             return distance <= 36
 
         party_word = next(
@@ -585,7 +647,7 @@ class CandidateGraphBuilder:
         head = next((word for word in parsed_words if word.index == party_word.head), None)
         if head is None:
             return False
-        if head.lemma in PARTY_CONTEXT_LEMMAS and distance <= 40:
+        if head.lemma.casefold() in PARTY_CONTEXT_LEMMAS and distance <= 40:
             if any(person_word.index == head.head for person_word in person_words):
                 return True
             if any(person_word.head == head.index for person_word in person_words):
@@ -726,6 +788,8 @@ class CandidateGraphBuilder:
         entity_type: EntityType,
         canonical_name: str,
         alias: str,
+        role_kind: RoleKind | None = None,
+        role_modifier: RoleModifier | None = None,
     ) -> Entity:
         existing = next(
             (
@@ -738,6 +802,10 @@ class CandidateGraphBuilder:
         if existing is not None:
             if alias not in existing.aliases:
                 existing.aliases.append(alias)
+            if role_kind is not None:
+                existing.role_kind = role_kind
+            if role_modifier is not None:
+                existing.role_modifier = role_modifier
             return existing
 
         entity = Entity(
@@ -748,6 +816,8 @@ class CandidateGraphBuilder:
             canonical_name=canonical_name,
             normalized_name=canonical_name,
             aliases=[alias],
+            role_kind=role_kind,
+            role_modifier=role_modifier,
         )
         document.entities.append(entity)
         return entity

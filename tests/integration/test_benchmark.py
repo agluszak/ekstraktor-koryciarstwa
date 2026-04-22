@@ -491,6 +491,86 @@ def test_zona_posla_pis(benchmark_results: dict[str, Any], subtests: Subtests) -
     assert any("Dariusz Stefaniuk" in e for e in entities)
 
 
+def test_wp_zona_posla_pis_lubelskie_koleje(
+    benchmark_results: dict[str, Any],
+    subtests: Subtests,
+) -> None:
+    """
+    Article: Żona posła PiS odnalazła się w Lublinie...
+    URL: https://wiadomosci.wp.pl/zona-posla-pis-odnalazla-sie-w-lublinie-byla-ofiara-uchwaly-o-nepotyzmie-7273798906222848a
+    Expectation:
+    - Sylwia Sobolewska -> APPOINTMENT / MEMBER_OF_BOARD -> Lubelskie Koleje.
+    - Sylwia Sobolewska -> PERSONAL_OR_POLITICAL_TIE -> Krzysztof Sobolewski (wife).
+    - Krzysztof Sobolewski -> PARTY_MEMBERSHIP -> PiS.
+    - TODO: prior Orlen / Port Lotniczy exits and board remuneration are important supporting
+      findings, but need better historical-event and compensation-target handling before hard asserts.
+    """
+    key = (
+        "wiadomosci.wp.pl__zona-posla-pis-odnalazla-sie-w-lublinie-byla-ofiara-"
+        "uchwaly-o-nepotyzmie__7273798906222848a"
+    )
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    assert doc["relevance"]["is_relevant"] is True
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    assert any("Sobolewska" in e for e in entities)
+    target_assert(
+        subtests,
+        any("Sylwia Sobolewska" in e for e in entities),
+        "Should recover normalized Sylwia Sobolewska",
+    )
+    target_assert(
+        subtests,
+        any("Krzysztof Sobolewski" in e for e in entities),
+        "Should recover Krzysztof Sobolewski",
+    )
+    target_assert(
+        subtests,
+        any("Lubelskie Koleje" in e for e in entities),
+        "Should recover Lubelskie Koleje",
+    )
+
+    appointments = get_facts_by_type(doc, "APPOINTMENT")
+    board_memberships = get_facts_by_type(doc, "MEMBER_OF_BOARD")
+    governance_facts = appointments + board_memberships
+    target_assert(
+        subtests,
+        any(
+            "Sobolewska" in get_entity_name(doc, f.get("subject_entity_id"))
+            for f in governance_facts
+        ),
+        "Should create a governance fact for Sylwia Sobolewska",
+    )
+    target_assert(
+        subtests,
+        any(
+            "Lubelskie Koleje" in get_entity_name(doc, f.get("object_entity_id"))
+            for f in governance_facts
+        ),
+        "Governance target should be Lubelskie Koleje",
+    )
+
+    ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
+    target_assert(
+        subtests,
+        any(
+            "Sobolewska" in get_entity_name(doc, t.get("subject_entity_id"))
+            and "Sobolewski" in get_entity_name(doc, t.get("object_entity_id"))
+            for t in ties
+        ),
+        "Should identify Sobolewska/Sobolewski spouse relationship",
+    )
+
+    parties = [
+        get_entity_name(doc, f.get("object_entity_id"))
+        for f in get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    ]
+    target_assert(subtests, any("PiS" in p for p in parties), "Should recover PiS affiliation")
+
+
 def test_olsztyn_wodkan(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
     Article: zarobki prezesów przedsiębiorstw wodociągowych

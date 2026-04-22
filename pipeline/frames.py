@@ -11,10 +11,10 @@ from pipeline.domain_types import (
     EventType,
     FrameID,
     OrganizationKind,
-    RoleKind,
 )
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
+from pipeline.lemma_signals import has_lemma, has_lemma_pair, lemma_set, words_with_lemmas
 from pipeline.models import (
     AntiCorruptionReferralFrame,
     ArticleDocument,
@@ -29,14 +29,17 @@ from pipeline.models import (
     PublicContractFrame,
 )
 from pipeline.nlp_rules import (
+    APPOINTMENT_NOUN_LEMMAS,
     APPOINTMENT_TRIGGER_LEMMAS,
     APPOINTMENT_TRIGGER_TEXTS,
     COMPENSATION_PATTERN,
+    DISMISSAL_NOUN_LEMMAS,
     DISMISSAL_TRIGGER_LEMMAS,
     DISMISSAL_TRIGGER_TEXTS,
     FUNDING_HINTS,
     ROLE_PATTERNS,
 )
+from pipeline.role_matching import has_copular_role_appointment, match_role_mentions
 from pipeline.utils import normalize_entity_name
 
 COMPENSATION_CONTEXT_LEMMAS = frozenset(
@@ -106,6 +109,10 @@ KINSHIP_LEMMAS = frozenset(
 
 REFERRAL_TRIGGER_LEMMAS = frozenset({"złożyć", "skierować", "zapowiedzieć"})
 REFERRAL_NOUN_LEMMAS = frozenset({"zawiadomienie", "doniesienie", "skarga", "wniosek"})
+REPORTING_RECIPIENT_LEMMAS = frozenset({"my", "redakcja", "dziennikarz", "czytelnik"})
+REPORTING_OBJECT_LEMMAS = frozenset(
+    {"informacja", "wiadomość", "odpowiedź", "komentarz", "oświadczenie", "stanowisko"}
+)
 ACCOUNTABILITY_INSTITUTION_MARKERS = frozenset(
     {
         "cba",
@@ -157,6 +164,12 @@ PUBLIC_COUNTERPARTY_MARKERS = frozenset(
 )
 CONTRACTOR_CONTEXT_MARKERS = frozenset(
     {"firma", "firmy", "firmą", "spółka", "spółki", "spółką", "podmiot"}
+)
+FUNDING_SURFACE_FALLBACKS = frozenset(
+    {"dotacj", "dofinansowa", "wyłożył", "wyłożyła", "wyłożyły", "sfinansowa", "pochłon"}
+)
+WEAK_APPOINTMENT_TRIGGER_LEMMAS = frozenset(
+    {"objąć", "zająć", "pracować", "zatrudnić", "zatrudnienie", "trafić"}
 )
 
 
@@ -558,18 +571,18 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
     def _has_referral_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
         lowered = clause.text.lower()
         parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
-        lemmas = {word.lemma.lower() for word in parsed_words}
-        has_trigger = bool(
-            lemmas.intersection(REFERRAL_TRIGGER_LEMMAS)
-            or clause.trigger_head_lemma.lower() in REFERRAL_TRIGGER_LEMMAS
-            or any(trigger in lowered for trigger in ("złoży", "złożą", "skieruj", "zapowied"))
-        )
-        has_noun = bool(
-            lemmas.intersection(REFERRAL_NOUN_LEMMAS)
-            or any(noun in lowered for noun in ("zawiadomienie", "doniesienie", "skarg", "wniosek"))
-        )
+        lemmas = lemma_set(parsed_words)
+        has_trigger = bool(lemmas.intersection(REFERRAL_TRIGGER_LEMMAS))
+        has_noun = bool(lemmas.intersection(REFERRAL_NOUN_LEMMAS))
+        if not parsed_words:
+            has_trigger = any(
+                trigger in lowered for trigger in ("złoży", "złożą", "skieruj", "zapowied")
+            )
+            has_noun = any(
+                noun in lowered for noun in ("zawiadomienie", "doniesienie", "skarg", "wniosek")
+            )
         has_target = any(marker in lowered for marker in ACCOUNTABILITY_INSTITUTION_MARKERS)
-        return has_target and has_noun and (has_trigger or "złożenia zawiadomienia" in lowered)
+        return has_target and has_noun and has_trigger
 
     def _clusters_for_mentions(
         self,
@@ -702,7 +715,8 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         document.governance_frames = []
         context = ExtractionContext.build(document)
         for clause in document.clause_units:
-            event_type = self._detect_event_type(clause)
+            parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+            event_type = self._detect_event_type(clause, parsed_words)
             if event_type is None:
                 continue
             frame = self._extract_discourse_frame(clause, document, context, event_type)
@@ -710,18 +724,66 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 document.governance_frames.append(frame)
         return document
 
-    def _detect_event_type(self, clause: ClauseUnit) -> EventType | None:
+    def _detect_event_type(
+        self,
+        clause: ClauseUnit,
+        parsed_words: list[ParsedWord] | None = None,
+    ) -> EventType | None:
         lemma = clause.trigger_head_lemma.lower()
         lowered_text = clause.text.lower()
-        if lemma in APPOINTMENT_TRIGGER_LEMMAS or any(
-            trigger in lowered_text for trigger in APPOINTMENT_TRIGGER_TEXTS
+        if (
+            self._has_trigger_head_appointment_signal(lemma, parsed_words or [])
+            or self._has_appointment_lemma_signal(parsed_words or [])
+            or any(trigger in lowered_text for trigger in APPOINTMENT_TRIGGER_TEXTS)
+            or has_copular_role_appointment(parsed_words or [])
         ):
             return EventType.APPOINTMENT
-        if lemma in DISMISSAL_TRIGGER_LEMMAS or any(
-            trigger in lowered_text for trigger in DISMISSAL_TRIGGER_TEXTS
+        if (
+            lemma in DISMISSAL_TRIGGER_LEMMAS
+            or self._has_dismissal_lemma_signal(parsed_words or [])
+            or any(trigger in lowered_text for trigger in DISMISSAL_TRIGGER_TEXTS)
         ):
             return EventType.DISMISSAL
         return None
+
+    @staticmethod
+    def _has_trigger_head_appointment_signal(
+        trigger_head_lemma: str,
+        parsed_words: list[ParsedWord],
+    ) -> bool:
+        if trigger_head_lemma not in APPOINTMENT_TRIGGER_LEMMAS:
+            return False
+        if trigger_head_lemma not in WEAK_APPOINTMENT_TRIGGER_LEMMAS:
+            return True
+        return PolishGovernanceFrameExtractor._has_appointment_lemma_signal(parsed_words)
+
+    @staticmethod
+    def _has_appointment_lemma_signal(parsed_words: list[ParsedWord]) -> bool:
+        lemmas = lemma_set(parsed_words)
+        if lemmas.intersection(APPOINTMENT_TRIGGER_LEMMAS) and lemmas.intersection(
+            APPOINTMENT_NOUN_LEMMAS
+        ):
+            return True
+        return has_lemma_pair(
+            parsed_words,
+            APPOINTMENT_TRIGGER_LEMMAS,
+            APPOINTMENT_NOUN_LEMMAS,
+        )
+
+    @staticmethod
+    def _has_dismissal_lemma_signal(parsed_words: list[ParsedWord]) -> bool:
+        if has_lemma(parsed_words, DISMISSAL_TRIGGER_LEMMAS):
+            return True
+        lemmas = lemma_set(parsed_words)
+        if lemmas.intersection({"złożyć", "przyjąć"}) and lemmas.intersection(
+            DISMISSAL_NOUN_LEMMAS
+        ):
+            return True
+        return has_lemma_pair(
+            parsed_words,
+            frozenset({"złożyć", "przyjąć"}),
+            DISMISSAL_NOUN_LEMMAS,
+        )
 
     def _extract_discourse_frame(
         self,
@@ -776,7 +838,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         role_cluster = (
             role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
         )
-        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause)
+        role_text = None if role_cluster is not None else self._find_role_text(document, clause)
 
         clause_orgs = self._clusters_for_mentions(
             document,
@@ -943,7 +1005,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
         )
         role_cluster_id = role_cluster.cluster_id if role_cluster is not None else None
-        role_text = None if role_cluster is not None else self._find_role_text_from_text(clause)
+        role_text = None if role_cluster is not None else self._find_role_text(document, clause)
 
         target_resolution = self.target_resolver.resolve(
             document=document,
@@ -1169,16 +1231,23 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
     ) -> EntityCluster | None:
-        lowered = clause.text.lower()
-        matched_role = next((role.value for role in RoleKind if role.value in lowered), None)
-        if matched_role is None:
+        role_text = self._find_role_text(document, clause)
+        if role_text is None:
             return None
         for cluster in document.clusters:
             if cluster.entity_type != EntityType.POSITION:
                 continue
-            if cluster.canonical_name.lower() == matched_role:
+            if cluster.canonical_name.lower() == role_text.lower():
                 return cluster
         return None
+
+    @staticmethod
+    def _find_role_text(document: ArticleDocument, clause: ClauseUnit) -> str | None:
+        parsed = document.parsed_sentences.get(clause.sentence_index, [])
+        role_matches = match_role_mentions(parsed)
+        if role_matches:
+            return role_matches[0].canonical_name
+        return PolishGovernanceFrameExtractor._find_role_text_from_text(clause)
 
     @staticmethod
     def _find_role_text_from_text(clause: ClauseUnit) -> str | None:
@@ -1447,11 +1516,11 @@ class PolishCompensationFrameExtractor(FrameExtractor):
     def _looks_like_funding_clause(document: ArticleDocument, clause: ClauseUnit) -> bool:
         lowered = clause.text.lower()
         parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
-        lemmas = {word.lemma.lower() for word in parsed_words}
+        lemmas = lemma_set(parsed_words)
         return bool(
             lemmas.intersection(FUNDING_HINTS)
             or clause.trigger_head_lemma.lower() in FUNDING_HINTS
-            or any(hint in lowered for hint in FUNDING_HINTS)
+            or (not parsed_words and any(hint in lowered for hint in FUNDING_SURFACE_FALLBACKS))
         )
 
     def _clusters_for_mentions(
@@ -1533,7 +1602,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
     ) -> EntityCluster | None:
-        role_text = PolishGovernanceFrameExtractor._find_role_text_from_text(clause)
+        role_text = PolishGovernanceFrameExtractor._find_role_text(document, clause)
         if role_text is None:
             return None
         for cluster in document.clusters:
@@ -1614,6 +1683,8 @@ class PolishFundingFrameExtractor(FrameExtractor):
             if not self._has_funding_context(document, clause):
                 continue
             amount_match = COMPENSATION_PATTERN.search(clause.text)
+            if self._is_reporting_przekazac_context(document, clause):
+                continue
             if self._is_reporting_przekazac_without_amount(document, clause, amount_match):
                 continue
             frame = self._extract_frame_from_clause(document, clause, amount_match)
@@ -1679,13 +1750,28 @@ class PolishFundingFrameExtractor(FrameExtractor):
     def _has_funding_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
         lowered = clause.text.lower()
         parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
-        lemmas = {word.lemma.lower() for word in parsed_words}
+        lemmas = lemma_set(parsed_words)
         return bool(
             lemmas.intersection(FUNDING_HINTS)
             or clause.trigger_head_lemma.lower() in FUNDING_HINTS
-            or any(hint in lowered for hint in FUNDING_HINTS)
-            or "dotacj" in lowered
-            or "dofinansowa" in lowered
+            or (not parsed_words and any(hint in lowered for hint in FUNDING_SURFACE_FALLBACKS))
+        )
+
+    @staticmethod
+    def _is_reporting_przekazac_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        przekazac_words = words_with_lemmas(parsed_words, frozenset({"przekazać"}))
+        if not przekazac_words:
+            return False
+        if has_lemma(parsed_words, frozenset({"dotacja", "dofinansowanie"})):
+            return False
+        reporting_lemmas = REPORTING_RECIPIENT_LEMMAS | REPORTING_OBJECT_LEMMAS
+        return any(
+            child.head == trigger.index
+            and child.deprel in {"obj", "iobj", "obl"}
+            and child.lemma.casefold() in reporting_lemmas
+            for trigger in przekazac_words
+            for child in parsed_words
         )
 
     @staticmethod
@@ -1703,7 +1789,9 @@ class PolishFundingFrameExtractor(FrameExtractor):
         )
         if not has_przekazac:
             return False
-        if "dotacj" in lowered or "dofinansowa" in lowered:
+        if has_lemma(parsed_words, frozenset({"dotacja", "dofinansowanie"})):
+            return False
+        if not parsed_words and ("dotacj" in lowered or "dofinansowa" in lowered):
             return False
         return True
 
@@ -1851,12 +1939,13 @@ class PolishFundingFrameExtractor(FrameExtractor):
             clause.start_char + word.start
             for word in parsed_words
             if word.lemma.lower() in FUNDING_HINTS
-            or any(hint in word.text.lower() for hint in FUNDING_HINTS)
         ]
         if trigger_words:
             return min(trigger_words)
         lowered = clause.text.lower()
-        positions = [lowered.find(hint) for hint in FUNDING_HINTS if lowered.find(hint) >= 0]
+        positions = [
+            lowered.find(hint) for hint in FUNDING_SURFACE_FALLBACKS if lowered.find(hint) >= 0
+        ]
         if positions:
             return clause.start_char + min(positions)
         return clause.start_char

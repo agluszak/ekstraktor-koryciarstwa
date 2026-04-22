@@ -14,6 +14,7 @@ from pipeline.domain_types import (
     RoleKind,
     TimeScope,
 )
+from pipeline.lemma_signals import lemma_set
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -36,6 +37,7 @@ from pipeline.nlp_rules import (
     OFFICE_CANDIDACY_LEMMAS,
     OWNER_CONTEXT_TERMS,
     PARTY_CONTEXT_LEMMAS,
+    PARTY_PROFILE_CONTEXT_LEMMAS,
     TARGET_CONTEXT_TERMS,
     TIE_WORDS,
 )
@@ -550,8 +552,14 @@ class CompensationFactExtractor:
 
 class FundingFactExtractor:
     def extract(self, context: SentenceContext) -> list[Fact]:
-        lemmas = {word.lemma for word in context.parsed_words}
-        if not any(hint in lemmas or hint in context.lowered_text for hint in FUNDING_HINTS):
+        lemmas = lemma_set(context.parsed_words)
+        if not (
+            lemmas.intersection(FUNDING_HINTS)
+            or (
+                not context.parsed_words
+                and any(hint in context.lowered_text for hint in FUNDING_HINTS)
+            )
+        ):
             return []
         if len(context.organizations) < 2:
             return []
@@ -766,7 +774,7 @@ def _has_signal(
     lemmas: AbstractSet[str],
     surface_triggers: AbstractSet[str],
 ) -> bool:
-    parsed_lemmas = {word.lemma for word in parsed_words}
+    parsed_lemmas = lemma_set(parsed_words)
     return bool(
         parsed_lemmas.intersection(lemmas)
         or any(trigger in lowered_text for trigger in surface_triggers)
@@ -1115,7 +1123,7 @@ def _party_syntactic_signal(
         return None
 
     head = next((word for word in context.parsed_words if word.index == party_word.head), None)
-    if head is not None and head.lemma in PARTY_CONTEXT_LEMMAS:
+    if head is not None and head.lemma.casefold() in PARTY_CONTEXT_LEMMAS:
         if any(person_word.index == head.head for person_word in person_words):
             return "syntactic_direct"
         if any(person_word.head == head.index for person_word in person_words):
@@ -1137,12 +1145,21 @@ def _party_context_window_supports(
 ) -> bool:
     window_start = max(0, min(person.start_char, party.start_char) - 8)
     window_end = max(person.end_char, party.end_char) + 16
-    party_window = context.lowered_text[window_start:window_end]
     between_text = _between_candidates(context, person, party)
-    strong_context = ("polityk", "działacz", "radny", "radna", "lider", "prezes")
-    return any(marker in party_window for marker in strong_context) or any(
-        marker in between_text for marker in (" z ", " z ")
-    )
+    party_context_words = [
+        word
+        for word in context.parsed_words
+        if word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS
+        and window_start <= word.start <= window_end
+    ]
+    if party_context_words:
+        return True
+    if any(marker in between_text for marker in (" z ", " z ")):
+        return True
+    if context.parsed_words:
+        return False
+    party_window = context.lowered_text[window_start:window_end]
+    return any(marker in party_window for marker in PARTY_PROFILE_CONTEXT_LEMMAS)
 
 
 def _candidate_head_word(
@@ -1212,17 +1229,22 @@ def _supports_party_fact(
         return False
     window_start = max(0, min(person.start_char, party.start_char) - 8)
     window_end = max(person.end_char, party.end_char) + 16
-    party_window = context.lowered_text[window_start:window_end]
     between_start = min(person.end_char, party.end_char)
     between_end = max(person.start_char, party.start_char)
-    between_text = context.lowered_text[between_start:between_end]
-    if any(
-        marker in party_window
-        for marker in ("polityk", "działacz", "radny", "radna", "lider", "prezes")
-    ):
+    party_context_words = [
+        word
+        for word in context.parsed_words
+        if word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS
+        and window_start <= word.start <= window_end
+    ]
+    if party_context_words:
         return governance_signal or any(
-            marker in between_text for marker in ("polityk", "działacz", "radny", "radna", "lider")
+            between_start <= word.start <= between_end for word in party_context_words
         )
+    if not context.parsed_words:
+        party_window = context.lowered_text[window_start:window_end]
+        if any(marker in party_window for marker in PARTY_PROFILE_CONTEXT_LEMMAS):
+            return governance_signal
     party_word = next(
         (
             word
@@ -1244,7 +1266,7 @@ def _supports_party_fact(
         return False
     if party_word.head:
         head = next((word for word in context.parsed_words if word.index == party_word.head), None)
-        if head is not None and head.lemma in PARTY_CONTEXT_LEMMAS:
+        if head is not None and head.lemma.casefold() in PARTY_CONTEXT_LEMMAS:
             if any(person_word.index == head.head for person_word in person_words):
                 return True
             if any(person_word.head == head.index for person_word in person_words):

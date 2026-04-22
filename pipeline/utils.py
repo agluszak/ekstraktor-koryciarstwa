@@ -152,6 +152,15 @@ def _looks_like_acronym(token: str) -> bool:
 
 
 def extract_role_from_text(text: str) -> tuple[RoleKind | None, RoleModifier | None]:
+    normalized = normalize_entity_name(text).casefold()
+    for role_kind in sorted(RoleKind, key=lambda item: len(item.value), reverse=True):
+        role_name = normalize_entity_name(role_kind.value).casefold()
+        if normalized == role_name:
+            return role_kind, None
+        if normalized == f"{RoleModifier.DEPUTY.value} {role_name}".casefold():
+            return role_kind, RoleModifier.DEPUTY
+        if normalized == f"{RoleModifier.ACTING.value} {role_name}".casefold():
+            return role_kind, RoleModifier.ACTING
     for role_kind, role_modifier, pattern in ROLE_PATTERNS:
         if pattern.search(text):
             return role_kind, role_modifier

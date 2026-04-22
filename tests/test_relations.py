@@ -11,6 +11,8 @@ from pipeline.domain_types import (
     EntityType,
     FactType,
     OrganizationKind,
+    RoleKind,
+    RoleModifier,
 )
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
@@ -26,6 +28,7 @@ from pipeline.models import (
 )
 from pipeline.relations import PolishFactExtractor
 from pipeline.relations.candidate_graph import CandidateGraphBuilder
+from pipeline.role_matching import match_role_mentions
 from pipeline.runtime import PipelineRuntime
 from pipeline.segmentation.service import ParagraphSentenceSegmenter
 from pipeline.syntax import StanzaClauseParser
@@ -62,6 +65,28 @@ class CountingSyntaxPipeline:
         _ = text
         self.call_count += 1
         return self.doc
+
+
+def word(
+    index: int,
+    text: str,
+    lemma: str,
+    start: int,
+    *,
+    head: int = 0,
+    deprel: str = "root",
+    upos: str = "NOUN",
+) -> ParsedWord:
+    return ParsedWord(
+        index=index,
+        text=text,
+        lemma=lemma,
+        upos=upos,
+        head=head,
+        deprel=deprel,
+        start=start,
+        end=start + len(text),
+    )
 
 
 def prepare_for_relation_extraction(
@@ -161,6 +186,109 @@ def prepared_single_clause_document(
         )
     ]
     return document
+
+
+def test_role_matcher_uses_wojewoda_lemma_for_inflected_surface() -> None:
+    matches = match_role_mentions([word(1, "wojewodą", "wojewoda", 0)])
+
+    assert len(matches) == 1
+    assert matches[0].canonical_name == "Wojewoda"
+    assert matches[0].role_kind == RoleKind.WOJEWODA
+    assert matches[0].role_modifier is None
+    assert matches[0].start == 0
+    assert matches[0].end == len("wojewodą")
+
+
+def test_candidate_graph_uses_wicewojewoda_lemma_for_deputy_role() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Anna Nowak została wicewojewodą."
+    role_start = text.index("wicewojewodą")
+    document = ArticleDocument(
+        document_id=DocumentID("doc-role-wicewojewoda"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+    )
+    parsed_words = [
+        word(1, "Anna", "Anna", 0, head=3, deprel="nsubj", upos="PROPN"),
+        word(2, "została", "zostać", text.index("została"), head=3, deprel="aux", upos="AUX"),
+        word(3, "wicewojewodą", "wicewojewoda", role_start),
+    ]
+
+    candidate_graph = CandidateGraphBuilder(config).build(
+        document=document,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences={0: parsed_words},
+    )
+    positions = [
+        candidate
+        for candidate in candidate_graph.candidates
+        if candidate.candidate_type == CandidateType.POSITION
+    ]
+
+    assert len(positions) == 1
+    assert positions[0].canonical_name == "wice/zastępca Wojewoda"
+    assert positions[0].role_kind == RoleKind.WOJEWODA
+    assert positions[0].role_modifier == RoleModifier.DEPUTY
+    assert positions[0].start_char == role_start
+    assert positions[0].end_char == role_start + len("wicewojewodą")
+
+
+def test_role_matcher_handles_inflected_prezes_family() -> None:
+    cases = [
+        ("prezesem", "prezes", "Prezes", RoleKind.PREZES, None),
+        ("prezeską", "prezeska", "Prezes", RoleKind.PREZES, None),
+        (
+            "wiceprezesem",
+            "wiceprezes",
+            "wice/zastępca Prezes",
+            RoleKind.PREZES,
+            RoleModifier.DEPUTY,
+        ),
+        (
+            "wiceprezeską",
+            "wiceprezeska",
+            "wice/zastępca Prezes",
+            RoleKind.PREZES,
+            RoleModifier.DEPUTY,
+        ),
+    ]
+    for surface, lemma, canonical, role_kind, role_modifier in cases:
+        matches = match_role_mentions([word(1, surface, lemma, 4)])
+
+        assert len(matches) == 1
+        assert matches[0].canonical_name == canonical
+        assert matches[0].role_kind == role_kind
+        assert matches[0].role_modifier == role_modifier
+        assert matches[0].start == 4
+        assert matches[0].end == 4 + len(surface)
+
+
+def test_role_matcher_prefers_longest_board_role_span() -> None:
+    parsed_words = [
+        word(1, "wiceprzewodniczącą", "wiceprzewodniczący", 0),
+        word(2, "rady", "rada", 19),
+        word(3, "nadzorczej", "nadzorczy", 24),
+    ]
+
+    matches = match_role_mentions(parsed_words)
+
+    assert len(matches) == 1
+    assert matches[0].canonical_name == "wice/zastępca Przewodniczący Rady Nadzorczej"
+    assert matches[0].start == 0
+    assert matches[0].end == 34
 
 
 def test_party_aliases_match_whole_tokens_only() -> None:
@@ -1781,6 +1909,117 @@ def test_party_referral_to_cba_uses_party_actor_when_no_person_present() -> None
     assert referrals
     assert referrals[0].subject_entity_id == EntityID("entity-0")
     assert referrals[0].object_entity_id == EntityID("entity-1")
+
+
+def test_referral_context_uses_stanza_lemmas_for_inflected_trigger() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Radny Jan Kowalski skierował skargę do CBA."
+    document = prepared_single_clause_document(
+        document_id="doc-cba-person-skarga",
+        text=text,
+        entities=[
+            ("Jan Kowalski", EntityType.PERSON, "Jan Kowalski"),
+            ("CBA", EntityType.PUBLIC_INSTITUTION, "Centralne Biuro Antykorupcyjne"),
+        ],
+        parsed_words=[
+            word(1, "Radny", "radny", 0, head=3, deprel="nsubj"),
+            word(2, "Jan", "Jan", 6, head=1, deprel="flat", upos="PROPN"),
+            word(3, "skierował", "skierować", 19, upos="VERB"),
+            word(4, "skargę", "skarga", 29, head=3, deprel="obj"),
+            word(5, "CBA", "cba", 39, head=3, deprel="obl", upos="PROPN"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    referrals = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
+    ]
+    assert referrals
+    assert referrals[0].subject_entity_id == EntityID("entity-0")
+    assert referrals[0].object_entity_id == EntityID("entity-1")
+
+
+def test_cross_sentence_party_context_uses_profile_lemma() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text_1 = "Kandydatka PSL pracowała wcześniej w urzędzie."
+    text_2 = "Anna Nowak została dyrektorem spółki."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-cross-party-lemma"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=f"{text_1} {text_2}",
+        paragraphs=[text_1, text_2],
+        sentences=[
+            SentenceFragment(
+                text=text_1,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text_1),
+            ),
+            SentenceFragment(
+                text=text_2,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=len(text_1) + 1,
+                end_char=len(text_1) + 1 + len(text_2),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id=EntityID("party-1"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Polskie Stronnictwo Ludowe",
+                normalized_name="Polskie Stronnictwo Ludowe",
+            ),
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Anna Nowak",
+                normalized_name="Anna Nowak",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="PSL",
+                normalized_text="Polskie Stronnictwo Ludowe",
+                mention_type="PoliticalParty",
+                sentence_index=0,
+                paragraph_index=0,
+                entity_id=EntityID("party-1"),
+            ),
+            Mention(
+                text="Anna Nowak",
+                normalized_text="Anna Nowak",
+                mention_type="Person",
+                sentence_index=1,
+                paragraph_index=0,
+                entity_id=EntityID("person-1"),
+            ),
+        ],
+    )
+    document.parsed_sentences = {
+        0: [
+            word(1, "Kandydatka", "działaczka", 0),
+            word(2, "PSL", "psl", 11, head=1, deprel="nmod", upos="PROPN"),
+        ],
+        1: [word(1, "Anna", "Anna", 0, upos="PROPN")],
+    }
+    candidate_graph = CandidateGraphBuilder(config).build(
+        document=document,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=document.parsed_sentences,
+    )
+
+    facts = PolishFactExtractor._cross_sentence_party_facts(document, candidate_graph)
+
+    assert facts
+    assert facts[0].subject_entity_id == EntityID("person-1")
+    assert facts[0].object_entity_id == EntityID("party-1")
 
 
 def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount() -> None:

@@ -77,6 +77,28 @@ def clause(text: str = "Jan został prezesem spółki.") -> ClauseUnit:
     )
 
 
+def parsed_word(
+    index: int,
+    text: str,
+    lemma: str,
+    start: int,
+    *,
+    head: int = 0,
+    deprel: str = "root",
+    upos: str = "NOUN",
+) -> ParsedWord:
+    return ParsedWord(
+        index=index,
+        text=text,
+        lemma=lemma,
+        upos=upos,
+        head=head,
+        deprel=deprel,
+        start=start,
+        end=start + len(text),
+    )
+
+
 def document(clusters: list[EntityCluster]) -> ArticleDocument:
     return ArticleDocument(
         document_id=DocumentID("doc-1"),
@@ -105,6 +127,112 @@ def test_target_resolver_prefers_stadnina_over_skarb_panstwa() -> None:
 
     assert result.target_org == target
     assert result.owner_context == owner
+
+
+def test_governance_event_detection_handles_stanza_copular_role_root() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishGovernanceFrameExtractor(config)
+    text = "Anna została prezeską spółki."
+    parsed_words = [
+        ParsedWord(
+            index=1,
+            text="Anna",
+            lemma="Anna",
+            upos="PROPN",
+            head=3,
+            deprel="nsubj",
+            start=0,
+            end=4,
+        ),
+        ParsedWord(
+            index=2,
+            text="została",
+            lemma="zostać",
+            upos="AUX",
+            head=3,
+            deprel="aux",
+            start=5,
+            end=12,
+        ),
+        ParsedWord(
+            index=3,
+            text="prezeską",
+            lemma="prezeska",
+            upos="NOUN",
+            head=0,
+            deprel="root",
+            start=13,
+            end=21,
+        ),
+    ]
+
+    detected = extractor._detect_event_type(
+        ClauseUnit(
+            clause_id=ClauseID("clause-copular-role"),
+            text=text,
+            trigger_head_text="prezeską",
+            trigger_head_lemma="prezeska",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+        ),
+        parsed_words,
+    )
+
+    assert detected == EventType.APPOINTMENT
+
+
+def test_governance_event_detection_uses_lemma_for_objac_stanowisko() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishGovernanceFrameExtractor(config)
+    text = "Anna stanowisko objęła w poniedziałek."
+
+    detected = extractor._detect_event_type(
+        ClauseUnit(
+            clause_id=ClauseID("clause-objac-role"),
+            text=text,
+            trigger_head_text="stanowisko",
+            trigger_head_lemma="stanowisko",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+        ),
+        [
+            parsed_word(1, "Anna", "Anna", 0, head=3, deprel="nsubj", upos="PROPN"),
+            parsed_word(2, "stanowisko", "stanowisko", 5),
+            parsed_word(3, "objęła", "objąć", 16, head=2, deprel="acl", upos="VERB"),
+        ],
+    )
+
+    assert detected == EventType.APPOINTMENT
+
+
+def test_governance_event_detection_uses_lemma_for_rezygnacja() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishGovernanceFrameExtractor(config)
+    text = "Anna rezygnację złożyła w poniedziałek."
+
+    detected = extractor._detect_event_type(
+        ClauseUnit(
+            clause_id=ClauseID("clause-resignation"),
+            text=text,
+            trigger_head_text="rezygnację",
+            trigger_head_lemma="rezygnacja",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+        ),
+        [
+            parsed_word(1, "Anna", "Anna", 0, head=3, deprel="nsubj", upos="PROPN"),
+            parsed_word(2, "rezygnację", "rezygnacja", 5),
+            parsed_word(3, "złożyła", "złożyć", 16, head=2, deprel="acl", upos="VERB"),
+        ],
+    )
+
+    assert detected == EventType.DISMISSAL
 
 
 def test_target_resolver_prefers_company_over_ministry_owner() -> None:
@@ -522,6 +650,45 @@ def test_funding_frame_extractor_emits_grant_frame_without_compensation_frame() 
     assert doc.funding_frames[0].funder_cluster_id == "cluster-funder"
     assert doc.funding_frames[0].recipient_cluster_id == "cluster-recipient"
     assert doc.funding_frames[0].amount_normalized == "300 Tys. Zł"
+
+
+def test_funding_frame_extractor_rejects_reporting_przekazac_with_amount() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    source = cluster(
+        "cluster-source",
+        "Biuro Prasowe",
+        EntityType.PUBLIC_INSTITUTION,
+        entity_id=EntityID("org-source"),
+    )
+    recipient = cluster("cluster-recipient", "Redakcja", entity_id=EntityID("org-recipient"))
+    text = "Biuro Prasowe przekazało redakcji 300 tys. zł informacji."
+    doc = document([source, recipient])
+    doc.parsed_sentences = {
+        0: [
+            parsed_word(1, "Biuro", "biuro", 0, head=3, deprel="nsubj"),
+            parsed_word(2, "Prasowe", "prasowy", 6, head=1, deprel="amod", upos="ADJ"),
+            parsed_word(3, "przekazało", "przekazać", 14, upos="VERB"),
+            parsed_word(4, "redakcji", "redakcja", 25, head=3, deprel="iobj"),
+            parsed_word(5, "informacji", "informacja", 46, head=3, deprel="obj"),
+        ]
+    }
+    doc.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-funding-reporting"),
+            text=text,
+            trigger_head_text="przekazało",
+            trigger_head_lemma="przekazać",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+            cluster_mentions=[*source.mentions, *recipient.mentions],
+        )
+    ]
+
+    doc = PolishFundingFrameExtractor(config).run(doc)
+
+    assert doc.funding_frames == []
 
 
 def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_offsets() -> None:

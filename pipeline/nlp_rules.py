@@ -98,24 +98,11 @@ APPOINTMENT_TRIGGER_LEMMAS = frozenset(
     }
 )
 DISMISSAL_TRIGGER_LEMMAS = frozenset({"odwołać", "odwoływać", "zrezygnować"})
+APPOINTMENT_NOUN_LEMMAS = frozenset({"nominacja", "stanowisko", "funkcja", "praca"})
+DISMISSAL_NOUN_LEMMAS = frozenset({"rezygnacja"})
 APPOINTMENT_TRIGGER_TEXTS = frozenset(
     {
-        "został prezesem",
-        "została prezesem",
-        "została prezeską",
-        "został wiceprezesem",
-        "została wiceprezeską",
-        "został dyrektorem",
-        "została dyrektorką",
         "odebrał nominację",
-        "objął stanowisko",
-        "objęła stanowisko",
-        "awansował na stanowisko",
-        "awansowała na stanowisko",
-        "zajął funkcję",
-        "zajęła funkcję",
-        "powołany na",
-        "powołana na",
         "zasiądzie w",
         "zasiadł w",
         "zasiadła w",
@@ -132,22 +119,20 @@ DISMISSAL_TRIGGER_TEXTS = frozenset(
     {
         "nie jest już",
         "nie zasiada już",
-        "złożył rezygnację",
-        "złożyła rezygnację",
-        "przyjęła rezygnację",
-        "przyjął rezygnację",
-        "odwołano",
-        "został odwołany",
-        "została odwołana",
     }
 )
 
 PARTY_CONTEXT_LEMMAS = frozenset(
     {
         "działacz",
+        "działaczka",
         "lider",
+        "liderka",
         "polityk",
+        "polityczka",
         "prezes",
+        "członek",
+        "członkini",
         "poseł",
         "posłanka",
         "senator",
@@ -158,13 +143,12 @@ PARTY_CONTEXT_LEMMAS = frozenset(
         "wiceminister",
     }
 )
+PARTY_PROFILE_CONTEXT_LEMMAS = PARTY_CONTEXT_LEMMAS - frozenset({"prezes"})
 FORMER_MARKERS = frozenset({"były", "była", "dawny", "dawna", "eks"})
 FUNDING_HINTS = frozenset(
     {
         "dotacja",
-        "dotacje",
         "dofinansowanie",
-        "dofinansowania",
         "wyłożyć",
         "przekazać",
         "sfinansować",

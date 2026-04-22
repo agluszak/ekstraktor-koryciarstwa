@@ -257,7 +257,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         if (
             len(after) >= 2
             and after[0].lemma.casefold() == "pan"
-            and "przewodnicz" in after[1].lemma
+            and after[1].lemma.casefold() == "przewodniczący"
         ):
             return after[:2]
         proper: list[ParsedWord] = []
@@ -853,8 +853,14 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         for sentence in document.sentences:
             if sentence.sentence_index not in window:
                 continue
-            lowered = sentence.text.casefold()
-            if any(term in lowered for term in KINSHIP_BY_LEMMA):
+            parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+            if parsed_words and any(
+                word.lemma.casefold() in KINSHIP_BY_LEMMA for word in parsed_words
+            ):
+                return True
+            if not parsed_words and any(
+                term in sentence.text.casefold() for term in KINSHIP_BY_LEMMA
+            ):
                 return True
         return False
 
