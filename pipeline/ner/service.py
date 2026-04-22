@@ -5,6 +5,7 @@ from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
 from pipeline.normalization import DocumentEntityCanonicalizer
+from pipeline.nlp_services import StanzaMorphologyService
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import join_hyphenated_parts, normalize_entity_name, stable_id
 
@@ -13,7 +14,10 @@ class SpacyPolishNERExtractor(NERExtractor):
     def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
-        self.canonicalizer = DocumentEntityCanonicalizer(config)
+        
+        # Create morphology service using Stanza syntax pipeline
+        morphology = StanzaMorphologyService(self.runtime.get_stanza_syntax_pipeline())
+        self.canonicalizer = DocumentEntityCanonicalizer(config, morphology)
 
     def name(self) -> str:
         return "spacy_polish_ner_extractor"

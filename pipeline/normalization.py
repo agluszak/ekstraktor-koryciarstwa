@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pipeline.nlp_services import MorphologyService
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityID, EntityType, FactType, OrganizationKind
@@ -79,9 +83,11 @@ class _EntityCluster:
 
 
 class DocumentEntityCanonicalizer:
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(self, config: PipelineConfig, morphology: MorphologyService | None = None) -> None:
         self.config = config
+        self.morphology = morphology
         self.ambiguous_person_singletons: set[str] = set()
+        self._gender_cache: dict[str, str | None] = {} # name -> gender string
         self.party_lookup = {
             normalize_party_name(alias).lower(): compact_whitespace(canonical)
             for alias, canonical in config.party_aliases.items()
@@ -107,6 +113,19 @@ class DocumentEntityCanonicalizer:
     def run(self, document: ArticleDocument) -> ArticleDocument:
         if not document.entities:
             return document
+
+        # Pre-calculate morphology for persons if service is available
+        if self.morphology:
+            all_person_names = {
+                name
+                for entity in document.entities
+                if entity.entity_type == EntityType.PERSON
+                for name in [entity.canonical_name, entity.normalized_name, *entity.aliases]
+                if name and compact_whitespace(name)
+            }
+            for name in all_person_names:
+                lemma, gender = self.morphology.get_lemma_and_gender(name)
+                self._gender_cache[name] = gender
 
         for entity in document.entities:
             self._normalize_entity(entity)
@@ -145,6 +164,8 @@ class DocumentEntityCanonicalizer:
                 *entity.aliases,
                 *self._lemma_name_candidates(entity),
                 *self._case_repaired_candidates(entity),
+                *self._person_nominative_candidates(entity),
+                *self._morphology_lemma_candidates(entity),
             ]
         )
         if entity.entity_type == EntityType.POLITICAL_PARTY:
@@ -184,6 +205,54 @@ class DocumentEntityCanonicalizer:
         entity.canonical_name = canonical
         entity.normalized_name = canonical
         entity.aliases = self._organization_aliases(alias_pool, canonical)
+
+    def _morphology_lemma_candidates(self, entity: Entity) -> list[str]:
+        if not self.morphology or entity.entity_type != EntityType.PERSON:
+            return []
+        
+        candidates = []
+        for name in self._raw_names_for_entity(entity):
+            if not name or not compact_whitespace(name):
+                continue
+            lemma, _ = self.morphology.get_lemma_and_gender(name)
+            if lemma and lemma.lower() != name.lower():
+                candidates.append(lemma)
+        return candidates
+
+    def _person_nominative_candidates(self, entity: Entity) -> list[str]:
+        if entity.entity_type != EntityType.PERSON:
+            return []
+        candidates = []
+        for name in self._raw_names_for_entity(entity):
+            if self._canonical_noise_score(name) > 0:
+                continue
+            tokens = name.split()
+            if not tokens or len(tokens) < 2:
+                continue
+            
+            orig_gender = self._gender_cache.get(name)
+            
+            # Try to build likely nominative versions
+            stems = [self._person_token_base(t.lower()) for t in tokens]
+            
+            # Try common patterns
+            # 1. Fem: stem1 + 'a', stem2 + 'ska'
+            if stems[0].endswith("i"): # e.g. "sylwi"
+                 f1 = stems[0].capitalize() + "a"
+            else:
+                 f1 = stems[0].capitalize()
+            
+            if stems[-1].endswith(("sk", "ck", "dzk")):
+                 l_fem = stems[-1].capitalize() + "a"
+                 l_masc = stems[-1].capitalize() + "i"
+                 
+                 # Only add if gender matches or is unknown
+                 if orig_gender in {None, "Fem"}:
+                    candidates.append(f"{f1} {l_fem}")
+                 if orig_gender in {None, "Masc"}:
+                    candidates.append(f"{f1} {l_masc}")
+        
+        return candidates
 
     def _entities_compatible(self, left: Entity, right: Entity) -> bool:
         if (
@@ -332,7 +401,7 @@ class DocumentEntityCanonicalizer:
                 not self._looks_like_inflected_single_token_person(name),
                 len(name.split()) >= 2,
                 self._person_name_observed_variant_bonus(name, observed_tokens),
-                self._person_name_nominality_score(name),
+                self._person_name_nominality_score(name, gender=self._gender_cache.get(name)),
                 len(name),
                 sum(1 for token in name.split() if len(token) > 1),
             ),
@@ -568,7 +637,7 @@ class DocumentEntityCanonicalizer:
         }
 
     @classmethod
-    def _person_name_nominality_score(cls, name: str) -> int:
+    def _person_name_nominality_score(cls, name: str, gender: str | None = None) -> int:
         tokens = [token for token in name.split() if token]
         if not tokens:
             return 0
@@ -578,10 +647,42 @@ class DocumentEntityCanonicalizer:
             if "-" in base:
                 parts = base.split("-")
                 if all(cls._person_token_base(part) == part for part in parts):
-                    score += 1
+                    score += 2
                 continue
             if cls._person_token_base(base) == base and cls._is_person_base_form(base):
+                score += 2
+
+            # Bonus for likely nominative endings in Polish
+            if base.endswith(("ska", "cka", "dzka", "ski", "cki", "dzki")):
+                score += 2
+            elif base.endswith("a") and not base.endswith(("owa", "yna")):
                 score += 1
+
+        # Gender consistency bonus for Polish names
+        if len(tokens) >= 2:
+            first = tokens[0].rstrip(".").lower()
+            last = tokens[-1].rstrip(".").lower()
+            
+            # Use high-fidelity gender if available
+            if gender == "Fem":
+                if first.endswith("a") and last.endswith(("ska", "cka", "dzka")):
+                    score += 2
+                elif first.endswith("a") or last.endswith(("ska", "cka", "dzka")):
+                    score += 1
+            elif gender == "Masc":
+                if not first.endswith("a") and last.endswith(("ski", "cki", "dzki")):
+                    score += 2
+                elif not first.endswith("a") or last.endswith(("ski", "cki", "dzki")):
+                    score += 1
+            else:
+                # Fallback to heuristics
+                # Feminine: first name usually ends in 'a', surname in 'ska/cka/dzka'
+                if first.endswith("a") and last.endswith(("ska", "cka", "dzka")):
+                    score += 1
+                # Masculine: first name usually doesn't end in 'a', surname in 'ski/cki/dzki'
+                elif not first.endswith("a") and last.endswith(("ski", "cki", "dzki")):
+                    score += 1
+
         return score
 
     @classmethod
@@ -607,6 +708,14 @@ class DocumentEntityCanonicalizer:
     def _person_tokens_compatible(cls, left: str, right: str) -> bool:
         left_clean = left.rstrip(".").lower()
         right_clean = right.rstrip(".").lower()
+
+        # Prevent merging different genders of Polish surnames if they are in nominative or common inflections
+        fem_endings = ("ska", "cka", "dzka", "ską", "ckiej", "ską")
+        masc_endings = ("ski", "cki", "dzki", "skiego", "skiem", "skiemu")
+        if (any(left_clean.endswith(e) for e in fem_endings) and any(right_clean.endswith(e) for e in masc_endings)) or \
+           (any(left_clean.endswith(e) for e in masc_endings) and any(right_clean.endswith(e) for e in fem_endings)):
+            return False
+
         if left_clean == right_clean:
             return True
         if "-" in left_clean or "-" in right_clean:
@@ -640,11 +749,14 @@ class DocumentEntityCanonicalizer:
             "om",
             "em",
             "ie",
+            "iej",
             "ą",
             "ę",
             "a",
             "u",
             "y",
+            "ej",
+            "i",
         ):
             if token.endswith(suffix) and len(token) - len(suffix) >= 3:
                 candidate = token[: -len(suffix)]
@@ -666,32 +778,31 @@ class DocumentEntityCanonicalizer:
         token: str,
         cluster_tokens: list[str],
     ) -> bool:
-        token_variants = cls._person_token_variants(token.rstrip(".").lower())
-        cluster_variants = {
-            variant
-            for cluster_token in cluster_tokens
-            for variant in cls._person_token_variants(cluster_token.rstrip(".").lower())
-        }
-        if token_variants & cluster_variants:
-            return True
-        if any(
-            len(token_variant) >= 4
-            and len(cluster_variant) >= 4
-            and (
-                cluster_variant.startswith(token_variant)
-                or token_variant.startswith(cluster_variant)
-            )
-            for token_variant in token_variants
-            for cluster_variant in cluster_variants
-        ):
-            return True
+        t_clean = token.rstrip(".").lower()
+        for ct in cluster_tokens:
+            ct_clean = ct.rstrip(".").lower()
+            if cls._person_tokens_compatible(t_clean, ct_clean):
+                return True
+
+        # Fallback for initials or partial matches if needed, but still respect gender
+        token_variants = cls._person_token_variants(t_clean)
+        for ct in cluster_tokens:
+            ct_clean = ct.rstrip(".").lower()
+            cluster_variants = cls._person_token_variants(ct_clean)
+            for tv in token_variants:
+                for cv in cluster_variants:
+                    if tv == cv:
+                        # Double check gender even for variant match
+                        if cls._person_tokens_compatible(t_clean, ct_clean):
+                            return True
+                    if len(tv) >= 4 and len(cv) >= 4 and (cv.startswith(tv) or tv.startswith(cv)):
+                        if cls._person_tokens_compatible(t_clean, ct_clean):
+                            return True
+
         if len(cluster_tokens) >= 2:
-            first_last_variants = {
-                variant
-                for cluster_token in (cluster_tokens[0], cluster_tokens[-1])
-                for variant in cls._person_token_variants(cluster_token.rstrip(".").lower())
-            }
-            return bool(token_variants & first_last_variants)
+            for ct in (cluster_tokens[0], cluster_tokens[-1]):
+                if cls._person_tokens_compatible(t_clean, ct.rstrip(".").lower()):
+                    return True
         return False
 
     @classmethod
