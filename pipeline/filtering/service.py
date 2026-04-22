@@ -8,6 +8,8 @@ from pipeline.models import ArticleDocument, RelevanceDecision
 
 
 class KeywordRelevanceFilter(RelevanceFilter):
+    patronage_markers = ("kolesiostwo", "rozdawanie posad")
+
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
         self.person_like_re = re.compile(
@@ -25,11 +27,12 @@ class KeywordRelevanceFilter(RelevanceFilter):
 
         # Sentence-level co-occurrence check
         co_occurrence_count = 0
-        for sentence in document.sentences:
-            lowered_sent = sentence.text.lower()
-            
+        text_units = [sentence.text for sentence in document.sentences] or document.paragraphs
+        for text_unit in text_units:
+            lowered_sent = text_unit.lower()
+
             # Check for multiple categories in the same sentence
-            has_person = bool(self.person_like_re.search(sentence.text))
+            has_person = bool(self.person_like_re.search(text_unit))
             has_org = any(
                 marker in lowered_sent for marker in self.config.patterns.state_company_markers
             )
@@ -40,18 +43,20 @@ class KeywordRelevanceFilter(RelevanceFilter):
                     self.config.patterns.appointment_verbs + self.config.patterns.dismissal_verbs
                 )
             )
-            
+
             categories_hit = sum([has_person, has_org, has_board, has_event])
             if categories_hit >= 2:
                 co_occurrence_count += 1
                 if categories_hit >= 3:
-                    co_occurrence_count += 1 # Extra weight for dense sentences
+                    co_occurrence_count += 1  # Extra weight for dense sentences
 
         has_person_like = bool(self.person_like_re.search(document.cleaned_text))
         has_org_marker = any(
             marker in lowered_full for marker in self.config.patterns.state_company_markers
         )
-        has_board_marker = any(marker in lowered_full for marker in self.config.patterns.board_terms)
+        has_board_marker = any(
+            marker in lowered_full for marker in self.config.patterns.board_terms
+        )
         event_markers = (
             self.config.patterns.appointment_verbs + self.config.patterns.dismissal_verbs
         )
@@ -59,12 +64,17 @@ class KeywordRelevanceFilter(RelevanceFilter):
 
         score = 0.0
         reasons: list[str] = []
-        
+
         # Base keyword score
         if keyword_hits:
             score += min(0.4, len(keyword_hits) * 0.1)
             reasons.append(f"keyword hits: {', '.join(keyword_hits[:5])}")
-            
+
+        patronage_hits = [marker for marker in self.patronage_markers if marker in lowered_full]
+        if patronage_hits:
+            score += 0.25
+            reasons.append(f"patronage language: {', '.join(patronage_hits)}")
+
         # Co-occurrence bonus (structural relevance)
         if co_occurrence_count > 0:
             bonus = min(0.5, co_occurrence_count * 0.15)

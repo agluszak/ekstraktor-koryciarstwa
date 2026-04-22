@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from pipeline.nlp_services import MorphologyService
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityID, EntityType, FactType, OrganizationKind
 from pipeline.models import ArticleDocument, Entity, Mention
+from pipeline.nlp_services import MorphologicalAnalysis, MorphologyAnalyzer
 from pipeline.utils import (
     acronym_from_lemmas,
     compact_whitespace,
@@ -83,13 +80,17 @@ class _EntityCluster:
 
 
 class DocumentEntityCanonicalizer:
-    def __init__(self, config: PipelineConfig, morphology: MorphologyService | None = None) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        morphology: MorphologyAnalyzer | None = None,
+    ) -> None:
         self.config = config
         self.morphology = morphology
         self.ambiguous_person_singletons: set[str] = set()
-        self._gender_cache: dict[str, str | None] = {} # name -> gender string
-        self._nominative_cache: dict[str, bool] = {} # name -> is_nominative
-        self._morphology_cache: dict[str, MorphologicalAnalysis] = {} # name -> analysis
+        self._gender_cache: dict[str, str | None] = {}
+        self._nominative_cache: dict[str, bool] = {}
+        self._morphology_cache: dict[str, MorphologicalAnalysis] = {}
         self.party_lookup = {
             normalize_party_name(alias).lower(): compact_whitespace(canonical)
             for alias, canonical in config.party_aliases.items()
@@ -213,7 +214,7 @@ class DocumentEntityCanonicalizer:
     def _morphology_lemma_candidates(self, entity: Entity) -> list[str]:
         if not self.morphology or entity.entity_type != EntityType.PERSON:
             return []
-        
+
         candidates = []
         for name in self._raw_names_for_entity(entity):
             if not name or not compact_whitespace(name):
@@ -234,29 +235,32 @@ class DocumentEntityCanonicalizer:
             tokens = name.split()
             if not tokens or len(tokens) < 2:
                 continue
-            
+
             orig_gender = self._gender_cache.get(name)
-            
+
             # Try to build likely nominative versions
             stems = [self._person_token_base(t.lower()) for t in tokens]
-            
+
             # Try common patterns
             # 1. Fem: stem1 + 'a', stem2 + 'ska'
-            if stems[0].endswith("i"): # e.g. "sylwi"
-                 f1 = stems[0].capitalize() + "a"
+            if stems[0].endswith("i"):  # e.g. "sylwi"
+                f1 = stems[0].capitalize() + "a"
             else:
-                 f1 = stems[0].capitalize()
-            
+                f1 = stems[0].capitalize()
+
             if stems[-1].endswith(("sk", "ck", "dzk")):
-                 l_fem = stems[-1].capitalize() + "a"
-                 l_masc = stems[-1].capitalize() + "i"
-                 
-                 # Only add if gender matches or is unknown
-                 if orig_gender in {None, "Fem"}:
+                l_fem = stems[-1].capitalize() + "a"
+                l_masc = stems[-1].capitalize() + "i"
+
+                # Only add if gender matches or is unknown
+                if orig_gender in {None, "Fem"}:
                     candidates.append(f"{f1} {l_fem}")
-                 if orig_gender in {None, "Masc"}:
+                if orig_gender in {None, "Masc"}:
                     candidates.append(f"{f1} {l_masc}")
-        
+            if orig_gender == "Masc" and stems[-1].endswith("kow"):
+                surname = f"{stems[-1][:-2]}ów".capitalize()
+                candidates.append(f"{f1} {surname}")
+
         return candidates
 
     def _entities_compatible(self, left: Entity, right: Entity) -> bool:
@@ -403,7 +407,7 @@ class DocumentEntityCanonicalizer:
             normalized,
             key=lambda name: (
                 -self._canonical_noise_score(name),
-                self._nominative_cache.get(name, False),  # Strong preference for Nominative surface form
+                self._nominative_cache.get(name, False),
                 not self._looks_like_inflected_single_token_person(name),
                 len(name.split()) >= 2,
                 self._person_name_observed_variant_bonus(name, observed_tokens),
@@ -703,6 +707,8 @@ class DocumentEntityCanonicalizer:
             # Bonus for likely nominative endings in Polish
             if base.endswith(("ska", "cka", "dzka", "ski", "cki", "dzki")):
                 score += 2
+            elif base.endswith("ów"):
+                score += 2
             elif base.endswith("a") and not base.endswith(("owa", "yna")):
                 score += 1
 
@@ -710,7 +716,7 @@ class DocumentEntityCanonicalizer:
         if len(tokens) >= 2:
             first = tokens[0].rstrip(".").lower()
             last = tokens[-1].rstrip(".").lower()
-            
+
             # Use high-fidelity gender if available
             if gender == "Fem":
                 if first.endswith("a") and last.endswith(("ska", "cka", "dzka")):
@@ -758,9 +764,32 @@ class DocumentEntityCanonicalizer:
         if len(t) <= 4:
             return t
         # Remove common inflections to get a core stem
-        for suffix in ("owego", "iego", "emu", "owi", "ego", "ami", "ach", "om", "em", "ie", "iej", "ą", "ę", "a", "u", "y", "ej", "i", "ska", "ski", "cka", "cki"):
+        for suffix in (
+            "owego",
+            "iego",
+            "emu",
+            "owi",
+            "ego",
+            "ami",
+            "ach",
+            "om",
+            "em",
+            "ie",
+            "iej",
+            "ą",
+            "ę",
+            "a",
+            "u",
+            "y",
+            "ej",
+            "i",
+            "ska",
+            "ski",
+            "cka",
+            "cki",
+        ):
             if t.endswith(suffix) and len(t) - len(suffix) >= 3:
-                return t[:-len(suffix)]
+                return t[: -len(suffix)]
         return t
 
     @classmethod
@@ -768,11 +797,14 @@ class DocumentEntityCanonicalizer:
         left_clean = left.rstrip(".").lower()
         right_clean = right.rstrip(".").lower()
 
-        # Prevent merging different genders of Polish surnames if they are in nominative or common inflections
+        # Prevent merging different genders of Polish surnames.
         fem_endings = ("ska", "cka", "dzka", "ską", "ckiej", "ską")
         masc_endings = ("ski", "cki", "dzki", "skiego", "skiem", "skiemu")
-        if (any(left_clean.endswith(e) for e in fem_endings) and any(right_clean.endswith(e) for e in masc_endings)) or \
-           (any(left_clean.endswith(e) for e in masc_endings) and any(right_clean.endswith(e) for e in fem_endings)):
+        left_feminine = any(left_clean.endswith(e) for e in fem_endings)
+        right_feminine = any(right_clean.endswith(e) for e in fem_endings)
+        left_masculine = any(left_clean.endswith(e) for e in masc_endings)
+        right_masculine = any(right_clean.endswith(e) for e in masc_endings)
+        if (left_feminine and right_masculine) or (left_masculine and right_feminine):
             return False
 
         if left_clean == right_clean:
@@ -783,7 +815,7 @@ class DocumentEntityCanonicalizer:
         r_stem = cls._person_stem(right_clean)
         if l_stem == r_stem:
             return True
-        
+
         # Levenshtein fallback for stems (handling Giermasińk vs Giermasińsk)
         if len(l_stem) >= 4 and len(r_stem) >= 4:
             # We don't want a heavy dependency, so use a simple check for 1-char difference

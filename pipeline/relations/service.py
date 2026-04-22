@@ -238,21 +238,25 @@ class PolishFactExtractor(FactExtractor):
             persons_in_sent = [
                 c for c in sentence_candidates if c.candidate_type == CandidateType.PERSON
             ]
-            
+
             target_subjects: list[EntityCandidate] = []
             if persons_in_sent:
                 target_subjects = persons_in_sent
             else:
                 # Search FORWARD (e.g. "Narzeczona... [new sentence] Marta...")
-                for next_sent_idx in range(sentence.sentence_index + 1, sentence.sentence_index + 3):
+                for next_sent_idx in range(
+                    sentence.sentence_index + 1,
+                    sentence.sentence_index + 3,
+                ):
                     if next_sent_idx >= len(document.sentences):
                         break
                     next_sent = document.sentences[next_sent_idx]
                     if next_sent.paragraph_index != sentence.paragraph_index:
                         break
-                    
+
                     next_sent_persons = [
-                        c for c in candidates_by_sentence.get(next_sent_idx, [])
+                        c
+                        for c in candidates_by_sentence.get(next_sent_idx, [])
                         if c.candidate_type == CandidateType.PERSON
                     ]
                     if next_sent_persons:
@@ -268,7 +272,6 @@ class PolishFactExtractor(FactExtractor):
 
                 # Search BACKWARDS in recent discourse
                 for prev_sent_idx in range(sentence.sentence_index - 1, -1, -1):
-                    prev_sent = document.sentences[prev_sent_idx]
                     prev_persons = [
                         c
                         for c in candidates_by_sentence.get(prev_sent_idx, [])
@@ -300,7 +303,6 @@ class PolishFactExtractor(FactExtractor):
                         if next_persons:
                             target_person = next_persons[0]
                             break
-
 
                 if target_person:
                     rel_type = TIE_WORDS.get(trigger, RelationshipType.FAMILY)

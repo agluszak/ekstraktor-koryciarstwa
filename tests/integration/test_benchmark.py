@@ -196,7 +196,11 @@ def test_pleszew24_stadnina(benchmark_results: dict[str, Any], subtests: Subtest
     )
 
     dismissals = get_facts_by_type(doc, "DISMISSAL")
-    assert any("Pacie" in get_entity_name(doc, f.get("subject_entity_id")) for f in dismissals)
+    assert any(
+        "Pacia" in get_entity_name(doc, f.get("subject_entity_id"))
+        or "Pacie" in get_entity_name(doc, f.get("subject_entity_id"))
+        for f in dismissals
+    )
 
     parties = [
         get_entity_name(doc, f.get("object_entity_id"))

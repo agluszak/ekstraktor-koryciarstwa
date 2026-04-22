@@ -48,3 +48,30 @@ def test_public_salary_article_passes_relevance_filter() -> None:
 
     assert decision.is_relevant is True
     assert decision.score >= 0.4
+
+
+def test_patronage_complaint_article_passes_relevance_filter() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    relevance_filter = KeywordRelevanceFilter(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-patronage"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=(
+            "Radna PO napisała do premiera list. "
+            "Kolesiostwo, rozdawanie posad, brak wizji działania - wylicza."
+        ),
+        paragraphs=[
+            (
+                "Radna PO napisała do premiera list. "
+                "Kolesiostwo, rozdawanie posad, brak wizji działania - wylicza."
+            )
+        ],
+    )
+
+    decision = relevance_filter.run(document)
+
+    assert decision.is_relevant is True
+    assert decision.score >= 0.45

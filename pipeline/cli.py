@@ -16,6 +16,7 @@ from pipeline.identity import PolishFamilyIdentityResolver
 from pipeline.linking import InMemoryEntityLinker
 from pipeline.models import ExtractionResult, PipelineInput
 from pipeline.ner import SpacyPolishNERExtractor
+from pipeline.nlp_services import StanzaPolishMorphologyAnalyzer
 from pipeline.orchestrator import NepotismPipeline
 from pipeline.preprocessing import TrafilaturaPreprocessor
 from pipeline.relations import PolishFactExtractor
@@ -80,11 +81,16 @@ def build_pipeline(
     runtime: PipelineRuntime | None = None,
 ) -> NepotismPipeline:
     shared_runtime = runtime or PipelineRuntime(config)
+    morphology = StanzaPolishMorphologyAnalyzer(shared_runtime)
     return NepotismPipeline(
         preprocessor=TrafilaturaPreprocessor(),
         relevance_filter=KeywordRelevanceFilter(config),
         segmenter=ParagraphSentenceSegmenter(config),
-        ner_extractor=SpacyPolishNERExtractor(config, runtime=shared_runtime),
+        ner_extractor=SpacyPolishNERExtractor(
+            config,
+            runtime=shared_runtime,
+            morphology=morphology,
+        ),
         coreference_resolver=StanzaCoreferenceResolver(config, runtime=shared_runtime),
         fact_extractor=PolishFactExtractor(config),
         entity_linker=InMemoryEntityLinker(config, runtime=shared_runtime),

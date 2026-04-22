@@ -30,7 +30,12 @@ from pipeline.nlp_rules import (
     TIE_WORDS,
 )
 from pipeline.role_matching import RoleMatch, match_role_mentions
-from pipeline.utils import extract_role_from_text, normalize_entity_name, stable_id, unique_preserve_order
+from pipeline.utils import (
+    extract_role_from_text,
+    normalize_entity_name,
+    stable_id,
+    unique_preserve_order,
+)
 
 from .org_typing import OrganizationMentionClassifier
 
@@ -512,16 +517,18 @@ class CandidateGraphBuilder:
         persons: list[EntityCandidate],
     ) -> list[CandidateEdge]:
         lowered = sentence_text.lower()
-        relation_markers = unique_preserve_order([
-            *TIE_WORDS.keys(),
-            *KINSHIP_LEMMAS,
-            "narzeczon",
-            "koleg",
-            "znajom",
-            "przyjaciel",
-            "doradc",
-            "zaufan",
-        ])
+        relation_markers = unique_preserve_order(
+            [
+                *TIE_WORDS.keys(),
+                *KINSHIP_LEMMAS,
+                "narzeczon",
+                "koleg",
+                "znajom",
+                "przyjaciel",
+                "doradc",
+                "zaufan",
+            ]
+        )
         owner_markers = ("firma", "firmy", "spółka", "spółki", "właściciel", "prowadz")
         public_role_markers = (
             "prezydent",

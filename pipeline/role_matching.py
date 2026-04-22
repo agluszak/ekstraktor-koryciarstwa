@@ -96,7 +96,9 @@ def has_copular_role_appointment(parsed_words: list[ParsedWord]) -> bool:
         word.lemma.casefold() == "zostać"
         and (
             word.deprel.casefold().startswith(("aux", "cop", "root", "xcomp"))
-            or (word.head in role_word_indices and word.deprel.casefold().startswith(("aux", "cop")))
+            or (
+                word.head in role_word_indices and word.deprel.casefold().startswith(("aux", "cop"))
+            )
         )
         for word in parsed_words
     )
