@@ -65,6 +65,18 @@ def get_facts_by_type(doc: dict[str, Any], fact_type: str) -> list[dict[str, Any
     return [f for f in doc.get("facts", []) if f["fact_type"] == fact_type]
 
 
+def fact_links_names(
+    doc: dict[str, Any],
+    fact: dict[str, Any],
+    *,
+    subject: str,
+    object_name: str,
+) -> bool:
+    return subject in get_entity_name(doc, fact.get("subject_entity_id")) and object_name in (
+        get_entity_name(doc, fact.get("object_entity_id"))
+    )
+
+
 def target_assert(subtests: Subtests, condition: bool, message: str) -> None:
     """
     Assertion that we want to pass in the future, but currently might fail.
@@ -661,26 +673,38 @@ def test_dziennik_polski_charsznica_nepotism(
         pytest.skip(f"{key} not found")
 
     doc = benchmark_results[key]
-    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+    assert doc["relevance"]["is_relevant"] is True
 
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
-    target_assert(subtests, any("Kościelniak" in e for e in entities), "Should recover Kościelniak")
-    target_assert(
-        subtests,
-        any("Charsznica" in e or "Urząd Gminy" in e for e in entities),
-        "Should recover Charsznica municipal office context",
+    assert any("Kościelniak" in e for e in entities), "Should recover Kościelniak"
+    assert any("Charsznica" in e or "Urząd Gminy" in e for e in entities), (
+        "Should recover Charsznica municipal office context"
     )
 
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
-    target_assert(
-        subtests,
-        any(
-            "Kościelniak" in get_entity_name(doc, f.get("object_entity_id"))
-            or "Kościelniak" in get_entity_name(doc, f.get("subject_entity_id"))
-            for f in ties
-        ),
-        "Should capture at least one partner/family tie involving Kościelniak",
-    )
+    assert any(
+        "Kościelniak" in get_entity_name(doc, f.get("object_entity_id"))
+        or "Kościelniak" in get_entity_name(doc, f.get("subject_entity_id"))
+        for f in ties
+    ), "Should capture at least one partner/family tie involving Kościelniak"
+    employment_facts = get_facts_by_type(doc, "APPOINTMENT") + get_facts_by_type(doc, "ROLE_HELD")
+    assert any(
+        (
+            "partner" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
+            or "dziewczyn" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
+            or "teść" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
+        )
+        and (
+            "Urzęd" in get_entity_name(doc, f.get("object_entity_id"))
+            or "Gmin" in get_entity_name(doc, f.get("object_entity_id"))
+        )
+        for f in employment_facts
+    ), "Should capture partner/father-in-law proxy employment"
+    assert not any(
+        "wójt" in str(f.get("role") or "").casefold()
+        or "wójt" in get_entity_name(doc, f.get("object_entity_id")).casefold()
+        for f in get_facts_by_type(doc, "APPOINTMENT")
+    ), "Public office role should not become an appointment target"
 
 
 def test_onet_cba_ostrow_bribery(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
@@ -699,14 +723,18 @@ def test_onet_cba_ostrow_bribery(benchmark_results: dict[str, Any], subtests: Su
         pytest.skip(f"{key} not found")
 
     doc = benchmark_results[key]
-    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+    assert doc["relevance"]["is_relevant"] is True
 
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
-    target_assert(subtests, any("CBA" in e for e in entities), "Should recover CBA")
-    target_assert(
-        subtests,
-        any("Ostrów" in e or "urząd gminy" in e.lower() for e in entities),
-        "Should recover Gmina Ostrów / urząd gminy context",
+    assert any("CBA" in e or "Centralne Biuro" in e for e in entities), "Should recover CBA"
+    assert any("Ostrów" in e or "urząd gminy" in e.lower() for e in entities), (
+        "Should recover Gmina Ostrów / urząd gminy context"
+    )
+    assert get_facts_by_type(doc, "ANTI_CORRUPTION_INVESTIGATION"), (
+        "Should extract CBA investigation context"
+    )
+    assert get_facts_by_type(doc, "PUBLIC_PROCUREMENT_ABUSE"), (
+        "Should extract public-procurement abuse context"
     )
 
 
@@ -723,25 +751,29 @@ def test_ai42_poczesna_nepotism(benchmark_results: dict[str, Any], subtests: Sub
         pytest.skip(f"{key} not found")
 
     doc = benchmark_results[key]
-    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+    assert doc["relevance"]["is_relevant"] is True
 
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
-    target_assert(
-        subtests, any("Rafał Dobosz" in e for e in entities), "Should recover Rafał Dobosz"
-    )
-    target_assert(subtests, any("Artur Sosna" in e for e in entities), "Should recover Artur Sosna")
-    target_assert(subtests, any("Poczesna" in e for e in entities), "Should recover Gmina Poczesna")
+    assert any("Rafał Dobosz" in e for e in entities), "Should recover Rafał Dobosz"
+    assert any("Artur Sosna" in e for e in entities), "Should recover Artur Sosna"
+    assert any("Poczesna" in e for e in entities), "Should recover Gmina Poczesna"
 
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
-    target_assert(
-        subtests,
-        any(
-            "Dobosz" in get_entity_name(doc, f.get("subject_entity_id"))
-            and "Sosna" in get_entity_name(doc, f.get("object_entity_id"))
-            for f in ties
-        ),
-        "Should capture Dobosz/Sosna family tie",
-    )
+    assert any(
+        "Dobosz" in get_entity_name(doc, f.get("subject_entity_id"))
+        and "Sosna" in get_entity_name(doc, f.get("object_entity_id"))
+        for f in ties
+    ), "Should capture Dobosz/Sosna family tie"
+    appointments = get_facts_by_type(doc, "APPOINTMENT")
+    assert any(
+        "Dobosz" in get_entity_name(doc, f.get("subject_entity_id"))
+        and (
+            "Poczesna" in get_entity_name(doc, f.get("object_entity_id"))
+            or "Gmina" in get_entity_name(doc, f.get("object_entity_id"))
+            or "Urząd" in get_entity_name(doc, f.get("object_entity_id"))
+        )
+        for f in appointments
+    ), "Should capture Dobosz public-employment appointment"
 
 
 def test_wp_opole_cross_office_family(
@@ -764,7 +796,7 @@ def test_wp_opole_cross_office_family(
         pytest.skip(f"{key} not found")
 
     doc = benchmark_results[key]
-    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+    assert doc["relevance"]["is_relevant"] is True
 
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     for expected_name in (
@@ -773,39 +805,69 @@ def test_wp_opole_cross_office_family(
         "Monika Jurek",
         "Dariusz Jurek",
     ):
-        target_assert(
-            subtests, any(expected_name in e for e in entities), f"Should recover {expected_name}"
-        )
-    target_assert(
-        subtests,
-        any("Opolski Urząd Wojewódzki" in e or "OUW" in e for e in entities),
-        "Should recover Opolski Urząd Wojewódzki",
-    )
-    target_assert(
-        subtests,
-        any("Urząd Marszałkowski" in e or "UMWO" in e for e in entities),
-        "Should recover Urząd Marszałkowski context",
-    )
+        assert any(expected_name in e for e in entities), f"Should recover {expected_name}"
+    assert any("Opolsk" in e and "Urzęd" in e and "Wojewódzk" in e for e in entities) or any(
+        "OUW" in e for e in entities
+    ), "Should recover Opolski Urząd Wojewódzki"
+    assert any("Urzęd" in e and "Marszałkowsk" in e for e in entities) or any(
+        "UMWO" in e for e in entities
+    ), "Should recover Urząd Marszałkowski context"
 
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
-    target_assert(
-        subtests,
-        any(
-            "Królikowska" in get_entity_name(doc, f.get("subject_entity_id"))
+    assert any(
+        (
+            (
+                "Królikowska" in get_entity_name(doc, f.get("subject_entity_id"))
+                or "partner" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
+            )
             and "Ogłaza" in get_entity_name(doc, f.get("object_entity_id"))
-            for f in ties
-        ),
-        "Should capture Królikowska/Ogłaza partner tie",
-    )
-    target_assert(
-        subtests,
-        any(
+        )
+        or (
+            (
+                "Królikowska" in get_entity_name(doc, f.get("object_entity_id"))
+                or "partner" in get_entity_name(doc, f.get("object_entity_id")).casefold()
+            )
+            and "Ogłaza" in get_entity_name(doc, f.get("subject_entity_id"))
+        )
+        and (f.get("kinship_detail") == "partner" or f.get("value_normalized") == "partner")
+        for f in ties
+    ), "Should capture Królikowska/Ogłaza partner tie"
+    assert any(
+        (
             "Dariusz Jurek" in get_entity_name(doc, f.get("subject_entity_id"))
-            and "Monika Jurek" in get_entity_name(doc, f.get("object_entity_id"))
-            for f in ties
-        ),
-        "Should capture Dariusz/Monika Jurek spouse tie",
-    )
+            or "mąż" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
+        )
+        and "Monika Jurek" in get_entity_name(doc, f.get("object_entity_id"))
+        and (f.get("kinship_detail") == "spouse" or f.get("value_normalized") == "spouse")
+        for f in ties
+    ), "Should capture Dariusz/Monika Jurek spouse tie"
+    employment_facts = get_facts_by_type(doc, "APPOINTMENT") + get_facts_by_type(doc, "ROLE_HELD")
+    assert any(
+        (
+            "Królikowska" in get_entity_name(doc, f.get("subject_entity_id"))
+            and "Urz" in get_entity_name(doc, f.get("object_entity_id"))
+            and "Wojewódzk" in get_entity_name(doc, f.get("object_entity_id"))
+        )
+        or fact_links_names(doc, f, subject="Królikowska", object_name="OUW")
+        for f in employment_facts
+    ), "Should capture Królikowska -> OUW employment"
+    assert any(
+        fact_links_names(doc, f, subject="Dariusz Jurek", object_name="Urząd Marszałkowski")
+        or fact_links_names(doc, f, subject="Dariusz Jurek", object_name="UMWO")
+        or (
+            "mąż" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
+            and (
+                "Urzęd" in get_entity_name(doc, f.get("object_entity_id"))
+                and "Marszałkowsk" in get_entity_name(doc, f.get("object_entity_id"))
+            )
+        )
+        for f in employment_facts
+    ), "Should capture Dariusz Jurek -> UMWO employment"
+    assert not any(
+        "suwerenn" in str(f.get("role") or "").casefold()
+        or "decyzja wojewody" in str(f.get("role") or "").casefold()
+        for f in employment_facts
+    ), "Should not use official-response wording as a job label"
 
 
 def test_polsat_ciechanow_family_starostwo(
@@ -825,31 +887,44 @@ def test_polsat_ciechanow_family_starostwo(
         pytest.skip(f"{key} not found")
 
     doc = benchmark_results[key]
-    target_assert(subtests, doc["relevance"]["is_relevant"] is True, "Should be relevant")
+    assert doc["relevance"]["is_relevant"] is True
 
     entities = [e["canonical_name"] for e in doc.get("entities", [])]
     for expected_name in ("Joanna Pszczółkowska", "Sławomir Morawski"):
-        target_assert(
-            subtests, any(expected_name in e for e in entities), f"Should recover {expected_name}"
+        assert any(expected_name in e for e in entities), f"Should recover {expected_name}"
+    assert any("Bartosz" in e and "Pszczółkowski" in e for e in entities) or (
+        any("Bartosz" in e for e in entities) and any("Pszczółkowski" in e for e in entities)
+    ), "Should recover Bartosz Pszczółkowski"
+    assert any("Jakub" in e and "Pszczółkowski" in e for e in entities), (
+        "Should recover Jakub Mieszko Pszczółkowski"
+    )
+    assert any(
+        ("Powiatow" in e and "Centrum Pomocy Rodzinie" in e)
+        or ("Powiatow" in e and "Zarząd" in e and "Dróg" in e)
+        for e in entities
+    ), "Should recover subordinate county units"
+    employment_facts = get_facts_by_type(doc, "APPOINTMENT") + get_facts_by_type(doc, "ROLE_HELD")
+    assert any(
+        (
+            "Bartosz" in get_entity_name(doc, f.get("subject_entity_id"))
+            and "Pszczółkowski" in get_entity_name(doc, f.get("subject_entity_id"))
         )
-    target_assert(
-        subtests,
-        any("Bartosz" in e and "Pszczółkowski" in e for e in entities),
-        "Should recover Bartosz Pszczółkowski",
-    )
-    target_assert(
-        subtests,
-        any("Jakub" in e and "Pszczółkowski" in e for e in entities),
-        "Should recover Jakub Mieszko Pszczółkowski",
-    )
-    target_assert(
-        subtests,
-        any(
-            "Powiatowe Centrum Pomocy Rodzinie" in e or "Powiatowy Zarząd Dróg" in e
-            for e in entities
-        ),
-        "Should recover subordinate county units",
-    )
+        or "Syn Pszczółkowski" in get_entity_name(doc, f.get("subject_entity_id"))
+        for f in employment_facts
+    ), "Should capture Bartosz Pszczółkowski employment"
+    assert any(
+        "Jakub" in get_entity_name(doc, f.get("subject_entity_id"))
+        and (
+            "Pszczółkowski" in get_entity_name(doc, f.get("subject_entity_id"))
+            or "Jakub Mieszko" in get_entity_name(doc, f.get("subject_entity_id"))
+        )
+        for f in employment_facts
+    ), "Should capture Jakub Mieszko Pszczółkowski employment"
+    assert any(
+        "synowa" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
+        or "synowa" in get_entity_name(doc, f.get("object_entity_id")).casefold()
+        for f in employment_facts + get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
+    ), "Should capture daughter-in-law expectation"
 
 
 @pytest.mark.xfail(reason="Known relevance failure documented in AGENTS.md")

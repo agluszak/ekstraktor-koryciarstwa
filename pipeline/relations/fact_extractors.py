@@ -3,6 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import AbstractSet
 
+from pipeline.domain_lexicons import (
+    INVALID_PUBLIC_EMPLOYMENT_ROLE_HEADS,
+    KINSHIP_LEMMAS,
+    PUBLIC_EMPLOYER_TERMS,
+    PUBLIC_OFFICE_ROLE_KINDS,
+)
 from pipeline.domain_types import (
     CandidateID,
     CandidateType,
@@ -34,7 +40,6 @@ from pipeline.nlp_rules import (
     DISMISSAL_TRIGGER_TEXTS,
     FORMER_MARKERS,
     FUNDING_HINTS,
-    KINSHIP_LEMMAS,
     OFFICE_CANDIDACY_LEMMAS,
     OWNER_CONTEXT_TERMS,
     PARTY_CONTEXT_LEMMAS,
@@ -624,20 +629,6 @@ class _EmploymentSignal:
 
 
 class PublicEmploymentFactExtractor:
-    PUBLIC_OFFICE_ROLE_KINDS = frozenset(
-        {
-            RoleKind.RADNY,
-            RoleKind.POSEL,
-            RoleKind.SENATOR,
-            RoleKind.MINISTER,
-            RoleKind.PREZYDENT_MIASTA,
-            RoleKind.WOJEWODA,
-            RoleKind.WOJT,
-            RoleKind.STAROSTA,
-            RoleKind.SEKRETARZ_POWIATU,
-            RoleKind.MARSZALEK_WOJEWODZTWA,
-        }
-    )
     ENTRY_LEMMAS = frozenset({"zatrudnić", "dostać", "objąć", "zostać", "trafić"})
     STATUS_LEMMAS = frozenset({"pracować", "być"})
     ENTRY_TEXT_MARKERS = (
@@ -661,22 +652,6 @@ class PublicEmploymentFactExtractor:
         "jest dyrektorem",
         "jest dyrektorką",
     )
-    PUBLIC_EMPLOYER_TERMS = frozenset(
-        {
-            "urząd",
-            "samorząd",
-            "gmina",
-            "gminy",
-            "powiat",
-            "wojewódzki",
-            "województwo",
-            "marszałkowski",
-            "centrum pomocy rodzinie",
-            "zarząd dróg",
-            "urząd pracy",
-            "urząd stanu cywilnego",
-        }
-    )
     ROLE_STOP_WORDS = frozenset(
         {
             "w",
@@ -691,21 +666,6 @@ class PublicEmploymentFactExtractor:
             "ale",
             "który",
             "która",
-        }
-    )
-    INVALID_ROLE_LABEL_HEADS = frozenset(
-        {
-            "decyzja",
-            "potrzebny",
-            "stary",
-            "suwerenny",
-            "zatrudnić",
-            "wójt",
-            "wojt",
-            "starosta",
-            "sekretarz",
-            "marszałek",
-            "wojewoda",
         }
     )
 
@@ -927,11 +887,11 @@ class PublicEmploymentFactExtractor:
         if role_label is None:
             return False
         first_token = role_label.split()[0].casefold() if role_label.split() else ""
-        return first_token in cls.INVALID_ROLE_LABEL_HEADS
+        return first_token in INVALID_PUBLIC_EMPLOYMENT_ROLE_HEADS
 
     @classmethod
     def _is_public_office_role_candidate(cls, role: EntityCandidate) -> bool:
-        if role.role_kind in cls.PUBLIC_OFFICE_ROLE_KINDS:
+        if role.role_kind in PUBLIC_OFFICE_ROLE_KINDS:
             return True
         normalized = role.normalized_name.casefold()
         return any(
@@ -1033,7 +993,7 @@ class PublicEmploymentFactExtractor:
         if organization.candidate_type == CandidateType.PUBLIC_INSTITUTION:
             return True
         normalized = organization.normalized_name.casefold()
-        return any(term in normalized for term in cls.PUBLIC_EMPLOYER_TERMS)
+        return any(term in normalized for term in PUBLIC_EMPLOYER_TERMS)
 
     def _has_closer_non_public_employer(
         self,
@@ -1100,7 +1060,7 @@ class PublicEmploymentFactExtractor:
                 if phrase_words:
                     break
                 continue
-            if lemma in self.PUBLIC_EMPLOYER_TERMS:
+            if lemma in PUBLIC_EMPLOYER_TERMS:
                 break
             if lemma == "stanowisko" and not phrase_words:
                 continue

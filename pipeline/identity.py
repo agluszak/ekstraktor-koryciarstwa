@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from pipeline.base import IdentityResolver
 from pipeline.config import PipelineConfig
+from pipeline.domain_lexicons import KINSHIP_BY_LEMMA, PUBLIC_SUBJECT_ROLE_LEMMAS
 from pipeline.domain_types import (
     ClusterID,
     EntityID,
@@ -32,41 +33,7 @@ from pipeline.models import (
 )
 from pipeline.utils import normalize_entity_name, stable_id
 
-KINSHIP_BY_LEMMA: dict[str, KinshipDetail] = {
-    "żona": KinshipDetail.SPOUSE,
-    "małżonka": KinshipDetail.SPOUSE,
-    "mąż": KinshipDetail.SPOUSE,
-    "małżonek": KinshipDetail.SPOUSE,
-    "partnerka": KinshipDetail.PARTNER,
-    "partner": KinshipDetail.PARTNER,
-    "dziewczyna": KinshipDetail.PARTNER,
-    "siostra": KinshipDetail.SIBLING_SISTER,
-    "brat": KinshipDetail.SIBLING_BROTHER,
-    "córka": KinshipDetail.CHILD_DAUGHTER,
-    "syn": KinshipDetail.CHILD_SON,
-    "kuzyn": KinshipDetail.COUSIN,
-    "kuzynka": KinshipDetail.COUSIN,
-    "teść": KinshipDetail.FATHER_IN_LAW,
-    "tesc": KinshipDetail.FATHER_IN_LAW,
-    "szwagier": KinshipDetail.BROTHER_IN_LAW,
-    "szwagierka": KinshipDetail.SISTER_IN_LAW,
-    "bratowa": KinshipDetail.SISTER_IN_LAW,
-    "bratowy": KinshipDetail.SISTER_IN_LAW,
-    "synowa": KinshipDetail.DAUGHTER_IN_LAW,
-}
 POSSESSIVE_LEMMAS = {"mój", "swój"}
-PUBLIC_SUBJECT_ROLE_LEMMAS = {
-    "wójt",
-    "wojt",
-    "burmistrz",
-    "prezydent",
-    "starosta",
-    "marszałek",
-    "wojewoda",
-    "minister",
-    "poseł",
-    "radny",
-}
 HONORIFIC_LEMMAS = {"pani"}
 SPEECH_LEMMAS = {
     "mówić",

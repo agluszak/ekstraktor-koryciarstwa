@@ -20,6 +20,7 @@ from pipeline.domain_types import (
     KinshipDetail,
     OrganizationKind,
     ProxyKind,
+    PublicEmploymentSignal,
     RelationshipType,
     RoleKind,
     RoleModifier,
@@ -375,6 +376,23 @@ class PublicProcurementAbuseFrame:
 
 
 @dataclass(slots=True)
+class PublicEmploymentFrame:
+    frame_id: FrameID
+    signal: PublicEmploymentSignal
+    employee_cluster_id: ClusterID
+    employer_cluster_id: ClusterID
+    role_label: str | None = None
+    role_cluster_id: ClusterID | None = None
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+
+    # Inlined attributes
+    extraction_signal: str | None = None
+    evidence_scope: str | None = None
+    score_reason: str | None = None
+
+
+@dataclass(slots=True)
 class RelevanceDecision:
     is_relevant: bool
     score: float
@@ -416,6 +434,7 @@ class ArticleDocument:
         default_factory=list
     )
     public_procurement_abuse_frames: list[PublicProcurementAbuseFrame] = field(default_factory=list)
+    public_employment_frames: list[PublicEmploymentFrame] = field(default_factory=list)
     identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
     execution_times: dict[str, float] = field(default_factory=dict)
 

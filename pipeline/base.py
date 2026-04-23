@@ -82,6 +82,12 @@ class IdentityResolver(PipelineStage):
         raise NotImplementedError
 
 
+class EntityEnricher(PipelineStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
+
+
 class FrameExtractor(PipelineStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:

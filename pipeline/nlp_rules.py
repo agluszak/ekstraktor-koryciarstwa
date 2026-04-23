@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
+from pipeline.domain_lexicons import KINSHIP_LEMMAS as DOMAIN_KINSHIP_LEMMAS
 from pipeline.domain_types import RelationshipType, RoleKind, RoleModifier
 
 BOARD_ROLE_KINDS = {
@@ -230,24 +231,4 @@ TIE_WORDS: Mapping[str, RelationshipType] = {
     "mąż": RelationshipType.FAMILY,
 }
 
-KINSHIP_LEMMAS = frozenset(
-    {
-        "żona",
-        "mąż",
-        "syn",
-        "córka",
-        "brat",
-        "siostra",
-        "szwagier",
-        "szwagierka",
-        "bratowa",
-        "bratowy",
-        "kuzyn",
-        "kuzynka",
-        "partnerka",
-        "partner",
-        "dziewczyna",
-        "narzeczona",
-        "narzeczony",
-    }
-)
+KINSHIP_LEMMAS = DOMAIN_KINSHIP_LEMMAS

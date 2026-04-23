@@ -51,6 +51,11 @@ class EventType(StrEnum):
     DISMISSAL = "dismissal"
 
 
+class PublicEmploymentSignal(StrEnum):
+    ENTRY = "entry"
+    STATUS = "status"
+
+
 class TimeScope(StrEnum):
     CURRENT = "current"
     FORMER = "former"

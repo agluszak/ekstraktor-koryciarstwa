@@ -15,6 +15,7 @@ from pipeline.domain_types import (
     RoleModifier,
     TimeScope,
 )
+from pipeline.enrichment import SharedEntityEnricher
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
     ArticleDocument,
@@ -323,6 +324,54 @@ def test_role_title_surface_is_not_derived_as_person() -> None:
         and candidate.role_kind == RoleKind.SEKRETARZ_POWIATU
         for candidate in candidate_graph.candidates
     )
+
+
+def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Sekretarz Powiatu Joanna Pszczółkowska wydała decyzję."
+    document = prepared_single_clause_document(
+        document_id="doc-enrichment-position",
+        text=text,
+        entities=[("Joanna Pszczółkowska", EntityType.PERSON, "Joanna Pszczółkowska")],
+        parsed_words=[
+            word(1, "Sekretarz", "sekretarz", 0, head=3, deprel="nsubj"),
+            word(2, "Powiatu", "powiat", 10, head=1, deprel="nmod"),
+            word(3, "Joanna", "Joanna", 18, head=5, deprel="nsubj", upos="PROPN"),
+            word(4, "Pszczółkowska", "Pszczółkowska", 25, head=3, deprel="flat", upos="PROPN"),
+            word(5, "wydała", "wydać", 39, upos="VERB"),
+        ],
+    )
+
+    enricher = SharedEntityEnricher(config)
+    enricher.run(document)
+    enricher.run(document)
+
+    position_clusters = [
+        cluster for cluster in document.clusters if cluster.entity_type == EntityType.POSITION
+    ]
+    assert len(position_clusters) == 1
+    assert position_clusters[0].role_kind == RoleKind.SEKRETARZ_POWIATU
+    assert any(
+        mention.entity_type == EntityType.POSITION
+        for clause in document.clause_units
+        for mention in clause.cluster_mentions
+    )
+
+
+def test_shared_enrichment_marks_public_institution_clusters() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    document = prepared_single_clause_document(
+        document_id="doc-enrichment-public-institution",
+        text="Urząd Gminy Poczesna zatrudnił pracownika.",
+        entities=[("Urząd Gminy Poczesna", EntityType.ORGANIZATION, "Urząd Gminy Poczesna")],
+        parsed_words=[word(1, "Urząd", "urząd", 0)],
+    )
+
+    SharedEntityEnricher(config).run(document)
+
+    assert document.clusters[0].entity_type == EntityType.PUBLIC_INSTITUTION
+    assert document.clusters[0].organization_kind == OrganizationKind.PUBLIC_INSTITUTION
+    assert document.entities[0].entity_type == EntityType.PUBLIC_INSTITUTION
 
 
 def test_role_matcher_handles_inflected_prezes_family() -> None:
@@ -2226,6 +2275,56 @@ def test_public_employment_uses_adjacent_public_employer_context() -> None:
         ],
         1: [word(1, "Urząd", "urząd", 0)],
     }
+    person_mention = ClusterMention(
+        text="Rafał Dobosz",
+        entity_type=EntityType.PERSON,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=len("Rafał Dobosz"),
+        entity_id=person_id,
+    )
+    org_start = len(text_1) + 1
+    org_mention = ClusterMention(
+        text="Urząd Gminy Poczesna",
+        entity_type=EntityType.PUBLIC_INSTITUTION,
+        sentence_index=1,
+        paragraph_index=0,
+        start_char=org_start,
+        end_char=org_start + len("Urząd Gminy Poczesna"),
+        entity_id=org_id,
+    )
+    document.clusters = [
+        EntityCluster(
+            cluster_id=ClusterID("cluster-person"),
+            entity_type=EntityType.PERSON,
+            canonical_name="Rafał Dobosz",
+            normalized_name="Rafał Dobosz",
+            mentions=[person_mention],
+        ),
+        EntityCluster(
+            cluster_id=ClusterID("cluster-org"),
+            entity_type=EntityType.PUBLIC_INSTITUTION,
+            canonical_name="Urząd Gminy Poczesna",
+            normalized_name="Urząd Gminy Poczesna",
+            mentions=[org_mention],
+            organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
+        ),
+    ]
+    document.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-public-employment-adjacent"),
+            text=text_1,
+            trigger_head_text="zatrudniony",
+            trigger_head_lemma="zatrudnić",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text_1),
+            cluster_mentions=[person_mention],
+        )
+    ]
+    document = PolishFrameExtractor(config).run(document)
 
     extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
 
@@ -2265,6 +2364,8 @@ def test_public_employment_entry_wording_emits_appointment_with_job_label() -> N
         ],
     )
 
+    document = PolishFrameExtractor(config).run(document)
+
     extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -2303,6 +2404,8 @@ def test_public_employment_status_wording_emits_role_held() -> None:
         ],
     )
 
+    document = PolishFrameExtractor(config).run(document)
+
     extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
 
     role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
@@ -2311,6 +2414,228 @@ def test_public_employment_status_wording_emits_role_held() -> None:
     assert role_facts[0].object_entity_id == EntityID("entity-1")
     assert role_facts[0].role == "Główny Specjalista"
     assert role_facts[0].time_scope == TimeScope.CURRENT
+
+
+def test_public_employment_frame_extracts_passive_hiring_patient() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Zatrudniono Rafała Dobosza na stanowisko pomocy administracyjnej w Urzędzie Gminy."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-passive-patient",
+        text=text,
+        entities=[
+            ("Rafała Dobosza", EntityType.PERSON, "Rafał Dobosz"),
+            ("Urzędzie Gminy", EntityType.PUBLIC_INSTITUTION, "Urząd Gminy"),
+        ],
+        parsed_words=[
+            word(1, "Zatrudniono", "zatrudnić", 0, upos="VERB"),
+            word(2, "Rafała", "Rafał", 12, head=1, deprel="obj", upos="PROPN"),
+            word(3, "Dobosza", "Dobosz", 19, head=2, deprel="flat", upos="PROPN"),
+            word(4, "na", "na", 27, head=5, deprel="case", upos="ADP"),
+            word(5, "stanowisko", "stanowisko", 30, head=1, deprel="obl"),
+            word(6, "pomocy", "pomoc", 41, head=5, deprel="nmod"),
+            word(7, "administracyjnej", "administracyjny", 48, head=6, deprel="amod"),
+            word(8, "w", "w", 64, head=9, deprel="case", upos="ADP"),
+            word(9, "Urzędzie", "urząd", 66, head=1, deprel="obl"),
+            word(10, "Gminy", "gmina", 74, head=9, deprel="nmod"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+
+    assert document.public_employment_frames
+    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("cluster-0")
+    assert document.public_employment_frames[0].role_label == "Pomocy Administracyjnej"
+
+
+def test_public_employment_frame_uses_proxy_employee_for_partner_job() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Partnerka wójta dostała pracę jako ekodoradca w Urzędzie Gminy."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-proxy-partner",
+        text=text,
+        entities=[
+            ("Partnerka", EntityType.PERSON, "partnerka wójta"),
+            ("Urzędzie Gminy", EntityType.PUBLIC_INSTITUTION, "Urząd Gminy"),
+        ],
+        parsed_words=[
+            word(1, "Partnerka", "partnerka", 0, head=3, deprel="nsubj"),
+            word(2, "wójta", "wójt", 10, head=1, deprel="nmod"),
+            word(3, "dostała", "dostać", 16, upos="VERB"),
+            word(4, "pracę", "praca", 24, head=3, deprel="obj"),
+            word(5, "jako", "jako", 30, head=6, deprel="case", upos="SCONJ"),
+            word(6, "ekodoradca", "ekodoradca", 35, head=3, deprel="xcomp"),
+            word(7, "w", "w", 46, head=8, deprel="case", upos="ADP"),
+            word(8, "Urzędzie", "urząd", 48, head=3, deprel="obl"),
+            word(9, "Gminy", "gmina", 56, head=8, deprel="nmod"),
+        ],
+    )
+    document.clusters[0].is_proxy_person = True
+
+    document = PolishFrameExtractor(config).run(document)
+
+    assert document.public_employment_frames
+    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("cluster-0")
+    assert document.public_employment_frames[0].role_label == "Ekodoradca"
+
+
+def test_public_employment_frame_extracts_copular_director_status() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Agnieszka Królikowska w OUW jest dyrektorem generalnym."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-director-status",
+        text=text,
+        entities=[
+            ("Agnieszka Królikowska", EntityType.PERSON, "Agnieszka Królikowska"),
+            ("OUW", EntityType.PUBLIC_INSTITUTION, "Opolski Urząd Wojewódzki"),
+        ],
+        parsed_words=[
+            word(1, "Agnieszka", "Agnieszka", 0, head=4, deprel="nsubj", upos="PROPN"),
+            word(2, "Królikowska", "Królikowska", 10, head=1, deprel="flat", upos="PROPN"),
+            word(3, "OUW", "ouw", 25, head=4, deprel="obl", upos="PROPN"),
+            word(4, "jest", "być", 29, upos="AUX"),
+            word(5, "dyrektorem", "dyrektor", 34, head=4, deprel="xcomp"),
+            word(6, "generalnym", "generalny", 45, head=5, deprel="amod"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+
+    assert document.public_employment_frames
+    assert document.public_employment_frames[0].role_label == "Dyrektor Generalny"
+
+
+def test_public_employment_frame_extracts_stanowisko_specialist_status() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Dariusz Jurek pracuje na stanowisku głównego specjalisty w Urzędzie Marszałkowskim."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-specialist-status",
+        text=text,
+        entities=[
+            ("Dariusz Jurek", EntityType.PERSON, "Dariusz Jurek"),
+            (
+                "Urzędzie Marszałkowskim",
+                EntityType.PUBLIC_INSTITUTION,
+                "Urząd Marszałkowski",
+            ),
+        ],
+        parsed_words=[
+            word(1, "Dariusz", "Dariusz", 0, head=3, deprel="nsubj", upos="PROPN"),
+            word(2, "Jurek", "Jurek", 8, head=1, deprel="flat", upos="PROPN"),
+            word(3, "pracuje", "pracować", 14, upos="VERB"),
+            word(4, "na", "na", 22, head=5, deprel="case", upos="ADP"),
+            word(5, "stanowisku", "stanowisko", 25, head=3, deprel="obl"),
+            word(6, "głównego", "główny", 37, head=7, deprel="amod"),
+            word(7, "specjalisty", "specjalista", 45, head=5, deprel="nmod"),
+            word(8, "w", "w", 57, head=9, deprel="case", upos="ADP"),
+            word(9, "Urzędzie", "urząd", 59, head=3, deprel="obl"),
+            word(10, "Marszałkowskim", "marszałkowski", 67, head=9, deprel="amod"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+
+    assert document.public_employment_frames
+    assert document.public_employment_frames[0].role_label == "Główny Specjalista"
+
+
+def test_public_employment_frame_ignores_wojewoda_decision_as_role_label() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Anna Nowak pracuje w Urzędzie Wojewódzkim. To suwerenna decyzja wojewody."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-public-employment-negative-role-label"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+    )
+    person = EntityID("person-anna")
+    org = EntityID("org-urzad")
+    person_mention = ClusterMention(
+        text="Anna Nowak",
+        entity_type=EntityType.PERSON,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=10,
+        entity_id=person,
+    )
+    org_start = text.index("Urzędzie")
+    org_mention = ClusterMention(
+        text="Urzędzie Wojewódzkim",
+        entity_type=EntityType.PUBLIC_INSTITUTION,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=org_start,
+        end_char=org_start + len("Urzędzie Wojewódzkim"),
+        entity_id=org,
+    )
+    document.entities = [
+        Entity(person, EntityType.PERSON, "Anna Nowak", "Anna Nowak"),
+        Entity(
+            org,
+            EntityType.PUBLIC_INSTITUTION,
+            "Urząd Wojewódzki",
+            "Urząd Wojewódzki",
+            organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
+        ),
+    ]
+    document.clusters = [
+        EntityCluster(
+            ClusterID("cluster-person"),
+            EntityType.PERSON,
+            "Anna Nowak",
+            "Anna Nowak",
+            [person_mention],
+        ),
+        EntityCluster(
+            ClusterID("cluster-org"),
+            EntityType.PUBLIC_INSTITUTION,
+            "Urząd Wojewódzki",
+            "Urząd Wojewódzki",
+            [org_mention],
+            organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
+        ),
+    ]
+    document.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-negative-role-label"),
+            text=text,
+            trigger_head_text="pracuje",
+            trigger_head_lemma="pracować",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+            cluster_mentions=[person_mention, org_mention],
+        )
+    ]
+    document.parsed_sentences = {
+        0: [
+            word(1, "Anna", "Anna", 0, head=3, deprel="nsubj", upos="PROPN"),
+            word(2, "Nowak", "Nowak", 5, head=1, deprel="flat", upos="PROPN"),
+            word(3, "pracuje", "pracować", 11, upos="VERB"),
+            word(4, "Urzędzie", "urząd", org_start, head=3, deprel="obl"),
+            word(5, "Wojewódzkim", "wojewódzki", org_start + 8, head=4, deprel="amod"),
+            word(6, "decyzja", "decyzja", text.index("decyzja"), head=3, deprel="parataxis"),
+            word(7, "wojewody", "wojewoda", text.index("wojewody"), head=6, deprel="nmod"),
+        ]
+    }
+
+    document = PolishFrameExtractor(config).run(document)
+
+    assert document.public_employment_frames
+    assert document.public_employment_frames[0].role_label is None
 
 
 def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount() -> None:

@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from collections import Counter
 
-from pipeline.domain_types import ClusterID, EntityID, FactID, FactType, TimeScope
+from pipeline.domain_types import (
+    ClusterID,
+    EntityID,
+    FactID,
+    FactType,
+    PublicEmploymentSignal,
+    TimeScope,
+)
 from pipeline.models import (
     AntiCorruptionInvestigationFrame,
     AntiCorruptionReferralFrame,
@@ -11,6 +18,7 @@ from pipeline.models import (
     EvidenceSpan,
     Fact,
     PublicContractFrame,
+    PublicEmploymentFrame,
     PublicProcurementAbuseFrame,
 )
 from pipeline.utils import stable_id
@@ -224,6 +232,71 @@ class PublicProcurementAbuseFactBuilder:
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             source_extractor="public_procurement_abuse_frame",
+            score_reason=frame.score_reason,
+        )
+
+
+class PublicEmploymentFactBuilder:
+    def build(self, document: ArticleDocument) -> list[Fact]:
+        cluster_to_entity_id = _cluster_to_entity_id(document)
+        facts = [
+            fact
+            for frame in document.public_employment_frames
+            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
+        ]
+        return _deduplicate_public_facts(facts)
+
+    @staticmethod
+    def _fact_for_frame(
+        document: ArticleDocument,
+        frame: PublicEmploymentFrame,
+        cluster_to_entity_id: dict[ClusterID, EntityID],
+    ) -> Fact | None:
+        employee_id = cluster_to_entity_id.get(frame.employee_cluster_id)
+        employer_id = cluster_to_entity_id.get(frame.employer_cluster_id)
+        if employee_id is None or employer_id is None:
+            return None
+        evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
+        employer = _cluster_by_id(document, frame.employer_cluster_id)
+        role_cluster = (
+            _cluster_by_id(document, frame.role_cluster_id)
+            if frame.role_cluster_id is not None
+            else None
+        )
+        fact_type = (
+            FactType.APPOINTMENT
+            if frame.signal == PublicEmploymentSignal.ENTRY
+            else FactType.ROLE_HELD
+        )
+        return Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    fact_type,
+                    employee_id,
+                    employer_id,
+                    frame.role_label or "",
+                    str(evidence.start_char or ""),
+                )
+            ),
+            fact_type=fact_type,
+            subject_entity_id=EntityID(employee_id),
+            object_entity_id=EntityID(employer_id),
+            value_text=frame.role_label,
+            value_normalized=frame.role_label,
+            time_scope=TimeScope.CURRENT,
+            event_date=document.publication_date,
+            confidence=round(frame.confidence, 3),
+            evidence=evidence,
+            position_entity_id=_get_best_entity_id(role_cluster) if role_cluster else None,
+            role=frame.role_label,
+            role_kind=role_cluster.role_kind if role_cluster is not None else None,
+            role_modifier=role_cluster.role_modifier if role_cluster is not None else None,
+            organization_kind=employer.organization_kind if employer is not None else None,
+            extraction_signal=frame.extraction_signal,
+            evidence_scope=frame.evidence_scope,
+            source_extractor="public_employment_frame",
             score_reason=frame.score_reason,
         )
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pipeline.base import FactExtractor
 from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
+from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
     CandidateType,
     EntityID,
@@ -17,7 +18,6 @@ from pipeline.domain_types import (
 )
 from pipeline.funding import FundingFactBuilder
 from pipeline.governance import GovernanceFactBuilder
-from pipeline.identity import KINSHIP_BY_LEMMA
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -35,6 +35,7 @@ from pipeline.public_facts import (
     AntiCorruptionInvestigationFactBuilder,
     AntiCorruptionReferralFactBuilder,
     PublicContractFactBuilder,
+    PublicEmploymentFactBuilder,
     PublicProcurementAbuseFactBuilder,
 )
 from pipeline.utils import stable_id
@@ -42,7 +43,6 @@ from pipeline.utils import stable_id
 from .candidate_graph import CandidateGraphBuilder
 from .fact_extractors import (
     PoliticalProfileFactExtractor,
-    PublicEmploymentFactExtractor,
     SentenceContext,
     TieFactExtractor,
 )
@@ -396,13 +396,13 @@ class PolishFactExtractor(FactExtractor):
         self.compensation_fact_builder = CompensationFactBuilder()
         self.funding_fact_builder = FundingFactBuilder()
         self.public_contract_fact_builder = PublicContractFactBuilder()
+        self.public_employment_fact_builder = PublicEmploymentFactBuilder()
         self.anti_corruption_referral_fact_builder = AntiCorruptionReferralFactBuilder()
         self.anti_corruption_investigation_fact_builder = AntiCorruptionInvestigationFactBuilder()
         self.public_procurement_abuse_fact_builder = PublicProcurementAbuseFactBuilder()
         self.kinship_tie_builder = KinshipTieBuilder()
         self.fact_extractors = [
             PoliticalProfileFactExtractor(),
-            PublicEmploymentFactExtractor(),
             TieFactExtractor(),
         ]
 
@@ -451,6 +451,7 @@ class PolishFactExtractor(FactExtractor):
         facts.extend(self.compensation_fact_builder.build(document))
         facts.extend(self.funding_fact_builder.build(document))
         facts.extend(self.public_contract_fact_builder.build(document))
+        facts.extend(self.public_employment_fact_builder.build(document))
         facts.extend(self.anti_corruption_referral_fact_builder.build(document))
         facts.extend(self.anti_corruption_investigation_fact_builder.build(document))
         facts.extend(self.public_procurement_abuse_fact_builder.build(document))

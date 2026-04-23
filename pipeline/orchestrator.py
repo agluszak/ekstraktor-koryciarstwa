@@ -4,6 +4,7 @@ from pipeline.base import (
     ClauseParser,
     CoreferenceResolver,
     EntityClusterer,
+    EntityEnricher,
     EntityLinker,
     FactExtractor,
     FrameExtractor,
@@ -29,6 +30,7 @@ class NepotismPipeline:
         fact_extractor: FactExtractor,
         entity_linker: EntityLinker,
         entity_clusterer: EntityClusterer,
+        entity_enricher: EntityEnricher,
         clause_parser: ClauseParser,
         identity_resolver: IdentityResolver,
         frame_extractor: FrameExtractor,
@@ -42,6 +44,7 @@ class NepotismPipeline:
         self.fact_extractor = fact_extractor
         self.entity_linker = entity_linker
         self.entity_clusterer = entity_clusterer
+        self.entity_enricher = entity_enricher
         self.clause_parser = clause_parser
         self.identity_resolver = identity_resolver
         self.frame_extractor = frame_extractor
@@ -95,6 +98,10 @@ class NepotismPipeline:
         t0 = time.perf_counter()
         document = self.identity_resolver.run(document)
         document.execution_times["identity_resolver"] = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        document = self.entity_enricher.run(document)
+        document.execution_times["entity_enricher"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         document = self.frame_extractor.run(document)
