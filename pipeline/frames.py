@@ -7,26 +7,32 @@ from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClusterID,
+    EntityID,
     EntityType,
     EventType,
     FrameID,
     OrganizationKind,
+    RoleKind,
 )
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
 from pipeline.lemma_signals import has_lemma, has_lemma_pair, lemma_set, words_with_lemmas
 from pipeline.models import (
+    AntiCorruptionInvestigationFrame,
     AntiCorruptionReferralFrame,
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
     CompensationFrame,
+    Entity,
     EntityCluster,
     EvidenceSpan,
     FundingFrame,
     GovernanceFrame,
+    Mention,
     ParsedWord,
     PublicContractFrame,
+    PublicProcurementAbuseFrame,
 )
 from pipeline.nlp_rules import (
     APPOINTMENT_NOUN_LEMMAS,
@@ -44,7 +50,7 @@ from pipeline.role_matching import (
     has_governance_verb_with_role,
     match_role_mentions,
 )
-from pipeline.utils import normalize_entity_name
+from pipeline.utils import normalize_entity_name, stable_id
 
 COMPENSATION_CONTEXT_LEMMAS = frozenset(
     {
@@ -113,6 +119,53 @@ KINSHIP_LEMMAS = frozenset(
 
 REFERRAL_TRIGGER_LEMMAS = frozenset({"złożyć", "skierować", "zapowiedzieć"})
 REFERRAL_NOUN_LEMMAS = frozenset({"zawiadomienie", "doniesienie", "skarga", "wniosek"})
+INVESTIGATION_TRIGGER_LEMMAS = frozenset(
+    {
+        "zatrzymać",
+        "postawić",
+        "zarzucić",
+        "oskarżyć",
+        "podejrzewać",
+        "prowadzić",
+        "wszcząć",
+        "badać",
+        "przyjąć",
+        "brać",
+        "ustawiać",
+        "zlecać",
+    }
+)
+INVESTIGATION_NOUN_LEMMAS = frozenset(
+    {
+        "zarzut",
+        "łapówka",
+        "korupcja",
+        "zatrzymanie",
+        "śledztwo",
+        "dochodzenie",
+        "postępowanie",
+    }
+)
+PROCUREMENT_ABUSE_LEMMAS = frozenset(
+    {
+        "zamówienie",
+        "przetarg",
+        "zlecenie",
+        "remont",
+        "ustawiać",
+        "zlecać",
+    }
+)
+PUBLIC_ABUSE_OFFICE_ROLES = frozenset(
+    {
+        RoleKind.WOJT,
+        RoleKind.STAROSTA,
+        RoleKind.SEKRETARZ_POWIATU,
+        RoleKind.MARSZALEK_WOJEWODZTWA,
+        RoleKind.WOJEWODA,
+        RoleKind.PREZYDENT_MIASTA,
+    }
+)
 REPORTING_RECIPIENT_LEMMAS = frozenset({"my", "redakcja", "dziennikarz", "czytelnik"})
 REPORTING_OBJECT_LEMMAS = frozenset(
     {"informacja", "wiadomość", "odpowiedź", "komentarz", "oświadczenie", "stanowisko"}
@@ -184,6 +237,7 @@ class PolishFrameExtractor(FrameExtractor):
         self.funding = PolishFundingFrameExtractor(config)
         self.public_contracts = PolishPublicContractFrameExtractor(config)
         self.anti_corruption_referrals = PolishAntiCorruptionReferralFrameExtractor(config)
+        self.anti_corruption_abuse = PolishAntiCorruptionAbuseFrameExtractor(config)
 
     def name(self) -> str:
         return "polish_frame_extractor"
@@ -193,7 +247,8 @@ class PolishFrameExtractor(FrameExtractor):
         document = self.compensation.run(document)
         document = self.funding.run(document)
         document = self.public_contracts.run(document)
-        return self.anti_corruption_referrals.run(document)
+        document = self.anti_corruption_referrals.run(document)
+        return self.anti_corruption_abuse.run(document)
 
 
 class PolishPublicContractFrameExtractor(FrameExtractor):
@@ -705,6 +760,336 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
                 if word.index in indices and mention.start_char <= abs_start < mention.end_char:
                     return True
         return False
+
+
+class PolishAntiCorruptionAbuseFrameExtractor(FrameExtractor):
+    def __init__(self, config: PipelineConfig) -> None:
+        self.config = config
+
+    def name(self) -> str:
+        return "polish_anti_corruption_abuse_frame_extractor"
+
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        document.anti_corruption_investigation_frames = []
+        document.public_procurement_abuse_frames = []
+        recent_public_actor: EntityCluster | None = None
+        for clause in document.clause_units:
+            clusters = self._clusters_for_mentions(
+                document,
+                clause.cluster_mentions,
+                {
+                    EntityType.PERSON,
+                    EntityType.POSITION,
+                    EntityType.ORGANIZATION,
+                    EntityType.PUBLIC_INSTITUTION,
+                },
+            )
+            clusters = self._with_public_office_role_clusters(document, clause, clusters)
+            local_actor = self._public_actor_or_office(clause, clusters, exclude=None)
+            if local_actor is not None:
+                recent_public_actor = local_actor
+            if not clusters and recent_public_actor is None:
+                continue
+            if self._has_investigation_context(document, clause):
+                frame = self._investigation_frame(clause, clusters)
+                if frame is not None:
+                    document.anti_corruption_investigation_frames.append(frame)
+            if self._has_procurement_abuse_context(document, clause):
+                frame = self._procurement_abuse_frame(
+                    clause,
+                    clusters,
+                    fallback_actor=recent_public_actor,
+                )
+                if frame is not None:
+                    document.public_procurement_abuse_frames.append(frame)
+        return document
+
+    def _clusters_for_mentions(
+        self,
+        document: ArticleDocument,
+        mentions: Iterable[ClusterMention],
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        return PolishAntiCorruptionReferralFrameExtractor(self.config)._clusters_for_mentions(
+            document,
+            mentions,
+            entity_types,
+        )
+
+    @staticmethod
+    def _with_public_office_role_clusters(
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+    ) -> list[EntityCluster]:
+        if any(cluster.entity_type == EntityType.POSITION for cluster in clusters):
+            return clusters
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        role_matches = [
+            match
+            for match in match_role_mentions(parsed_words)
+            if match.role_kind in PUBLIC_ABUSE_OFFICE_ROLES
+        ]
+        if not role_matches:
+            return clusters
+        expanded = list(clusters)
+        for match in role_matches:
+            start_char = clause.start_char + match.start
+            end_char = clause.start_char + match.end
+            existing = next(
+                (
+                    cluster
+                    for cluster in document.clusters
+                    if cluster.entity_type == EntityType.POSITION
+                    and any(
+                        mention.sentence_index == clause.sentence_index
+                        and mention.start_char == start_char
+                        and mention.end_char == end_char
+                        for mention in cluster.mentions
+                    )
+                ),
+                None,
+            )
+            if existing is not None:
+                expanded.append(existing)
+                continue
+            entity_id = EntityID(
+                stable_id(
+                    "position",
+                    document.document_id,
+                    match.canonical_name,
+                    str(clause.sentence_index),
+                    str(start_char),
+                    str(end_char),
+                )
+            )
+            evidence = EvidenceSpan(
+                text=clause.text[match.start : match.end],
+                sentence_index=clause.sentence_index,
+                paragraph_index=clause.paragraph_index,
+                start_char=start_char,
+                end_char=end_char,
+            )
+            entity = Entity(
+                entity_id=entity_id,
+                entity_type=EntityType.POSITION,
+                canonical_name=match.canonical_name,
+                normalized_name=match.canonical_name,
+                evidence=[evidence],
+                role_kind=match.role_kind,
+                role_modifier=match.role_modifier,
+            )
+            mention = Mention(
+                text=clause.text[match.start : match.end],
+                normalized_text=match.canonical_name,
+                mention_type=EntityType.POSITION,
+                sentence_index=clause.sentence_index,
+                paragraph_index=clause.paragraph_index,
+                start_char=start_char,
+                end_char=end_char,
+                entity_id=entity_id,
+            )
+            cluster_mention = ClusterMention(
+                text=clause.text[match.start : match.end],
+                entity_type=EntityType.POSITION,
+                sentence_index=clause.sentence_index,
+                paragraph_index=clause.paragraph_index,
+                start_char=start_char,
+                end_char=end_char,
+                entity_id=entity_id,
+            )
+            cluster = EntityCluster(
+                cluster_id=ClusterID(
+                    stable_id(
+                        "cluster",
+                        document.document_id,
+                        entity_id,
+                    )
+                ),
+                entity_type=EntityType.POSITION,
+                canonical_name=match.canonical_name,
+                normalized_name=match.canonical_name,
+                mentions=[cluster_mention],
+                role_kind=match.role_kind,
+                role_modifier=match.role_modifier,
+            )
+            document.entities.append(entity)
+            document.mentions.append(mention)
+            document.clusters.append(cluster)
+            clause.cluster_mentions.append(cluster_mention)
+            expanded.append(cluster)
+        return expanded
+
+    @staticmethod
+    def _has_investigation_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
+        lowered = clause.text.lower()
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        lemmas = lemma_set(parsed_words)
+        has_institution = any(marker in lowered for marker in ACCOUNTABILITY_INSTITUTION_MARKERS)
+        has_action = bool(
+            lemmas.intersection(INVESTIGATION_TRIGGER_LEMMAS)
+            or lemmas.intersection(INVESTIGATION_NOUN_LEMMAS)
+        )
+        if not parsed_words:
+            has_action = any(
+                marker in lowered
+                for marker in (
+                    "zatrzyma",
+                    "zarzut",
+                    "łapów",
+                    "korupcj",
+                    "śledztw",
+                    "postępow",
+                    "podejrz",
+                )
+            )
+        return has_institution and has_action
+
+    @staticmethod
+    def _has_procurement_abuse_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
+        lowered = clause.text.lower()
+        parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+        lemmas = lemma_set(parsed_words)
+        has_public_work = bool(
+            lemmas.intersection(PROCUREMENT_ABUSE_LEMMAS)
+            or any(
+                marker in lowered
+                for marker in (
+                    "zamówienia publiczne",
+                    "zamówień publicznych",
+                    "zlecanie remontów",
+                    "ustawian",
+                    "przetarg",
+                )
+            )
+        )
+        has_abuse = bool(
+            lemmas.intersection({"łapówka", "korupcja", "ustawiać", "zarzut"})
+            or any(marker in lowered for marker in ("łapów", "korupcj", "ustawian", "zarzut"))
+        )
+        return has_public_work and has_abuse
+
+    def _investigation_frame(
+        self,
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+    ) -> AntiCorruptionInvestigationFrame | None:
+        institution = self._accountability_institution(clause, clusters)
+        target = self._public_actor_or_office(clause, clusters, exclude=institution)
+        if institution is None or target is None:
+            return None
+        return AntiCorruptionInvestigationFrame(
+            frame_id=FrameID(f"investigation-frame-{uuid.uuid4().hex[:8]}"),
+            institution_cluster_id=institution.cluster_id,
+            target_cluster_id=target.cluster_id,
+            confidence=0.78,
+            evidence=[self._evidence(clause)],
+            extraction_signal="dependency_edge",
+            evidence_scope="same_clause",
+            score_reason="anti_corruption_investigation",
+        )
+
+    def _procurement_abuse_frame(
+        self,
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+        *,
+        fallback_actor: EntityCluster | None,
+    ) -> PublicProcurementAbuseFrame | None:
+        actor = self._public_actor_or_office(clause, clusters, exclude=None) or fallback_actor
+        if actor is None:
+            return None
+        context = self._public_context(clause, clusters, exclude=actor)
+        amount_match = COMPENSATION_PATTERN.search(clause.text)
+        amount_text = amount_match.group("amount") if amount_match else None
+        return PublicProcurementAbuseFrame(
+            frame_id=FrameID(f"procurement-abuse-frame-{uuid.uuid4().hex[:8]}"),
+            actor_cluster_id=actor.cluster_id,
+            public_context_cluster_id=context.cluster_id if context is not None else None,
+            amount_text=amount_text,
+            amount_normalized=normalize_entity_name(amount_text.lower()) if amount_text else None,
+            confidence=0.72 if context is not None else 0.64,
+            evidence=[self._evidence(clause)],
+            extraction_signal="dependency_edge",
+            evidence_scope="same_clause",
+            score_reason="public_procurement_abuse",
+        )
+
+    @staticmethod
+    def _accountability_institution(
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+    ) -> EntityCluster | None:
+        return PolishAntiCorruptionReferralFrameExtractor._target_institution(clause, clusters)
+
+    @staticmethod
+    def _public_actor_or_office(
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+        *,
+        exclude: EntityCluster | None,
+    ) -> EntityCluster | None:
+        candidates = [
+            cluster
+            for cluster in clusters
+            if (exclude is None or cluster.cluster_id != exclude.cluster_id)
+            and cluster.entity_type in {EntityType.PERSON, EntityType.POSITION}
+        ]
+        public_office_candidates = [
+            cluster
+            for cluster in candidates
+            if cluster.entity_type == EntityType.POSITION
+            or any(
+                marker in cluster.normalized_name.lower()
+                for marker in ("wójt", "wojt", "starosta", "sekretarz", "marszałek", "wojewoda")
+            )
+        ]
+        return min(
+            public_office_candidates or candidates,
+            key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+                cluster,
+                clause,
+            ),
+            default=None,
+        )
+
+    @staticmethod
+    def _public_context(
+        clause: ClauseUnit,
+        clusters: list[EntityCluster],
+        *,
+        exclude: EntityCluster,
+    ) -> EntityCluster | None:
+        candidates = [
+            cluster
+            for cluster in clusters
+            if cluster.cluster_id != exclude.cluster_id
+            and cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            and not any(
+                marker in cluster.normalized_name.lower()
+                or marker in cluster.canonical_name.lower()
+                for marker in ACCOUNTABILITY_INSTITUTION_MARKERS
+            )
+            and PolishPublicContractFrameExtractor._is_public_counterparty(clause, cluster)
+        ]
+        return min(
+            candidates,
+            key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+                cluster,
+                clause,
+            ),
+            default=None,
+        )
+
+    @staticmethod
+    def _evidence(clause: ClauseUnit) -> EvidenceSpan:
+        return EvidenceSpan(
+            text=clause.text,
+            sentence_index=clause.sentence_index,
+            paragraph_index=clause.paragraph_index,
+            start_char=clause.start_char,
+            end_char=clause.end_char,
+        )
 
 
 class PolishGovernanceFrameExtractor(FrameExtractor):

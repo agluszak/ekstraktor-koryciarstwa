@@ -32,8 +32,10 @@ from pipeline.models import (
 from pipeline.nlp_rules import PARTY_PROFILE_CONTEXT_LEMMAS
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.public_facts import (
+    AntiCorruptionInvestigationFactBuilder,
     AntiCorruptionReferralFactBuilder,
     PublicContractFactBuilder,
+    PublicProcurementAbuseFactBuilder,
 )
 from pipeline.utils import stable_id
 
@@ -395,6 +397,8 @@ class PolishFactExtractor(FactExtractor):
         self.funding_fact_builder = FundingFactBuilder()
         self.public_contract_fact_builder = PublicContractFactBuilder()
         self.anti_corruption_referral_fact_builder = AntiCorruptionReferralFactBuilder()
+        self.anti_corruption_investigation_fact_builder = AntiCorruptionInvestigationFactBuilder()
+        self.public_procurement_abuse_fact_builder = PublicProcurementAbuseFactBuilder()
         self.kinship_tie_builder = KinshipTieBuilder()
         self.fact_extractors = [
             PoliticalProfileFactExtractor(),
@@ -448,6 +452,8 @@ class PolishFactExtractor(FactExtractor):
         facts.extend(self.funding_fact_builder.build(document))
         facts.extend(self.public_contract_fact_builder.build(document))
         facts.extend(self.anti_corruption_referral_fact_builder.build(document))
+        facts.extend(self.anti_corruption_investigation_fact_builder.build(document))
+        facts.extend(self.public_procurement_abuse_fact_builder.build(document))
         facts.extend(self._cross_sentence_party_facts(document, candidate_graph))
         facts.extend(self.kinship_tie_builder.build(document, candidate_graph))
 

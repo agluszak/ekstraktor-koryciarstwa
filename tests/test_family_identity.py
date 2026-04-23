@@ -249,6 +249,85 @@ def test_family_proxy_can_anchor_through_public_office_phrase() -> None:
     assert proxy.proxy_anchor_entity_id == "person-monika"
 
 
+def test_possessive_proxy_anchors_to_sentence_subject_with_global_mentions() -> None:
+    text = "Tomasz Kościelniak zatrudnił swoją dziewczynę."
+    doc = _document(
+        [text],
+        {
+            0: [
+                _word(1, "Tomasz", "Tomasz", "PROPN", 3, "nsubj", 0),
+                _word(2, "Kościelniak", "Kościelniak", "PROPN", 1, "flat", 7),
+                _word(3, "zatrudnił", "zatrudnić", "VERB", 0, "root", 19),
+                _word(4, "swoją", "swój", "DET", 5, "det:poss", 29),
+                _word(5, "dziewczynę", "dziewczyna", "NOUN", 3, "obj", 35),
+            ]
+        },
+    )
+    entity, cluster = _person_cluster(
+        "person-tomasz",
+        "Tomasz Kościelniak",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+    )
+    doc.entities.append(entity)
+    doc.clusters.append(cluster)
+
+    resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+    proxy = next(entity for entity in resolved.entities if entity.is_proxy_person)
+    assert proxy.kinship_detail == KinshipDetail.PARTNER
+    assert proxy.proxy_anchor_entity_id == "person-tomasz"
+
+
+def test_public_role_subject_proxy_prefers_person_with_matching_office_context() -> None:
+    sentence_1 = "Informator Jan Kowalski opisał wójta Tomasza Kościelniaka."
+    sentence_2 = "Wójt zatrudnił swojego przyszłego teścia."
+    doc = _document(
+        [sentence_1, sentence_2],
+        {
+            0: [
+                _word(1, "Informator", "informator", "NOUN", 4, "nsubj", 0),
+                _word(2, "Jan", "Jan", "PROPN", 1, "flat", 10),
+                _word(3, "Kowalski", "Kowalski", "PROPN", 2, "flat", 14),
+                _word(4, "opisał", "opisać", "VERB", 0, "root", 23),
+                _word(5, "wójta", "wójt", "NOUN", 4, "obj", 30),
+                _word(6, "Tomasza", "Tomasz", "PROPN", 5, "flat", 36),
+                _word(7, "Kościelniaka", "Kościelniak", "PROPN", 6, "flat", 44),
+            ],
+            1: [
+                _word(1, "Wójt", "wójt", "NOUN", 2, "nsubj", 0),
+                _word(2, "zatrudnił", "zatrudnić", "VERB", 0, "root", 5),
+                _word(3, "swojego", "swój", "DET", 5, "det:poss", 15),
+                _word(4, "przyszłego", "przyszły", "ADJ", 5, "amod", 23),
+                _word(5, "teścia", "teść", "NOUN", 2, "obj", 34),
+            ],
+        },
+    )
+    informator, informator_cluster = _person_cluster(
+        "person-jan",
+        "Jan Kowalski",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=10,
+    )
+    official, official_cluster = _person_cluster(
+        "person-tomasz",
+        "Tomasz Kościelniak",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=36,
+    )
+    doc.entities.extend([informator, official])
+    doc.clusters.extend([informator_cluster, official_cluster])
+
+    resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+    proxy = next(entity for entity in resolved.entities if entity.is_proxy_person)
+    assert proxy.kinship_detail == KinshipDetail.FATHER_IN_LAW
+    assert proxy.proxy_anchor_entity_id == "person-tomasz"
+
+
 def test_sister_proxy_is_separate_from_spouse_proxy() -> None:
     sentences = [
         "Żona Karola Wilczyńskiego pracowała w jednostce.",

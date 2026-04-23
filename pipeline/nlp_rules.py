@@ -240,10 +240,13 @@ KINSHIP_LEMMAS = frozenset(
         "siostra",
         "szwagier",
         "szwagierka",
+        "bratowa",
+        "bratowy",
         "kuzyn",
         "kuzynka",
         "partnerka",
         "partner",
+        "dziewczyna",
         "narzeczona",
         "narzeczony",
     }

@@ -39,6 +39,7 @@ KINSHIP_BY_LEMMA: dict[str, KinshipDetail] = {
     "małżonek": KinshipDetail.SPOUSE,
     "partnerka": KinshipDetail.PARTNER,
     "partner": KinshipDetail.PARTNER,
+    "dziewczyna": KinshipDetail.PARTNER,
     "siostra": KinshipDetail.SIBLING_SISTER,
     "brat": KinshipDetail.SIBLING_BROTHER,
     "córka": KinshipDetail.CHILD_DAUGHTER,
@@ -50,9 +51,22 @@ KINSHIP_BY_LEMMA: dict[str, KinshipDetail] = {
     "szwagier": KinshipDetail.BROTHER_IN_LAW,
     "szwagierka": KinshipDetail.SISTER_IN_LAW,
     "bratowa": KinshipDetail.SISTER_IN_LAW,
+    "bratowy": KinshipDetail.SISTER_IN_LAW,
     "synowa": KinshipDetail.DAUGHTER_IN_LAW,
 }
-POSSESSIVE_LEMMAS = {"mój"}
+POSSESSIVE_LEMMAS = {"mój", "swój"}
+PUBLIC_SUBJECT_ROLE_LEMMAS = {
+    "wójt",
+    "wojt",
+    "burmistrz",
+    "prezydent",
+    "starosta",
+    "marszałek",
+    "wojewoda",
+    "minister",
+    "poseł",
+    "radny",
+}
 HONORIFIC_LEMMAS = {"pani"}
 SPEECH_LEMMAS = {
     "mówić",
@@ -182,6 +196,22 @@ class PolishFamilyIdentityResolver(IdentityResolver):
 
             anchor_words = self._anchor_words(words, index)
             if not anchor_words:
+                if not self._has_local_public_role_subject(words, word):
+                    continue
+                start = sentence.start_char + word.start
+                end = sentence.start_char + word.end
+                surface = self._surface_for_span(sentence, start, end, [word])
+                if not surface:
+                    continue
+                mentions.append(
+                    _FamilyMention(
+                        kinship_detail=kinship_detail,
+                        surface=surface,
+                        start_char=start,
+                        end_char=end,
+                        is_possessive=True,
+                    )
+                )
                 continue
             start = sentence.start_char + word.start
             end = sentence.start_char + anchor_words[-1].end
@@ -199,6 +229,27 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 )
             )
         return mentions
+
+    @staticmethod
+    def _has_local_public_role_subject(
+        words: list[ParsedWord],
+        kinship_word: ParsedWord,
+    ) -> bool:
+        by_index = {word.index: word for word in words}
+        governing_indices = {kinship_word.head}
+        head = by_index.get(kinship_word.head)
+        if head is not None and kinship_word.deprel == "conj":
+            governing_indices.add(head.head)
+        for word in words:
+            if word.index == kinship_word.index:
+                continue
+            if not word.deprel.startswith("nsubj"):
+                continue
+            if word.head not in governing_indices:
+                continue
+            if word.lemma.casefold() in PUBLIC_SUBJECT_ROLE_LEMMAS:
+                return True
+        return False
 
     @staticmethod
     def _honorific_mentions(
@@ -283,6 +334,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 role_anchor.append(word)
             if role_anchor:
                 return role_anchor
+            return after[:1]
         proper: list[ParsedWord] = []
         for word in after:
             if word.upos != "PROPN":
@@ -731,6 +783,12 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         if anchor_surface is None:
             return None
         normalized = normalize_entity_name(anchor_surface)
+        normalized_lower = normalized.casefold()
+        role_anchors = [
+            marker for marker in PUBLIC_SUBJECT_ROLE_LEMMAS if marker in normalized_lower
+        ]
+        if role_anchors:
+            return self._person_cluster_with_role_context(document, sentence_index, role_anchors)
         if "przewodnicz" in normalized.casefold():
             return self._nearest_person_cluster(document, sentence_index, before=3, after=0)
         candidates = [
@@ -756,7 +814,90 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         document: ArticleDocument,
         sentence_index: int,
     ) -> EntityCluster | None:
-        return self._speaker_cluster(document, sentence_index)
+        return self._speaker_cluster(document, sentence_index) or self._subject_person_cluster(
+            document,
+            sentence_index,
+        )
+
+    @staticmethod
+    def _subject_person_cluster(
+        document: ArticleDocument,
+        sentence_index: int,
+    ) -> EntityCluster | None:
+        parsed = document.parsed_sentences.get(sentence_index, [])
+        subject_words = [word for word in parsed if word.deprel.startswith("nsubj")]
+        if not subject_words:
+            return None
+        sentence = next(
+            (item for item in document.sentences if item.sentence_index == sentence_index),
+            None,
+        )
+        if sentence is None:
+            return None
+        for cluster in document.clusters:
+            if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
+                continue
+            for mention in cluster.mentions:
+                if mention.sentence_index != sentence_index:
+                    continue
+                for word in subject_words:
+                    abs_start = sentence.start_char + word.start
+                    if mention.start_char <= abs_start < mention.end_char:
+                        return cluster
+        public_role_subjects = [
+            word.lemma.casefold()
+            for word in subject_words
+            if word.lemma.casefold() in PUBLIC_SUBJECT_ROLE_LEMMAS
+        ]
+        if public_role_subjects:
+            role_context_cluster = PolishFamilyIdentityResolver._person_cluster_with_role_context(
+                document,
+                sentence_index,
+                public_role_subjects,
+            )
+            if role_context_cluster is not None:
+                return role_context_cluster
+            return PolishFamilyIdentityResolver._nearest_person_cluster(
+                document,
+                sentence_index,
+                before=3,
+                after=0,
+            )
+        return None
+
+    @staticmethod
+    def _person_cluster_with_role_context(
+        document: ArticleDocument,
+        sentence_index: int,
+        role_lemmas: list[str],
+    ) -> EntityCluster | None:
+        sentences = {sentence.sentence_index: sentence for sentence in document.sentences}
+        candidates: list[tuple[int, int, EntityCluster]] = []
+        role_markers = tuple(role_lemmas)
+        for cluster in document.clusters:
+            if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
+                continue
+            for mention in cluster.mentions:
+                if not sentence_index - 3 <= mention.sentence_index <= sentence_index:
+                    continue
+                sentence = sentences.get(mention.sentence_index)
+                if sentence is None:
+                    continue
+                local_start = max(0, mention.start_char - sentence.start_char)
+                local_end = max(local_start, mention.end_char - sentence.start_char)
+                window = sentence.text[max(0, local_start - 80) : local_end + 32].casefold()
+                if not any(marker in window for marker in role_markers):
+                    continue
+                candidates.append(
+                    (
+                        abs(sentence_index - mention.sentence_index),
+                        mention.start_char,
+                        cluster,
+                    )
+                )
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: (item[0], -item[1]))[2]
 
     @staticmethod
     def _speaker_cluster(document: ArticleDocument, sentence_index: int) -> EntityCluster | None:

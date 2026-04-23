@@ -2020,6 +2020,45 @@ def test_referral_context_uses_stanza_lemmas_for_inflected_trigger() -> None:
     assert referrals[0].object_entity_id == EntityID("entity-1")
 
 
+def test_cba_investigation_and_procurement_abuse_emit_public_abuse_facts() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "CBA zatrzymało wójta gminy Ostrów za łapówki przy zlecaniu remontów."
+    document = prepared_single_clause_document(
+        document_id="doc-cba-investigation",
+        text=text,
+        entities=[
+            ("CBA", EntityType.PUBLIC_INSTITUTION, "Centralne Biuro Antykorupcyjne"),
+            ("wójta", EntityType.POSITION, "Wójt"),
+            ("gminy Ostrów", EntityType.PUBLIC_INSTITUTION, "Gmina Ostrów"),
+        ],
+        parsed_words=[
+            word(1, "CBA", "cba", 0, head=2, deprel="nsubj", upos="PROPN"),
+            word(2, "zatrzymało", "zatrzymać", text.index("zatrzymało"), upos="VERB"),
+            word(3, "wójta", "wójt", text.index("wójta"), head=2, deprel="obj"),
+            word(4, "gminy", "gmina", text.index("gminy"), head=3, deprel="nmod"),
+            word(5, "Ostrów", "Ostrów", text.index("Ostrów"), head=4, deprel="flat"),
+            word(6, "łapówki", "łapówka", text.index("łapówki"), head=2, deprel="obl"),
+            word(7, "zlecaniu", "zlecać", text.index("zlecaniu"), head=6, deprel="acl"),
+            word(8, "remontów", "remont", text.index("remontów"), head=7, deprel="obj"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    investigations = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_INVESTIGATION
+    ]
+    procurement_abuse = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_PROCUREMENT_ABUSE
+    ]
+    assert investigations
+    assert investigations[0].subject_entity_id == EntityID("entity-0")
+    assert investigations[0].object_entity_id == EntityID("entity-1")
+    assert procurement_abuse
+    assert procurement_abuse[0].subject_entity_id == EntityID("entity-1")
+
+
 def test_cross_sentence_party_context_uses_profile_lemma() -> None:
     config = PipelineConfig.from_file("config.yaml")
     text_1 = "Kandydatka PSL pracowała wcześniej w urzędzie."
@@ -2099,6 +2138,103 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
     assert facts
     assert facts[0].subject_entity_id == EntityID("person-1")
     assert facts[0].object_entity_id == EntityID("party-1")
+
+
+def test_public_employment_uses_adjacent_public_employer_context() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text_1 = "Rafał Dobosz został zatrudniony jako ekodoradca."
+    text_2 = "Urząd Gminy Poczesna potwierdził etat."
+    cleaned_text = f"{text_1} {text_2}"
+    person_id = EntityID("person-1")
+    org_id = EntityID("org-1")
+    document = ArticleDocument(
+        document_id=DocumentID("doc-public-employment-adjacent"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=cleaned_text,
+        paragraphs=[cleaned_text],
+        sentences=[
+            SentenceFragment(
+                text=text_1,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text_1),
+            ),
+            SentenceFragment(
+                text=text_2,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=len(text_1) + 1,
+                end_char=len(cleaned_text),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id=person_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Rafał Dobosz",
+                normalized_name="Rafał Dobosz",
+            ),
+            Entity(
+                entity_id=org_id,
+                entity_type=EntityType.PUBLIC_INSTITUTION,
+                canonical_name="Urząd Gminy Poczesna",
+                normalized_name="Urząd Gminy Poczesna",
+                organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Rafał Dobosz",
+                normalized_text="Rafał Dobosz",
+                mention_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=len("Rafał Dobosz"),
+                entity_id=person_id,
+            ),
+            Mention(
+                text="Urząd Gminy Poczesna",
+                normalized_text="Urząd Gminy Poczesna",
+                mention_type=EntityType.PUBLIC_INSTITUTION,
+                sentence_index=1,
+                paragraph_index=0,
+                start_char=0,
+                end_char=len("Urząd Gminy Poczesna"),
+                entity_id=org_id,
+            ),
+        ],
+    )
+    document.parsed_sentences = {
+        0: [
+            word(1, "Rafał", "Rafał", 0, head=2, deprel="flat", upos="PROPN"),
+            word(2, "Dobosz", "Dobosz", 6, head=4, deprel="nsubj", upos="PROPN"),
+            word(3, "został", "zostać", text_1.index("został"), head=4, deprel="aux"),
+            word(
+                4,
+                "zatrudniony",
+                "zatrudnić",
+                text_1.index("zatrudniony"),
+                upos="VERB",
+            ),
+            word(5, "jako", "jako", text_1.index("jako"), head=6, deprel="case", upos="SCONJ"),
+            word(6, "ekodoradca", "ekodoradca", text_1.index("ekodoradca"), head=4, deprel="xcomp"),
+        ],
+        1: [word(1, "Urząd", "urząd", 0)],
+    }
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
+    assert appointments
+    assert appointments[0].subject_entity_id == person_id
+    assert appointments[0].object_entity_id == org_id
+    assert appointments[0].role is not None
+    assert "ekodoradca" in appointments[0].role.casefold()
 
 
 def test_public_employment_entry_wording_emits_appointment_with_job_label() -> None:

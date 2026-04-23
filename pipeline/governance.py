@@ -12,6 +12,7 @@ from pipeline.domain_types import (
     FactID,
     FactType,
     OrganizationKind,
+    RoleKind,
     TimeScope,
 )
 from pipeline.models import (
@@ -478,6 +479,21 @@ class GovernanceTargetResolver:
 
 
 class GovernanceFactBuilder:
+    PUBLIC_OFFICE_ROLE_KINDS = frozenset(
+        {
+            RoleKind.RADNY,
+            RoleKind.POSEL,
+            RoleKind.SENATOR,
+            RoleKind.MINISTER,
+            RoleKind.PREZYDENT_MIASTA,
+            RoleKind.WOJEWODA,
+            RoleKind.WOJT,
+            RoleKind.STAROSTA,
+            RoleKind.SEKRETARZ_POWIATU,
+            RoleKind.MARSZALEK_WOJEWODZTWA,
+        }
+    )
+
     def build(self, document: ArticleDocument) -> list[Fact]:
         cluster_to_entity_id: dict[str, str] = {
             str(cluster.cluster_id): str(self._get_best_entity_id(cluster))
@@ -511,6 +527,10 @@ class GovernanceFactBuilder:
             None,
         )
         role_text = role_name or frame.found_role
+        if role_text:
+            role_kind, _ = extract_role_from_text(role_text)
+            if role_kind in self.PUBLIC_OFFICE_ROLE_KINDS:
+                return None
         fact_type = (
             FactType.DISMISSAL if frame.event_type == EventType.DISMISSAL else FactType.APPOINTMENT
         )

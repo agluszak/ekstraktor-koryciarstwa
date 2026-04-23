@@ -664,7 +664,9 @@ class PublicEmploymentFactExtractor:
     PUBLIC_EMPLOYER_TERMS = frozenset(
         {
             "urząd",
+            "samorząd",
             "gmina",
+            "gminy",
             "powiat",
             "wojewódzki",
             "województwo",
@@ -698,6 +700,12 @@ class PublicEmploymentFactExtractor:
             "stary",
             "suwerenny",
             "zatrudnić",
+            "wójt",
+            "wojt",
+            "starosta",
+            "sekretarz",
+            "marszałek",
+            "wojewoda",
         }
     )
 
@@ -705,18 +713,21 @@ class PublicEmploymentFactExtractor:
         signal = self._signal(context)
         if signal is None:
             return []
-        public_orgs = [org for org in context.organizations if self._is_public_employer(org)]
+        public_orgs = self._public_employer_candidates(context)
         if not public_orgs:
             return []
 
         facts: list[Fact] = []
-        subject = _subject_candidate(context)
+        patient = self._employment_patient_candidate(context)
+        if patient is None and self._has_employment_patient_syntax(context):
+            return []
+        subject = patient or _subject_candidate(context)
         if subject is not None:
             subject = self._proxy_candidate_for_anchor(context, subject) or subject
-        persons = [subject] if subject is not None else context.persons
+        persons = [subject] if subject is not None else self._person_candidates(context)
         for person in persons:
             role = _best_role_candidate(context, person)
-            if role is not None and role.role_kind in self.PUBLIC_OFFICE_ROLE_KINDS:
+            if role is not None and self._is_public_office_role_candidate(role):
                 role = None
             organization = min(
                 public_orgs,
@@ -724,7 +735,11 @@ class PublicEmploymentFactExtractor:
             )
             if self._has_closer_non_public_employer(context, person, role, organization):
                 continue
-            role_label = role.canonical_name if role is not None else self._role_label(context)
+            role_label = (
+                role.canonical_name
+                if role is not None
+                else self._role_label_near_person(context, person) or self._role_label(context)
+            )
             if self._invalid_role_label(role_label):
                 continue
             score = SecondaryFactScorer.public_employment(
@@ -752,12 +767,177 @@ class PublicEmploymentFactExtractor:
             )
         return facts
 
+    def _public_employer_candidates(self, context: SentenceContext) -> list[EntityCandidate]:
+        current = [org for org in context.organizations if self._is_public_employer(org)]
+        if current:
+            return self._deduplicate_candidates(current)
+        adjacent = [
+            candidate
+            for candidate in context.paragraph_organizations
+            if self._is_public_employer(candidate)
+            and abs(candidate.sentence_index - context.sentence.sentence_index) <= 1
+        ]
+        return self._deduplicate_candidates(adjacent)
+
+    @staticmethod
+    def _person_candidates(context: SentenceContext) -> list[EntityCandidate]:
+        candidates = list(context.persons)
+        if not candidates:
+            candidates.extend(
+                candidate
+                for candidate in context.previous_candidates
+                if candidate.candidate_type == CandidateType.PERSON
+            )
+        if not candidates:
+            candidates.extend(
+                candidate
+                for candidate in context.paragraph_persons
+                if abs(candidate.sentence_index - context.sentence.sentence_index) <= 1
+            )
+        return PublicEmploymentFactExtractor._deduplicate_candidates(candidates)
+
+    @staticmethod
+    def _deduplicate_candidates(candidates: list[EntityCandidate]) -> list[EntityCandidate]:
+        deduplicated: dict[str, EntityCandidate] = {}
+        for candidate in candidates:
+            key = str(candidate.entity_id or candidate.candidate_id)
+            if key not in deduplicated:
+                deduplicated[key] = candidate
+        return list(deduplicated.values())
+
+    @staticmethod
+    def _employment_patient_candidate(context: SentenceContext) -> EntityCandidate | None:
+        trigger_words = [
+            word
+            for word in context.parsed_words
+            if word.lemma.casefold() == "zatrudnić" and word.text.casefold() in context.lowered_text
+        ]
+        for trigger_word in trigger_words:
+            object_words = [
+                word
+                for word in context.parsed_words
+                if word.head == trigger_word.index
+                and (word.deprel in {"obj", "iobj"} or word.deprel.startswith("nsubj:pass"))
+            ]
+            for object_word in object_words:
+                candidate = PublicEmploymentFactExtractor._candidate_overlapping_word(
+                    context.persons,
+                    object_word,
+                )
+                if candidate is not None:
+                    return candidate
+                child_candidate = PublicEmploymentFactExtractor._candidate_in_subtree(
+                    context,
+                    object_word.index,
+                )
+                if child_candidate is not None:
+                    return child_candidate
+                if object_word.lemma.casefold() in KINSHIP_LEMMAS:
+                    proxy_candidate = PublicEmploymentFactExtractor._nearest_proxy_candidate(
+                        context,
+                        object_word.start,
+                    )
+                    if proxy_candidate is not None:
+                        return proxy_candidate
+                if object_word.upos == "PRON":
+                    previous_persons = [
+                        candidate
+                        for candidate in context.previous_candidates
+                        if candidate.candidate_type == CandidateType.PERSON
+                    ]
+                    if previous_persons:
+                        return previous_persons[-1]
+        return None
+
+    @staticmethod
+    def _has_employment_patient_syntax(context: SentenceContext) -> bool:
+        trigger_indices = {
+            word.index
+            for word in context.parsed_words
+            if word.lemma.casefold() == "zatrudnić" and word.text.casefold() in context.lowered_text
+        }
+        return any(
+            word.head in trigger_indices
+            and (word.deprel in {"obj", "iobj"} or word.deprel.startswith("nsubj:pass"))
+            for word in context.parsed_words
+        )
+
+    @staticmethod
+    def _candidate_overlapping_word(
+        candidates: list[EntityCandidate],
+        word: ParsedWord,
+    ) -> EntityCandidate | None:
+        return next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.start_char <= word.start < candidate.end_char
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _candidate_in_subtree(
+        context: SentenceContext,
+        head_index: int,
+        *,
+        seen: set[int] | None = None,
+    ) -> EntityCandidate | None:
+        if seen is None:
+            seen = set()
+        if head_index in seen:
+            return None
+        seen.add(head_index)
+        children = [word for word in context.parsed_words if word.head == head_index]
+        for child in children:
+            candidate = PublicEmploymentFactExtractor._candidate_overlapping_word(
+                context.persons,
+                child,
+            )
+            if candidate is not None:
+                return candidate
+            descendant = PublicEmploymentFactExtractor._candidate_in_subtree(
+                context,
+                child.index,
+                seen=seen,
+            )
+            if descendant is not None:
+                return descendant
+        return None
+
+    @staticmethod
+    def _nearest_proxy_candidate(
+        context: SentenceContext,
+        start_char: int,
+    ) -> EntityCandidate | None:
+        proxy_entity_ids = {
+            entity.entity_id for entity in context.document.entities if entity.is_proxy_person
+        }
+        proxy_candidates = [
+            candidate for candidate in context.persons if candidate.entity_id in proxy_entity_ids
+        ]
+        return min(
+            proxy_candidates,
+            key=lambda candidate: abs(candidate.start_char - start_char),
+            default=None,
+        )
+
     @classmethod
     def _invalid_role_label(cls, role_label: str | None) -> bool:
         if role_label is None:
             return False
         first_token = role_label.split()[0].casefold() if role_label.split() else ""
         return first_token in cls.INVALID_ROLE_LABEL_HEADS
+
+    @classmethod
+    def _is_public_office_role_candidate(cls, role: EntityCandidate) -> bool:
+        if role.role_kind in cls.PUBLIC_OFFICE_ROLE_KINDS:
+            return True
+        normalized = role.normalized_name.casefold()
+        return any(
+            marker in normalized
+            for marker in ("wójt", "wojt", "starosta", "sekretarz", "marszałek", "wojewoda")
+        )
 
     @staticmethod
     def _proxy_candidate_for_anchor(
@@ -829,11 +1009,15 @@ class PublicEmploymentFactExtractor:
         )
 
     def _signal(self, context: SentenceContext) -> _EmploymentSignal | None:
-        lemmas = lemma_set(context.parsed_words)
+        lemmas = {
+            word.lemma.casefold()
+            for word in context.parsed_words
+            if word.text.casefold() in context.lowered_text
+        }
         for marker in self.ENTRY_TEXT_MARKERS:
             if marker in context.lowered_text:
                 return _EmploymentSignal(FactType.APPOINTMENT, marker)
-        if lemmas.intersection(self.ENTRY_LEMMAS):
+        if lemmas.intersection(self.ENTRY_LEMMAS - {"zostać"}):
             return _EmploymentSignal(FactType.APPOINTMENT, "entry_lemma")
         for marker in self.STATUS_TEXT_MARKERS:
             if marker in context.lowered_text:
@@ -918,6 +1102,8 @@ class PublicEmploymentFactExtractor:
                 continue
             if lemma in self.PUBLIC_EMPLOYER_TERMS:
                 break
+            if lemma == "stanowisko" and not phrase_words:
+                continue
             if word.upos in {"ADJ", "NOUN"}:
                 phrase_words.append(word)
                 if len(phrase_words) >= 4:
@@ -927,7 +1113,124 @@ class PublicEmploymentFactExtractor:
         if not phrase_words:
             return None
         label_tokens = [
-            word.text if word.deprel.casefold() == "nmod" else word.lemma for word in phrase_words
+            word.text if word.deprel.casefold() == "nmod" or word.upos == "ADJ" else word.lemma
+            for word in phrase_words
+        ]
+        return normalize_entity_name(" ".join(label_tokens))
+
+    @staticmethod
+    def _role_label_near_person(
+        context: SentenceContext,
+        person: EntityCandidate,
+    ) -> str | None:
+        patient_words = [
+            word
+            for word in context.parsed_words
+            if person.start_char <= word.start < person.end_char
+        ]
+        for patient_word in patient_words:
+            stanowisko = PublicEmploymentFactExtractor._first_descendant_with_lemma(
+                context,
+                patient_word.index,
+                "stanowisko",
+            )
+            if stanowisko is not None:
+                label = PublicEmploymentFactExtractor._role_label_from_subtree(
+                    context,
+                    stanowisko.index,
+                )
+                if label is not None:
+                    return label
+            governing_word = next(
+                (word for word in context.parsed_words if word.index == patient_word.head),
+                None,
+            )
+            if governing_word is None:
+                continue
+            stanowisko = PublicEmploymentFactExtractor._first_child_with_lemma(
+                context,
+                governing_word.index,
+                "stanowisko",
+            )
+            if stanowisko is None:
+                continue
+            label = PublicEmploymentFactExtractor._role_label_from_subtree(
+                context,
+                stanowisko.index,
+            )
+            if label is not None:
+                return label
+        return None
+
+    @staticmethod
+    def _first_child_with_lemma(
+        context: SentenceContext,
+        head_index: int,
+        lemma: str,
+    ) -> ParsedWord | None:
+        return next(
+            (
+                word
+                for word in context.parsed_words
+                if word.head == head_index and word.lemma.casefold() == lemma
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _first_descendant_with_lemma(
+        context: SentenceContext,
+        head_index: int,
+        lemma: str,
+        *,
+        seen: set[int] | None = None,
+    ) -> ParsedWord | None:
+        if seen is None:
+            seen = set()
+        if head_index in seen:
+            return None
+        seen.add(head_index)
+        for child in context.parsed_words:
+            if child.head != head_index:
+                continue
+            if child.lemma.casefold() == lemma:
+                return child
+            descendant = PublicEmploymentFactExtractor._first_descendant_with_lemma(
+                context,
+                child.index,
+                lemma,
+                seen=seen,
+            )
+            if descendant is not None:
+                return descendant
+        return None
+
+    @staticmethod
+    def _role_label_from_subtree(
+        context: SentenceContext,
+        head_index: int,
+    ) -> str | None:
+        by_head: dict[int, list[ParsedWord]] = {}
+        for word in context.parsed_words:
+            by_head.setdefault(word.head, []).append(word)
+        head_nouns = [
+            word
+            for word in by_head.get(head_index, [])
+            if word.upos in {"NOUN", "PROPN"} and word.lemma.casefold() != "stanowisko"
+        ]
+        if not head_nouns:
+            return None
+        head = min(head_nouns, key=lambda word: word.start)
+        phrase_words = [head]
+        phrase_words.extend(
+            word
+            for word in by_head.get(head.index, [])
+            if word.upos in {"ADJ", "NOUN", "PROPN"} and word.start >= head.start
+        )
+        phrase_words = sorted(phrase_words, key=lambda word: word.start)[:4]
+        label_tokens = [
+            word.text if word.deprel.casefold() == "nmod" or word.upos == "ADJ" else word.lemma
+            for word in phrase_words
         ]
         return normalize_entity_name(" ".join(label_tokens))
 

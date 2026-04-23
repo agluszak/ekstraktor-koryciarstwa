@@ -345,6 +345,36 @@ class AntiCorruptionReferralFrame:
 
 
 @dataclass(slots=True)
+class AntiCorruptionInvestigationFrame:
+    frame_id: FrameID
+    institution_cluster_id: ClusterID
+    target_cluster_id: ClusterID
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+
+    # Inlined attributes
+    extraction_signal: str | None = None
+    evidence_scope: str | None = None
+    score_reason: str | None = None
+
+
+@dataclass(slots=True)
+class PublicProcurementAbuseFrame:
+    frame_id: FrameID
+    actor_cluster_id: ClusterID
+    public_context_cluster_id: ClusterID | None = None
+    amount_text: str | None = None
+    amount_normalized: str | None = None
+    confidence: float = 0.0
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+
+    # Inlined attributes
+    extraction_signal: str | None = None
+    evidence_scope: str | None = None
+    score_reason: str | None = None
+
+
+@dataclass(slots=True)
 class RelevanceDecision:
     is_relevant: bool
     score: float
@@ -382,6 +412,10 @@ class ArticleDocument:
     funding_frames: list[FundingFrame] = field(default_factory=list)
     public_contract_frames: list[PublicContractFrame] = field(default_factory=list)
     anti_corruption_referral_frames: list[AntiCorruptionReferralFrame] = field(default_factory=list)
+    anti_corruption_investigation_frames: list[AntiCorruptionInvestigationFrame] = field(
+        default_factory=list
+    )
+    public_procurement_abuse_frames: list[PublicProcurementAbuseFrame] = field(default_factory=list)
     identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
     execution_times: dict[str, float] = field(default_factory=dict)
 
