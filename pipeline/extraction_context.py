@@ -3,14 +3,20 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from pipeline.domain_types import ClusterID, EntityType
+from pipeline.domain_types import CandidateType, ClusterID, EntityType, TimeScope
 from pipeline.models import (
     ArticleDocument,
+    CandidateGraph,
     ClauseUnit,
     ClusterMention,
+    EntityCandidate,
     EntityCluster,
     EvidenceSpan,
+    ParsedWord,
+    SentenceFragment,
 )
+from pipeline.nlp_rules import FORMER_MARKERS
+from pipeline.utils import find_dates
 
 
 @dataclass(slots=True)
@@ -244,3 +250,125 @@ class ExtractionContext:
             seen.add(cluster.cluster_id)
             clusters.append(cluster)
         return clusters
+
+
+@dataclass(slots=True)
+class SentenceContext:
+    document: ArticleDocument
+    sentence: SentenceFragment
+    parsed_words: list[ParsedWord]
+    graph: CandidateGraph
+    candidates: list[EntityCandidate]
+    paragraph_candidates: list[EntityCandidate]
+    previous_candidates: list[EntityCandidate]
+
+    @property
+    def persons(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.candidates
+            if candidate.candidate_type == CandidateType.PERSON
+        ]
+
+    @property
+    def positions(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.candidates
+            if candidate.candidate_type == CandidateType.POSITION
+        ]
+
+    @property
+    def organizations(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.candidates
+            if candidate.candidate_type
+            in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
+        ]
+
+    @property
+    def parties(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.candidates
+            if candidate.candidate_type == CandidateType.POLITICAL_PARTY
+        ]
+
+    @property
+    def paragraph_persons(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.paragraph_candidates
+            if candidate.candidate_type == CandidateType.PERSON
+        ]
+
+    @property
+    def paragraph_organizations(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.paragraph_candidates
+            if candidate.candidate_type
+            in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
+        ]
+
+    @property
+    def lowered_text(self) -> str:
+        return self.sentence.text.lower()
+
+    @property
+    def event_date(self) -> str | None:
+        return next(iter(find_dates(self.sentence.text)), self.document.publication_date)
+
+    @property
+    def time_scope(self) -> TimeScope:
+        lowered = self.lowered_text
+        if any(marker in lowered for marker in FORMER_MARKERS):
+            return TimeScope.FORMER
+        if "ma zostać" in lowered:
+            return TimeScope.FUTURE
+        return TimeScope.CURRENT
+
+    @property
+    def evidence(self) -> EvidenceSpan:
+        return EvidenceSpan(
+            text=self.sentence.text,
+            sentence_index=self.sentence.sentence_index,
+            paragraph_index=self.sentence.paragraph_index,
+            start_char=self.sentence.start_char,
+            end_char=self.sentence.end_char,
+        )
+
+    def edge_confidence(
+        self,
+        edge_type: str,
+        source_id: str,
+        target_id: str,
+    ) -> float | None:
+        candidates = [
+            edge.confidence
+            for edge in self.graph.edges
+            if edge.edge_type == edge_type
+            and edge.sentence_index == self.sentence.sentence_index
+            and edge.source_candidate_id == source_id
+            and edge.target_candidate_id == target_id
+        ]
+        return max(candidates) if candidates else None
+
+    def outgoing(self, edge_type: str, source_id: str) -> list[EntityCandidate]:
+        target_ids = [
+            edge.target_candidate_id
+            for edge in self.graph.edges
+            if edge.edge_type == edge_type
+            and edge.sentence_index == self.sentence.sentence_index
+            and edge.source_candidate_id == source_id
+        ]
+        return [candidate for candidate in self.candidates if candidate.candidate_id in target_ids]
+
+    @property
+    def overlaps_governance(self) -> bool:
+        return any(
+            evidence.sentence_index == self.sentence.sentence_index
+            for frame in self.document.governance_frames
+            for evidence in frame.evidence
+        )
