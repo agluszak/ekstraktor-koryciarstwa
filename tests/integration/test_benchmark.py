@@ -653,6 +653,56 @@ def test_dziennik_zachodni_bytom(benchmark_results: dict[str, Any], subtests: Su
     )
 
 
+def test_tvnwarszawa_fundacja_bielskiego_public_contract(
+    benchmark_results: dict[str, Any],
+    subtests: Subtests,
+) -> None:
+    """
+    Article: 100 tysięcy z urzędu dla fundacji dyrektora pogotowia.
+    Expectation:
+    - Relevance true.
+    - Paid promotion flow represented as PUBLIC_CONTRACT.
+    - PSL/Razem party memberships.
+    - No bogus family tie from "fundacja założona przez".
+    """
+    key = "tvnwarszawa_fundacja_bielskiego_20260425"
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    assert doc["relevance"]["is_relevant"] is True
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    assert any("Karol Bielski" in e for e in entities)
+    assert any("Adam Struzik" in e for e in entities)
+    assert any("Polskie Stronnictwo Ludowe" in e or e == "PSL" for e in entities)
+    assert any(e == "Razem" for e in entities)
+    assert any("Urząd Marszałkowski" in e for e in entities)
+    assert any("Fundacja" in e and "Bielsk" in e for e in entities)
+
+    contracts = get_facts_by_type(doc, "PUBLIC_CONTRACT")
+    assert any(
+        "Fundacja" in get_entity_name(doc, f.get("subject_entity_id"))
+        and "Urząd Marszałkowski" in get_entity_name(doc, f.get("object_entity_id"))
+        and "100 Tysięcy Złotych" == f.get("value_normalized")
+        for f in contracts
+    )
+
+    memberships = get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    assert any(
+        fact_links_names(doc, f, subject="Adam Struzik", object_name="Stronnictwo")
+        for f in memberships
+    )
+    assert any(
+        fact_links_names(doc, f, subject="Karol Bielski", object_name="Stronnictwo")
+        for f in memberships
+    )
+    assert any(fact_links_names(doc, f, subject="Zawisz", object_name="Razem") for f in memberships)
+
+    ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
+    assert not any(tie.get("relationship_type") == "family" for tie in ties)
+
+
 def test_dziennik_polski_charsznica_nepotism(
     benchmark_results: dict[str, Any],
     subtests: Subtests,

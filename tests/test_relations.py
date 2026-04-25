@@ -11,6 +11,7 @@ from pipeline.domain_types import (
     EntityType,
     FactType,
     OrganizationKind,
+    RelationshipType,
     RoleKind,
     RoleModifier,
     TimeScope,
@@ -374,6 +375,39 @@ def test_shared_enrichment_marks_public_institution_clusters() -> None:
     assert document.entities[0].entity_type == EntityType.PUBLIC_INSTITUTION
 
 
+def test_shared_enrichment_adds_grounded_foundation_and_marshal_office() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Fundacja założona przez Karola Bielskiego otrzymała 100 tysięcy złotych "
+        "z urzędu marszałkowskiego za promowanie wydarzenia."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-derived-orgs",
+        text=text,
+        entities=[("Karola Bielskiego", EntityType.PERSON, "Karol Bielski")],
+        parsed_words=[
+            word(1, "Fundacja", "fundacja", 0, head=5, deprel="nsubj"),
+            word(2, "założona", "założyć", 9, head=1, deprel="acl"),
+            word(3, "przez", "przez", 18, head=4, deprel="case"),
+            word(4, "Karola", "Karol", 24, head=2, deprel="obl", upos="PROPN"),
+            word(5, "otrzymała", "otrzymać", text.index("otrzymała"), upos="VERB"),
+            word(6, "urzędu", "urząd", text.index("urzędu"), head=5, deprel="obl"),
+            word(7, "marszałkowskiego", "marszałkowski", text.index("marszałkowskiego")),
+        ],
+    )
+
+    SharedEntityEnricher(config).run(document)
+
+    assert any(
+        cluster.canonical_name == "Fundacja Karola Bielskiego" for cluster in document.clusters
+    )
+    assert any(
+        cluster.canonical_name == "Urząd Marszałkowski"
+        and cluster.entity_type == EntityType.PUBLIC_INSTITUTION
+        for cluster in document.clusters
+    )
+
+
 def test_role_matcher_handles_inflected_prezes_family() -> None:
     cases = [
         ("prezesem", "prezes", "Prezes", RoleKind.PREZES, None),
@@ -470,6 +504,116 @@ def test_party_aliases_match_whole_tokens_only() -> None:
     )
 
     assert party_names == ["Prawo i Sprawiedliwość"]
+
+
+def test_razem_party_alias_yields_membership_fact() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Marcelina Zawisza, posłanka partii Razem, zapowiedziała kontrolę."
+    document = prepared_single_clause_document(
+        document_id="doc-razem-party",
+        text=text,
+        entities=[("Marcelina Zawisza", EntityType.PERSON, "Marcelina Zawisza")],
+        parsed_words=[
+            word(1, "Marcelina", "Marcelina", 0, upos="PROPN"),
+            word(2, "Zawisza", "Zawisza", 10, upos="PROPN"),
+            word(3, "posłanka", "posłanka", text.index("posłanka")),
+            word(4, "partii", "partia", text.index("partii")),
+            word(5, "Razem", "Razem", text.index("Razem"), upos="PROPN"),
+        ],
+    )
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    assert any(
+        fact.fact_type == FactType.PARTY_MEMBERSHIP and fact.value_normalized == "Razem"
+        for fact in extracted.facts
+    )
+
+
+def test_omitted_subject_party_membership_attaches_to_previous_unique_person() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text_1 = "Karol Bielski kieruje pogotowiem."
+    text_2 = "I również należy do PSL."
+    first = SentenceFragment(
+        text=text_1,
+        paragraph_index=0,
+        sentence_index=0,
+        start_char=0,
+        end_char=len(text_1),
+    )
+    second = SentenceFragment(
+        text=text_2,
+        paragraph_index=0,
+        sentence_index=1,
+        start_char=len(text_1) + 1,
+        end_char=len(text_1) + 1 + len(text_2),
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc-omitted-party"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=f"{text_1} {text_2}",
+        paragraphs=[f"{text_1} {text_2}"],
+        sentences=[first, second],
+    )
+    person_id = EntityID("entity-person")
+    document.entities.append(
+        Entity(
+            entity_id=person_id,
+            entity_type=EntityType.PERSON,
+            canonical_name="Karol Bielski",
+            normalized_name="Karol Bielski",
+        )
+    )
+    document.mentions.append(
+        Mention(
+            text="Karol Bielski",
+            normalized_text="Karol Bielski",
+            mention_type=EntityType.PERSON,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len("Karol Bielski"),
+            entity_id=person_id,
+        )
+    )
+    document.clusters.append(
+        EntityCluster(
+            cluster_id=ClusterID("cluster-person"),
+            entity_type=EntityType.PERSON,
+            canonical_name="Karol Bielski",
+            normalized_name="Karol Bielski",
+            mentions=[
+                ClusterMention(
+                    text="Karol Bielski",
+                    entity_type=EntityType.PERSON,
+                    sentence_index=0,
+                    paragraph_index=0,
+                    start_char=0,
+                    end_char=len("Karol Bielski"),
+                    entity_id=person_id,
+                )
+            ],
+        )
+    )
+    document.parsed_sentences = {
+        0: [word(1, "Karol", "Karol", 0, upos="PROPN")],
+        1: [
+            word(1, "należy", "należeć", text_2.index("należy"), upos="VERB"),
+            word(2, "PSL", "PSL", text_2.index("PSL"), upos="PROPN"),
+        ],
+    }
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    assert any(
+        fact.fact_type == FactType.PARTY_MEMBERSHIP
+        and fact.subject_entity_id == person_id
+        and fact.value_normalized == "Polskie Stronnictwo Ludowe"
+        for fact in extracted.facts
+    )
 
 
 def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
@@ -2663,6 +2807,47 @@ def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount
     assert {fact.amount_text for fact in contracts} == {"397 496,95 Zł"}
 
 
+def test_paid_promotion_public_money_flow_emits_public_contract() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Fundacja założona przez Karola Bielskiego otrzymała 100 tysięcy złotych "
+        "z urzędu marszałkowskiego za promowanie wydarzenia."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-paid-promotion-contract",
+        text=text,
+        entities=[("Karola Bielskiego", EntityType.PERSON, "Karol Bielski")],
+        parsed_words=[
+            word(1, "Fundacja", "fundacja", 0, head=5, deprel="nsubj"),
+            word(2, "założona", "założyć", 9, head=1, deprel="acl"),
+            word(3, "przez", "przez", 18, head=4, deprel="case"),
+            word(4, "Karola", "Karol", 24, head=2, deprel="obl", upos="PROPN"),
+            word(5, "otrzymała", "otrzymać", text.index("otrzymała"), upos="VERB"),
+            word(6, "urzędu", "urząd", text.index("urzędu"), head=5, deprel="obl"),
+            word(7, "marszałkowskiego", "marszałkowski", text.index("marszałkowskiego")),
+            word(8, "promowanie", "promowanie", text.index("promowanie")),
+        ],
+    )
+
+    SharedEntityEnricher(config).run(document)
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
+    assert len(contracts) == 1
+    assert contracts[0].value_normalized == "100 Tysięcy Złotych"
+    assert "Fundacja" in next(
+        entity.canonical_name
+        for entity in extracted.entities
+        if entity.entity_id == contracts[0].subject_entity_id
+    )
+    assert "Urząd Marszałkowski" in next(
+        entity.canonical_name
+        for entity in extracted.entities
+        if entity.entity_id == contracts[0].object_entity_id
+    )
+
+
 def test_generic_contract_sentence_without_parties_does_not_emit_public_contract() -> None:
     config = PipelineConfig.from_file("config.yaml")
     text = "Wszystkie umowy zawierane są zgodnie z prawem."
@@ -2676,6 +2861,36 @@ def test_generic_contract_sentence_without_parties_does_not_emit_public_contract
     extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
 
     assert not any(fact.fact_type == FactType.PUBLIC_CONTRACT for fact in extracted.facts)
+
+
+def test_zalozona_does_not_trigger_family_tie() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Fundacja założona przez Karola Bielskiego otrzymała środki od Adama Struzika."
+    document = prepared_single_clause_document(
+        document_id="doc-zalozona-no-wife",
+        text=text,
+        entities=[
+            ("Karola Bielskiego", EntityType.PERSON, "Karol Bielski"),
+            ("Adama Struzika", EntityType.PERSON, "Adam Struzik"),
+        ],
+        parsed_words=[
+            word(1, "Fundacja", "fundacja", 0, head=5, deprel="nsubj"),
+            word(2, "założona", "założyć", 9, head=1, deprel="acl"),
+            word(3, "Karola", "Karol", text.index("Karola"), upos="PROPN"),
+            word(4, "Bielskiego", "Bielski", text.index("Bielskiego"), upos="PROPN"),
+            word(5, "otrzymała", "otrzymać", text.index("otrzymała"), upos="VERB"),
+            word(6, "Adama", "Adam", text.index("Adama"), upos="PROPN"),
+            word(7, "Struzika", "Struzik", text.index("Struzika"), upos="PROPN"),
+        ],
+    )
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    assert not any(
+        fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
+        and fact.relationship_type == RelationshipType.FAMILY
+        for fact in extracted.facts
+    )
 
 
 def test_owner_context_collaborator_tie_skips_quote_attribution_person() -> None:

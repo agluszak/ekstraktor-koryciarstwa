@@ -47,6 +47,17 @@ from .fact_extractors import (
     TieFactExtractor,
 )
 
+OMITTED_SUBJECT_PARTY_LEMMAS = frozenset(
+    {"należeć", "członek", "członkini", "kandydować", "startować"}
+)
+OMITTED_SUBJECT_PARTY_MARKERS = (
+    "należy do",
+    "członk",
+    "kandyd",
+    "startował",
+    "startowała",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class KinshipTieEvidence:
@@ -492,12 +503,42 @@ class PolishFactExtractor(FactExtractor):
                     marker in lowered
                     for marker in ("działacz", "polityk", "radn", "lider", "członk")
                 )
-            if not has_party_context:
+            has_omitted_subject_trigger = PolishFactExtractor._has_omitted_subject_party_trigger(
+                parsed_words, lowered
+            )
+            if not has_party_context and not has_omitted_subject_trigger:
                 continue
             if any(
                 candidate.candidate_type == CandidateType.PERSON
                 for candidate in sentence_candidates
             ):
+                continue
+            previous_persons = [
+                candidate
+                for previous_sentence in document.sentences
+                if previous_sentence.paragraph_index == sentence.paragraph_index
+                and previous_sentence.sentence_index < sentence.sentence_index
+                for candidate in candidates_by_sentence.get(previous_sentence.sentence_index, [])
+                if candidate.candidate_type == CandidateType.PERSON
+                and candidate.entity_id is not None
+            ]
+            unique_previous_people: dict[EntityID, EntityCandidate] = {}
+            for person_candidate in previous_persons:
+                assert person_candidate.entity_id is not None
+                unique_previous_people.setdefault(person_candidate.entity_id, person_candidate)
+            if len(unique_previous_people) == 1 and has_omitted_subject_trigger:
+                person = next(iter(unique_previous_people.values()))
+                for party in parties:
+                    facts.append(
+                        PolishFactExtractor._party_fact(
+                            document=document,
+                            sentence=sentence,
+                            person=person,
+                            party=party,
+                            confidence=0.78,
+                            evidence_scope="same_paragraph_omitted_subject",
+                        )
+                    )
                 continue
             next_sentence = next(
                 (
@@ -523,43 +564,74 @@ class PolishFactExtractor(FactExtractor):
                 continue
             person = min(persons, key=lambda candidate: candidate.start_char)
             for party in parties:
-                assert person.entity_id is not None
-                assert party.entity_id is not None
-                fact_id = FactID(
-                    stable_id(
-                        "fact",
-                        document.document_id,
-                        FactType.PARTY_MEMBERSHIP,
-                        person.entity_id,
-                        party.entity_id,
-                        str(sentence.sentence_index),
-                    )
-                )
                 facts.append(
-                    Fact(
-                        fact_id=fact_id,
-                        fact_type=FactType.PARTY_MEMBERSHIP,
-                        subject_entity_id=person.entity_id,
-                        object_entity_id=party.entity_id,
-                        value_text=party.canonical_name,
-                        value_normalized=party.normalized_name,
+                    PolishFactExtractor._party_fact(
+                        document=document,
+                        sentence=sentence,
+                        person=person,
+                        party=party,
                         confidence=0.92,
-                        time_scope=TimeScope.CURRENT,
-                        event_date=document.publication_date,
-                        evidence=EvidenceSpan(
-                            text=f"{person.canonical_name} ({party.canonical_name})",
-                            sentence_index=sentence.sentence_index,
-                            paragraph_index=sentence.paragraph_index,
-                            start_char=min(person.start_char, party.start_char),
-                            end_char=max(person.end_char, party.end_char),
-                        ),
-                        source_extractor="party_membership_relation_extractor",
-                        extraction_signal="discourse_window",
                         evidence_scope="adjacent_sentence",
-                        party=party.canonical_name,
                     )
                 )
         return facts
+
+    @staticmethod
+    def _has_omitted_subject_party_trigger(
+        parsed_words: list[ParsedWord],
+        lowered: str,
+    ) -> bool:
+        if parsed_words:
+            return any(
+                (word.lemma or word.text).casefold() in OMITTED_SUBJECT_PARTY_LEMMAS
+                for word in parsed_words
+            )
+        return any(marker in lowered for marker in OMITTED_SUBJECT_PARTY_MARKERS)
+
+    @staticmethod
+    def _party_fact(
+        *,
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+        person: EntityCandidate,
+        party: EntityCandidate,
+        confidence: float,
+        evidence_scope: str,
+    ) -> Fact:
+        assert person.entity_id is not None
+        assert party.entity_id is not None
+        return Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    FactType.PARTY_MEMBERSHIP,
+                    person.entity_id,
+                    party.entity_id,
+                    str(sentence.sentence_index),
+                    evidence_scope,
+                )
+            ),
+            fact_type=FactType.PARTY_MEMBERSHIP,
+            subject_entity_id=person.entity_id,
+            object_entity_id=party.entity_id,
+            value_text=party.canonical_name,
+            value_normalized=party.normalized_name,
+            confidence=confidence,
+            time_scope=TimeScope.CURRENT,
+            event_date=document.publication_date,
+            evidence=EvidenceSpan(
+                text=f"{person.canonical_name} ({party.canonical_name})",
+                sentence_index=sentence.sentence_index,
+                paragraph_index=sentence.paragraph_index,
+                start_char=min(person.start_char, party.start_char),
+                end_char=max(person.end_char, party.end_char),
+            ),
+            source_extractor="party_membership_relation_extractor",
+            extraction_signal="discourse_window",
+            evidence_scope=evidence_scope,
+            party=party.canonical_name,
+        )
 
     @staticmethod
     def _deduplicate_facts(facts: list[Fact]) -> list[Fact]:

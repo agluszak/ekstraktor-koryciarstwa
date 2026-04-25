@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import AbstractSet
 
@@ -1211,8 +1212,7 @@ class PublicEmploymentFactExtractor:
 
 class TieFactExtractor:
     def extract(self, context: SentenceContext) -> list[Fact]:
-        lowered = context.lowered_text
-        trigger = next((word for word in TIE_WORDS if word in lowered), None)
+        trigger = self._tie_trigger(context)
         if trigger is None:
             return []
         person_edges = [
@@ -1258,6 +1258,27 @@ class TieFactExtractor:
         if not facts:
             facts.extend(self._owner_context_ties(context, trigger))
         return facts
+
+    @staticmethod
+    def _tie_trigger(context: SentenceContext) -> str | None:
+        lemma_tokens = {(word.lemma or word.text).casefold() for word in context.parsed_words}
+        text = context.lowered_text
+        for trigger in TIE_WORDS:
+            if " " not in trigger and trigger in lemma_tokens:
+                return trigger
+            if " " not in trigger and any(
+                token.startswith(trigger[: max(5, len(trigger) - 2)]) for token in lemma_tokens
+            ):
+                return trigger
+            pattern = rf"(?<!\w){re.escape(trigger)}(?!\w)"
+            if re.search(pattern, text):
+                return trigger
+            if " " not in trigger and re.search(
+                rf"(?<!\w){re.escape(trigger[: max(5, len(trigger) - 2)])}\w*",
+                text,
+            ):
+                return trigger
+        return None
 
     @staticmethod
     def _owner_context_ties(context: SentenceContext, trigger: str) -> list[Fact]:

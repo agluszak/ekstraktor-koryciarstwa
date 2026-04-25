@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import StrEnum
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
@@ -159,9 +162,42 @@ CONTRACTOR_CONTEXT_MARKERS = frozenset(
 FUNDING_SURFACE_FALLBACKS = frozenset(
     {"dotacj", "dofinansowa", "wyłożył", "wyłożyła", "wyłożyły", "sfinansowa", "pochłon"}
 )
+PUBLIC_MONEY_TRANSFER_LEMMAS = FUNDING_HINTS | frozenset({"otrzymać", "przelać", "zapłacić"})
+PUBLIC_MONEY_CONTRACT_TEXT_MARKERS = frozenset(
+    {
+        "za promowanie",
+        "działań promocyjnych",
+        "działania promocyjne",
+        "promocyjn",
+        "umow",
+        "zamówie",
+    }
+)
+PUBLIC_MONEY_FUNDING_TEXT_MARKERS = frozenset({"dotacj", "dofinansowa", "darowizn"})
+PUBLIC_MONEY_AMOUNT_PATTERN = re.compile(
+    r"\b(?P<amount>\d+(?:[ .,]\d+)*\s*(?:tysi(?:ąc|ęcy)|tys\.)\s*złotych)\b",
+    re.IGNORECASE,
+)
 WEAK_APPOINTMENT_TRIGGER_LEMMAS = frozenset(
     {"objąć", "zająć", "pracować", "zatrudnić", "zatrudnienie", "trafić"}
 )
+
+
+class PublicMoneyFlowKind(StrEnum):
+    FUNDING = "funding"
+    PUBLIC_CONTRACT = "public_contract"
+
+
+@dataclass(frozen=True, slots=True)
+class PublicMoneyFlowSignal:
+    kind: PublicMoneyFlowKind
+    payer_cluster: EntityCluster | None
+    recipient_cluster: EntityCluster | None
+    amount_text: str | None
+    amount_normalized: str | None
+    confidence: float
+    evidence_scope: str
+    score_reason: str
 
 
 class PolishFrameExtractor(FrameExtractor):
@@ -197,6 +233,36 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
     def run(self, document: ArticleDocument) -> ArticleDocument:
         document.public_contract_frames = []
         for clause in document.clause_units:
+            signal = _public_money_flow_signal(document, clause)
+            if (
+                signal is not None
+                and signal.kind == PublicMoneyFlowKind.PUBLIC_CONTRACT
+                and signal.payer_cluster is not None
+                and signal.recipient_cluster is not None
+            ):
+                document.public_contract_frames.append(
+                    PublicContractFrame(
+                        frame_id=FrameID(f"contract-frame-{uuid.uuid4().hex[:8]}"),
+                        contractor_cluster_id=signal.recipient_cluster.cluster_id,
+                        counterparty_cluster_id=signal.payer_cluster.cluster_id,
+                        amount_text=signal.amount_text,
+                        amount_normalized=signal.amount_normalized,
+                        confidence=signal.confidence,
+                        evidence=[
+                            EvidenceSpan(
+                                text=clause.text,
+                                sentence_index=clause.sentence_index,
+                                paragraph_index=clause.paragraph_index,
+                                start_char=clause.start_char,
+                                end_char=clause.end_char,
+                            )
+                        ],
+                        extraction_signal="public_money_flow",
+                        evidence_scope=signal.evidence_scope,
+                        score_reason=signal.score_reason,
+                    )
+                )
+                continue
             if not self._has_contract_context(document, clause):
                 continue
             amount_match = COMPENSATION_PATTERN.search(clause.text)
@@ -2524,6 +2590,37 @@ class PolishFundingFrameExtractor(FrameExtractor):
     def run(self, document: ArticleDocument) -> ArticleDocument:
         document.funding_frames = []
         for clause in document.clause_units:
+            signal = _public_money_flow_signal(document, clause)
+            if signal is not None:
+                if signal.kind != PublicMoneyFlowKind.FUNDING:
+                    continue
+                document.funding_frames.append(
+                    FundingFrame(
+                        frame_id=FrameID(f"funding-frame-{uuid.uuid4().hex[:8]}"),
+                        amount_text=signal.amount_text,
+                        amount_normalized=signal.amount_normalized,
+                        funder_cluster_id=signal.payer_cluster.cluster_id
+                        if signal.payer_cluster is not None
+                        else None,
+                        recipient_cluster_id=signal.recipient_cluster.cluster_id
+                        if signal.recipient_cluster is not None
+                        else None,
+                        confidence=signal.confidence,
+                        evidence=[
+                            EvidenceSpan(
+                                text=clause.text,
+                                sentence_index=clause.sentence_index,
+                                paragraph_index=clause.paragraph_index,
+                                start_char=clause.start_char,
+                                end_char=clause.end_char,
+                            )
+                        ],
+                        extraction_signal="public_money_flow",
+                        evidence_scope=signal.evidence_scope,
+                        score_reason=signal.score_reason,
+                    )
+                )
+                continue
             if not self._has_funding_context(document, clause):
                 continue
             amount_match = COMPENSATION_PATTERN.search(clause.text)
@@ -2848,3 +2945,171 @@ class PolishFundingFrameExtractor(FrameExtractor):
         if "paragraph" in score_reason:
             return "same_paragraph"
         return "same_clause"
+
+
+def _public_money_flow_signal(
+    document: ArticleDocument,
+    clause: ClauseUnit,
+) -> PublicMoneyFlowSignal | None:
+    amount_match = COMPENSATION_PATTERN.search(clause.text) or PUBLIC_MONEY_AMOUNT_PATTERN.search(
+        clause.text
+    )
+    amount_text = amount_match.group("amount") if amount_match else None
+    parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+    lowered = clause.text.casefold()
+    if not _has_transfer_or_paid_promotion_signal(parsed_words, lowered):
+        return None
+    if not _has_public_money_context(parsed_words, lowered, amount_text):
+        return None
+    if PolishFundingFrameExtractor._is_reporting_przekazac_context(document, clause):
+        return None
+    if PolishFundingFrameExtractor._is_reporting_przekazac_without_amount(
+        document,
+        clause,
+        amount_match,
+    ) and not _has_explicit_public_money_noun(parsed_words, lowered):
+        return None
+
+    org_clusters = _public_money_clusters(document, clause)
+    if len(org_clusters) < 2:
+        return None
+    payer = _public_money_payer(clause, org_clusters)
+    recipient = _public_money_recipient(clause, org_clusters, payer)
+    if payer is None or recipient is None or payer.cluster_id == recipient.cluster_id:
+        return None
+    kind = (
+        PublicMoneyFlowKind.PUBLIC_CONTRACT
+        if _has_contract_money_signal(parsed_words, lowered)
+        else PublicMoneyFlowKind.FUNDING
+    )
+    amount_normalized = normalize_entity_name(amount_text.lower()) if amount_text else None
+    confidence = 0.84 if amount_text else 0.7
+    if kind == PublicMoneyFlowKind.PUBLIC_CONTRACT:
+        confidence += 0.03
+    return PublicMoneyFlowSignal(
+        kind=kind,
+        payer_cluster=payer,
+        recipient_cluster=recipient,
+        amount_text=amount_text,
+        amount_normalized=amount_normalized,
+        confidence=min(confidence, 0.94),
+        evidence_scope="same_clause",
+        score_reason=(
+            "public_money_contract_flow"
+            if kind == PublicMoneyFlowKind.PUBLIC_CONTRACT
+            else "public_money_funding_flow"
+        ),
+    )
+
+
+def _has_public_money_context(
+    parsed_words: list[ParsedWord],
+    lowered: str,
+    amount_text: str | None,
+) -> bool:
+    lemmas = lemma_set(parsed_words)
+    if amount_text and lemmas.intersection(PUBLIC_MONEY_TRANSFER_LEMMAS):
+        return True
+    if amount_text and any(marker in lowered for marker in PUBLIC_MONEY_CONTRACT_TEXT_MARKERS):
+        return True
+    return _has_explicit_public_money_noun(parsed_words, lowered)
+
+
+def _has_transfer_or_paid_promotion_signal(parsed_words: list[ParsedWord], lowered: str) -> bool:
+    lemmas = lemma_set(parsed_words)
+    return bool(
+        lemmas.intersection(PUBLIC_MONEY_TRANSFER_LEMMAS)
+        or "za promowanie" in lowered
+        or "działań promocyjnych" in lowered
+        or "działania promocyjne" in lowered
+    )
+
+
+def _has_explicit_public_money_noun(parsed_words: list[ParsedWord], lowered: str) -> bool:
+    lemmas = lemma_set(parsed_words)
+    return bool(
+        lemmas.intersection({"dotacja", "dofinansowanie", "umowa", "zamówienie"})
+        or any(marker in lowered for marker in PUBLIC_MONEY_FUNDING_TEXT_MARKERS)
+        or any(marker in lowered for marker in CONTRACT_TEXT_MARKERS)
+    )
+
+
+def _has_contract_money_signal(parsed_words: list[ParsedWord], lowered: str) -> bool:
+    lemmas = lemma_set(parsed_words)
+    return bool(
+        lemmas.intersection(CONTRACT_TRIGGER_LEMMAS)
+        or any(marker in lowered for marker in PUBLIC_MONEY_CONTRACT_TEXT_MARKERS)
+    )
+
+
+def _public_money_clusters(
+    document: ArticleDocument,
+    clause: ClauseUnit,
+) -> list[EntityCluster]:
+    seen: set[ClusterID] = set()
+    clusters: list[EntityCluster] = []
+    for mention in clause.cluster_mentions:
+        if mention.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            continue
+        cluster = PolishCompensationFrameExtractor._find_cluster_for_mention(mention, document)
+        if cluster is None or cluster.cluster_id in seen:
+            continue
+        seen.add(cluster.cluster_id)
+        clusters.append(cluster)
+    return clusters
+
+
+def _public_money_payer(
+    clause: ClauseUnit,
+    clusters: list[EntityCluster],
+) -> EntityCluster | None:
+    candidates = [
+        cluster
+        for cluster in clusters
+        if PolishPublicContractFrameExtractor._is_public_counterparty(clause, cluster)
+    ]
+    if not candidates:
+        return None
+    z_context = [
+        cluster
+        for cluster in candidates
+        if PolishPublicContractFrameExtractor._cluster_has_context_marker(
+            clause,
+            cluster,
+            {"z ", "ze ", "od "},
+            before=4,
+            after=0,
+        )
+    ]
+    return min(
+        z_context or candidates,
+        key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+            cluster,
+            clause,
+        ),
+    )
+
+
+def _public_money_recipient(
+    clause: ClauseUnit,
+    clusters: list[EntityCluster],
+    payer: EntityCluster | None,
+) -> EntityCluster | None:
+    candidates = [
+        cluster for cluster in clusters if payer is None or cluster.cluster_id != payer.cluster_id
+    ]
+    if not candidates:
+        return None
+    recipient_candidates = [
+        cluster
+        for cluster in candidates
+        if PolishFundingFrameExtractor._recipient_score(cluster)[0] > 1
+        or not PolishPublicContractFrameExtractor._is_public_counterparty(clause, cluster)
+    ]
+    return min(
+        recipient_candidates or candidates,
+        key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+            cluster,
+            clause,
+        ),
+    )

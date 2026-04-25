@@ -1233,6 +1233,49 @@ Expected core entities:
 - Józef Borkowski
 - Powiatowy Urząd Pracy
 - Roman Nadaj
+
+## 27. TVN Warszawa: 100 tysięcy z urzędu dla fundacji dyrektora pogotowia
+
+Source:
+- https://tvn24.pl/tvnwarszawa/srodmiescie/warszawa-100-tysiecy-z-urzedu-dla-fundacji-dyrektora-pogotowia-razem-chce-kontroli-st8987644
+
+Saved input:
+- inputs/tvnwarszawa_fundacja_bielskiego_20260425.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a public-money oversight story about a paid promotional transfer from the marshal office to a foundation founded by the director of a public rescue service.
+
+Expected core entities:
+- Karol Bielski
+- Adam Struzik
+- Marcelina Zawisza
+- Polskie Stronnictwo Ludowe / PSL
+- Razem
+- Urząd Marszałkowski
+- Fundacja Karola Bielskiego / foundation tied to Karol Bielski
+
+Expected facts:
+- Fundacja Karola Bielskiego -> `PUBLIC_CONTRACT` -> Urząd Marszałkowski
+  Expected amount: `100 tysięcy złotych`
+  Expected purpose/context: paid promotion / promotional activities.
+- Adam Struzik -> `PARTY_MEMBERSHIP` -> PSL.
+- Karol Bielski -> `PARTY_MEMBERSHIP` -> PSL.
+- Marcelina Zawisza -> `PARTY_MEMBERSHIP` -> Razem.
+- Adam Struzik -> `POLITICAL_OFFICE` -> marszałek województwa.
+
+Important text cues:
+- "Przedstawiciele partii Razem chcą skontrolować wszystkie umowy zawierane przez urząd marszałkowski dotyczące działań promocyjnych"
+- "transfer publicznych pieniędzy na rzecz fundacji dyrektora warszawskiego pogotowia Karola Bielskiego"
+- "Fundacja założona przez Karola Bielskiego ... otrzymała 100 tysięcy złotych z urzędu marszałkowskiego za promowanie"
+- "Adam Struzik ... PSL"
+- "I również należy do PSL"
+- "Marcelina Zawisza ... posłanka partii Razem"
+
+Expected comparison standard:
+- Relevance should be true.
+- The paid-promotion flow should be represented as `PUBLIC_CONTRACT`, not `FUNDING`.
+- The article should not emit a `PERSONAL_OR_POLITICAL_TIE` with `relationship_type=family` from "fundacja założona przez".
 - Tygodnik Ciechanowski
 
 Expected facts:

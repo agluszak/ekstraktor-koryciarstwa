@@ -225,10 +225,6 @@ TIE_WORDS: Mapping[str, RelationshipType] = {
     "szef gabinetu": RelationshipType.OFFICE_CHIEF,
     "gabinet polityczny": RelationshipType.OFFICE_CHIEF,
     "szef biura": RelationshipType.OFFICE_CHIEF,
-    "narzeczona": RelationshipType.FAMILY,
-    "narzeczony": RelationshipType.FAMILY,
-    "żona": RelationshipType.FAMILY,
-    "mąż": RelationshipType.FAMILY,
 }
 
 KINSHIP_LEMMAS = DOMAIN_KINSHIP_LEMMAS
