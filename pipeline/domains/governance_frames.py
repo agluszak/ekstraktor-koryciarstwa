@@ -1,0 +1,693 @@
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterable
+
+from pipeline.base import FrameExtractor
+from pipeline.config import PipelineConfig
+from pipeline.domain_lexicons import KINSHIP_LEMMAS
+from pipeline.domain_types import ClusterID, EntityType, EventType, FrameID
+from pipeline.extraction_context import ExtractionContext
+from pipeline.governance import GovernanceTargetResolver
+from pipeline.lemma_signals import has_lemma, has_lemma_pair, lemma_set
+from pipeline.models import (
+    ArticleDocument,
+    ClauseUnit,
+    ClusterMention,
+    EntityCluster,
+    EvidenceSpan,
+    GovernanceFrame,
+    ParsedWord,
+)
+from pipeline.nlp_rules import (
+    APPOINTMENT_NOUN_LEMMAS,
+    APPOINTMENT_TRIGGER_LEMMAS,
+    APPOINTMENT_TRIGGER_TEXTS,
+    DISMISSAL_NOUN_LEMMAS,
+    DISMISSAL_TRIGGER_LEMMAS,
+    DISMISSAL_TRIGGER_TEXTS,
+)
+from pipeline.role_matching import (
+    has_copular_role_appointment,
+    has_governance_verb_with_role,
+)
+from pipeline.role_text import find_role_text, find_role_text_from_text
+
+SPEECH_LEMMAS = frozenset(
+    {
+        "mówić",
+        "powiedzieć",
+        "tłumaczyć",
+        "przekonywać",
+        "dodać",
+        "komentować",
+        "zaznaczyć",
+        "podkreślić",
+        "wyjaśnić",
+        "ocenić",
+        "przypomnieć",
+        "stwierdzić",
+        "odnieść",
+    }
+)
+
+WEAK_APPOINTMENT_TRIGGER_LEMMAS = frozenset(
+    {"objąć", "zająć", "pracować", "zatrudnić", "zatrudnienie", "trafić"}
+)
+
+
+class PolishGovernanceFrameExtractor(FrameExtractor):
+    def __init__(self, config: PipelineConfig) -> None:
+        self.config = config
+        self.target_resolver = GovernanceTargetResolver(config)
+
+    def name(self) -> str:
+        return "polish_governance_frame_extractor"
+
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        document.governance_frames = []
+        context = ExtractionContext.build(document)
+        for clause in document.clause_units:
+            parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+            event_type = self._detect_event_type(clause, parsed_words)
+            if event_type is None:
+                continue
+            frame = self._extract_discourse_frame(clause, document, context, event_type)
+            if frame is not None:
+                document.governance_frames.append(frame)
+        return document
+
+    def _detect_event_type(
+        self,
+        clause: ClauseUnit,
+        parsed_words: list[ParsedWord] | None = None,
+    ) -> EventType | None:
+        lemma = clause.trigger_head_lemma.lower()
+        lowered_text = clause.text.lower()
+        if (
+            self._has_trigger_head_appointment_signal(lemma, parsed_words or [])
+            or self._has_appointment_lemma_signal(parsed_words or [])
+            or any(trigger in lowered_text for trigger in APPOINTMENT_TRIGGER_TEXTS)
+            or has_copular_role_appointment(parsed_words or [])
+            or has_governance_verb_with_role(parsed_words or [], APPOINTMENT_TRIGGER_LEMMAS)
+        ):
+            return EventType.APPOINTMENT
+        if (
+            lemma in DISMISSAL_TRIGGER_LEMMAS
+            or self._has_dismissal_lemma_signal(parsed_words or [])
+            or any(trigger in lowered_text for trigger in DISMISSAL_TRIGGER_TEXTS)
+            or has_governance_verb_with_role(parsed_words or [], DISMISSAL_TRIGGER_LEMMAS)
+        ):
+            return EventType.DISMISSAL
+        return None
+
+    @staticmethod
+    def _has_trigger_head_appointment_signal(
+        trigger_head_lemma: str,
+        parsed_words: list[ParsedWord],
+    ) -> bool:
+        if trigger_head_lemma not in APPOINTMENT_TRIGGER_LEMMAS:
+            return False
+        if trigger_head_lemma not in WEAK_APPOINTMENT_TRIGGER_LEMMAS:
+            return True
+        return PolishGovernanceFrameExtractor._has_appointment_lemma_signal(parsed_words)
+
+    @staticmethod
+    def _has_appointment_lemma_signal(parsed_words: list[ParsedWord]) -> bool:
+        lemmas = lemma_set(parsed_words)
+        if lemmas.intersection(APPOINTMENT_TRIGGER_LEMMAS) and lemmas.intersection(
+            APPOINTMENT_NOUN_LEMMAS
+        ):
+            return True
+        return has_lemma_pair(
+            parsed_words,
+            APPOINTMENT_TRIGGER_LEMMAS,
+            APPOINTMENT_NOUN_LEMMAS,
+        )
+
+    @staticmethod
+    def _has_dismissal_lemma_signal(parsed_words: list[ParsedWord]) -> bool:
+        if has_lemma(parsed_words, DISMISSAL_TRIGGER_LEMMAS):
+            return True
+        lemmas = lemma_set(parsed_words)
+        if lemmas.intersection({"złożyć", "przyjąć"}) and lemmas.intersection(
+            DISMISSAL_NOUN_LEMMAS
+        ):
+            return True
+        return has_lemma_pair(
+            parsed_words,
+            frozenset({"złożyć", "przyjąć"}),
+            DISMISSAL_NOUN_LEMMAS,
+        )
+
+    def _extract_discourse_frame(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        context: ExtractionContext,
+        event_type: EventType,
+    ) -> GovernanceFrame | None:
+        person_clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.PERSON},
+        )
+        if not person_clusters:
+            person_clusters = self._sort_clusters_by_clause_distance(
+                context.previous_clusters(
+                    clause,
+                    {EntityType.PERSON},
+                    max_distance=2,
+                ),
+                clause,
+            )
+            if not person_clusters and event_type == EventType.DISMISSAL:
+                person_clusters = self._sort_clusters_by_clause_distance(
+                    context.following_clusters(
+                        clause,
+                        {EntityType.PERSON},
+                        max_distance=1,
+                    ),
+                    clause,
+                )
+        elif event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+            person_clusters = self._merge_clusters(
+                person_clusters,
+                self._sort_clusters_by_clause_distance(
+                    context.previous_clusters(
+                        clause,
+                        {EntityType.PERSON},
+                        max_distance=2,
+                    ),
+                    clause,
+                ),
+            )
+        if not person_clusters:
+            return None
+
+        role_clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.POSITION},
+        )
+        role_cluster = (
+            role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
+        )
+        role_text = None if role_cluster is not None else self._find_role_text(document, clause)
+
+        clause_orgs = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+        )
+        discourse_orgs = self._merge_clusters(
+            clause_orgs,
+            self._merge_clusters(
+                context.following_clusters(
+                    clause,
+                    {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+                    max_distance=2,
+                    same_paragraph=False,
+                ),
+                context.previous_clusters(
+                    clause,
+                    {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+                    max_distance=2,
+                ),
+            ),
+        )
+        org_clusters = self._sort_clusters_by_clause_distance(discourse_orgs, clause)
+        if not org_clusters:
+            return None
+
+        person_cluster_id, appointing_authority_id = self._resolve_people(
+            clause,
+            document,
+            person_clusters,
+            event_type,
+        )
+        if person_cluster_id is None:
+            return None
+
+        target_resolution = self.target_resolver.resolve(
+            document=document,
+            clause=clause,
+            org_clusters=org_clusters,
+            role_cluster=role_cluster,
+        )
+        if target_resolution.target_org is None:
+            return None
+
+        target_res_reason = target_resolution.reason
+        found_role = role_text
+        evidence_scope = None
+        if (
+            not clause_orgs
+            or len(
+                {
+                    evidence.sentence_index
+                    for evidence in context.evidence_window(
+                        clause,
+                        [
+                            *person_clusters,
+                            *org_clusters,
+                            *([role_cluster] if role_cluster is not None else []),
+                        ],
+                    )
+                }
+            )
+            > 1
+        ):
+            evidence_scope = "discourse_window"
+
+        evidence = context.evidence_window(
+            clause,
+            [
+                *person_clusters,
+                target_resolution.target_org,
+                *(
+                    [target_resolution.owner_context]
+                    if target_resolution.owner_context is not None
+                    else []
+                ),
+                *(
+                    [target_resolution.governing_body]
+                    if target_resolution.governing_body is not None
+                    else []
+                ),
+                *([role_cluster] if role_cluster is not None else []),
+            ],
+        )
+
+        return GovernanceFrame(
+            frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
+            event_type=event_type,
+            person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
+            role_cluster_id=role_cluster.cluster_id if role_cluster is not None else None,
+            target_org_cluster_id=target_resolution.target_org.cluster_id,
+            owner_context_cluster_id=target_resolution.owner_context.cluster_id
+            if target_resolution.owner_context
+            else None,
+            governing_body_cluster_id=target_resolution.governing_body.cluster_id
+            if target_resolution.governing_body
+            else None,
+            appointing_authority_cluster_id=ClusterID(appointing_authority_id)
+            if appointing_authority_id
+            else None,
+            confidence=target_resolution.confidence,
+            evidence=evidence,
+            target_resolution=target_res_reason,
+            found_role=found_role,
+            evidence_scope=evidence_scope,
+        )
+
+    def _extract_frame_from_clause(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        event_type: EventType,
+    ) -> GovernanceFrame | None:
+        person_clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.PERSON},
+        )
+        role_clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.POSITION},
+        )
+        org_clusters = self._clusters_for_mentions(
+            document,
+            clause.cluster_mentions,
+            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+        )
+        if not person_clusters:
+            person_clusters = self._paragraph_context_clusters(
+                document,
+                clause,
+                {EntityType.PERSON},
+            )
+        elif event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+            person_clusters = self._merge_clusters(
+                person_clusters,
+                self._paragraph_context_clusters(
+                    document,
+                    clause,
+                    {EntityType.PERSON},
+                ),
+            )
+        if not org_clusters:
+            org_clusters = self._paragraph_context_clusters(
+                document,
+                clause,
+                {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+            )
+
+        if not person_clusters:
+            return None
+
+        person_cluster_id, appointing_authority_id = self._resolve_people(
+            clause,
+            document,
+            person_clusters,
+            event_type,
+        )
+        if person_cluster_id is None:
+            return None
+
+        role_cluster = (
+            role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
+        )
+        role_cluster_id = role_cluster.cluster_id if role_cluster is not None else None
+        role_text = None if role_cluster is not None else self._find_role_text(document, clause)
+
+        target_resolution = self.target_resolver.resolve(
+            document=document,
+            clause=clause,
+            org_clusters=org_clusters,
+            role_cluster=role_cluster,
+        )
+        if target_resolution.target_org is None:
+            return None
+
+        return GovernanceFrame(
+            frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
+            event_type=event_type,
+            person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
+            role_cluster_id=role_cluster_id,
+            target_org_cluster_id=target_resolution.target_org.cluster_id,
+            owner_context_cluster_id=target_resolution.owner_context.cluster_id
+            if target_resolution.owner_context
+            else None,
+            governing_body_cluster_id=target_resolution.governing_body.cluster_id
+            if target_resolution.governing_body
+            else None,
+            appointing_authority_cluster_id=ClusterID(appointing_authority_id)
+            if appointing_authority_id
+            else None,
+            confidence=target_resolution.confidence,
+            evidence=[
+                EvidenceSpan(
+                    text=clause.text,
+                    sentence_index=clause.sentence_index,
+                    paragraph_index=clause.paragraph_index,
+                    start_char=clause.start_char,
+                    end_char=clause.end_char,
+                )
+            ],
+            target_resolution=target_resolution.reason,
+            found_role=role_text,
+        )
+
+    def _clusters_for_mentions(
+        self,
+        document: ArticleDocument,
+        mentions: Iterable[ClusterMention],
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        return ExtractionContext.build(document).clusters_for_mentions(mentions, entity_types)
+
+    def _resolve_people(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        person_clusters: list[EntityCluster],
+        event_type: EventType,
+    ) -> tuple[str | None, str | None]:
+        appointees: list[ClusterID] = []
+        authorities: list[ClusterID] = []
+        person_cluster_ids = {cluster.cluster_id for cluster in person_clusters}
+        speech_speaker_ids = self._speech_speaker_cluster_ids(clause, document, person_clusters)
+        for mention in clause.cluster_mentions:
+            cluster = next(
+                (
+                    cluster
+                    for cluster in person_clusters
+                    if self._cluster_matches_mention(cluster, mention)
+                ),
+                None,
+            )
+            if cluster is None or cluster.cluster_id not in person_cluster_ids:
+                continue
+            role = clause.mention_roles.get(mention.text)
+            if role and role.startswith("obj"):
+                appointees.append(cluster.cluster_id)
+            elif role and role.startswith("nsubj"):
+                authorities.append(cluster.cluster_id)
+
+        if appointees:
+            appointee_id = self._first_non_speaker(appointees, speech_speaker_ids)
+            if appointee_id is None:
+                appointee_id = appointees[0]
+            return appointee_id, authorities[0] if authorities else None
+        if authorities and self._has_object_pronoun(document, clause):
+            authority_ids = self._non_speaker_ids(authorities, speech_speaker_ids)
+            previous_person = self._nearest_context_person(
+                clause,
+                person_clusters,
+                excluded_cluster_ids=set(authorities) | speech_speaker_ids,
+            )
+            if previous_person is not None:
+                return previous_person.cluster_id, authority_ids[0] if authority_ids else None
+        if authorities:
+            authority_ids = (
+                self._non_speaker_ids(authorities, speech_speaker_ids)
+                if event_type == EventType.DISMISSAL
+                else authorities
+            )
+            if authority_ids:
+                return authority_ids[0], None
+            previous_person = self._nearest_context_person(
+                clause,
+                person_clusters,
+                excluded_cluster_ids=speech_speaker_ids,
+            )
+            if previous_person is None:
+                return None, None
+            return previous_person.cluster_id, None
+        if event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+            current_sentence_ids = {
+                cluster.cluster_id
+                for cluster in person_clusters
+                if any(
+                    mention.sentence_index == clause.sentence_index for mention in cluster.mentions
+                )
+            }
+            previous_person = self._nearest_context_person(
+                clause,
+                person_clusters,
+                excluded_cluster_ids=current_sentence_ids | speech_speaker_ids,
+            )
+            if previous_person is not None:
+                return previous_person.cluster_id, None
+        candidate_clusters = (
+            [
+                cluster
+                for cluster in person_clusters
+                if cluster.cluster_id not in speech_speaker_ids
+                and self._cluster_has_dismissal_subject_signal(clause, cluster)
+            ]
+            if event_type == EventType.DISMISSAL
+            else person_clusters
+        )
+        if (
+            not candidate_clusters
+            and event_type == EventType.DISMISSAL
+            and not self._near_family_subject(document, clause)
+        ):
+            candidate_clusters = [
+                cluster
+                for cluster in person_clusters
+                if cluster.cluster_id not in speech_speaker_ids
+            ]
+        if not candidate_clusters:
+            return None, None
+        return candidate_clusters[0].cluster_id, None
+
+    @staticmethod
+    def _cluster_has_dismissal_subject_signal(
+        clause: ClauseUnit,
+        cluster: EntityCluster,
+    ) -> bool:
+        for mention in cluster.mentions:
+            if mention.sentence_index != clause.sentence_index:
+                continue
+            role = clause.mention_roles.get(mention.text)
+            if role and (role.startswith("nsubj") or role.startswith("obj")):
+                return True
+            if cluster.is_proxy_person and role == "det:poss":
+                return True
+        return False
+
+    @staticmethod
+    def _near_family_subject(document: ArticleDocument, clause: ClauseUnit) -> bool:
+        for sentence_index in {clause.sentence_index, clause.sentence_index - 1}:
+            for word in document.parsed_sentences.get(sentence_index, []):
+                if word.lemma.casefold() in KINSHIP_LEMMAS and word.deprel.startswith("nsubj"):
+                    return True
+        return False
+
+    @staticmethod
+    def _first_non_speaker(
+        cluster_ids: list[ClusterID],
+        speech_speaker_ids: set[ClusterID],
+    ) -> ClusterID | None:
+        return next(
+            (cluster_id for cluster_id in cluster_ids if cluster_id not in speech_speaker_ids),
+            None,
+        )
+
+    @staticmethod
+    def _non_speaker_ids(
+        cluster_ids: list[ClusterID],
+        speech_speaker_ids: set[ClusterID],
+    ) -> list[ClusterID]:
+        return [cluster_id for cluster_id in cluster_ids if cluster_id not in speech_speaker_ids]
+
+    def _speech_speaker_cluster_ids(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        person_clusters: list[EntityCluster],
+    ) -> set[ClusterID]:
+        parsed = document.parsed_sentences.get(clause.sentence_index, [])
+        speech_heads = {word.index for word in parsed if word.lemma.casefold() in SPEECH_LEMMAS}
+        if not speech_heads:
+            return set()
+        subject_indices = {
+            word.index
+            for word in parsed
+            if word.head in speech_heads and word.deprel.startswith("nsubj")
+        }
+        if subject_indices:
+            subject_indices |= {word.index for word in parsed if word.head in subject_indices}
+        result: set[ClusterID] = set()
+        for cluster in person_clusters:
+            if self._cluster_has_word_indices(clause, cluster, parsed, subject_indices):
+                result.add(cluster.cluster_id)
+        return result
+
+    @staticmethod
+    def _cluster_has_word_indices(
+        clause: ClauseUnit,
+        cluster: EntityCluster,
+        parsed: list[ParsedWord],
+        indices: set[int],
+    ) -> bool:
+        if not indices:
+            return False
+        for mention in cluster.mentions:
+            if mention.sentence_index != clause.sentence_index:
+                continue
+            for word in parsed:
+                abs_start = clause.start_char + word.start
+                if word.index in indices and mention.start_char <= abs_start < mention.end_char:
+                    return True
+        return False
+
+    def _find_role_from_text(
+        self,
+        document: ArticleDocument,
+        clause: ClauseUnit,
+    ) -> EntityCluster | None:
+        role_text = self._find_role_text(document, clause)
+        if role_text is None:
+            return None
+        for cluster in document.clusters:
+            if cluster.entity_type != EntityType.POSITION:
+                continue
+            if cluster.canonical_name.lower() == role_text.lower():
+                return cluster
+        return None
+
+    @staticmethod
+    def _find_role_text(document: ArticleDocument, clause: ClauseUnit) -> str | None:
+        return find_role_text(document, clause)
+
+    @staticmethod
+    def _find_role_text_from_text(clause: ClauseUnit) -> str | None:
+        return find_role_text_from_text(clause)
+
+    def _find_cluster_for_mention(
+        self,
+        mention_ref: ClusterMention,
+        document: ArticleDocument,
+    ) -> EntityCluster | None:
+        return ExtractionContext.build(document).cluster_for_mention(mention_ref)
+
+    def _cluster_matches_mention(
+        self,
+        cluster: EntityCluster,
+        mention_ref: ClusterMention,
+    ) -> bool:
+        return any(
+            mention.text == mention_ref.text
+            and mention.sentence_index == mention_ref.sentence_index
+            and mention.entity_type == mention_ref.entity_type
+            for mention in cluster.mentions
+        )
+
+    def _paragraph_context_clusters(
+        self,
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        return ExtractionContext.build(document).paragraph_context_clusters(clause, entity_types)
+
+    @staticmethod
+    def _merge_clusters(
+        primary: list[EntityCluster],
+        secondary: list[EntityCluster],
+    ) -> list[EntityCluster]:
+        return ExtractionContext.merge_clusters(primary, secondary)
+
+    @staticmethod
+    def _sort_clusters_by_clause_distance(
+        clusters: list[EntityCluster],
+        clause: ClauseUnit,
+    ) -> list[EntityCluster]:
+        return sorted(
+            clusters,
+            key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+                cluster,
+                clause,
+            ),
+        )
+
+    @staticmethod
+    def _cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> tuple[int, int]:
+        return ExtractionContext.cluster_clause_distance(cluster, clause)
+
+    @staticmethod
+    def _nearest_context_person(
+        clause: ClauseUnit,
+        person_clusters: list[EntityCluster],
+        *,
+        excluded_cluster_ids: set[ClusterID],
+    ) -> EntityCluster | None:
+        candidates = [
+            cluster
+            for cluster in person_clusters
+            if cluster.cluster_id not in excluded_cluster_ids
+            and any(mention.sentence_index <= clause.sentence_index for mention in cluster.mentions)
+        ]
+        if not candidates:
+            return None
+        return min(
+            candidates,
+            key=lambda cluster: PolishGovernanceFrameExtractor._cluster_clause_distance(
+                cluster,
+                clause,
+            ),
+        )
+
+    @staticmethod
+    def _has_object_pronoun(document: ArticleDocument, clause: ClauseUnit) -> bool:
+        object_pronouns = {"go", "ją", "je", "ich", "jego", "jej"}
+        return any(
+            word.text.lower() in object_pronouns
+            and (word.deprel.startswith("obj") or word.deprel in {"iobj", "obl"})
+            for word in document.parsed_sentences.get(clause.sentence_index, [])
+        )

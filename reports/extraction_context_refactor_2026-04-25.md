@@ -15,15 +15,28 @@ Implemented:
   - clause-distance sorting primitive
   - single-clause evidence construction
 - Added `pipeline/domains/public_money.py` and moved public-money frame extraction there:
-  - `PolishFundingFrameExtractor`
   - `PolishPublicContractFrameExtractor`
   - public-money flow signal helpers
   - public-contract counterparty predicates
+- Added `pipeline/domains/funding.py` and moved `PolishFundingFrameExtractor`
+  there while keeping shared public-money flow/reporting guards in
+  `pipeline/domains/public_money.py`.
+- Added `pipeline/domains/public_employment.py` and moved
+  `PolishPublicEmploymentFrameExtractor` there.
+- Added `pipeline/domains/anti_corruption.py` and moved:
+  - `PolishAntiCorruptionReferralFrameExtractor`
+  - `PolishAntiCorruptionAbuseFrameExtractor`
+- Added `pipeline/domains/compensation.py` and moved
+  `PolishCompensationFrameExtractor` there.
+- Added `pipeline/domains/governance_frames.py` and moved
+  `PolishGovernanceFrameExtractor` there.
+- Added `pipeline/role_text.py` for role-text lookup shared by governance and
+  compensation.
+- Reduced `pipeline/frames.py` to a compatibility orchestration facade.
 - Added focused unit coverage for `ExtractionContext` mention matching and paragraph-distance ordering.
 
 Not implemented in this step:
 
-- Full domain package split of the remaining `pipeline/frames.py` extractors.
 - Full relation extractor split of `pipeline/relations/fact_extractors.py`.
 - Any intentional extraction behavior change.
 
@@ -41,17 +54,34 @@ uv run python scripts/setup_models.py
 uv run pytest
 rm -f output/entity_registry.sqlite3 output/entity_registry.sqlite3-shm output/entity_registry.sqlite3-wal
 uv run pytest tests/integration/test_benchmark.py::test_oko_rydzyk_funding tests/integration/test_benchmark.py::test_dziennik_zachodni_bytom
+uv run pytest tests/test_extraction_context.py tests/test_governance.py tests/test_relations.py tests/test_family_identity.py
+rm -f output/entity_registry.sqlite3 output/entity_registry.sqlite3-shm output/entity_registry.sqlite3-wal
+uv run pytest \
+  tests/integration/test_benchmark.py::test_oko_rydzyk_funding \
+  tests/integration/test_benchmark.py::test_dziennik_zachodni_bytom \
+  tests/integration/test_benchmark.py::test_pleszew24_stadnina \
+  tests/integration/test_benchmark.py::test_olsztyn_wodkan \
+  tests/integration/test_benchmark.py::test_onet_cba_ostrow_bribery \
+  tests/integration/test_benchmark.py::test_dziennik_polski_charsznica_nepotism \
+  tests/integration/test_benchmark.py::test_ai42_poczesna_nepotism \
+  tests/integration/test_benchmark.py::test_polsat_ciechanow_family_starostwo
+uv run pytest tests/test_extraction_context.py tests/test_governance.py tests/test_relations.py tests/test_family_identity.py \
+  tests/integration/test_benchmark.py::test_oko_rydzyk_funding \
+  tests/integration/test_benchmark.py::test_dziennik_zachodni_bytom \
+  tests/integration/test_benchmark.py::test_onet_cba_ostrow_bribery
 ```
 
 Results:
 
 - `ruff check --fix`: passed.
-- `ruff format`: no files changed.
+- `ruff format`: passed.
 - `ruff check`: passed.
 - `ty check`: passed.
-- Targeted tests: `72 passed`.
-- Public-money integration checks after the split: `2 passed`.
-- Full pytest on the working tree: `159 passed, 1 xfailed, 2 failed`.
+- First focused tests after domain moves: `83 passed`.
+- Cross-domain clean-registry benchmark slice: `8 passed`.
+- Final focused tests after the funding/public-money dedupe: `86 passed`.
+- Full pytest was run earlier during this refactor before the final domain split:
+  `159 passed, 1 xfailed, 2 failed`.
 
 The two full-suite failures are benchmark assertions that also fail on a clean
 `HEAD` worktree after model setup, so they are pre-existing benchmark gaps rather
@@ -84,9 +114,20 @@ The public-money split also keeps `pipeline.frames` as the public compatibility
 surface for now, so existing imports such as `from pipeline.frames import
 PolishFundingFrameExtractor` continue to work.
 
+Current extraction module line counts:
+
+```text
+    37 pipeline/frames.py
+   452 pipeline/domains/anti_corruption.py
+   300 pipeline/domains/compensation.py
+   344 pipeline/domains/funding.py
+   693 pipeline/domains/governance_frames.py
+   630 pipeline/domains/public_employment.py
+   653 pipeline/domains/public_money.py
+```
+
 ## Next Step
 
-The next safe structural increment is to move `PolishCompensationFrameExtractor`
-into a domain module. It should first stop calling governance role-text helpers
-through `PolishGovernanceFrameExtractor`, or those helpers should be extracted to
-a neutral role-matching module.
+The next structural increment is to split
+`pipeline/relations/fact_extractors.py` by the same domain package boundaries,
+with `relations/service.py` left as the fixed-order facade.
