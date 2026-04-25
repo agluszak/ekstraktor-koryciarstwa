@@ -136,6 +136,32 @@ def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
     assert linked_doc.entities[0].canonical_name == "AMW Rewita"
 
 
+def test_linker_prefers_shared_naming_policy_for_marshal_office_canonical(linker):
+    doc = ArticleDocument(
+        document_id=DocumentID("test-doc-marshal-office"),
+        source_url=None,
+        raw_html="",
+        title="Test Marshal Office",
+        publication_date=None,
+        cleaned_text="Urzędu Marszałkowskiego",
+        paragraphs=["Urzędu Marszałkowskiego"],
+        entities=[
+            Entity(
+                entity_id=EntityID("e1"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Urzędu Marszałkowskiego",
+                normalized_name="Urzędu Marszałkowskiego",
+                aliases=["Urząd Marszałkowski"],
+            )
+        ],
+    )
+
+    linked_doc = linker.run(doc)
+
+    assert len(linked_doc.entities) == 1
+    assert linked_doc.entities[0].canonical_name == "Urząd Marszałkowski"
+
+
 def test_org_typed_party_alias_does_not_link_to_seeded_party(linker):
     # Generic Organization entities are not silently retyped to configured parties.
     # NER/candidate generation is responsible for creating PoliticalParty entities.

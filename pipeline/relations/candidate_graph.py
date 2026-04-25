@@ -24,11 +24,10 @@ from pipeline.models import (
 )
 from pipeline.nlp_rules import (
     KINSHIP_LEMMAS,
-    PARTY_CONTEXT_LEMMAS,
-    PARTY_PROFILE_CONTEXT_LEMMAS,
     ROLE_PATTERNS,
     TIE_WORDS,
 )
+from pipeline.relation_signals import supports_party_link
 from pipeline.role_matching import RoleMatch, match_role_mentions
 from pipeline.utils import (
     extract_role_from_text,
@@ -631,64 +630,12 @@ class CandidateGraphBuilder:
         person: EntityCandidate,
         party: EntityCandidate,
     ) -> bool:
-        lower = sentence_text.lower()
-        distance = abs(person.start_char - party.start_char)
-        if distance > 56:
-            return False
-
-        party_window = lower[max(0, party.start_char - 24) : party.end_char + 24]
-        between_start = min(person.end_char, party.end_char)
-        between_end = max(person.start_char, party.start_char)
-        between_text = lower[between_start:between_end]
-        preceding_text = lower[max(0, party.start_char - 3) : party.start_char]
-        if preceding_text.endswith(" z ") and distance <= 28:
-            return True
-        party_context_words = [
-            word
-            for word in parsed_words
-            if word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS
-            and max(0, party.start_char - 24) <= word.start <= party.end_char + 24
-        ]
-        if party_context_words:
-            if any(between_start <= word.start <= between_end for word in party_context_words):
-                return True
-            return distance <= 36
-        if not parsed_words and any(
-            marker in party_window for marker in PARTY_PROFILE_CONTEXT_LEMMAS
-        ):
-            return distance <= 36
-
-        party_word = next(
-            (
-                word
-                for word in parsed_words
-                if word.start <= party.start_char < word.end
-                or party.start_char <= word.start < party.end_char
-            ),
-            None,
+        return supports_party_link(
+            sentence_text=sentence_text,
+            parsed_words=parsed_words,
+            person=person,
+            party=party,
         )
-        if party_word is None:
-            return False
-
-        person_words = [
-            word
-            for word in parsed_words
-            if person.start_char <= word.start < person.end_char
-            or word.start <= person.start_char < word.end
-        ]
-        if not person_words:
-            return False
-
-        head = next((word for word in parsed_words if word.index == party_word.head), None)
-        if head is None:
-            return False
-        if head.lemma.casefold() in PARTY_CONTEXT_LEMMAS and distance <= 40:
-            if any(person_word.index == head.head for person_word in person_words):
-                return True
-            if any(person_word.head == head.index for person_word in person_words):
-                return True
-            return any(marker in between_text for marker in (" z ", ",", "(", ")"))
-        return False
 
     def _mentions_for_sentence(
         self,

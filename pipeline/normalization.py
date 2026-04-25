@@ -4,6 +4,14 @@ from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityID, EntityType, FactType, OrganizationKind
+from pipeline.entity_naming import (
+    GENERIC_ORGANIZATION_TOKENS,
+    NOISY_CANONICAL_TOKENS,
+    PREFERRED_ORGANIZATION_HEADS,
+    OrganizationNamingPolicy,
+    is_acronym_like,
+    org_token_base,
+)
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.nlp_services import MorphologicalAnalysis, MorphologyAnalyzer
 from pipeline.utils import (
@@ -13,83 +21,6 @@ from pipeline.utils import (
     normalize_entity_name,
     normalize_party_name,
     unique_preserve_order,
-)
-
-GENERIC_ORGANIZATION_TOKENS = frozenset(
-    {
-        "grupa",
-        "holding",
-        "instytucja",
-        "kompania",
-        "koncern",
-        "podmiot",
-        "przedsiębiorstwo",
-        "rząd",
-        "spółka",
-        "zarząd",
-    }
-)
-
-PREFERRED_ORGANIZATION_HEADS = frozenset(
-    {
-        "biuro",
-        "fundacja",
-        "fundusz",
-        "instytut",
-        "ministerstwo",
-        "miasto",
-        "pogotowie",
-        "powiat",
-        "spółka",
-        "stowarzyszenie",
-        "urząd",
-        "województwo",
-    }
-)
-
-NOISY_CANONICAL_TOKENS = frozenset(
-    {
-        "advertisement",
-        "czytaj",
-        "dotyczące",
-        "dyrektora",
-        "działań",
-        "generalnego",
-        "materiały",
-        "newsletter",
-        "otrzymała",
-        "otrzymał",
-        "promocyjnych",
-        "przez",
-        "reklama",
-        "subskrybuj",
-        "takim",
-        "założona",
-        "założony",
-        "znaczeniu",
-        "zobacz",
-    }
-)
-
-POLISH_ORG_INFLECTION_SUFFIXES = (
-    ("owym", "owy"),
-    ("owej", "owa"),
-    ("ego", "y"),
-    ("emu", "y"),
-    ("ich", "i"),
-    ("iej", "a"),
-    ("ym", "y"),
-    ("ą", "a"),
-    ("ę", "a"),
-)
-
-POLISH_ORG_DROP_SUFFIXES = (
-    "ach",
-    "ami",
-    "owi",
-    "om",
-    "em",
-    "u",
 )
 
 PARTY_TOKEN_VARIANTS = {
@@ -135,12 +66,16 @@ class DocumentEntityCanonicalizer:
         self.known_acronyms = {
             alias
             for alias in [*config.institution_aliases, *config.party_aliases]
-            if self._is_acronym_like(alias)
+            if is_acronym_like(alias)
         }
         self.known_acronym_lookup = {alias.lower(): alias for alias in self.known_acronyms}
         for canonical in config.institution_aliases.values():
             normalized_canonical = normalize_entity_name(canonical)
             self.institution_lookup[normalized_canonical.lower()] = compact_whitespace(canonical)
+        self.organization_naming = OrganizationNamingPolicy(
+            institution_lookup=self.institution_lookup,
+            known_acronyms=self.known_acronyms,
+        )
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         if not document.entities:
@@ -218,27 +153,36 @@ class DocumentEntityCanonicalizer:
             entity.lemmas = self._person_lemmas(canonical)
             return
 
-        specific_acronym_alias = self._specific_acronym_organization_alias(alias_pool)
+        specific_acronym_alias = self.organization_naming.specific_acronym_alias(alias_pool)
         if specific_acronym_alias is not None:
             entity.entity_type = EntityType.ORGANIZATION
             entity.canonical_name = specific_acronym_alias
             entity.normalized_name = specific_acronym_alias
-            entity.aliases = self._organization_aliases(alias_pool, specific_acronym_alias)
+            entity.aliases = self.organization_naming.organization_aliases(
+                alias_pool,
+                specific_acronym_alias,
+            )
             return
 
-        institution_canonical = self._canonical_institution_name(entity, alias_pool)
+        institution_canonical = self.organization_naming.canonical_institution_name(
+            entity,
+            alias_pool,
+        )
         if institution_canonical is not None:
             entity.entity_type = EntityType.PUBLIC_INSTITUTION
             entity.canonical_name = institution_canonical
             entity.normalized_name = institution_canonical
-            entity.aliases = self._organization_aliases(alias_pool, institution_canonical)
+            entity.aliases = self.organization_naming.organization_aliases(
+                alias_pool,
+                institution_canonical,
+            )
             entity.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
             return
 
-        canonical = self._best_organization_name(entity, alias_pool)
+        canonical = self.organization_naming.best_organization_name(entity, alias_pool)
         entity.canonical_name = canonical
         entity.normalized_name = canonical
-        entity.aliases = self._organization_aliases(alias_pool, canonical)
+        entity.aliases = self.organization_naming.organization_aliases(alias_pool, canonical)
 
     def _morphology_lemma_candidates(self, entity: Entity) -> list[str]:
         if not self.morphology or entity.entity_type != EntityType.PERSON:
@@ -547,25 +491,7 @@ class DocumentEntityCanonicalizer:
         return False
 
     def _best_organization_name(self, entity: Entity, names: list[str]) -> str:
-        normalized = [
-            normalize_entity_name(name)
-            for name in self._candidate_name_parts(names)
-            if compact_whitespace(name)
-        ]
-        specific_candidates = [
-            candidate
-            for candidate in normalized
-            if not self._bare_organization_head_superseded(candidate, normalized)
-            and not self._weak_single_token_organization_superseded(candidate, normalized)
-        ]
-        if specific_candidates:
-            normalized = specific_candidates
-        if not normalized:
-            return entity.canonical_name
-        return max(
-            normalized,
-            key=lambda name: self._organization_name_score(entity, name, normalized),
-        )
+        return self.organization_naming.best_organization_name(entity, names)
 
     def _organization_name_score(
         self,
@@ -614,61 +540,10 @@ class DocumentEntityCanonicalizer:
         return str(max(normalized_candidates, key=self._party_name_score))
 
     def _canonical_institution_name(self, entity: Entity, names: list[str]) -> str | None:
-        if marshal_office := self._canonical_marshal_office_name(names):
-            return marshal_office
-        primary_tokens = {
-            token.lower()
-            for name in (entity.canonical_name, entity.normalized_name)
-            for token in normalize_entity_name(name).split()
-            if token
-        }
-        has_multi_token_primary = any(
-            len(normalize_entity_name(name).split()) > 1
-            for name in (entity.canonical_name, entity.normalized_name)
-        )
-        for name in self._candidate_name_parts(names):
-            normalized = normalize_entity_name(name)
-            normalized_tokens = normalized.split()
-            if (
-                has_multi_token_primary
-                and len(normalized_tokens) == 1
-                and normalized_tokens[0].lower() in primary_tokens
-                and self._is_acronym_like(normalized_tokens[0])
-            ):
-                continue
-            canonical = self.institution_lookup.get(normalized.lower())
-            if canonical is not None:
-                return canonical
-        return None
-
-    @staticmethod
-    def _canonical_marshal_office_name(names: list[str]) -> str | None:
-        normalized_names = [
-            normalize_entity_name(name).casefold() for name in names if compact_whitespace(name)
-        ]
-        if any(
-            "urząd marszałkowski" in name or "urzędu marszałkowskiego" in name
-            for name in normalized_names
-        ):
-            return "Urząd Marszałkowski"
-        return None
+        return self.organization_naming.canonical_institution_name(entity, names)
 
     def _specific_acronym_organization_alias(self, names: list[str]) -> str | None:
-        candidates: list[str] = []
-        for name in self._candidate_name_parts(names):
-            normalized = normalize_entity_name(name)
-            tokens = normalized.split()
-            if len(tokens) < 2:
-                continue
-            first = self.known_acronym_lookup.get(tokens[0].lower())
-            if first is None:
-                continue
-            repaired = " ".join([first, *tokens[1:]])
-            if repaired.lower() not in self.institution_lookup:
-                candidates.append(repaired)
-        if not candidates:
-            return None
-        return max(candidates, key=lambda candidate: (len(candidate.split()), len(candidate)))
+        return self.organization_naming.specific_acronym_alias(names)
 
     @staticmethod
     def _lemma_name_candidates(entity: Entity) -> list[str]:
@@ -730,27 +605,16 @@ class DocumentEntityCanonicalizer:
         return score
 
     def _organization_aliases(self, names: list[str], canonical: str) -> list[str]:
-        normalized_aliases = []
-        compacted_multiline_names = self._compacted_multiline_names(names)
-        for name in names:
-            if "\n" in name or "\r" in name:
-                continue
-            normalized = normalize_entity_name(name)
-            if not normalized:
-                continue
-            if normalized in compacted_multiline_names:
-                continue
-            normalized_aliases.append(normalized)
-        return unique_preserve_order([*normalized_aliases, canonical])
+        return self.organization_naming.organization_aliases(names, canonical)
 
     @classmethod
     def _organization_inflection_penalty(cls, tokens: list[str]) -> int:
         penalty = 0
         for token in tokens:
             lower = token.lower().strip(".,;:")
-            if cls._is_acronym_like(token) or len(lower) < 4:
+            if is_acronym_like(token) or len(lower) < 4:
                 continue
-            if cls._org_token_base(lower) != lower:
+            if org_token_base(lower) != lower:
                 penalty += 1
         return penalty
 
@@ -759,31 +623,11 @@ class DocumentEntityCanonicalizer:
         lemmas = {str(lemma).lower() for lemma in entity.lemmas if isinstance(lemma, str) and lemma}
         if not lemmas:
             return 0
-        return sum(1 for token in name.split() if cls._org_token_base(token.lower()) in lemmas)
+        return sum(1 for token in name.split() if org_token_base(token.lower()) in lemmas)
 
     @classmethod
     def _org_token_base(cls, token: str) -> str:
-        if len(token) <= 3:
-            return token
-        if token.startswith(("urząd", "urzęd")):
-            return "urząd"
-        if token.startswith("fundacj"):
-            return "fundacja"
-        if token.startswith("stowarzyszen"):
-            return "stowarzyszenie"
-        if token.startswith("pogotowi"):
-            return "pogotowie"
-        if token.startswith("biur"):
-            return "biuro"
-        if token.endswith("rze") and len(token) > 5:
-            return f"{token[:-3]}r"
-        for suffix, replacement in POLISH_ORG_INFLECTION_SUFFIXES:
-            if token.endswith(suffix) and len(token) - len(suffix) >= 3:
-                return f"{token[: -len(suffix)]}{replacement}"
-        for suffix in POLISH_ORG_DROP_SUFFIXES:
-            if token.endswith(suffix) and len(token) - len(suffix) >= 3:
-                return token[: -len(suffix)]
-        return token
+        return org_token_base(token)
 
     @classmethod
     def _organization_shape_bonus(cls, name: str) -> int:
@@ -1227,10 +1071,7 @@ class DocumentEntityCanonicalizer:
 
     @staticmethod
     def _is_acronym_like(token: str) -> bool:
-        letters = [char for char in token if char.isalpha()]
-        if len(letters) >= 2 and all(char.isupper() for char in letters):
-            return True
-        return any(char.isupper() for char in token[1:])
+        return is_acronym_like(token)
 
     @staticmethod
     def _acronym_tokens(tokens: list[str]) -> list[str]:

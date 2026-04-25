@@ -24,7 +24,7 @@ from pipeline.nlp_rules import (
     DISMISSAL_TRIGGER_TEXTS,
     PARTY_PROFILE_CONTEXT_LEMMAS,
 )
-from pipeline.secondary_fact_utils import (
+from pipeline.secondary_fact_helpers import (
     POLITICAL_ROLE_NAMES,
     SecondaryFactScorer,
     _has_signal,

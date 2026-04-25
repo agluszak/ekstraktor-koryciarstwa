@@ -7,6 +7,7 @@ import numpy as np
 from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType
+from pipeline.entity_naming import org_token_base
 from pipeline.models import ArticleDocument, Entity
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
@@ -42,6 +43,7 @@ class InMemoryEntityLinker(EntityLinker):
         self._alias_to_registry: dict[str, list[str]] = {}
         self._knowledge_seeded = False
         self.canonicalizer = DocumentEntityCanonicalizer(config)
+        self.organization_naming = self.canonicalizer.organization_naming
 
     def name(self) -> str:
         return "in_memory_entity_linker"
@@ -108,12 +110,12 @@ class InMemoryEntityLinker(EntityLinker):
             entity.normalized_name,
             *entity.aliases,
         ]
-        if institution_canonical := self.canonicalizer._canonical_institution_name(
+        if institution_canonical := self.organization_naming.canonical_institution_name(
             entity,
             candidates,
         ):
             return institution_canonical
-        return self.canonicalizer._best_organization_name(entity, candidates)
+        return self.organization_naming.best_organization_name(entity, candidates)
 
     def _upsert_registry(
         self,
@@ -487,7 +489,7 @@ class InMemoryEntityLinker(EntityLinker):
         return entity.normalized_name.strip()
 
     def _token_bases(self, tokens: list[str]) -> set[str]:
-        return {self.canonicalizer._org_token_base(token.casefold()) for token in tokens if token}
+        return {org_token_base(token.casefold()) for token in tokens if token}
 
     def _is_specific_organization_alias(self, alias: str) -> bool:
         tokens = [token for token in alias.split() if token]

@@ -180,6 +180,35 @@ def test_institution_aliases_expand_and_retype_to_public_institution() -> None:
     assert entities["Agencja Mienia Wojskowego"] == EntityType.PUBLIC_INSTITUTION
 
 
+def test_marshal_office_alias_is_normalized_to_nominative_public_institution() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-marshal-office"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Urzędu Marszałkowskiego",
+        paragraphs=["Urzędu Marszałkowskiego"],
+        entities=[
+            Entity(
+                entity_id=EntityID("org-1"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Urzędu Marszałkowskiego",
+                normalized_name="Urzędu Marszałkowskiego",
+                aliases=["Urząd Marszałkowski"],
+            )
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert len(normalized.entities) == 1
+    assert normalized.entities[0].entity_type == EntityType.PUBLIC_INSTITUTION
+    assert normalized.entities[0].canonical_name == "Urząd Marszałkowski"
+
+
 def test_inflected_full_person_name_variants_merge_to_nominative_canonical() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
