@@ -18,7 +18,11 @@ def _imports_for(path: Path) -> set[str]:
 
 
 def test_shared_grounding_modules_do_not_import_domains() -> None:
-    for relative_path in ("pipeline/frame_grounding.py", "pipeline/secondary_fact_helpers.py"):
+    for relative_path in (
+        "pipeline/frame_grounding.py",
+        "pipeline/secondary_fact_helpers.py",
+        "pipeline/identity_signals.py",
+    ):
         imports = _imports_for(REPO_ROOT / relative_path)
         assert not any(module.startswith("pipeline.domains") for module in imports), relative_path
 
