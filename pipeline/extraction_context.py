@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from pipeline.domain_types import EntityType
-from pipeline.models import ArticleDocument, ClauseUnit, EntityCluster, EvidenceSpan
+from pipeline.domain_types import ClusterID, EntityType
+from pipeline.models import (
+    ArticleDocument,
+    ClauseUnit,
+    ClusterMention,
+    EntityCluster,
+    EvidenceSpan,
+)
 
 
 @dataclass(slots=True)
@@ -21,6 +27,49 @@ class ExtractionContext:
         entity_types: set[EntityType],
     ) -> list[EntityCluster]:
         return self.clusters_in_sentence(clause.sentence_index, entity_types)
+
+    def clusters_for_mentions(
+        self,
+        mentions: Iterable[ClusterMention],
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        seen: set[ClusterID] = set()
+        clusters: list[EntityCluster] = []
+        for mention in mentions:
+            if mention.entity_type not in entity_types:
+                continue
+            cluster = self.cluster_for_mention(mention)
+            if cluster is None or cluster.cluster_id in seen:
+                continue
+            seen.add(cluster.cluster_id)
+            clusters.append(cluster)
+        return clusters
+
+    def cluster_for_mention(self, mention_ref: ClusterMention) -> EntityCluster | None:
+        for cluster in self.document.clusters:
+            for mention in cluster.mentions:
+                if (
+                    mention.start_char == mention_ref.start_char
+                    and mention.end_char == mention_ref.end_char
+                    and mention.sentence_index == mention_ref.sentence_index
+                    and mention.entity_type == mention_ref.entity_type
+                ):
+                    return cluster
+                if (
+                    mention.text == mention_ref.text
+                    and mention.sentence_index == mention_ref.sentence_index
+                    and mention.entity_type == mention_ref.entity_type
+                ):
+                    return cluster
+        return None
+
+    def cluster_by_id(self, cluster_id: ClusterID | None) -> EntityCluster | None:
+        if cluster_id is None:
+            return None
+        return next(
+            (cluster for cluster in self.document.clusters if cluster.cluster_id == cluster_id),
+            None,
+        )
 
     def clusters_in_sentence(
         self,
@@ -64,6 +113,19 @@ class ExtractionContext:
                 mention.paragraph_index == clause.paragraph_index
                 and start_sentence <= mention.sentence_index <= clause.sentence_index
             ),
+        )
+
+    def paragraph_context_clusters(
+        self,
+        clause: ClauseUnit,
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        return sorted(
+            self._clusters_with_mentions(
+                entity_types,
+                lambda mention: mention.paragraph_index == clause.paragraph_index,
+            ),
+            key=lambda cluster: self.cluster_clause_distance(cluster, clause),
         )
 
     def following_clusters(
@@ -119,12 +181,60 @@ class ExtractionContext:
             )
         ]
 
+    @staticmethod
+    def evidence_for_clause(clause: ClauseUnit) -> EvidenceSpan:
+        return EvidenceSpan(
+            text=clause.text,
+            sentence_index=clause.sentence_index,
+            paragraph_index=clause.paragraph_index,
+            start_char=clause.start_char,
+            end_char=clause.end_char,
+        )
+
+    @staticmethod
+    def cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> tuple[int, int]:
+        distances = [
+            (
+                abs(mention.sentence_index - clause.sentence_index),
+                abs(mention.start_char - clause.start_char),
+            )
+            for mention in cluster.mentions
+        ]
+        return min(distances, default=(9999, 9999))
+
+    @staticmethod
+    def best_cluster_near_offset(
+        clusters: Iterable[EntityCluster],
+        offset: int,
+    ) -> EntityCluster | None:
+        return min(
+            clusters,
+            key=lambda cluster: min(
+                abs(mention.start_char - offset) for mention in cluster.mentions
+            ),
+            default=None,
+        )
+
+    @staticmethod
+    def merge_clusters(
+        primary: Iterable[EntityCluster],
+        secondary: Iterable[EntityCluster],
+    ) -> list[EntityCluster]:
+        merged: list[EntityCluster] = []
+        seen: set[ClusterID] = set()
+        for cluster in [*primary, *secondary]:
+            if cluster.cluster_id in seen:
+                continue
+            seen.add(cluster.cluster_id)
+            merged.append(cluster)
+        return merged
+
     def _clusters_with_mentions(
         self,
         entity_types: set[EntityType],
-        predicate,
+        predicate: Callable[[ClusterMention], bool],
     ) -> list[EntityCluster]:
-        seen: set[str] = set()
+        seen: set[ClusterID] = set()
         clusters: list[EntityCluster] = []
         for cluster in self.document.clusters:
             if cluster.entity_type not in entity_types or cluster.cluster_id in seen:
