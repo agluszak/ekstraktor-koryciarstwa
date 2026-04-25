@@ -150,6 +150,7 @@ PARTY_CONTEXT_LEMMAS = frozenset(
         "posłanka",
         "senator",
         "senatorka",
+        "partia",
         "radny",
         "radna",
         "wicewojewoda",

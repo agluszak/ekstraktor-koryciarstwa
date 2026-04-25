@@ -14,6 +14,7 @@ from pipeline.domains.public_money import (
     is_reporting_przekazac_without_amount,
 )
 from pipeline.extraction_context import ExtractionContext
+from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.lemma_signals import lemma_set
 from pipeline.models import ArticleDocument, ClauseUnit, ClusterMention, EntityCluster, FundingFrame
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
@@ -23,6 +24,7 @@ from pipeline.utils import normalize_entity_name
 class PolishFundingFrameExtractor(FrameExtractor):
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
+        self.slot_grounder = FrameSlotGrounder(config)
 
     def name(self) -> str:
         return "polish_funding_frame_extractor"
@@ -30,7 +32,8 @@ class PolishFundingFrameExtractor(FrameExtractor):
     def run(self, document: ArticleDocument) -> ArticleDocument:
         document.funding_frames = []
         for clause in document.clause_units:
-            signal = _public_money_flow_signal(document, clause)
+            grounded_orgs = self.slot_grounder.ground_organization_mentions(document, clause)
+            signal = _public_money_flow_signal(document, clause, grounded_orgs)
             if signal is not None:
                 if signal.kind != PublicMoneyFlowKind.FUNDING:
                     continue

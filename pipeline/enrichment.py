@@ -7,6 +7,7 @@ from pipeline.base import EntityEnricher
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import PUBLIC_OFFICE_ROLE_KINDS
 from pipeline.domain_types import ClusterID, EntityID, EntityType, OrganizationKind
+from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
     ArticleDocument,
     ClusterMention,
@@ -73,6 +74,7 @@ class SharedEntityEnricher(EntityEnricher):
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
         self.organization_classifier = OrganizationMentionClassifier(config)
+        self.slot_grounder = FrameSlotGrounder(config)
 
     def name(self) -> str:
         return "shared_entity_enricher"
@@ -85,21 +87,7 @@ class SharedEntityEnricher(EntityEnricher):
         return document
 
     def _derive_missing_organizations(self, document: ArticleDocument) -> None:
-        existing_spans = {
-            (mention.sentence_index, mention.start_char, mention.end_char)
-            for cluster in document.clusters
-            for mention in cluster.mentions
-        }
-        existing_names = {cluster.normalized_name.casefold() for cluster in document.clusters}
-        for mention in self._derived_organization_mentions(document):
-            key = (mention.sentence_index, mention.start_char, mention.end_char)
-            if key in existing_spans:
-                continue
-            if mention.canonical_name.casefold() in existing_names:
-                continue
-            self._add_organization(document, mention)
-            existing_spans.add(key)
-            existing_names.add(mention.canonical_name.casefold())
+        self.slot_grounder.ensure_document_organizations(document)
 
     def _derived_organization_mentions(
         self,
@@ -428,18 +416,4 @@ class SharedEntityEnricher(EntityEnricher):
 
     @staticmethod
     def _refresh_clause_mentions(document: ArticleDocument) -> None:
-        by_sentence: dict[int, list[ClusterMention]] = {}
-        for cluster in document.clusters:
-            for mention in cluster.mentions:
-                by_sentence.setdefault(mention.sentence_index, []).append(mention)
-        for clause in document.clause_units:
-            seen = {
-                (mention.entity_id, mention.start_char, mention.end_char)
-                for mention in clause.cluster_mentions
-            }
-            for mention in by_sentence.get(clause.sentence_index, []):
-                key = (mention.entity_id, mention.start_char, mention.end_char)
-                if key in seen:
-                    continue
-                clause.cluster_mentions.append(mention)
-                seen.add(key)
+        FrameSlotGrounder.refresh_clause_mentions(document)

@@ -11,6 +11,7 @@ from pipeline.domain_lexicons import (
     PUBLIC_OFFICE_ROLE_KINDS,
 )
 from pipeline.domain_types import EntityType, FrameID, OrganizationKind, PublicEmploymentSignal
+from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -54,6 +55,7 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
 
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
+        self.slot_grounder = FrameSlotGrounder(config)
 
     def name(self) -> str:
         return "polish_public_employment_frame_extractor"
@@ -69,16 +71,14 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
             if employer is None or employee is None:
                 continue
             role_cluster = self._role_cluster(document, clause, employee)
-            if role_cluster is not None and self._is_public_office_role(role_cluster):
-                role_cluster = None
-            role_label = (
-                role_cluster.canonical_name
-                if role_cluster is not None
-                else self._role_label_near_employee(document, clause, employee)
-                or self._role_label(document, clause)
+            grounded_role = self.slot_grounder.ground_public_employment_role(
+                document,
+                clause,
+                employee=employee,
+                role_cluster=role_cluster,
             )
-            if self._invalid_role_label(role_label):
-                continue
+            role_label = grounded_role.label if grounded_role is not None else None
+            role_cluster_id = grounded_role.role_cluster_id if grounded_role is not None else None
             document.public_employment_frames.append(
                 PublicEmploymentFrame(
                     frame_id=FrameID(f"public-employment-frame-{uuid.uuid4().hex[:8]}"),
@@ -86,7 +86,7 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
                     employee_cluster_id=employee.cluster_id,
                     employer_cluster_id=employer.cluster_id,
                     role_label=role_label,
-                    role_cluster_id=role_cluster.cluster_id if role_cluster is not None else None,
+                    role_cluster_id=role_cluster_id,
                     confidence=0.78 if role_label is not None else 0.64,
                     evidence=[self._evidence(clause)],
                     extraction_signal=(

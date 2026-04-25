@@ -63,8 +63,14 @@ class InMemoryEntityLinker(EntityLinker):
             # Update entity name to the canonical form from the registry
             entry = self._registry.get(registry_id)
             if entry is not None:
-                entity.canonical_name = entry["canonical_name"]
-                entity.normalized_name = entry["canonical_name"]
+                preferred_canonical = self._preferred_registry_canonical(
+                    entity,
+                    entry["canonical_name"],
+                )
+                entity.canonical_name = preferred_canonical
+                entity.normalized_name = preferred_canonical
+                if preferred_canonical != entry["canonical_name"]:
+                    entry["canonical_name"] = preferred_canonical
 
         # Deduplicate: merge entities that resolved to the same registry_id
         document.entities, id_remap = self._deduplicate_by_registry(document.entities)
@@ -92,6 +98,22 @@ class InMemoryEntityLinker(EntityLinker):
                     )
 
         return self.canonicalizer.run(document)
+
+    def _preferred_registry_canonical(self, entity: Entity, registry_canonical: str) -> str:
+        if entity.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            return registry_canonical
+        candidates = [
+            registry_canonical,
+            entity.canonical_name,
+            entity.normalized_name,
+            *entity.aliases,
+        ]
+        if institution_canonical := self.canonicalizer._canonical_institution_name(
+            entity,
+            candidates,
+        ):
+            return institution_canonical
+        return self.canonicalizer._best_organization_name(entity, candidates)
 
     def _upsert_registry(
         self,
@@ -284,13 +306,16 @@ class InMemoryEntityLinker(EntityLinker):
         self._upsert_alias(registry_id, entity)
         return registry_id
 
-    @staticmethod
-    def _alias_search_names(entity: Entity) -> set[str]:
+    def _alias_search_names(self, entity: Entity) -> set[str]:
         primary_names = {
             name
             for name in {entity.canonical_name, entity.normalized_name}
             if "\n" not in name and "\r" not in name
         }
+        if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            primary_names = {
+                name for name in primary_names if self._is_specific_organization_alias(name)
+            }
         primary_tokens = {
             token.lower() for name in primary_names for token in name.split() if token
         }
@@ -300,13 +325,16 @@ class InMemoryEntityLinker(EntityLinker):
             if "\n" in alias or "\r" in alias:
                 continue
             alias_tokens = alias.split()
+            alias_allowed = True
             alias_is_component_acronym = (
                 has_multi_token_primary
                 and len(alias_tokens) == 1
                 and alias_tokens[0].lower() in primary_tokens
                 and alias_tokens[0].isupper()
             )
-            if not alias_is_component_acronym:
+            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+                alias_allowed = self._is_specific_organization_alias(alias)
+            if alias_allowed and not alias_is_component_acronym:
                 names.add(alias)
         return names
 
@@ -442,9 +470,52 @@ class InMemoryEntityLinker(EntityLinker):
             stored_lemmas = set(stored.get("lemmas", []))
             if current_lemmas and stored_lemmas and current_lemmas == stored_lemmas:
                 return 1.0
+            if entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+                current_bases = self._token_bases(current_tokens)
+                stored_bases = self._token_bases(stored_tokens)
+                overlap = current_bases & stored_bases
+                shorter_length = min(len(current_bases), len(stored_bases))
+                if shorter_length <= 2 and current_bases != stored_bases:
+                    return 0.0
+                if shorter_length >= 3 and len(overlap) < 3:
+                    return 0.0
 
         return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
 
     @staticmethod
     def _embedding_text(entity: Entity) -> str:
         return entity.normalized_name.strip()
+
+    def _token_bases(self, tokens: list[str]) -> set[str]:
+        return {self.canonicalizer._org_token_base(token.casefold()) for token in tokens if token}
+
+    def _is_specific_organization_alias(self, alias: str) -> bool:
+        tokens = [token for token in alias.split() if token]
+        if not tokens:
+            return False
+        if len(tokens) == 1:
+            token = tokens[0]
+            return token.isupper() or (
+                len(token) <= 4 and token[:1].isupper() and token[1:].islower()
+            )
+        bases = self._token_bases(tokens)
+        meaningful = {
+            base
+            for base in bases
+            if base
+            not in {
+                "biuro",
+                "fundacja",
+                "fundusz",
+                "instytut",
+                "ministerstwo",
+                "miasto",
+                "pogotowie",
+                "powiat",
+                "spółka",
+                "stowarzyszenie",
+                "urząd",
+                "województwo",
+            }
+        }
+        return len(meaningful) >= 2

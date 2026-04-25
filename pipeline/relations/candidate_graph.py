@@ -369,7 +369,11 @@ class CandidateGraphBuilder:
         existing_candidates: list[EntityCandidate],
     ) -> list[EntityCandidate]:
         sentence_text = sentence.text
-        occupied_entity_ids = {candidate.entity_id for candidate in existing_candidates}
+        occupied_entity_ids = {
+            candidate.entity_id
+            for candidate in existing_candidates
+            if candidate.sentence_index == sentence.sentence_index
+        }
         candidates: list[EntityCandidate] = []
         party_tokens = set(self.config.party_aliases.keys()).union(
             set(self.config.party_aliases.values())

@@ -10,6 +10,7 @@ from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType, FrameID, OrganizationKind
 from pipeline.extraction_context import ExtractionContext
+from pipeline.frame_grounding import FrameSlotGrounder, GroundedOrganizationMention
 from pipeline.lemma_signals import has_lemma, lemma_set, words_with_lemmas
 from pipeline.models import (
     ArticleDocument,
@@ -109,6 +110,7 @@ class PublicMoneyFlowSignal:
 class PolishPublicContractFrameExtractor(FrameExtractor):
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
+        self.slot_grounder = FrameSlotGrounder(config)
 
     def name(self) -> str:
         return "polish_public_contract_frame_extractor"
@@ -116,7 +118,8 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
     def run(self, document: ArticleDocument) -> ArticleDocument:
         document.public_contract_frames = []
         for clause in document.clause_units:
-            signal = _public_money_flow_signal(document, clause)
+            grounded_orgs = self.slot_grounder.ground_organization_mentions(document, clause)
+            signal = _public_money_flow_signal(document, clause, grounded_orgs)
             if (
                 signal is not None
                 and signal.kind == PublicMoneyFlowKind.PUBLIC_CONTRACT
@@ -506,6 +509,7 @@ def funding_recipient_score(cluster: EntityCluster) -> tuple[int, int, int]:
 def _public_money_flow_signal(
     document: ArticleDocument,
     clause: ClauseUnit,
+    grounded_orgs: list[GroundedOrganizationMention],
 ) -> PublicMoneyFlowSignal | None:
     amount_match = COMPENSATION_PATTERN.search(clause.text) or PUBLIC_MONEY_AMOUNT_PATTERN.search(
         clause.text
@@ -526,7 +530,7 @@ def _public_money_flow_signal(
     ) and not _has_explicit_public_money_noun(parsed_words, lowered):
         return None
 
-    org_clusters = _public_money_clusters(document, clause)
+    org_clusters = _public_money_clusters(document, clause, grounded_orgs)
     if len(org_clusters) < 2:
         return None
     payer = _public_money_payer(clause, org_clusters)
@@ -538,6 +542,12 @@ def _public_money_flow_signal(
         if _has_contract_money_signal(parsed_words, lowered)
         else PublicMoneyFlowKind.FUNDING
     )
+    if kind == PublicMoneyFlowKind.PUBLIC_CONTRACT and not _has_explicit_public_contract_evidence(
+        parsed_words,
+        lowered,
+        amount_text,
+    ):
+        return None
     amount_normalized = normalize_entity_name(amount_text.lower()) if amount_text else None
     confidence = 0.84 if amount_text else 0.7
     if kind == PublicMoneyFlowKind.PUBLIC_CONTRACT:
@@ -598,10 +608,32 @@ def _has_contract_money_signal(parsed_words: list[ParsedWord], lowered: str) -> 
     )
 
 
+def _has_explicit_public_contract_evidence(
+    parsed_words: list[ParsedWord],
+    lowered: str,
+    amount_text: str | None,
+) -> bool:
+    lemmas = lemma_set(parsed_words)
+    if any(marker in lowered for marker in ("za promowanie", "działań promocyjnych", "promocyjn")):
+        return True
+    if lemmas.intersection(CONTRACT_TRIGGER_LEMMAS):
+        return True
+    contract_markers = CONTRACT_TEXT_MARKERS | PUBLIC_MONEY_CONTRACT_TEXT_MARKERS
+    if any(marker in lowered for marker in contract_markers):
+        return True
+    return amount_text is not None and any(marker in lowered for marker in ("umow", "zamówie"))
+
+
 def _public_money_clusters(
     document: ArticleDocument,
     clause: ClauseUnit,
+    grounded_orgs: list[GroundedOrganizationMention],
 ) -> list[EntityCluster]:
+    cluster_ids = [
+        mention.cluster_id for mention in grounded_orgs if mention.cluster_id is not None
+    ]
+    if cluster_ids:
+        return [cluster for cluster in document.clusters if cluster.cluster_id in cluster_ids]
     return ExtractionContext.build(document).clusters_for_mentions(
         clause.cluster_mentions,
         {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},

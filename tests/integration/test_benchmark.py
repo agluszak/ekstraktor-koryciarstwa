@@ -856,10 +856,10 @@ def test_wp_opole_cross_office_family(
         "Dariusz Jurek",
     ):
         assert any(expected_name in e for e in entities), f"Should recover {expected_name}"
-    assert any("Opolsk" in e and "Urzęd" in e and "Wojewódzk" in e for e in entities) or any(
-        "OUW" in e for e in entities
-    ), "Should recover Opolski Urząd Wojewódzki"
-    assert any("Urzęd" in e and "Marszałkowsk" in e for e in entities) or any(
+    assert any(
+        "Opolsk" in e and ("Urząd" in e or "Urzęd" in e) and "Wojewódzk" in e for e in entities
+    ) or any("OUW" in e for e in entities), "Should recover Opolski Urząd Wojewódzki"
+    assert any(("Urząd" in e or "Urzęd" in e) and "Marszałkowsk" in e for e in entities) or any(
         "UMWO" in e for e in entities
     ), "Should recover Urząd Marszałkowski context"
 
@@ -907,7 +907,10 @@ def test_wp_opole_cross_office_family(
         or (
             "mąż" in get_entity_name(doc, f.get("subject_entity_id")).casefold()
             and (
-                "Urzęd" in get_entity_name(doc, f.get("object_entity_id"))
+                (
+                    "Urząd" in get_entity_name(doc, f.get("object_entity_id"))
+                    or "Urzęd" in get_entity_name(doc, f.get("object_entity_id"))
+                )
                 and "Marszałkowsk" in get_entity_name(doc, f.get("object_entity_id"))
             )
         )

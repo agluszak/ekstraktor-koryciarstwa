@@ -30,14 +30,43 @@ GENERIC_ORGANIZATION_TOKENS = frozenset(
     }
 )
 
+PREFERRED_ORGANIZATION_HEADS = frozenset(
+    {
+        "biuro",
+        "fundacja",
+        "fundusz",
+        "instytut",
+        "ministerstwo",
+        "miasto",
+        "pogotowie",
+        "powiat",
+        "spółka",
+        "stowarzyszenie",
+        "urząd",
+        "województwo",
+    }
+)
+
 NOISY_CANONICAL_TOKENS = frozenset(
     {
         "advertisement",
         "czytaj",
+        "dotyczące",
+        "dyrektora",
+        "działań",
+        "generalnego",
         "materiały",
         "newsletter",
+        "otrzymała",
+        "otrzymał",
+        "promocyjnych",
+        "przez",
         "reklama",
         "subskrybuj",
+        "takim",
+        "założona",
+        "założony",
+        "znaczeniu",
         "zobacz",
     }
 )
@@ -523,15 +552,27 @@ class DocumentEntityCanonicalizer:
             for name in self._candidate_name_parts(names)
             if compact_whitespace(name)
         ]
+        specific_candidates = [
+            candidate
+            for candidate in normalized
+            if not self._bare_organization_head_superseded(candidate, normalized)
+            and not self._weak_single_token_organization_superseded(candidate, normalized)
+        ]
+        if specific_candidates:
+            normalized = specific_candidates
         if not normalized:
             return entity.canonical_name
-        return max(normalized, key=lambda name: self._organization_name_score(entity, name))
+        return max(
+            normalized,
+            key=lambda name: self._organization_name_score(entity, name, normalized),
+        )
 
     def _organization_name_score(
         self,
         entity: Entity,
         name: str,
-    ) -> tuple[int, int, int, int, int, int]:
+        candidates: list[str],
+    ) -> tuple[int, int, int, int, int, int, int, int, int, int]:
         tokens = [token for token in name.split() if token]
         lower_tokens = {token.lower() for token in tokens}
         generic_count = len(lower_tokens & GENERIC_ORGANIZATION_TOKENS)
@@ -539,8 +580,16 @@ class DocumentEntityCanonicalizer:
         noisy_penalty = self._canonical_noise_score(name)
         inflection_penalty = self._organization_inflection_penalty(tokens)
         lemma_match_bonus = self._lemma_match_score(entity, name)
+        shape_bonus = self._organization_shape_bonus(name)
+        prefix_penalty = self._organization_prefix_junk_penalty(name, candidates)
+        foundation_penalty = self._foundation_public_body_penalty(tokens)
+        evidence_bonus = self._organization_evidence_bonus(entity, name)
         return (
             -noisy_penalty,
+            evidence_bonus,
+            shape_bonus,
+            -prefix_penalty,
+            -foundation_penalty,
             -generic_count,
             len(tokens),
             -inflection_penalty,
@@ -565,6 +614,8 @@ class DocumentEntityCanonicalizer:
         return str(max(normalized_candidates, key=self._party_name_score))
 
     def _canonical_institution_name(self, entity: Entity, names: list[str]) -> str | None:
+        if marshal_office := self._canonical_marshal_office_name(names):
+            return marshal_office
         primary_tokens = {
             token.lower()
             for name in (entity.canonical_name, entity.normalized_name)
@@ -588,6 +639,18 @@ class DocumentEntityCanonicalizer:
             canonical = self.institution_lookup.get(normalized.lower())
             if canonical is not None:
                 return canonical
+        return None
+
+    @staticmethod
+    def _canonical_marshal_office_name(names: list[str]) -> str | None:
+        normalized_names = [
+            normalize_entity_name(name).casefold() for name in names if compact_whitespace(name)
+        ]
+        if any(
+            "urząd marszałkowski" in name or "urzędu marszałkowskiego" in name
+            for name in normalized_names
+        ):
+            return "Urząd Marszałkowski"
         return None
 
     def _specific_acronym_organization_alias(self, names: list[str]) -> str | None:
@@ -702,6 +765,16 @@ class DocumentEntityCanonicalizer:
     def _org_token_base(cls, token: str) -> str:
         if len(token) <= 3:
             return token
+        if token.startswith(("urząd", "urzęd")):
+            return "urząd"
+        if token.startswith("fundacj"):
+            return "fundacja"
+        if token.startswith("stowarzyszen"):
+            return "stowarzyszenie"
+        if token.startswith("pogotowi"):
+            return "pogotowie"
+        if token.startswith("biur"):
+            return "biuro"
         if token.endswith("rze") and len(token) > 5:
             return f"{token[:-3]}r"
         for suffix, replacement in POLISH_ORG_INFLECTION_SUFFIXES:
@@ -711,6 +784,98 @@ class DocumentEntityCanonicalizer:
             if token.endswith(suffix) and len(token) - len(suffix) >= 3:
                 return token[: -len(suffix)]
         return token
+
+    @classmethod
+    def _organization_shape_bonus(cls, name: str) -> int:
+        bases = [
+            cls._org_token_base(token.lower().strip(".,;:")) for token in name.split() if token
+        ]
+        if not bases:
+            return 0
+        if bases[0] in PREFERRED_ORGANIZATION_HEADS:
+            return 2
+        if len(bases) >= 2 and bases[1] in PREFERRED_ORGANIZATION_HEADS:
+            return 2
+        return 0
+
+    @classmethod
+    def _organization_prefix_junk_penalty(cls, name: str, candidates: list[str]) -> int:
+        bases = [
+            cls._org_token_base(token.lower().strip(".,;:")) for token in name.split() if token
+        ]
+        penalty = 0
+        for candidate in candidates:
+            if candidate == name:
+                continue
+            candidate_bases = [
+                cls._org_token_base(token.lower().strip(".,;:"))
+                for token in candidate.split()
+                if token
+            ]
+            if len(candidate_bases) < 2 or len(candidate_bases) >= len(bases):
+                continue
+            if bases[: len(candidate_bases)] == candidate_bases:
+                penalty = max(penalty, len(bases) - len(candidate_bases))
+        return penalty
+
+    @classmethod
+    def _foundation_public_body_penalty(cls, tokens: list[str]) -> int:
+        if len(tokens) < 2:
+            return 0
+        head = cls._org_token_base(tokens[0].lower().strip(".,;:"))
+        second = tokens[1].lower().strip(".,;:")
+        if head not in {"fundacja", "stowarzyszenie"}:
+            return 0
+        if second.startswith(("kancelar", "minister", "urz", "fundusz", "instytut")):
+            return 2
+        return 0
+
+    @classmethod
+    def _bare_organization_head_superseded(cls, name: str, candidates: list[str]) -> bool:
+        tokens = [token for token in name.split() if token]
+        if len(tokens) != 1:
+            return False
+        head = cls._org_token_base(tokens[0].lower())
+        if head not in PREFERRED_ORGANIZATION_HEADS:
+            return False
+        return any(
+            other != name
+            and len(other.split()) > 1
+            and cls._org_token_base(other.split()[0].lower()) == head
+            for other in candidates
+        )
+
+    @staticmethod
+    def _weak_single_token_organization_superseded(name: str, candidates: list[str]) -> bool:
+        tokens = [token for token in name.split() if token]
+        if len(tokens) != 1:
+            return False
+        token = tokens[0].casefold()
+        if len(token) < 5 or token.isupper():
+            return False
+        return any(
+            other != name
+            and len(other.split()) > 1
+            and (
+                other.split()[0].casefold().startswith(token[:5])
+                or token.startswith(other.split()[0].casefold()[:5])
+            )
+            for other in candidates
+        )
+
+    @classmethod
+    def _organization_evidence_bonus(cls, entity: Entity, name: str) -> int:
+        normalized = name.casefold()
+        bonus = 0
+        for evidence in entity.evidence:
+            evidence_name = normalize_entity_name(evidence.text).casefold()
+            if not evidence_name:
+                continue
+            if evidence_name == normalized:
+                bonus += 2
+            elif normalized in evidence_name or evidence_name in normalized:
+                bonus += 1
+        return bonus
 
     @classmethod
     def _party_token_base(cls, token: str) -> str:

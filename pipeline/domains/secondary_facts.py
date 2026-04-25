@@ -884,65 +884,6 @@ def _is_quote_speaker_risk(
     )
 
 
-def _supports_party_fact(
-    context: SentenceContext,
-    person: EntityCandidate,
-    party: EntityCandidate,
-    governance_signal: bool,
-) -> bool:
-    distance = abs(person.start_char - party.start_char)
-    max_distance = 24 if governance_signal else 40
-    if distance > max_distance:
-        return False
-    window_start = max(0, min(person.start_char, party.start_char) - 8)
-    window_end = max(person.end_char, party.end_char) + 16
-    between_start = min(person.end_char, party.end_char)
-    between_end = max(person.start_char, party.start_char)
-    party_context_words = [
-        word
-        for word in context.parsed_words
-        if word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS
-        and window_start <= word.start <= window_end
-    ]
-    if party_context_words:
-        return governance_signal or any(
-            between_start <= word.start <= between_end for word in party_context_words
-        )
-    if not context.parsed_words:
-        party_window = context.lowered_text[window_start:window_end]
-        if any(marker in party_window for marker in PARTY_PROFILE_CONTEXT_LEMMAS):
-            return governance_signal
-    party_word = next(
-        (
-            word
-            for word in context.parsed_words
-            if word.start <= party.start_char < word.end
-            or party.start_char <= word.start < party.end_char
-        ),
-        None,
-    )
-    if party_word is None:
-        return False
-    person_words = [
-        word
-        for word in context.parsed_words
-        if person.start_char <= word.start < person.end_char
-        or word.start <= person.start_char < word.end
-    ]
-    if not person_words:
-        return False
-    if party_word.head:
-        head = next((word for word in context.parsed_words if word.index == party_word.head), None)
-        if head is not None and head.lemma.casefold() in PARTY_CONTEXT_LEMMAS:
-            if any(person_word.index == head.head for person_word in person_words):
-                return True
-            if any(person_word.head == head.index for person_word in person_words):
-                return True
-            return not governance_signal and abs(person.start_char - party.start_char) <= 24
-    preceding_text = context.sentence.text[max(0, party.start_char - 3) : party.start_char].lower()
-    return preceding_text.endswith(" z ")
-
-
 def _supports_office_fact(
     context: SentenceContext,
     person: EntityCandidate,

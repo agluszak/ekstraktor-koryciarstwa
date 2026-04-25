@@ -24,14 +24,13 @@ from pipeline.nlp_rules import (
     DISMISSAL_TRIGGER_TEXTS,
     PARTY_PROFILE_CONTEXT_LEMMAS,
 )
-from pipeline.utils import stable_id
-
-from .secondary_facts import (
+from pipeline.secondary_fact_utils import (
     POLITICAL_ROLE_NAMES,
     SecondaryFactScorer,
     _has_signal,
     build_secondary_fact,
 )
+from pipeline.utils import stable_id
 
 OMITTED_SUBJECT_PARTY_LEMMAS = frozenset(
     {"należeć", "członek", "członkini", "kandydować", "startować"}
@@ -57,7 +56,21 @@ class PoliticalProfileFactExtractor:
             APPOINTMENT_TRIGGER_TEXTS | DISMISSAL_TRIGGER_TEXTS,
         )
         for person in context.persons:
-            for party in context.outgoing("person-affiliated-party", person.candidate_id):
+            linked_party_ids: set[str] = set()
+            parties = [
+                *context.outgoing("person-affiliated-party", person.candidate_id),
+                *context.parties,
+            ]
+            for party in parties:
+                if party.candidate_id in linked_party_ids:
+                    continue
+                if context.edge_confidence(
+                    "person-affiliated-party",
+                    person.candidate_id,
+                    party.candidate_id,
+                ) is None and self._other_person_between(context, person, party):
+                    continue
+                linked_party_ids.add(party.candidate_id)
                 score = SecondaryFactScorer.party_membership(
                     context,
                     person,
@@ -134,6 +147,21 @@ class PoliticalProfileFactExtractor:
                 )
         return facts
 
+    @staticmethod
+    def _other_person_between(
+        context: SentenceContext,
+        person: EntityCandidate,
+        party: EntityCandidate,
+    ) -> bool:
+        left = min(person.end_char, party.end_char)
+        right = max(person.start_char, party.start_char)
+        return any(
+            candidate.candidate_id != person.candidate_id
+            and candidate.start_char >= left
+            and candidate.end_char <= right
+            for candidate in context.persons
+        )
+
 
 class CrossSentencePartyFactBuilder:
     def build_cross_sentence_party_facts(
@@ -190,8 +218,19 @@ class CrossSentencePartyFactBuilder:
             for person_candidate in previous_persons:
                 assert person_candidate.entity_id is not None
                 unique_previous_people.setdefault(person_candidate.entity_id, person_candidate)
-            if len(unique_previous_people) == 1 and has_omitted_subject_trigger:
-                person = next(iter(unique_previous_people.values()))
+            recent_persons = [
+                candidate
+                for candidate in candidates_by_sentence.get(sentence.sentence_index - 1, [])
+                if candidate.candidate_type == CandidateType.PERSON
+                and candidate.entity_id is not None
+                and candidate.paragraph_index == sentence.paragraph_index
+            ]
+            if has_omitted_subject_trigger and (recent_persons or len(unique_previous_people) == 1):
+                person = (
+                    max(recent_persons, key=lambda candidate: candidate.end_char)
+                    if recent_persons
+                    else next(iter(unique_previous_people.values()))
+                )
                 for party in parties:
                     facts.append(
                         self._party_fact(
