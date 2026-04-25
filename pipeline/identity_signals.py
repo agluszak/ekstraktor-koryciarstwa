@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pipeline.domain_context_helpers import ATTRIBUTION_SPEECH_LEMMAS
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA, PUBLIC_SUBJECT_ROLE_LEMMAS
 from pipeline.domain_types import EntityType, KinshipDetail
 from pipeline.models import ArticleDocument, EntityCluster, ParsedWord, SentenceFragment
@@ -9,21 +10,6 @@ from pipeline.utils import normalize_entity_name
 
 POSSESSIVE_LEMMAS = {"mój", "swój"}
 HONORIFIC_LEMMAS = {"pani"}
-SPEECH_LEMMAS = {
-    "mówić",
-    "powiedzieć",
-    "tłumaczyć",
-    "przekonywać",
-    "dodać",
-    "komentować",
-    "zaznaczyć",
-    "podkreślić",
-    "wyjaśnić",
-    "ocenić",
-    "przypomnieć",
-    "stwierdzić",
-    "odnieść",
-}
 
 
 @dataclass(slots=True)
@@ -399,7 +385,9 @@ def speaker_cluster_raw(
     sentence_index: int,
 ) -> EntityCluster | None:
     parsed = document.parsed_sentences.get(sentence_index, [])
-    speech_heads = {word.index for word in parsed if word.lemma.casefold() in SPEECH_LEMMAS}
+    speech_heads = {
+        word.index for word in parsed if word.lemma.casefold() in ATTRIBUTION_SPEECH_LEMMAS
+    }
     if not speech_heads:
         return None
     sentence = next(

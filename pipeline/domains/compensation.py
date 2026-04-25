@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
+from pipeline.domain_context_helpers import (
+    best_cluster_near_offset,
+    cluster_for_mention,
+    clusters_for_mentions,
+)
 from pipeline.domain_types import ClusterID, EntityType, FrameID
 from pipeline.domains.public_money import FUNDING_SURFACE_FALLBACKS
 from pipeline.extraction_context import ExtractionContext
@@ -12,7 +16,6 @@ from pipeline.lemma_signals import lemma_set
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
-    ClusterMention,
     CompensationFrame,
     EntityCluster,
     EvidenceSpan,
@@ -84,27 +87,27 @@ class PolishCompensationFrameExtractor(FrameExtractor):
         period = match.group("period")
         amount_start = clause.start_char + match.start("amount")
 
-        person_clusters = self._clusters_for_mentions(
+        person_clusters = clusters_for_mentions(
             document,
             clause.cluster_mentions,
             {EntityType.PERSON},
         )
-        role_clusters = self._clusters_for_mentions(
+        role_clusters = clusters_for_mentions(
             document,
             clause.cluster_mentions,
             {EntityType.POSITION},
         )
-        org_clusters = self._clusters_for_mentions(
+        org_clusters = clusters_for_mentions(
             document,
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
 
-        person_cluster = self._best_cluster_near_offset(person_clusters, amount_start)
-        role_cluster = self._best_cluster_near_offset(role_clusters, amount_start)
+        person_cluster = best_cluster_near_offset(person_clusters, amount_start)
+        role_cluster = best_cluster_near_offset(role_clusters, amount_start)
         if role_cluster is None:
             role_cluster = self._find_role_from_text(document, clause)
-        org_cluster = self._best_cluster_near_offset(org_clusters, amount_start)
+        org_cluster = best_cluster_near_offset(org_clusters, amount_start)
 
         context_reason = "same_clause"
         if person_cluster is None:
@@ -187,27 +190,12 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             or (not parsed_words and any(hint in lowered for hint in FUNDING_SURFACE_FALLBACKS))
         )
 
-    def _clusters_for_mentions(
-        self,
-        document: ArticleDocument,
-        mentions: Iterable[ClusterMention],
-        entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
-        return ExtractionContext.build(document).clusters_for_mentions(mentions, entity_types)
-
     @staticmethod
     def _find_cluster_for_mention(
-        mention_ref: ClusterMention,
+        mention_ref,
         document: ArticleDocument,
     ) -> EntityCluster | None:
-        return ExtractionContext.build(document).cluster_for_mention(mention_ref)
-
-    @staticmethod
-    def _best_cluster_near_offset(
-        clusters: list[EntityCluster],
-        offset: int,
-    ) -> EntityCluster | None:
-        return ExtractionContext.best_cluster_near_offset(clusters, offset)
+        return cluster_for_mention(document, mention_ref)
 
     @classmethod
     def _paragraph_context_cluster(
@@ -227,7 +215,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
                 for mention in cluster.mentions
             )
         ]
-        return cls._best_cluster_near_offset(candidates, offset)
+        return best_cluster_near_offset(candidates, offset)
 
     def _find_role_from_text(
         self,

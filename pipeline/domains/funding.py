@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
+from pipeline.domain_context_helpers import (
+    cluster_clause_distance,
+    clusters_for_mentions,
+    paragraph_context_clusters,
+)
 from pipeline.domain_types import EntityType, FrameID
 from pipeline.domains.public_money import (
     FUNDING_SURFACE_FALLBACKS,
@@ -16,7 +20,7 @@ from pipeline.domains.public_money import (
 from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.lemma_signals import lemma_set
-from pipeline.models import ArticleDocument, ClauseUnit, ClusterMention, EntityCluster, FundingFrame
+from pipeline.models import ArticleDocument, ClauseUnit, EntityCluster, FundingFrame
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
 from pipeline.utils import normalize_entity_name
 
@@ -74,13 +78,17 @@ class PolishFundingFrameExtractor(FrameExtractor):
         clause: ClauseUnit,
         amount_match,
     ) -> FundingFrame | None:
-        org_clusters = self._clusters_for_mentions(
+        org_clusters = clusters_for_mentions(
             document,
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
         if not org_clusters:
-            org_clusters = self._paragraph_context_clusters(document, clause)
+            org_clusters = paragraph_context_clusters(
+                document,
+                clause,
+                {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+            )
         if not org_clusters:
             return None
 
@@ -123,24 +131,6 @@ class PolishFundingFrameExtractor(FrameExtractor):
             lemmas.intersection(FUNDING_HINTS)
             or clause.trigger_head_lemma.lower() in FUNDING_HINTS
             or (not parsed_words and any(hint in lowered for hint in FUNDING_SURFACE_FALLBACKS))
-        )
-
-    def _clusters_for_mentions(
-        self,
-        document: ArticleDocument,
-        mentions: Iterable[ClusterMention],
-        entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
-        return ExtractionContext.build(document).clusters_for_mentions(mentions, entity_types)
-
-    @staticmethod
-    def _paragraph_context_clusters(
-        document: ArticleDocument,
-        clause: ClauseUnit,
-    ) -> list[EntityCluster]:
-        return ExtractionContext.build(document).paragraph_context_clusters(
-            clause,
-            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
 
     def _best_funder(
@@ -210,7 +200,7 @@ class PolishFundingFrameExtractor(FrameExtractor):
             return None
         return min(
             candidates,
-            key=lambda cluster: ExtractionContext.cluster_clause_distance(cluster, clause),
+            key=lambda cluster: cluster_clause_distance(cluster, clause),
         )
 
     @staticmethod

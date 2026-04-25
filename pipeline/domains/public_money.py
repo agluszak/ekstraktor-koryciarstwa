@@ -2,25 +2,32 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType, FrameID, OrganizationKind
+from pipeline.domain_context_helpers import clusters_for_mentions
+from pipeline.domain_types import EntityType, FrameID
 from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder, GroundedOrganizationMention
 from pipeline.lemma_signals import has_lemma, lemma_set, words_with_lemmas
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
-    ClusterMention,
     EntityCluster,
     ParsedWord,
     PublicContractFrame,
 )
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
+from pipeline.public_money_signals import (
+    cluster_after_or_near_trigger,
+    cluster_before_offset,
+    cluster_has_context_marker,
+    has_person_firm_context,
+    is_company_like_contractor,
+    is_public_counterparty,
+)
 from pipeline.utils import normalize_entity_name
 
 REPORTING_RECIPIENT_LEMMAS = frozenset({"my", "redakcja", "dziennikarz", "czytelnik"})
@@ -50,24 +57,6 @@ CONTRACT_TEXT_MARKERS = frozenset(
         "zawarł",
         "zawarła",
     }
-)
-PUBLIC_COUNTERPARTY_MARKERS = frozenset(
-    {
-        "gmina",
-        "miasto",
-        "urząd",
-        "miejski",
-        "miejska",
-        "miejskie",
-        "komunaln",
-        "publiczn",
-        "pec",
-        "bpk",
-        "przedsiębiorstwo komunalne",
-    }
-)
-CONTRACTOR_CONTEXT_MARKERS = frozenset(
-    {"firma", "firmy", "firmą", "spółka", "spółki", "spółką", "podmiot"}
 )
 FUNDING_SURFACE_FALLBACKS = frozenset(
     {"dotacj", "dofinansowa", "wyłożył", "wyłożyła", "wyłożyły", "sfinansowa", "pochłon"}
@@ -166,7 +155,7 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
         *,
         explicit_public_procurement: bool,
     ) -> list[PublicContractFrame]:
-        clusters = self._clusters_for_mentions(
+        clusters = clusters_for_mentions(
             document,
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION, EntityType.PERSON},
@@ -239,14 +228,6 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
             and "zamówień publicznych" in lowered
             and not any(marker in lowered for marker in ("kwot", "zł", "podpisa", "zawar"))
         )
-
-    def _clusters_for_mentions(
-        self,
-        document: ArticleDocument,
-        mentions: Iterable[ClusterMention],
-        entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
-        return ExtractionContext.build(document).clusters_for_mentions(mentions, entity_types)
 
     @staticmethod
     def _contract_trigger_offset(document: ArticleDocument, clause: ClauseUnit) -> int:
@@ -321,139 +302,6 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
             if is_public_counterparty(clause, cluster):
                 counterparties.append(cluster)
         return counterparties
-
-    @staticmethod
-    def _cluster_before_offset(
-        cluster: EntityCluster,
-        offset: int,
-        clause: ClauseUnit,
-    ) -> bool:
-        return cluster_before_offset(cluster, offset, clause)
-
-    @staticmethod
-    def _cluster_after_or_near_trigger(
-        cluster: EntityCluster,
-        offset: int,
-        clause: ClauseUnit,
-    ) -> bool:
-        return cluster_after_or_near_trigger(cluster, offset, clause)
-
-    @staticmethod
-    def _is_company_like_contractor(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-        return is_company_like_contractor(clause, cluster)
-
-    @staticmethod
-    def _is_public_counterparty(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-        return is_public_counterparty(clause, cluster)
-
-    @staticmethod
-    def _has_person_firm_context(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-        return has_person_firm_context(clause, cluster)
-
-    @staticmethod
-    def _cluster_has_context_marker(
-        clause: ClauseUnit,
-        cluster: EntityCluster,
-        markers: Iterable[str],
-        *,
-        before: int,
-        after: int,
-    ) -> bool:
-        return cluster_has_context_marker(clause, cluster, markers, before=before, after=after)
-
-
-def cluster_before_offset(
-    cluster: EntityCluster,
-    offset: int,
-    clause: ClauseUnit,
-) -> bool:
-    return any(
-        mention.sentence_index == clause.sentence_index and mention.start_char < offset
-        for mention in cluster.mentions
-    )
-
-
-def cluster_after_or_near_trigger(
-    cluster: EntityCluster,
-    offset: int,
-    clause: ClauseUnit,
-) -> bool:
-    return any(
-        mention.sentence_index == clause.sentence_index and mention.end_char >= offset - 12
-        for mention in cluster.mentions
-    )
-
-
-def is_company_like_contractor(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-    if cluster.organization_kind == OrganizationKind.COMPANY:
-        return True
-    lowered_name = cluster.normalized_name.lower()
-    if any(marker in lowered_name for marker in ("consulting", "group", "spół", "firma")):
-        return True
-    return cluster_has_context_marker(
-        clause,
-        cluster,
-        CONTRACTOR_CONTEXT_MARKERS,
-        before=18,
-        after=6,
-    )
-
-
-def is_public_counterparty(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-    if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
-        return True
-    if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
-        return True
-    lowered_name = cluster.normalized_name.lower()
-    if any(marker in lowered_name for marker in PUBLIC_COUNTERPARTY_MARKERS):
-        return True
-    if any(marker in clause.text.lower() for marker in ("miast", "gmin", "komunal")) and (
-        cluster_has_context_marker(
-            clause,
-            cluster,
-            {"spółką", "spółce", "spółka"},
-            before=12,
-            after=4,
-        )
-    ):
-        return True
-    return cluster_has_context_marker(
-        clause,
-        cluster,
-        PUBLIC_COUNTERPARTY_MARKERS,
-        before=18,
-        after=10,
-    )
-
-
-def has_person_firm_context(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-    return cluster_has_context_marker(
-        clause,
-        cluster,
-        {"firma", "firmy", "prowadzona przez", "prowadzonej przez", "należąca do"},
-        before=34,
-        after=6,
-    )
-
-
-def cluster_has_context_marker(
-    clause: ClauseUnit,
-    cluster: EntityCluster,
-    markers: Iterable[str],
-    *,
-    before: int,
-    after: int,
-) -> bool:
-    lowered = clause.text.lower()
-    for mention in cluster.mentions:
-        if mention.sentence_index != clause.sentence_index:
-            continue
-        start = max(0, mention.start_char - clause.start_char)
-        end = max(start, mention.end_char - clause.start_char)
-        window = lowered[max(0, start - before) : min(len(lowered), end + after)]
-        if any(marker in window for marker in markers):
-            return True
-    return False
 
 
 def is_reporting_przekazac_context(document: ArticleDocument, clause: ClauseUnit) -> bool:

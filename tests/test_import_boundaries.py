@@ -19,9 +19,13 @@ def _imports_for(path: Path) -> set[str]:
 
 def test_shared_grounding_modules_do_not_import_domains() -> None:
     for relative_path in (
+        "pipeline/domain_context_helpers.py",
+        "pipeline/entity_graph_remapper.py",
+        "pipeline/entity_name_policies.py",
         "pipeline/frame_grounding.py",
         "pipeline/secondary_fact_helpers.py",
         "pipeline/identity_signals.py",
+        "pipeline/public_money_signals.py",
     ):
         imports = _imports_for(REPO_ROOT / relative_path)
         assert not any(module.startswith("pipeline.domains") for module in imports), relative_path
@@ -29,14 +33,28 @@ def test_shared_grounding_modules_do_not_import_domains() -> None:
 
 def test_domain_modules_import_shared_helpers_from_non_domain_modules() -> None:
     expected_imports = {
-        "pipeline/domains/public_employment.py": "pipeline.frame_grounding",
-        "pipeline/domains/public_money.py": "pipeline.frame_grounding",
-        "pipeline/domains/funding.py": "pipeline.frame_grounding",
-        "pipeline/domains/political_profile.py": "pipeline.secondary_fact_helpers",
+        "pipeline/domains/anti_corruption.py": {
+            "pipeline.domain_context_helpers",
+            "pipeline.public_money_signals",
+        },
+        "pipeline/domains/compensation.py": {"pipeline.domain_context_helpers"},
+        "pipeline/domains/funding.py": {
+            "pipeline.domain_context_helpers",
+            "pipeline.frame_grounding",
+        },
+        "pipeline/domains/governance_frames.py": {"pipeline.domain_context_helpers"},
+        "pipeline/domains/political_profile.py": {"pipeline.secondary_fact_helpers"},
+        "pipeline/domains/public_employment.py": {"pipeline.frame_grounding"},
+        "pipeline/domains/public_money.py": {
+            "pipeline.domain_context_helpers",
+            "pipeline.frame_grounding",
+            "pipeline.public_money_signals",
+        },
     }
-    for relative_path, expected_module in expected_imports.items():
+    for relative_path, expected_modules in expected_imports.items():
         imports = _imports_for(REPO_ROOT / relative_path)
-        assert expected_module in imports, relative_path
+        for expected_module in expected_modules:
+            assert expected_module in imports, f"{relative_path}: missing {expected_module}"
 
 
 def test_relations_service_remains_domain_facing_facade() -> None:

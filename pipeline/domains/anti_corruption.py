@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
+from pipeline.domain_context_helpers import ATTRIBUTION_SPEECH_LEMMAS, clusters_for_mentions
 from pipeline.domain_lexicons import (
     ACCOUNTABILITY_INSTITUTION_MARKERS,
     INVESTIGATION_NOUN_LEMMAS,
@@ -14,7 +14,6 @@ from pipeline.domain_lexicons import (
     REFERRAL_TRIGGER_LEMMAS,
 )
 from pipeline.domain_types import EntityType, FrameID
-from pipeline.domains.public_money import is_public_counterparty
 from pipeline.extraction_context import ExtractionContext
 from pipeline.lemma_signals import lemma_set
 from pipeline.models import (
@@ -22,32 +21,14 @@ from pipeline.models import (
     AntiCorruptionReferralFrame,
     ArticleDocument,
     ClauseUnit,
-    ClusterMention,
     EntityCluster,
     EvidenceSpan,
     ParsedWord,
     PublicProcurementAbuseFrame,
 )
 from pipeline.nlp_rules import COMPENSATION_PATTERN
+from pipeline.public_money_signals import is_public_counterparty
 from pipeline.utils import normalize_entity_name
-
-SPEECH_LEMMAS = frozenset(
-    {
-        "mówić",
-        "powiedzieć",
-        "tłumaczyć",
-        "przekonywać",
-        "dodać",
-        "komentować",
-        "zaznaczyć",
-        "podkreślić",
-        "wyjaśnić",
-        "ocenić",
-        "przypomnieć",
-        "stwierdzić",
-        "odnieść",
-    }
-)
 
 
 class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
@@ -72,7 +53,7 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
     ) -> AntiCorruptionReferralFrame | None:
-        clusters = self._clusters_for_mentions(
+        clusters = clusters_for_mentions(
             document,
             clause.cluster_mentions,
             {
@@ -125,14 +106,6 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
         has_target = any(marker in lowered for marker in ACCOUNTABILITY_INSTITUTION_MARKERS)
         return has_target and has_noun and has_trigger
 
-    def _clusters_for_mentions(
-        self,
-        document: ArticleDocument,
-        mentions: Iterable[ClusterMention],
-        entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
-        return ExtractionContext.build(document).clusters_for_mentions(mentions, entity_types)
-
     @staticmethod
     def _target_institution(
         clause: ClauseUnit,
@@ -181,7 +154,9 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
             ):
                 return cluster
         if person_candidates:
-            speech_heads = {word.index for word in parsed if word.lemma.casefold() in SPEECH_LEMMAS}
+            speech_heads = {
+                word.index for word in parsed if word.lemma.casefold() in ATTRIBUTION_SPEECH_LEMMAS
+            }
             speaker_indices = {
                 word.index
                 for word in parsed
@@ -243,7 +218,7 @@ class PolishAntiCorruptionAbuseFrameExtractor(FrameExtractor):
         document.public_procurement_abuse_frames = []
         recent_public_actor: EntityCluster | None = None
         for clause in document.clause_units:
-            clusters = self._clusters_for_mentions(
+            clusters = clusters_for_mentions(
                 document,
                 clause.cluster_mentions,
                 {
@@ -271,14 +246,6 @@ class PolishAntiCorruptionAbuseFrameExtractor(FrameExtractor):
                 if frame is not None:
                     document.public_procurement_abuse_frames.append(frame)
         return document
-
-    def _clusters_for_mentions(
-        self,
-        document: ArticleDocument,
-        mentions: Iterable[ClusterMention],
-        entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
-        return ExtractionContext.build(document).clusters_for_mentions(mentions, entity_types)
 
     @staticmethod
     def _has_investigation_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
