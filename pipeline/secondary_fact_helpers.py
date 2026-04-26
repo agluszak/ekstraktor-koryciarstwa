@@ -13,15 +13,7 @@ from pipeline.domain_types import (
 from pipeline.extraction_context import SentenceContext
 from pipeline.lemma_signals import lemma_set
 from pipeline.models import ArticleDocument, EntityCandidate, Fact, ParsedWord
-from pipeline.relation_signals import (
-    between_candidates_text,
-    candidate_head_word,
-    candidate_words,
-    is_quote_speaker_risk,
-    party_context_window_supports,
-    party_syntactic_signal,
-    person_role_syntactic_signal,
-)
+from pipeline.relation_signals import is_quote_speaker_risk
 from pipeline.utils import stable_id
 
 POLITICAL_ROLE_NAMES = frozenset(
@@ -49,137 +41,7 @@ class SecondaryFactScore:
 
 
 class SecondaryFactScorer:
-    SYNTACTIC_DIRECT = 0.85
-    APPOSITIVE_CONTEXT = 0.78
-    DEPENDENCY_EDGE = 0.72
-    SAME_CLAUSE = 0.64
     SAME_SENTENCE = 0.55
-    SAME_PARAGRAPH = 0.42
-    BROAD_CONTEXT = 0.30
-
-    @classmethod
-    def party_membership(
-        cls,
-        context: SentenceContext,
-        person: EntityCandidate,
-        party: EntityCandidate,
-        *,
-        governance_signal: bool,
-    ) -> SecondaryFactScore | None:
-        edge_confidence = context.edge_confidence(
-            "person-affiliated-party",
-            person.candidate_id,
-            party.candidate_id,
-        )
-        syntactic_signal = _party_syntactic_signal(context, person, party)
-        distance = abs(person.start_char - party.start_char)
-
-        if syntactic_signal == "syntactic_direct":
-            confidence = max(cls.SYNTACTIC_DIRECT, edge_confidence or 0.0)
-            return cls._score(confidence, syntactic_signal, "same_sentence", "direct_party_edge")
-        if syntactic_signal == "appositive_context":
-            confidence = max(cls.APPOSITIVE_CONTEXT, edge_confidence or 0.0)
-            return cls._score(confidence, syntactic_signal, "same_sentence", "party_apposition")
-        if edge_confidence is not None:
-            confidence = max(cls.DEPENDENCY_EDGE, edge_confidence)
-            if governance_signal:
-                confidence -= 0.12
-            return cls._score(
-                confidence,
-                "dependency_edge",
-                "same_sentence",
-                "candidate_graph_party_edge",
-            )
-        if distance <= 40 and _party_context_window_supports(context, person, party):
-            confidence = cls.SAME_SENTENCE - (0.1 if governance_signal else 0.0)
-            return cls._score(confidence, "same_sentence", "same_sentence", "near_party_context")
-        return None
-
-    @classmethod
-    def political_office(
-        cls,
-        context: SentenceContext,
-        person: EntityCandidate,
-        role: EntityCandidate,
-        *,
-        governance_signal: bool,
-    ) -> SecondaryFactScore | None:
-        if person.is_proxy_person:
-            return None
-        edge_confidence = context.edge_confidence(
-            "person-has-role",
-            person.candidate_id,
-            role.candidate_id,
-        )
-        syntactic_signal = person_role_syntactic_signal(
-            parsed_words=context.parsed_words,
-            lowered_text=context.lowered_text,
-            person=person,
-            role=role,
-            sentence_persons=context.persons,
-        )
-        distance = abs(person.start_char - role.start_char)
-        if syntactic_signal == "syntactic_direct":
-            confidence = max(cls.SYNTACTIC_DIRECT, edge_confidence or 0.0)
-            if governance_signal:
-                confidence -= 0.08
-            return cls._score(
-                confidence,
-                syntactic_signal,
-                "same_sentence",
-                "direct_office_role",
-            )
-        if syntactic_signal == "appositive_context":
-            confidence = max(cls.APPOSITIVE_CONTEXT, edge_confidence or 0.0)
-            if governance_signal:
-                confidence -= 0.08
-            return cls._score(
-                confidence,
-                syntactic_signal,
-                "same_sentence",
-                "office_apposition",
-            )
-        if edge_confidence is not None and edge_confidence >= 0.72:
-            confidence = max(cls.DEPENDENCY_EDGE, edge_confidence)
-            if governance_signal:
-                confidence -= 0.1
-            return cls._score(
-                confidence,
-                "dependency_edge",
-                "same_sentence",
-                "person_role_edge",
-            )
-        if distance <= 20 and not governance_signal:
-            return cls._score(
-                cls.SAME_SENTENCE - 0.04, "same_sentence", "same_sentence", "near_title"
-            )
-        return None
-
-    @classmethod
-    def candidacy(
-        cls,
-        context: SentenceContext,
-        person: EntityCandidate,
-    ) -> SecondaryFactScore | None:
-        if person.is_proxy_person:
-            return None
-        lemmas = {word.lemma for word in context.parsed_words}
-        if not (
-            {"kandydować", "startować"}.intersection(lemmas)
-            or "kandydat" in context.lowered_text
-            or "wybory" in context.lowered_text
-        ):
-            return None
-        governing_words = [
-            word
-            for word in context.parsed_words
-            if word.lemma in {"kandydować", "startować"} or word.lemma == "kandydat"
-        ]
-        if "wybory" not in context.lowered_text and "kandydat" not in context.lowered_text:
-            return None
-        if any(abs(person.start_char - word.start) <= 28 for word in governing_words):
-            return cls._score(cls.DEPENDENCY_EDGE, "dependency_edge", "same_sentence", "candidacy")
-        return cls._score(cls.SAME_SENTENCE, "same_sentence", "same_sentence", "election_context")
 
     @classmethod
     def tie(
@@ -287,55 +149,6 @@ def _has_signal(
         parsed_lemmas.intersection(lemmas)
         or any(trigger in lowered_text for trigger in surface_triggers)
     )
-
-
-def _party_syntactic_signal(
-    context: SentenceContext,
-    person: EntityCandidate,
-    party: EntityCandidate,
-) -> str | None:
-    return party_syntactic_signal(
-        parsed_words=context.parsed_words,
-        sentence_text=context.sentence.text,
-        lowered_text=context.lowered_text,
-        person=person,
-        party=party,
-    )
-
-
-def _party_context_window_supports(
-    context: SentenceContext,
-    person: EntityCandidate,
-    party: EntityCandidate,
-) -> bool:
-    return party_context_window_supports(
-        parsed_words=context.parsed_words,
-        lowered_text=context.lowered_text,
-        person=person,
-        party=party,
-    )
-
-
-def _candidate_head_word(
-    parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
-) -> ParsedWord | None:
-    return candidate_head_word(parsed_words, candidate)
-
-
-def _candidate_words(
-    parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
-) -> list[ParsedWord]:
-    return candidate_words(parsed_words, candidate)
-
-
-def _between_candidates(
-    context: SentenceContext,
-    left: EntityCandidate,
-    right: EntityCandidate,
-) -> str:
-    return between_candidates_text(context.lowered_text, left, right)
 
 
 def _is_quote_speaker_risk(

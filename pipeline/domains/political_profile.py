@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pipeline.attribution import (
+    resolve_candidacy_score,
+    resolve_party_attributions,
+    resolve_political_role_attributions,
+)
 from pipeline.domain_types import (
     CandidateType,
     EntityID,
@@ -25,8 +30,6 @@ from pipeline.nlp_rules import (
     PARTY_PROFILE_CONTEXT_LEMMAS,
 )
 from pipeline.secondary_fact_helpers import (
-    POLITICAL_ROLE_NAMES,
-    SecondaryFactScorer,
     _has_signal,
     build_secondary_fact,
 )
@@ -45,8 +48,6 @@ OMITTED_SUBJECT_PARTY_MARKERS = (
 
 
 class PoliticalProfileFactExtractor:
-    POLITICAL_ROLE_NAMES = POLITICAL_ROLE_NAMES
-
     def extract(self, context: SentenceContext) -> list[Fact]:
         facts: list[Fact] = []
         governance_signal = _has_signal(
@@ -58,29 +59,11 @@ class PoliticalProfileFactExtractor:
         for person in context.persons:
             if person.is_proxy_person:
                 continue
-            linked_party_ids: set[str] = set()
-            parties = [
-                *context.outgoing("person-affiliated-party", person.candidate_id),
-                *context.parties,
-            ]
-            for party in parties:
-                if party.candidate_id in linked_party_ids:
-                    continue
-                if context.edge_confidence(
-                    "person-affiliated-party",
-                    person.candidate_id,
-                    party.candidate_id,
-                ) is None and self._other_person_between(context, person, party):
-                    continue
-                linked_party_ids.add(party.candidate_id)
-                score = SecondaryFactScorer.party_membership(
-                    context,
-                    person,
-                    party,
-                    governance_signal=governance_signal,
-                )
-                if score is None:
-                    continue
+            for attribution in resolve_party_attributions(
+                context,
+                person,
+                governance_signal=governance_signal,
+            ):
                 fact_type = (
                     FactType.FORMER_PARTY_MEMBERSHIP
                     if context.time_scope == TimeScope.FORMER
@@ -91,46 +74,39 @@ class PoliticalProfileFactExtractor:
                         document=context.document,
                         sentence_context=context,
                         fact_type=fact_type,
-                        subject=person,
-                        object_candidate=party,
-                        value_text=party.canonical_name,
-                        value_normalized=party.normalized_name,
-                        confidence=score.confidence,
-                        score=score,
+                        subject=attribution.person,
+                        object_candidate=attribution.party,
+                        value_text=attribution.party.canonical_name,
+                        value_normalized=attribution.party.normalized_name,
+                        confidence=attribution.score.confidence,
+                        score=attribution.score,
                         source_extractor="political_profile",
-                        party=party.canonical_name,
+                        party=attribution.party.canonical_name,
                     )
                 )
 
-            for role in context.outgoing("person-has-role", person.candidate_id):
-                role_name = role.normalized_name.lower()
-                if role_name not in self.POLITICAL_ROLE_NAMES:
-                    continue
-                score = SecondaryFactScorer.political_office(
-                    context,
-                    person,
-                    role,
-                    governance_signal=governance_signal,
-                )
-                if score is None:
-                    continue
+            for attribution in resolve_political_role_attributions(
+                context,
+                person,
+                governance_signal=governance_signal,
+            ):
                 facts.append(
                     build_secondary_fact(
                         document=context.document,
                         sentence_context=context,
                         fact_type=FactType.POLITICAL_OFFICE,
-                        subject=person,
-                        object_candidate=role,
-                        value_text=role.canonical_name,
-                        value_normalized=role.normalized_name,
-                        confidence=score.confidence,
-                        score=score,
+                        subject=attribution.person,
+                        object_candidate=attribution.role,
+                        value_text=attribution.role.canonical_name,
+                        value_normalized=attribution.role.normalized_name,
+                        confidence=attribution.score.confidence,
+                        score=attribution.score,
                         source_extractor="political_profile",
-                        office_type=role.canonical_name,
+                        office_type=attribution.role.canonical_name,
                     )
                 )
 
-            candidacy_score = SecondaryFactScorer.candidacy(context, person)
+            candidacy_score = resolve_candidacy_score(context, person)
             if candidacy_score is not None:
                 facts.append(
                     build_secondary_fact(
@@ -148,21 +124,6 @@ class PoliticalProfileFactExtractor:
                     )
                 )
         return facts
-
-    @staticmethod
-    def _other_person_between(
-        context: SentenceContext,
-        person: EntityCandidate,
-        party: EntityCandidate,
-    ) -> bool:
-        left = min(person.end_char, party.end_char)
-        right = max(person.start_char, party.start_char)
-        return any(
-            candidate.candidate_id != person.candidate_id
-            and candidate.start_char >= left
-            and candidate.end_char <= right
-            for candidate in context.persons
-        )
 
 
 class CrossSentencePartyFactBuilder:

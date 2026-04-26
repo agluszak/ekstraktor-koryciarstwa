@@ -1,5 +1,10 @@
 from dataclasses import dataclass
 
+from pipeline.attribution import (
+    resolve_party_attributions,
+    resolve_political_role_attributions,
+    resolve_public_employment_attribution,
+)
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
@@ -18,6 +23,7 @@ from pipeline.domain_types import (
     TimeScope,
 )
 from pipeline.enrichment import SharedEntityEnricher
+from pipeline.extraction_context import SentenceContext
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
     ArticleDocument,
@@ -192,6 +198,30 @@ def prepared_single_clause_document(
     return document
 
 
+def build_sentence_context(document: ArticleDocument) -> SentenceContext:
+    config = PipelineConfig.from_file("config.yaml")
+    candidate_graph = CandidateGraphBuilder(config).build(
+        document=document,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=document.parsed_sentences,
+    )
+    sentence = document.sentences[0]
+    sentence_candidates = [
+        candidate
+        for candidate in candidate_graph.candidates
+        if candidate.sentence_index == sentence.sentence_index
+    ]
+    return SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=document.parsed_sentences[sentence.sentence_index],
+        graph=candidate_graph,
+        candidates=sentence_candidates,
+        paragraph_candidates=sentence_candidates,
+        previous_candidates=[],
+    )
+
+
 def test_role_matcher_uses_wojewoda_lemma_for_inflected_surface() -> None:
     matches = match_role_mentions([word(1, "wojewodą", "wojewoda", 0)])
 
@@ -358,6 +388,65 @@ def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
         for clause in document.clause_units
         for mention in clause.cluster_mentions
     )
+
+
+def test_resolve_party_attributions_uses_shared_candidate_support() -> None:
+    document = prepared_single_clause_document(
+        document_id="doc-attribution-party",
+        text="Jan Kowalski z PSL zabrał głos.",
+        entities=[
+            ("Jan Kowalski", EntityType.PERSON, "Jan Kowalski"),
+            ("PSL", EntityType.ORGANIZATION, "PSL"),
+        ],
+        parsed_words=[
+            word(1, "Jan", "Jan", 0, head=4, deprel="nsubj", upos="PROPN"),
+            word(2, "Kowalski", "Kowalski", 4, head=1, deprel="flat", upos="PROPN"),
+            word(3, "z", "z", 13, head=4, deprel="case", upos="ADP"),
+            word(4, "PSL", "PSL", 15, head=1, deprel="nmod", upos="PROPN"),
+            word(5, "zabrał", "zabrać", 19, upos="VERB"),
+            word(6, "głos", "głos", 26, head=5, deprel="obj"),
+        ],
+    )
+
+    context = build_sentence_context(document)
+    person = next(
+        candidate for candidate in context.persons if candidate.canonical_name == "Jan Kowalski"
+    )
+
+    attributions = resolve_party_attributions(context, person, governance_signal=False)
+
+    assert len(attributions) == 1
+    assert attributions[0].party.canonical_name == "Polskie Stronnictwo Ludowe"
+
+
+def test_resolve_political_role_attributions_uses_shared_role_support() -> None:
+    document = prepared_single_clause_document(
+        document_id="doc-attribution-role",
+        text="Sekretarz Powiatu Joanna Pszczółkowska wydała decyzję.",
+        entities=[("Joanna Pszczółkowska", EntityType.PERSON, "Joanna Pszczółkowska")],
+        parsed_words=[
+            word(1, "Sekretarz", "sekretarz", 0, head=4, deprel="nsubj"),
+            word(2, "Powiatu", "powiat", 10, head=1, deprel="nmod"),
+            word(3, "Joanna", "Joanna", 18, head=1, deprel="appos", upos="PROPN"),
+            word(4, "Pszczółkowska", "Pszczółkowska", 25, head=3, deprel="flat", upos="PROPN"),
+            word(5, "wydała", "wydać", 39, upos="VERB"),
+            word(6, "decyzję", "decyzja", 46, head=5, deprel="obj"),
+        ],
+    )
+
+    context = build_sentence_context(document)
+    person = next(
+        candidate for candidate in context.persons if "Joanna" in candidate.canonical_name
+    )
+
+    attributions = resolve_political_role_attributions(
+        context,
+        person,
+        governance_signal=False,
+    )
+
+    assert len(attributions) == 1
+    assert attributions[0].role.canonical_name == "Sekretarz Powiatu"
 
 
 def test_proxy_person_does_not_emit_office_or_candidacy_facts() -> None:
@@ -2677,6 +2766,44 @@ def test_public_employment_frame_uses_proxy_employee_for_partner_job() -> None:
     assert document.public_employment_frames
     assert document.public_employment_frames[0].employee_cluster_id == ClusterID("cluster-0")
     assert document.public_employment_frames[0].role_label == "Ekodoradca"
+
+
+def test_public_employment_attribution_resolves_proxy_employee_and_role_cluster() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Partnerka wójta dostała pracę jako ekodoradca w Urzędzie Gminy."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-attribution-proxy",
+        text=text,
+        entities=[
+            ("Partnerka", EntityType.PERSON, "partnerka wójta"),
+            ("ekodoradca", EntityType.POSITION, "ekodoradca"),
+            ("Urzędzie Gminy", EntityType.PUBLIC_INSTITUTION, "Urząd Gminy"),
+        ],
+        parsed_words=[
+            word(1, "Partnerka", "partnerka", 0, head=3, deprel="nsubj"),
+            word(2, "wójta", "wójt", 10, head=1, deprel="nmod"),
+            word(3, "dostała", "dostać", 16, upos="VERB"),
+            word(4, "pracę", "praca", 24, head=3, deprel="obj"),
+            word(5, "jako", "jako", 30, head=6, deprel="case", upos="SCONJ"),
+            word(6, "ekodoradca", "ekodoradca", 35, head=3, deprel="xcomp"),
+            word(7, "w", "w", 46, head=8, deprel="case", upos="ADP"),
+            word(8, "Urzędzie", "urząd", 48, head=3, deprel="obl"),
+            word(9, "Gminy", "gmina", 56, head=8, deprel="nmod"),
+        ],
+    )
+    document.clusters[0].is_proxy_person = True
+
+    attribution = resolve_public_employment_attribution(
+        document,
+        document.clause_units[0],
+        config=config,
+    )
+
+    assert attribution is not None
+    assert attribution.employee.cluster_id == ClusterID("cluster-0")
+    assert attribution.role_cluster is not None
+    assert attribution.role_cluster.cluster_id == ClusterID("cluster-1")
+    assert attribution.employer.cluster_id == ClusterID("cluster-2")
 
 
 def test_public_employment_frame_extracts_copular_director_status() -> None:

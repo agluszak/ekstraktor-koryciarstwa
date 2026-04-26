@@ -15,21 +15,12 @@ from pipeline.domain_types import (
     CandidateType,
     EntityType,
     FactType,
-    OrganizationKind,
     RelationshipType,
 )
 from pipeline.extraction_context import SentenceContext
 from pipeline.models import EntityCandidate, Fact
-from pipeline.nlp_rules import (
-    BOARD_ROLE_KINDS,
-    BODY_CONTEXT_TERMS,
-    OFFICE_CANDIDACY_LEMMAS,
-    OWNER_CONTEXT_TERMS,
-    TARGET_CONTEXT_TERMS,
-    TIE_WORDS,
-)
+from pipeline.nlp_rules import TIE_WORDS
 from pipeline.secondary_fact_helpers import (
-    POLITICAL_ROLE_NAMES,
     SecondaryFactScore,
     SecondaryFactScorer,
     _is_quote_speaker_risk,
@@ -529,38 +520,6 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
     return None
 
 
-def _best_role_candidate(
-    context: SentenceContext,
-    person: EntityCandidate,
-) -> EntityCandidate | None:
-    roles = context.outgoing("person-has-role", person.candidate_id)
-    if not roles:
-        if context.positions:
-            return max(
-                context.positions,
-                key=lambda role: (
-                    _role_priority(role),
-                    -abs(person.start_char - role.start_char)
-                    if role.sentence_index == person.sentence_index
-                    else 0,
-                ),
-            )
-        return None
-    return max(
-        roles,
-        key=lambda role: (
-            _role_priority(role),
-            context.edge_confidence(
-                "person-has-role",
-                person.candidate_id,
-                role.candidate_id,
-            )
-            or 0.0,
-            -abs(person.start_char - role.start_char),
-        ),
-    )
-
-
 def _appointment_object_candidate(
     context: SentenceContext,
     subject: EntityCandidate,
@@ -602,184 +561,6 @@ def _appointment_object_candidate(
     return None
 
 
-def _best_org_candidate(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate | None,
-) -> EntityCandidate | None:
-    organization_pool = _candidate_organization_pool(context, person, role)
-    if organization_pool:
-        return max(
-            organization_pool,
-            key=lambda org: _organization_resolution_score(
-                context=context,
-                candidate=org,
-                role=role,
-                person=person,
-            ),
-        )
-    return None
-
-
-def _candidate_organization_pool(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate | None,
-) -> list[EntityCandidate]:
-    pooled: dict[str, EntityCandidate] = {}
-    if role is not None:
-        for candidate in context.outgoing("role-at-organization", role.candidate_id):
-            if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-                pooled[candidate.candidate_id] = candidate
-    for candidate in context.outgoing("person-org-context", person.candidate_id):
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-            pooled[candidate.candidate_id] = candidate
-    for candidate in context.paragraph_organizations:
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-            pooled[candidate.candidate_id] = candidate
-    return list(pooled.values())
-
-
-def _organization_priority(candidate: EntityCandidate) -> float:
-    normalized = candidate.normalized_name.lower()
-    kind = candidate.organization_kind
-    if kind == OrganizationKind.PUBLIC_INSTITUTION:
-        base = 0.9
-    elif kind == OrganizationKind.COMPANY:
-        base = 1.0
-    elif kind == OrganizationKind.GOVERNING_BODY:
-        base = 0.25
-    else:
-        base = 0.5
-    if normalized.startswith("zarząd") or normalized.startswith("rada"):
-        base -= 0.35
-    if "skarbu państwa" in normalized:
-        base -= 0.65
-    if any(term in normalized for term in OWNER_CONTEXT_TERMS):
-        base -= 0.25
-    if normalized.isupper() and len(normalized) <= 6:
-        base -= 0.2
-    if len(normalized.split()) == 1 and normalized.isalpha() and normalized.isupper():
-        base -= 0.1
-    return base + min(len(candidate.canonical_name), 40) / 200
-
-
-def _organization_resolution_score(
-    *,
-    context: SentenceContext,
-    candidate: EntityCandidate,
-    role: EntityCandidate | None,
-    person: EntityCandidate,
-) -> tuple[float, float, int]:
-    reference_start = role.start_char if role is not None else person.start_char
-    role_edge = (
-        context.edge_confidence("role-at-organization", role.candidate_id, candidate.candidate_id)
-        if role is not None
-        else None
-    )
-    person_edge = context.edge_confidence(
-        "person-org-context",
-        person.candidate_id,
-        candidate.candidate_id,
-    )
-    confidence = max(role_edge or 0.0, person_edge or 0.0)
-    priority = _organization_priority(candidate)
-    distance = abs(reference_start - candidate.start_char)
-    clause_bonus = _organization_clause_bonus(context, candidate, role, person)
-    if _is_target_like_org(candidate):
-        priority += 0.14
-    if _is_owner_like_org(candidate):
-        priority -= 0.2
-    if role is not None and candidate.start_char >= role.start_char:
-        priority += 0.06
-    if candidate.sentence_index != person.sentence_index:
-        priority -= 0.08
-    priority += clause_bonus
-    return (
-        confidence * 0.65 + priority * 0.35,
-        priority,
-        -distance,
-    )
-
-
-def _role_priority(candidate: EntityCandidate) -> float:
-    role_name = candidate.normalized_name.lower()
-    if role_name in POLITICAL_ROLE_NAMES:
-        return 0.2
-    if role_name in {role.value for role in BOARD_ROLE_KINDS}:
-        return 1.0 + min(len(role_name), 32) / 200
-    return 0.8 + min(len(role_name), 32) / 300
-
-
-def _supports_office_fact(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate,
-    governance_signal: bool,
-) -> bool:
-    distance = abs(person.start_char - role.start_char)
-    edge_confidence = (
-        context.edge_confidence(
-            "person-has-role",
-            person.candidate_id,
-            role.candidate_id,
-        )
-        or 0.0
-    )
-    if governance_signal:
-        return distance <= 28 or edge_confidence >= 0.72
-    return distance <= 48 or edge_confidence >= 0.6
-
-
-def _supports_candidacy(context: SentenceContext, person: EntityCandidate) -> bool:
-    lemmas = {word.lemma for word in context.parsed_words}
-    if not (
-        OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
-        or "kandydat" in context.lowered_text
-        or "wybory" in context.lowered_text
-    ):
-        return False
-    governing_words = [
-        word
-        for word in context.parsed_words
-        if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
-    ]
-    if "wybory" not in context.lowered_text and "kandydat" not in context.lowered_text:
-        return False
-    return any(abs(person.start_char - word.start) <= 28 for word in governing_words)
-
-
-def _is_target_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    if _is_body_like_org(candidate) or _is_owner_like_org(candidate):
-        return False
-    if candidate.organization_kind == OrganizationKind.COMPANY:
-        return True
-    return any(
-        term in normalized
-        for term in ("stadnin", "rewita", "tour", "wodociąg", "hotel", "port", "centrum", "spółk")
-    )
-
-
-def _is_owner_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    if "skarbu państwa" in normalized:
-        return True
-    if candidate.organization_kind == OrganizationKind.PUBLIC_INSTITUTION and any(
-        term in normalized for term in OWNER_CONTEXT_TERMS
-    ):
-        return True
-    return False
-
-
-def _is_body_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    kind = candidate.organization_kind
-    return kind == OrganizationKind.GOVERNING_BODY or any(
-        normalized.startswith(term) for term in BODY_CONTEXT_TERMS
-    )
-
-
 def _nearest_candidate(
     candidates: list[EntityCandidate],
     index: int,
@@ -787,31 +568,3 @@ def _nearest_candidate(
     if not candidates:
         return None
     return min(candidates, key=lambda candidate: abs(candidate.start_char - index))
-
-
-def _organization_clause_bonus(
-    context: SentenceContext,
-    candidate: EntityCandidate,
-    role: EntityCandidate | None,
-    person: EntityCandidate,
-) -> float:
-    reference = role or person
-    if candidate.sentence_index != reference.sentence_index:
-        return -0.06
-
-    local_start = min(reference.end_char, candidate.end_char)
-    local_end = max(reference.start_char, candidate.start_char)
-    between_text = context.lowered_text[local_start:local_end]
-    bonus = 0.0
-
-    if role is not None and candidate.start_char >= role.end_char:
-        bonus += 0.08
-    if between_text and "," not in between_text and len(between_text) <= 24:
-        bonus += 0.08
-    if any(term in candidate.normalized_name.lower() for term in TARGET_CONTEXT_TERMS):
-        bonus += 0.08
-    if any(term in between_text for term in OWNER_CONTEXT_TERMS):
-        bonus -= 0.14
-    if any(term in between_text for term in BODY_CONTEXT_TERMS):
-        bonus -= 0.1
-    return bonus
