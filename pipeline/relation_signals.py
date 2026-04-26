@@ -147,7 +147,8 @@ def supports_party_link(
     lowered_text = sentence_text.lower()
     distance = abs(person.start_char - party.start_char)
     if distance > 56:
-        return False
+        if not _supports_descriptive_tail_link(lowered_text, person, party):
+            return False
 
     preceding_text = lowered_text[max(0, party.start_char - 3) : party.start_char]
     if preceding_text.endswith(" z ") and distance <= 28:
@@ -161,6 +162,8 @@ def supports_party_link(
         window_before=24,
         window_after=24,
     ):
+        if _supports_descriptive_tail_link(lowered_text, person, party):
+            return distance <= 180
         return distance <= 36
 
     if (
@@ -174,6 +177,9 @@ def supports_party_link(
         is not None
     ):
         return distance <= 40
+
+    if _supports_descriptive_tail_link(lowered_text, person, party):
+        return distance <= 180
 
     return False
 
@@ -189,11 +195,14 @@ def person_role_syntactic_signal(
     if person.is_proxy_person and _candidate_contains(person, role):
         return None
 
-    if _other_person_between(person, role, sentence_persons):
-        return None
-
     between_text = between_candidates_text(lowered_text, person, role)
     if any(marker in between_text for marker in KINSHIP_CONTEXT_MARKERS):
+        return None
+
+    if _supports_descriptive_tail_link(lowered_text, person, role):
+        return "appositive_context"
+
+    if _other_person_between(person, role, sentence_persons):
         return None
 
     compact_between = between_text.strip(" \t,()[]\"'")
@@ -239,6 +248,9 @@ def supports_person_role_link(
     if person.is_proxy_person:
         return False
 
+    if _supports_descriptive_tail_link(lowered_text, person, role):
+        return distance <= 180
+
     if distance > 32:
         return False
 
@@ -267,3 +279,21 @@ def _other_person_between(
         and candidate.end_char <= between_end
         for candidate in sentence_persons
     )
+
+
+def _supports_descriptive_tail_link(
+    lowered_text: str,
+    person: EntityCandidate,
+    target: EntityCandidate,
+) -> bool:
+    if target.start_char <= person.end_char:
+        return False
+    prefix = lowered_text[: person.start_char].strip(" \t\"'([")
+    if prefix not in {"", "to"}:
+        return False
+    between_text = between_candidates_text(lowered_text, person, target)
+    if any(marker in between_text for marker in KINSHIP_CONTEXT_MARKERS):
+        return False
+    if not any(marker in between_text for marker in (" - ", " – ", " — ", ",")):
+        return False
+    return not any(marker in between_text for marker in (".", ";", "?", "!"))

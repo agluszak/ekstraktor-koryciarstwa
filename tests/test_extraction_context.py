@@ -1,6 +1,15 @@
+from unittest.mock import MagicMock
+
 from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType
-from pipeline.extraction_context import ExtractionContext
-from pipeline.models import ArticleDocument, ClauseUnit, ClusterMention, EntityCluster
+from pipeline.extraction_context import ExtractionContext, SentenceContext
+from pipeline.models import (
+    ArticleDocument,
+    CandidateGraph,
+    ClauseUnit,
+    ClusterMention,
+    EntityCluster,
+    SentenceFragment,
+)
 
 
 def test_clusters_for_mentions_matches_span_before_text_fallback() -> None:
@@ -124,3 +133,69 @@ def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
     )
 
     assert [cluster.cluster_id for cluster in clusters] == [ClusterID("near"), ClusterID("far")]
+
+
+def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date="2019-03-22",
+        cleaned_text="",
+        paragraphs=[],
+        sentences=[
+            SentenceFragment(
+                text="Jarosław Słoma od 25 lutego zajął nową funkcję.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=48,
+            )
+        ],
+    )
+    sentence = document.sentences[0]
+    context = SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=[],
+        graph=MagicMock(spec=CandidateGraph),
+        candidates=[],
+        paragraph_candidates=[],
+        previous_candidates=[],
+    )
+
+    assert context.event_date == "2019-02-25"
+
+
+def test_sentence_context_event_date_falls_back_to_publication_date() -> None:
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date="2019-03-22",
+        cleaned_text="",
+        paragraphs=[],
+        sentences=[
+            SentenceFragment(
+                text="Jarosław Słoma zajął nową funkcję.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=34,
+            )
+        ],
+    )
+    sentence = document.sentences[0]
+    context = SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=[],
+        graph=MagicMock(spec=CandidateGraph),
+        candidates=[],
+        paragraph_candidates=[],
+        previous_candidates=[],
+    )
+
+    assert context.event_date == "2019-03-22"

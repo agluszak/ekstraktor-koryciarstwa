@@ -16,7 +16,7 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.nlp_rules import FORMER_MARKERS
-from pipeline.utils import find_dates
+from pipeline.utils import extract_local_event_date
 
 
 @dataclass(slots=True)
@@ -318,7 +318,9 @@ class SentenceContext:
 
     @property
     def event_date(self) -> str | None:
-        return next(iter(find_dates(self.sentence.text)), self.document.publication_date)
+        return extract_local_event_date(self.sentence.text, self.document.publication_date) or (
+            self.document.publication_date
+        )
 
     @property
     def time_scope(self) -> TimeScope:

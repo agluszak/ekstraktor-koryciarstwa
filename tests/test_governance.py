@@ -238,6 +238,191 @@ def test_governance_event_detection_uses_lemma_for_rezygnacja() -> None:
     assert detected == EventType.DISMISSAL
 
 
+def test_resolve_people_recovers_previous_sentence_appointing_authority() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishGovernanceFrameExtractor(config)
+    previous_text = "Piotr Grzymowicz wybrał kandydata."
+    clause_text = "To Jarosław Słoma."
+    sentence_break = len(previous_text) + 1
+    authority = cluster(
+        "cluster-authority",
+        "Piotr Grzymowicz",
+        EntityType.PERSON,
+        sentence_index=0,
+        start_char=0,
+        end_char=16,
+    )
+    appointee = cluster(
+        "cluster-appointee",
+        "Jarosław Słoma",
+        EntityType.PERSON,
+        sentence_index=1,
+        start_char=sentence_break + 3,
+        end_char=sentence_break + 17,
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc-appointing-authority"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text=f"{previous_text} {clause_text}",
+        paragraphs=[f"{previous_text} {clause_text}"],
+        sentences=[
+            SentenceFragment(
+                text=previous_text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(previous_text),
+            ),
+            SentenceFragment(
+                text=clause_text,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=sentence_break,
+                end_char=sentence_break + len(clause_text),
+            ),
+        ],
+        clusters=[authority, appointee],
+        parsed_sentences={
+            0: [
+                parsed_word(1, "Piotr", "Piotr", 0, head=3, deprel="nsubj", upos="PROPN"),
+                parsed_word(2, "Grzymowicz", "Grzymowicz", 6, head=1, deprel="flat", upos="PROPN"),
+                parsed_word(3, "wybrał", "wybrać", 17, upos="VERB"),
+                parsed_word(4, "kandydata", "kandydat", 24, head=3, deprel="obj"),
+            ],
+            1: [
+                parsed_word(1, "To", "to", 0, head=2, deprel="expl"),
+                parsed_word(2, "Jarosław", "Jarosław", 3, head=0, deprel="root", upos="PROPN"),
+                parsed_word(3, "Słoma", "Słoma", 12, head=2, deprel="flat", upos="PROPN"),
+            ],
+        },
+    )
+    clause = ClauseUnit(
+        clause_id=ClauseID("clause-appointing-authority"),
+        text=clause_text,
+        trigger_head_text="Jarosław",
+        trigger_head_lemma="objąć",
+        sentence_index=1,
+        paragraph_index=0,
+        start_char=sentence_break,
+        end_char=sentence_break + len(clause_text),
+        cluster_mentions=[appointee.mentions[0]],
+    )
+
+    person_cluster_id, appointing_authority_id = extractor._resolve_people(
+        clause,
+        document,
+        [appointee],
+        EventType.APPOINTMENT,
+    )
+
+    assert person_cluster_id == appointee.cluster_id
+    assert appointing_authority_id == authority.cluster_id
+
+
+def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishGovernanceFrameExtractor(config)
+    previous_text = "Prezydent Piotr Grzymowicz mówi o kompetencjach."
+    chooser_text = "Prezydent stworzył nowe stanowisko, a kandydata wybrał sam."
+    clause_text = "To Jarosław Słoma."
+    first_break = len(previous_text) + 1
+    second_break = first_break + len(chooser_text) + 1
+    authority = cluster(
+        "cluster-authority",
+        "Piotr Grzymowicz",
+        EntityType.PERSON,
+        sentence_index=0,
+        start_char=10,
+        end_char=26,
+    )
+    appointee = cluster(
+        "cluster-appointee",
+        "Jarosław Słoma",
+        EntityType.PERSON,
+        sentence_index=2,
+        start_char=second_break + 3,
+        end_char=second_break + 17,
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc-titled-appointing-authority"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text=f"{previous_text} {chooser_text} {clause_text}",
+        paragraphs=[f"{previous_text} {chooser_text} {clause_text}"],
+        sentences=[
+            SentenceFragment(
+                text=previous_text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(previous_text),
+            ),
+            SentenceFragment(
+                text=chooser_text,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=first_break,
+                end_char=first_break + len(chooser_text),
+            ),
+            SentenceFragment(
+                text=clause_text,
+                paragraph_index=0,
+                sentence_index=2,
+                start_char=second_break,
+                end_char=second_break + len(clause_text),
+            ),
+        ],
+        clusters=[authority, appointee],
+        parsed_sentences={
+            0: [
+                parsed_word(1, "Prezydent", "prezydent", 0, head=4, deprel="nsubj"),
+                parsed_word(2, "Piotr", "Piotr", 10, head=1, deprel="appos", upos="PROPN"),
+                parsed_word(3, "Grzymowicz", "Grzymowicz", 16, head=2, deprel="flat", upos="PROPN"),
+                parsed_word(4, "mówi", "mówić", 27, upos="VERB"),
+            ],
+            1: [
+                parsed_word(1, "Prezydent", "prezydent", 0, head=2, deprel="nsubj"),
+                parsed_word(2, "stworzył", "stworzyć", 10, upos="VERB"),
+                parsed_word(3, "stanowisko", "stanowisko", 24, head=2, deprel="obj"),
+                parsed_word(4, "kandydata", "kandydat", 38, head=5, deprel="obj"),
+                parsed_word(5, "wybrał", "wybrać", 48, head=2, deprel="conj", upos="VERB"),
+                parsed_word(6, "sam", "sam", 55, head=5, deprel="obl"),
+            ],
+            2: [
+                parsed_word(1, "To", "to", 0, head=2, deprel="expl"),
+                parsed_word(2, "Jarosław", "Jarosław", 3, head=0, deprel="root", upos="PROPN"),
+                parsed_word(3, "Słoma", "Słoma", 12, head=2, deprel="flat", upos="PROPN"),
+            ],
+        },
+    )
+    clause = ClauseUnit(
+        clause_id=ClauseID("clause-titled-appointing-authority"),
+        text=clause_text,
+        trigger_head_text="Jarosław",
+        trigger_head_lemma="objąć",
+        sentence_index=2,
+        paragraph_index=0,
+        start_char=second_break,
+        end_char=second_break + len(clause_text),
+        cluster_mentions=[appointee.mentions[0]],
+    )
+
+    person_cluster_id, appointing_authority_id = extractor._resolve_people(
+        clause,
+        document,
+        [appointee],
+        EventType.APPOINTMENT,
+    )
+
+    assert person_cluster_id == appointee.cluster_id
+    assert appointing_authority_id == authority.cluster_id
+
+
 def test_target_resolver_prefers_company_over_ministry_owner() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
@@ -567,6 +752,142 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
     assert facts[0].value_text == "Wiceprezes"
     assert facts[0].position_entity_id == "position-1"
     assert facts[0].confidence == 0.8
+
+
+def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> None:
+    person = cluster(
+        "cluster-person",
+        "Jarosław Słoma",
+        EntityType.PERSON,
+        entity_id=EntityID("person-1"),
+    )
+    organization = cluster("cluster-org", "PWiK Olsztyn", entity_id=EntityID("org-1"))
+    role = cluster(
+        "cluster-role",
+        "Wiceprezes",
+        EntityType.POSITION,
+        entity_id=EntityID("position-1"),
+    )
+    doc = document([person, organization, role])
+    doc.publication_date = "2019-03-22"
+    doc.governance_frames = [
+        GovernanceFrame(
+            frame_id=FrameID("frame-date"),
+            event_type=EventType.APPOINTMENT,
+            person_cluster_id=person.cluster_id,
+            role_cluster_id=role.cluster_id,
+            target_org_cluster_id=organization.cluster_id,
+            confidence=0.9,
+            evidence=[
+                EvidenceSpan(
+                    text="Jarosław Słoma od 25 lutego zajął funkcję wiceprezesa PWiK Olsztyn.",
+                    paragraph_index=0,
+                )
+            ],
+        )
+    ]
+
+    facts = GovernanceFactBuilder().build(doc)
+
+    assert len(facts) == 1
+    assert facts[0].event_date == "2019-02-25"
+
+
+def test_governance_fact_builder_recovers_titled_appointing_authority_from_evidence() -> None:
+    person = cluster(
+        "cluster-person",
+        "Jarosław Słoma",
+        EntityType.PERSON,
+        sentence_index=0,
+        entity_id=EntityID("person-1"),
+    )
+    authority = cluster(
+        "cluster-authority",
+        "Piotr Grzymowicz",
+        EntityType.PERSON,
+        sentence_index=1,
+        start_char=114,
+        end_char=130,
+        entity_id=EntityID("person-2"),
+    )
+    organization = cluster(
+        "cluster-org",
+        "PWiK Olsztyn",
+        sentence_index=0,
+        start_char=90,
+        entity_id=EntityID("org-1"),
+    )
+    role = cluster(
+        "cluster-role",
+        "Wiceprezes",
+        EntityType.POSITION,
+        sentence_index=0,
+        start_char=60,
+        entity_id=EntityID("position-1"),
+    )
+    doc = document([person, authority, organization, role])
+    doc.sentences = [
+        SentenceFragment(
+            text="Jarosław Słoma od 25 lutego zajął funkcję wiceprezesa PWiK Olsztyn.",
+            paragraph_index=0,
+            sentence_index=0,
+            start_char=0,
+            end_char=66,
+        ),
+        SentenceFragment(
+            text=(
+                "WodKan mówi o ciągłości zarządzania, prezydent Piotr Grzymowicz "
+                "o wysokich kompetencjach nowego wiceprezesa."
+            ),
+            paragraph_index=0,
+            sentence_index=1,
+            start_char=67,
+            end_char=180,
+        ),
+    ]
+    doc.parsed_sentences = {
+        1: [
+            parsed_word(1, "WodKan", "WodKan", 0, head=2, deprel="nsubj", upos="PROPN"),
+            parsed_word(2, "mówi", "mówić", 7, upos="VERB"),
+            parsed_word(3, "prezydent", "prezydent", 37, head=2, deprel="conj"),
+            parsed_word(4, "Piotr", "Piotr", 47, head=3, deprel="appos", upos="PROPN"),
+            parsed_word(5, "Grzymowicz", "Grzymowicz", 53, head=4, deprel="flat", upos="PROPN"),
+        ]
+    }
+    doc.governance_frames = [
+        GovernanceFrame(
+            frame_id=FrameID("frame-authority"),
+            event_type=EventType.APPOINTMENT,
+            person_cluster_id=person.cluster_id,
+            role_cluster_id=role.cluster_id,
+            target_org_cluster_id=organization.cluster_id,
+            confidence=0.9,
+            evidence=[
+                EvidenceSpan(
+                    text="Jarosław Słoma od 25 lutego zajął funkcję wiceprezesa PWiK Olsztyn.",
+                    paragraph_index=0,
+                    sentence_index=0,
+                    start_char=0,
+                    end_char=66,
+                ),
+                EvidenceSpan(
+                    text=(
+                        "WodKan mówi o ciągłości zarządzania, prezydent Piotr Grzymowicz "
+                        "o wysokich kompetencjach nowego wiceprezesa."
+                    ),
+                    paragraph_index=0,
+                    sentence_index=1,
+                    start_char=67,
+                    end_char=180,
+                ),
+            ],
+        )
+    ]
+
+    facts = GovernanceFactBuilder().build(doc)
+
+    assert len(facts) == 1
+    assert facts[0].appointing_authority_entity_id == EntityID("person-2")
 
 
 def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:

@@ -362,21 +362,28 @@ Expectation:
 Expected core entities:
 - Jarosław Słoma
 - Przedsiębiorstwo Wodociągów i Kanalizacji w Olsztynie
-- WodKan
+- WodKan / PWiK as an organization alias for the same municipal utility
+- Piotr Grzymowicz as contextual appointing / political background, not the appointment target
 
 Expected facts:
 - Jarosław Słoma -> `APPOINTMENT` or `HOLDS_POSITION_AT` -> Przedsiębiorstwo Wodociągów i Kanalizacji w Olsztynie
   Expected role: `wiceprezes` / `zastępca prezesa`
 - Event date should preferably capture `25 lutego` if the parser can normalize it from context
 - The article should be treated as a municipal-company governance case
+- The "newly created function / stanowisko" cue should strengthen appointment confidence rather than be ignored as narrative context
+- PO / samorząd / radny wojewódzki mentions are contextual political-profile evidence; they are useful secondary signals but should not replace the core governance fact
 
 Important text cues:
 - "z wiceprezydenta na wiceprezesa"
 - "od 25 lutego zajął nową funkcję"
+- "świeżo utworzoną funkcję zastępcy prezesa"
+- "Prezydent w końcu stworzył nowe stanowisko wiceprezesa, a kandydata wybrał sam"
 - "Przedsiębiorstwo Wodociągów i Kanalizacji"
+- "WodKan"
 
 Expected comparison standard:
 - Even if the article body is thin, the title and metadata alone should be enough to recover a strong appointment signal.
+- Preferred quality bar: utility aliases should stay organization-typed, and the utility canonical should ideally include the Olsztyn grounding instead of stopping at the bare corporate name.
 
 ## 11. TVN24: Kolesiostwo i rozdawanie posad...
 

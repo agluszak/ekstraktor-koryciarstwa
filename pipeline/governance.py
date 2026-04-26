@@ -9,6 +9,7 @@ from pipeline.domain_lexicons import PUBLIC_OFFICE_ROLE_KINDS
 from pipeline.domain_types import (
     ClusterID,
     EntityID,
+    EntityType,
     EventType,
     FactID,
     FactType,
@@ -38,7 +39,7 @@ from pipeline.semantic_signals import (
     GOVERNANCE_TARGET_HEAD_MARKERS,
     OWNER_CONTEXT_EXTRA_TERMS,
 )
-from pipeline.utils import extract_role_from_text, stable_id
+from pipeline.utils import extract_local_event_date, extract_role_from_text, stable_id
 
 PARLIAMENTARY_REMUNERATION_FACT_MARKERS = frozenset(
     {
@@ -51,6 +52,12 @@ PARLIAMENTARY_REMUNERATION_FACT_MARKERS = frozenset(
         "zarab",
         "dochód",
     }
+)
+APPOINTING_AUTHORITY_TITLE_LEMMAS = frozenset(
+    {"prezydent", "burmistrz", "wójt", "wojt", "starosta", "marszałek", "wojewoda", "minister"}
+)
+APPOINTING_AUTHORITY_CUE_LEMMAS = frozenset(
+    {"powołać", "mianować", "nominować", "obsadzić", "wybrać", "wskazać"}
 )
 
 
@@ -501,6 +508,11 @@ class GovernanceFactBuilder:
         fact_type = (
             FactType.DISMISSAL if frame.event_type == EventType.DISMISSAL else FactType.APPOINTMENT
         )
+        appointing_authority_entity_id = (
+            EntityID(cluster_to_entity_id.get(frame.appointing_authority_cluster_id or "") or "")
+            if frame.appointing_authority_cluster_id
+            else self._recover_appointing_authority_entity_id(document, frame, cluster_to_entity_id)
+        )
 
         fact = Fact(
             fact_id=FactID(
@@ -520,7 +532,8 @@ class GovernanceFactBuilder:
             value_text=role_text,
             value_normalized=role_text.lower() if role_text else None,
             time_scope=TimeScope.CURRENT,
-            event_date=document.publication_date,
+            event_date=extract_local_event_date(evidence.text, document.publication_date)
+            or document.publication_date,
             confidence=frame.confidence,
             evidence=evidence,
             position_entity_id=EntityID(role_id) if role_id else None,
@@ -534,11 +547,7 @@ class GovernanceFactBuilder:
             )
             if frame.governing_body_cluster_id
             else None,
-            appointing_authority_entity_id=EntityID(
-                cluster_to_entity_id.get(frame.appointing_authority_cluster_id or "") or ""
-            )
-            if frame.appointing_authority_cluster_id
-            else None,
+            appointing_authority_entity_id=appointing_authority_entity_id,
             source_extractor="governance_frame",
         )
         if role_text:
@@ -582,6 +591,63 @@ class GovernanceFactBuilder:
             start_char=evidence[0].start_char,
             end_char=evidence[-1].end_char,
         )
+
+    def _recover_appointing_authority_entity_id(
+        self,
+        document: ArticleDocument,
+        frame: GovernanceFrame,
+        cluster_to_entity_id: dict[str, str],
+    ) -> EntityID | None:
+        if frame.event_type != EventType.APPOINTMENT:
+            return None
+        sentence_lookup = {sentence.sentence_index: sentence for sentence in document.sentences}
+        candidate_matches: list[tuple[float, int, int, str]] = []
+        for span in frame.evidence:
+            if span.sentence_index is None:
+                continue
+            sentence = sentence_lookup.get(span.sentence_index)
+            if sentence is None:
+                continue
+            parsed_words = document.parsed_sentences.get(span.sentence_index, [])
+            title_words = [
+                word
+                for word in parsed_words
+                if word.lemma.casefold() in APPOINTING_AUTHORITY_TITLE_LEMMAS
+            ]
+            if not title_words:
+                continue
+            chooser_present = any(
+                word.lemma.casefold() in APPOINTING_AUTHORITY_CUE_LEMMAS for word in parsed_words
+            )
+            for cluster in document.clusters:
+                if (
+                    cluster.entity_type != EntityType.PERSON
+                    or cluster.cluster_id == frame.person_cluster_id
+                ):
+                    continue
+                for mention in cluster.mentions:
+                    if mention.sentence_index != span.sentence_index:
+                        continue
+                    for title_word in title_words:
+                        title_start = sentence.start_char + title_word.start
+                        if not title_start - 4 <= mention.start_char <= title_start + 48:
+                            continue
+                        score = 2.5 if chooser_present else 1.2
+                        if mention.start_char >= title_start:
+                            score += 0.2
+                        score -= abs(mention.start_char - title_start) / 100
+                        candidate_matches.append(
+                            (
+                                -score,
+                                span.sentence_index,
+                                abs(mention.start_char - title_start),
+                                cluster_to_entity_id.get(cluster.cluster_id, ""),
+                            )
+                        )
+        if not candidate_matches:
+            return None
+        entity_id = min(candidate_matches)[3]
+        return EntityID(entity_id) if entity_id else None
 
     @classmethod
     def _deduplicate_governance_facts(cls, facts: list[Fact]) -> list[Fact]:

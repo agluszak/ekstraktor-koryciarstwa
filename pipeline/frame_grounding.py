@@ -82,6 +82,9 @@ DATE_ROLE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 ALL_CAPS_PATTERN = re.compile(r"\b[A-ZŁŚŻŹĆŃÓĘ]{2,6}\b")
+MIXED_CASE_ORG_ALIAS_PATTERN = re.compile(
+    r"\b[A-ZŁŚŻŹĆŃÓĘ][a-ząćęłńóśźż]{2,}[A-ZŁŚŻŹĆŃÓĘ][A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]{1,10}\b"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,6 +325,16 @@ class FrameSlotGrounder:
             ):
                 mentions.append(grounded)
 
+        for match in MIXED_CASE_ORG_ALIAS_PATTERN.finditer(sentence.text):
+            if grounded := self._ground_compact_org_alias(
+                document=document,
+                sentence=sentence,
+                alias=match.group(0),
+                local_start=match.start(),
+                local_end=match.end(),
+            ):
+                mentions.append(grounded)
+
         return self._deduplicate_grounded_mentions(mentions)
 
     def _ground_organization_surface(
@@ -460,6 +473,34 @@ class FrameSlotGrounder:
             synthetic=True,
         )
 
+    def _ground_compact_org_alias(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+        alias: str,
+        local_start: int,
+        local_end: int,
+    ) -> GroundedOrganizationMention | None:
+        existing_cluster = self._existing_cluster_for_compact_alias(document, sentence, alias)
+        if existing_cluster is None:
+            return None
+        return GroundedOrganizationMention(
+            surface=alias,
+            canonical_name=existing_cluster.canonical_name,
+            entity_type=existing_cluster.entity_type,
+            organization_kind=existing_cluster.organization_kind or OrganizationKind.ORGANIZATION,
+            evidence=SlotEvidence(
+                text=alias,
+                sentence_index=sentence.sentence_index,
+                paragraph_index=sentence.paragraph_index,
+                start_char=sentence.start_char + local_start,
+                end_char=sentence.start_char + local_end,
+            ),
+            cluster_id=existing_cluster.cluster_id,
+            synthetic=True,
+        )
+
     def _existing_canonical_for_acronym(
         self,
         document: ArticleDocument,
@@ -484,6 +525,28 @@ class FrameSlotGrounder:
             if initials.casefold() == normalized_acronym:
                 return candidate
         return None
+
+    def _existing_cluster_for_compact_alias(
+        self,
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+        alias: str,
+    ) -> EntityCluster | None:
+        candidates = [
+            cluster
+            for cluster in document.clusters
+            if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            and any(
+                mention.paragraph_index == sentence.paragraph_index for mention in cluster.mentions
+            )
+        ]
+        matches = [
+            (self._compact_alias_match_score(alias, cluster), cluster) for cluster in candidates
+        ]
+        ranked_matches = [(score, cluster) for score, cluster in matches if score > 0]
+        if not ranked_matches:
+            return None
+        return max(ranked_matches, key=lambda item: (item[0], len(item[1].canonical_name)))[1]
 
     def _canonical_name_for_grounding(
         self,
@@ -624,8 +687,7 @@ class FrameSlotGrounder:
             (
                 cluster
                 for cluster in document.clusters
-                if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
-                and any(
+                if any(
                     mention.sentence_index == grounded.evidence.sentence_index
                     and mention.start_char == grounded.evidence.start_char
                     and mention.end_char == grounded.evidence.end_char
@@ -634,10 +696,6 @@ class FrameSlotGrounder:
             ),
             None,
         )
-        if overlapping is not None and self._grounding_beats_existing(overlapping, grounded):
-            self._replace_cluster_canonical(document, overlapping, grounded)
-            self._append_alias_mention(document, overlapping, grounded)
-            return
         existing = next(
             (
                 cluster
@@ -647,6 +705,20 @@ class FrameSlotGrounder:
             ),
             None,
         )
+        if (
+            existing is not None
+            and overlapping is not None
+            and overlapping.cluster_id != existing.cluster_id
+            and overlapping.entity_type
+            not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+        ):
+            self._append_alias_mention(document, existing, grounded)
+            self._remove_cluster(document, overlapping)
+            return
+        if overlapping is not None and self._grounding_beats_existing(overlapping, grounded):
+            self._replace_cluster_canonical(document, overlapping, grounded)
+            self._append_alias_mention(document, overlapping, grounded)
+            return
         if existing is not None:
             self._append_alias_mention(document, existing, grounded)
             return
@@ -728,12 +800,38 @@ class FrameSlotGrounder:
         existing = cluster.canonical_name.casefold()
         candidate = grounded.canonical_name.casefold()
         if existing == candidate:
-            return False
+            return cluster.entity_type != grounded.entity_type and (
+                FrameSlotGrounder._looks_like_compact_org_alias(grounded.surface)
+            )
         if any(marker in existing for marker in ORGANIZATION_CANONICAL_NOISE_MARKERS):
             return True
         if len(existing.split()) > len(candidate.split()) + 2:
             return True
-        return candidate.startswith("urząd") and "urząd" in existing
+        if candidate.startswith("urząd") and "urząd" in existing:
+            return True
+        return cluster.entity_type == EntityType.PERSON and (
+            FrameSlotGrounder._looks_like_compact_org_alias(grounded.surface)
+        )
+
+    @staticmethod
+    def _remove_cluster(
+        document: ArticleDocument,
+        cluster: EntityCluster,
+    ) -> None:
+        entity_ids = {
+            mention.entity_id for mention in cluster.mentions if mention.entity_id is not None
+        }
+        document.clusters = [
+            item for item in document.clusters if item.cluster_id != cluster.cluster_id
+        ]
+        document.entities = [item for item in document.entities if item.entity_id not in entity_ids]
+        document.mentions = [item for item in document.mentions if item.entity_id not in entity_ids]
+        for clause in document.clause_units:
+            clause.cluster_mentions = [
+                mention
+                for mention in clause.cluster_mentions
+                if mention.entity_id not in entity_ids
+            ]
 
     @staticmethod
     def _replace_cluster_canonical(
@@ -822,6 +920,39 @@ class FrameSlotGrounder:
                 entity_id=entity_id,
             )
         )
+
+    @staticmethod
+    def _compact_alias_match_score(alias: str, cluster: EntityCluster) -> int:
+        if not FrameSlotGrounder._looks_like_compact_org_alias(alias):
+            return 0
+        lowered_alias = alias.casefold()
+        cluster_tokens = [
+            token.casefold()
+            for token in normalize_entity_name(cluster.canonical_name).split()
+            if len(token) >= 4
+        ]
+        if len(cluster_tokens) < 2:
+            return 0
+        matched_tokens = sum(
+            1
+            for token in cluster_tokens
+            if lowered_alias.startswith(token[:3])
+            or token[:3] in lowered_alias
+            or token[:4] in lowered_alias
+        )
+        if matched_tokens < 2:
+            return 0
+        kind_bonus = (
+            1
+            if cluster.organization_kind
+            in {OrganizationKind.COMPANY, OrganizationKind.PUBLIC_INSTITUTION}
+            else 0
+        )
+        return matched_tokens + kind_bonus
+
+    @staticmethod
+    def _looks_like_compact_org_alias(surface: str) -> bool:
+        return bool(MIXED_CASE_ORG_ALIAS_PATTERN.fullmatch(surface))
 
     @staticmethod
     def _deduplicate_grounded_mentions(

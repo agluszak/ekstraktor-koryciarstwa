@@ -67,6 +67,12 @@ PARLIAMENTARY_CONTEXT_MARKERS = frozenset(
         "prezydium sejmu",
     }
 )
+APPOINTING_AUTHORITY_LEMMAS = frozenset(
+    {"powołać", "mianować", "nominować", "obsadzić", "wybrać", "wskazać"}
+)
+APPOINTING_AUTHORITY_TITLE_LEMMAS = frozenset(
+    {"prezydent", "burmistrz", "wójt", "wojt", "starosta", "marszałek", "wojewoda", "minister"}
+)
 
 
 class PolishGovernanceFrameExtractor(FrameExtractor):
@@ -436,6 +442,20 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         authorities: list[ClusterID] = []
         person_cluster_ids = {cluster.cluster_id for cluster in person_clusters}
         speech_speaker_ids = self._speech_speaker_cluster_ids(clause, document, person_clusters)
+        current_sentence_ids = {
+            cluster.cluster_id
+            for cluster in person_clusters
+            if any(mention.sentence_index == clause.sentence_index for mention in cluster.mentions)
+        }
+        previous_authority_id = (
+            self._recover_recent_appointing_authority(
+                clause,
+                document,
+                excluded_cluster_ids=current_sentence_ids | speech_speaker_ids,
+            )
+            if event_type == EventType.APPOINTMENT
+            else None
+        )
         for mention in clause.cluster_mentions:
             cluster = next(
                 (
@@ -457,7 +477,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             appointee_id = self._first_non_speaker(appointees, speech_speaker_ids)
             if appointee_id is None:
                 appointee_id = appointees[0]
-            return appointee_id, authorities[0] if authorities else None
+            return appointee_id, authorities[0] if authorities else previous_authority_id
         if authorities and self._has_object_pronoun(document, clause):
             authority_ids = self._non_speaker_ids(authorities, speech_speaker_ids)
             previous_person = self._nearest_context_person(
@@ -520,7 +540,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             ]
         if not candidate_clusters:
             return None, None
-        return candidate_clusters[0].cluster_id, None
+        return candidate_clusters[0].cluster_id, previous_authority_id
 
     @staticmethod
     def _cluster_has_dismissal_subject_signal(
@@ -667,6 +687,179 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             key=lambda cluster: cluster_clause_distance(cluster, clause),
         )
 
+    def _previous_sentence_appointing_authority(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        *,
+        excluded_cluster_ids: set[ClusterID],
+    ) -> ClusterID | None:
+        previous_sentence_index = clause.sentence_index - 1
+        if previous_sentence_index < 0:
+            return None
+        previous_sentence = next(
+            (
+                sentence
+                for sentence in document.sentences
+                if sentence.sentence_index == previous_sentence_index
+                and sentence.paragraph_index == clause.paragraph_index
+            ),
+            None,
+        )
+        if previous_sentence is None:
+            return None
+        parsed_words = document.parsed_sentences.get(previous_sentence_index, [])
+        chooser_heads = {
+            word.index
+            for word in parsed_words
+            if word.lemma.casefold() in APPOINTING_AUTHORITY_LEMMAS
+        }
+        if not chooser_heads:
+            return None
+        subject_indices = {
+            word.index
+            for word in parsed_words
+            if word.head in chooser_heads and word.deprel.startswith("nsubj")
+        }
+        if not subject_indices:
+            return None
+        candidates = [
+            cluster
+            for cluster in document.clusters
+            if cluster.entity_type == EntityType.PERSON
+            and cluster.cluster_id not in excluded_cluster_ids
+            and self._cluster_has_sentence_word_indices(
+                previous_sentence.start_char,
+                previous_sentence_index,
+                cluster,
+                parsed_words,
+                subject_indices,
+            )
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda cluster: len(cluster.canonical_name)).cluster_id
+
+    def _recover_recent_appointing_authority(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        *,
+        excluded_cluster_ids: set[ClusterID],
+    ) -> ClusterID | None:
+        previous_authority = self._previous_sentence_appointing_authority(
+            clause,
+            document,
+            excluded_cluster_ids=excluded_cluster_ids,
+        )
+        if previous_authority is not None:
+            return previous_authority
+        title_lemmas = self._chooser_subject_title_lemmas(clause, document)
+        if not title_lemmas and clause.sentence_index > 0:
+            title_lemmas = self._chooser_subject_title_lemmas_for_sentence(
+                clause.sentence_index - 1,
+                document,
+            )
+        if not title_lemmas:
+            return None
+        return self._recent_titled_appointing_authority(
+            clause,
+            document,
+            excluded_cluster_ids=excluded_cluster_ids,
+            title_lemmas=title_lemmas,
+        )
+
+    @staticmethod
+    def _chooser_subject_title_lemmas(
+        clause: ClauseUnit,
+        document: ArticleDocument,
+    ) -> set[str]:
+        return PolishGovernanceFrameExtractor._chooser_subject_title_lemmas_for_sentence(
+            clause.sentence_index,
+            document,
+        )
+
+    @staticmethod
+    def _chooser_subject_title_lemmas_for_sentence(
+        sentence_index: int,
+        document: ArticleDocument,
+    ) -> set[str]:
+        parsed_words = document.parsed_sentences.get(sentence_index, [])
+        chooser_heads = {
+            word.index
+            for word in parsed_words
+            if word.lemma.casefold() in APPOINTING_AUTHORITY_LEMMAS
+        }
+        if not chooser_heads:
+            return set()
+        governing_heads = chooser_heads | {
+            word.head
+            for word in parsed_words
+            if word.index in chooser_heads and word.deprel == "conj"
+        }
+        return {
+            word.lemma.casefold()
+            for word in parsed_words
+            if word.deprel.startswith("nsubj")
+            and word.head in governing_heads
+            and word.lemma.casefold() in APPOINTING_AUTHORITY_TITLE_LEMMAS
+        }
+
+    def _recent_titled_appointing_authority(
+        self,
+        clause: ClauseUnit,
+        document: ArticleDocument,
+        *,
+        excluded_cluster_ids: set[ClusterID],
+        title_lemmas: set[str],
+    ) -> ClusterID | None:
+        candidate_matches: list[tuple[int, int, int, ClusterID]] = []
+        min_sentence_index = max(0, clause.sentence_index - 4)
+        for sentence in document.sentences:
+            if (
+                sentence.sentence_index < min_sentence_index
+                or sentence.sentence_index >= clause.sentence_index
+            ):
+                continue
+            if clause.paragraph_index - sentence.paragraph_index > 1:
+                continue
+            parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+            title_words = [
+                word for word in parsed_words if word.lemma.casefold() in title_lemmas
+            ]
+            if not title_words:
+                continue
+            for title_word in title_words:
+                title_start = sentence.start_char + title_word.start
+                for cluster in document.clusters:
+                    if cluster.entity_type != EntityType.PERSON:
+                        continue
+                    if cluster.cluster_id in excluded_cluster_ids:
+                        continue
+                    sentence_mentions = [
+                        mention
+                        for mention in cluster.mentions
+                        if mention.sentence_index == sentence.sentence_index
+                        and title_start - 4 <= mention.start_char <= title_start + 48
+                    ]
+                    if not sentence_mentions:
+                        continue
+                    mention = min(
+                        sentence_mentions,
+                        key=lambda item: abs(item.start_char - title_start),
+                    )
+                    candidate_matches.append(
+                        (
+                            clause.sentence_index - sentence.sentence_index,
+                            clause.paragraph_index - sentence.paragraph_index,
+                            abs(mention.start_char - title_start),
+                            cluster.cluster_id,
+                        )
+                    )
+        if not candidate_matches:
+            return None
+        return min(candidate_matches)[3]
+
     @staticmethod
     def _has_object_pronoun(document: ArticleDocument, clause: ClauseUnit) -> bool:
         object_pronouns = {"go", "ją", "je", "ich", "jego", "jej"}
@@ -675,3 +868,22 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             and (word.deprel.startswith("obj") or word.deprel in {"iobj", "obl"})
             for word in document.parsed_sentences.get(clause.sentence_index, [])
         )
+
+    @staticmethod
+    def _cluster_has_sentence_word_indices(
+        sentence_start_char: int,
+        sentence_index: int,
+        cluster: EntityCluster,
+        parsed: list[ParsedWord],
+        indices: set[int],
+    ) -> bool:
+        if not indices:
+            return False
+        for mention in cluster.mentions:
+            if mention.sentence_index != sentence_index:
+                continue
+            for word in parsed:
+                abs_start = sentence_start_char + word.start
+                if word.index in indices and mention.start_char <= abs_start < mention.end_char:
+                    return True
+        return False

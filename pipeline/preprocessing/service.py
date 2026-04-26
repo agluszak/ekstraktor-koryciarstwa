@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from html import unescape
 
 import trafilatura
@@ -26,8 +27,12 @@ class TrafilaturaPreprocessor(Preprocessor):
     def run(self, data: PipelineInput) -> ArticleDocument:
         soup = BeautifulSoup(data.raw_html, "html.parser")
         title = self._extract_title(soup)
-        publication_date = data.publication_date or self._extract_publication_date(soup)
         metadata = self._extract_metadata_blocks(data.raw_html, soup)
+        publication_date = (
+            data.publication_date
+            or self._extract_publication_date(soup)
+            or metadata.get("publication_date")
+        )
         trafilatura_paragraphs = self._extract_trafilatura_paragraphs(data.raw_html)
         paragraphs, content_source, quality_flags = self._build_paragraphs(
             title=title,
@@ -171,16 +176,56 @@ class TrafilaturaPreprocessor(Preprocessor):
         field_map = {
             "description": ("description", "abstract"),
             "lead": ("lead", "text_paragraph_lead"),
-            "body": ("articleBody", "body", "text"),
+            "body": ("articleBody", "body", "text", "text_paragraph_standard"),
+            "publication_date": (
+                "publication_start_dt",
+                "release_date_dt",
+                "datePublished",
+                "dateCreated",
+                "dateModified",
+            ),
         }
         for target, candidates in field_map.items():
             if target in metadata:
                 continue
             for candidate in candidates:
                 value = payload.get(candidate)
-                if isinstance(value, str) and compact_whitespace(value):
-                    metadata[target] = compact_whitespace(unescape(value))
+                normalized = TrafilaturaPreprocessor._metadata_value_as_text(value)
+                if normalized:
+                    metadata[target] = normalized
                     break
+
+    @staticmethod
+    def _metadata_value_as_text(value: object) -> str | None:
+        if isinstance(value, str):
+            normalized = TrafilaturaPreprocessor._normalize_metadata_text(value)
+            return normalized if compact_whitespace(normalized) else None
+        if isinstance(value, list):
+            paragraphs: list[str] = []
+            for item in value:
+                text = TrafilaturaPreprocessor._metadata_block_text(item)
+                if text:
+                    paragraphs.append(text)
+            if paragraphs:
+                return "\n\n".join(paragraphs)
+        return None
+
+    @staticmethod
+    def _metadata_block_text(block: object) -> str | None:
+        if not isinstance(block, Mapping):
+            return None
+        for key, value in block.items():
+            if key != "text" or not isinstance(value, str):
+                continue
+            normalized = TrafilaturaPreprocessor._normalize_metadata_text(value)
+            return normalized if compact_whitespace(normalized) else None
+        return None
+
+    @staticmethod
+    def _normalize_metadata_text(text: str) -> str:
+        decoded = unescape(text.replace("\\n", "\n"))
+        stripped = BeautifulSoup(decoded, "html.parser").get_text("\n")
+        return stripped.replace("\xa0", " ").strip()
 
     def _metadata_recovery_paragraphs(self, metadata: dict[str, str], title: str) -> list[str]:
         paragraphs: list[str] = []

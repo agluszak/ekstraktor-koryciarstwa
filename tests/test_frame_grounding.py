@@ -256,3 +256,62 @@ def test_role_grounder_rejects_generic_date_dominated_phrase() -> None:
     )
 
     assert grounded is None
+
+
+def test_shared_grounding_retypes_compact_company_alias_to_existing_organization() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Przedsiębiorstwo Wodociągów i Kanalizacji informuje, że WodKan zachowa "
+        "ciągłość zarządzania."
+    )
+    document = _document(
+        text,
+        entities=[
+            (
+                "Przedsiębiorstwo Wodociągów i Kanalizacji",
+                EntityType.ORGANIZATION,
+                "Przedsiębiorstwo Wodociągów i Kanalizacji",
+            ),
+            ("WodKan", EntityType.PERSON, "WodKan"),
+        ],
+        parsed_words=[
+            _word(1, "Przedsiębiorstwo", "przedsiębiorstwo", 0),
+            _word(2, "Wodociągów", "wodociąg", text.index("Wodociągów"), head=1, deprel="nmod"),
+            _word(3, "i", "i", text.index(" i "), head=2, deprel="cc", upos="CCONJ"),
+            _word(
+                4,
+                "Kanalizacji",
+                "kanalizacja",
+                text.index("Kanalizacji"),
+                head=2,
+                deprel="conj",
+            ),
+            _word(5, "informuje", "informować", text.index("informuje"), upos="VERB"),
+            _word(
+                6,
+                "WodKan",
+                "WodKan",
+                text.index("WodKan"),
+                head=7,
+                deprel="nsubj",
+                upos="PROPN",
+            ),
+            _word(7, "zachowa", "zachować", text.index("zachowa"), upos="VERB"),
+        ],
+    )
+
+    SharedEntityEnricher(config).run(document)
+
+    company_clusters = [
+        cluster
+        for cluster in document.clusters
+        if cluster.entity_type == EntityType.ORGANIZATION
+        and cluster.canonical_name == "Przedsiębiorstwo Wodociągów i Kanalizacji"
+    ]
+
+    assert len(company_clusters) == 1
+    assert "WodKan" in company_clusters[0].aliases
+    assert not any(
+        cluster.entity_type == EntityType.PERSON and cluster.canonical_name == "WodKan"
+        for cluster in document.clusters
+    )

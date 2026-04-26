@@ -1085,6 +1085,95 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
     }
 
 
+def test_appositive_profile_tail_links_leading_person_despite_intervening_name() -> None:
+    text = (
+        "Jarosław Słoma - ostatnio zastępca Piotra Grzymowicza, działacz PO w regionie, "
+        "a po wyborach również radny wojewódzki."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-appositive-profile-tail",
+        text=text,
+        entities=[
+            ("Jarosław Słoma", EntityType.PERSON, "Jarosław Słoma"),
+            ("Piotra Grzymowicza", EntityType.PERSON, "Piotr Grzymowicz"),
+        ],
+        parsed_words=[
+            word(
+                1,
+                "Jarosław",
+                "Jarosław",
+                text.index("Jarosław"),
+                head=2,
+                deprel="flat",
+                upos="PROPN",
+            ),
+            word(2, "Słoma", "Słoma", text.index("Słoma"), head=0, deprel="root", upos="PROPN"),
+            word(3, "zastępca", "zastępca", text.index("zastępca"), head=2, deprel="appos"),
+            word(4, "Piotra", "Piotr", text.index("Piotra"), head=3, deprel="nmod", upos="PROPN"),
+            word(
+                5,
+                "Grzymowicza",
+                "Grzymowicz",
+                text.index("Grzymowicza"),
+                head=4,
+                deprel="flat",
+                upos="PROPN",
+            ),
+            word(6, "działacz", "działacz", text.index("działacz"), head=2, deprel="appos"),
+            word(7, "PO", "PO", text.index("PO"), head=6, deprel="nmod", upos="PROPN"),
+            word(8, "radny", "radny", text.index("radny"), head=2, deprel="appos"),
+            word(
+                9,
+                "wojewódzki",
+                "wojewódzki",
+                text.index("wojewódzki"),
+                head=8,
+                deprel="amod",
+                upos="ADJ",
+            ),
+        ],
+    )
+
+    context = build_sentence_context(document)
+    person = next(
+        candidate for candidate in context.persons if candidate.canonical_name == "Jarosław Słoma"
+    )
+
+    party_attributions = resolve_party_attributions(context, person, governance_signal=False)
+    role_attributions = resolve_political_role_attributions(
+        context,
+        person,
+        governance_signal=False,
+    )
+
+    assert any(
+        attribution.party.canonical_name == "Platforma Obywatelska"
+        for attribution in party_attributions
+    )
+    assert any(attribution.role.canonical_name == "Radny" for attribution in role_attributions)
+
+
+def test_lowercase_po_preposition_does_not_create_party_membership() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = (
+        "Maciej Pach, konstytucjonalista z Poznańskiego Centrum Praw Człowieka INP PAN, "
+        "opisuje po kolei możliwe ścieżki prawne."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-lowercase-po-preposition",
+        text=text,
+        entities=[("Maciej Pach", EntityType.PERSON, "Maciej Pach")],
+    )
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(document, coreference=CoreferenceResult(resolved_mentions=[]))
+
+    assert not any(
+        fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
+        for fact in extracted.facts
+    )
+
+
 def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
     config = PipelineConfig.from_file("config.yaml")
     extractor = PolishFactExtractor(config)

@@ -381,7 +381,8 @@ class CandidateGraphBuilder:
             set(self.config.party_aliases.values())
         )
         for token in party_tokens:
-            match = re.search(rf"(?<!\w){re.escape(token)}(?!\w)", sentence_text, re.IGNORECASE)
+            flags = 0 if token.isupper() and len(token) <= 3 else re.IGNORECASE
+            match = re.search(rf"(?<!\w){re.escape(token)}(?!\w)", sentence_text, flags)
             if match is None:
                 continue
             canonical_name = self.organization_classifier.resolve_party_name(
@@ -462,7 +463,7 @@ class CandidateGraphBuilder:
             for person in persons:
                 for position in positions:
                     distance = abs(person.start_char - position.start_char)
-                    if distance > 96:
+                    if distance > 180:
                         continue
                     if not self._supports_person_role_link(
                         sentence.text,

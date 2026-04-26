@@ -13,8 +13,11 @@ def test_tvp_article_recovers_from_metadata_when_trafilatura_fails() -> None:
 
     assert document.content_source in {"metadata_recovery", "hybrid"}
     assert document.cleaned_text
+    assert document.publication_date == "2019-03-22"
     assert "Jarosław Słoma" in document.cleaned_text
     assert "zastępcy prezesa Przedsiębiorstwa Wodociągów i Kanalizacji" in document.cleaned_text
+    assert "Prezydent w końcu stworzył nowe stanowisko wiceprezesa" in document.cleaned_text
+    assert "działacz PO w regionie" in document.cleaned_text
 
 
 def test_radomszczanska_comments_are_removed_from_cleaned_text() -> None:

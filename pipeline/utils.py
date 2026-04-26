@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Iterable
+from datetime import date
 
 from pipeline.domain_types import (
     ClusterID,
@@ -17,6 +18,17 @@ from pipeline.nlp_rules import ROLE_PATTERNS
 WHITESPACE_RE = re.compile(r"\s+")
 
 DATE_RE = re.compile(r"\b(20\d{2}[-./]\d{2}[-./]\d{2}|\d{1,2}[.-]\d{1,2}[.-]20\d{2})\b")
+LOCAL_DATE_RE = re.compile(
+    r"\b(?:od|od dnia|od dniach|w|we)?\s*"
+    r"(?P<day>\d{1,2})\s+"
+    r"(?P<month>"
+    r"stycz(?:eń|nia)?|lut(?:y|ego)?|mar(?:ec|ca)?|kwiet(?:eń|nia)?|"
+    r"maj(?:a)?|czerw(?:iec|ca)?|lip(?:iec|ca)?|sierp(?:ień|nia)?|"
+    r"wrześ(?:eń|nia)?|paździer(?:nik|nika)?|listopad(?:a)?|grud(?:zień|nia)?)"
+    r"(?:\s+(?P<year>\d{4}))?"
+    r"(?:\s*r(?:ok|oku)?\.?)?\b",
+    re.IGNORECASE,
+)
 LOWERCASE_CONNECTORS = frozenset(
     {
         "a",
@@ -35,6 +47,22 @@ LOWERCASE_CONNECTORS = frozenset(
         "ze",
     }
 )
+POLISH_MONTH_NUMBERS = {
+    "stycz": 1,
+    "lut": 2,
+    "mar": 3,
+    "kwiet": 4,
+    "maj": 5,
+    "czerw": 6,
+    "lip": 7,
+    "sierp": 8,
+    "wrześ": 9,
+    "wrzes": 9,
+    "paździer": 10,
+    "pazdzier": 10,
+    "listopad": 11,
+    "grud": 12,
+}
 
 
 def compact_whitespace(text: str) -> str:
@@ -73,6 +101,64 @@ def find_dates(text: str) -> list[str]:
     return [match.group(1) for match in DATE_RE.finditer(text)]
 
 
+def extract_local_event_date(text: str, publication_date: str | None = None) -> str | None:
+    numeric_match = next(iter(find_dates(text)), None)
+    if numeric_match is not None:
+        return _normalize_numeric_date(numeric_match)
+
+    local_match = LOCAL_DATE_RE.search(text)
+    if local_match is None:
+        return None
+    month = _month_number(local_match.group("month"))
+    if month is None:
+        return None
+    day = int(local_match.group("day"))
+    year = (
+        int(local_match.group("year"))
+        if local_match.group("year")
+        else _publication_year(publication_date)
+    )
+    if year is None:
+        return None
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def _publication_year(publication_date: str | None) -> int | None:
+    if publication_date is None:
+        return None
+    match = re.match(r"(?P<year>\d{4})", publication_date)
+    return int(match.group("year")) if match is not None else None
+
+
+def _month_number(month_text: str) -> int | None:
+    lowered = month_text.casefold()
+    for prefix, month in POLISH_MONTH_NUMBERS.items():
+        if lowered.startswith(prefix):
+            return month
+    return None
+
+
+def _normalize_numeric_date(raw_date: str) -> str | None:
+    for separator in ("-", ".", "/"):
+        if separator not in raw_date:
+            continue
+        parts = raw_date.split(separator)
+        if len(parts) != 3:
+            return None
+        if len(parts[0]) == 4:
+            year, month, day = (int(part) for part in parts)
+        else:
+            day, month, year = (int(part) for part in parts)
+        try:
+            return date(year, month, day).isoformat()
+        except ValueError:
+            return None
+    return None
+
+
 def stable_id(prefix: str, *parts: str) -> str:
     base = "::".join(part for part in parts if part)
     return f"{prefix}_{uuid.uuid5(uuid.NAMESPACE_URL, base or prefix).hex[:16]}"
@@ -91,8 +177,6 @@ def generate_cluster_id(prefix: str, *parts: str) -> ClusterID:
 
 
 def generate_document_id(source_url: str | None, publication_date: str | None) -> DocumentID:
-    from datetime import date
-
     slug = (source_url or "local-document").rstrip("/").split("/")[-1] or "document"
     date_prefix = publication_date or date.today().isoformat()
     return DocumentID(f"{date_prefix}:{slug}")

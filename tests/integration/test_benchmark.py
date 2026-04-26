@@ -483,6 +483,38 @@ def test_sloma_olsztyn(benchmark_results: dict[str, Any], subtests: Subtests) ->
         any("Wodociąg" in get_entity_name(doc, f.get("object_entity_id")) for f in appointments),
         "Object should be PWiK Olsztyn",
     )
+    target_assert(
+        subtests,
+        any(f.get("event_date") == "2019-02-25" for f in appointments),
+        "Appointment should recover local event date 25 lutego",
+    )
+    target_assert(
+        subtests,
+        any(
+            "Grzymowicz" in get_entity_name(doc, f.get("appointing_authority_entity_id"))
+            for f in appointments
+        ),
+        "Should recover Grzymowicz as appointing authority context",
+    )
+    memberships = get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    target_assert(
+        subtests,
+        any(
+            fact_links_names(doc, f, subject="Słoma", object_name="Platforma Obywatelska")
+            for f in memberships
+        ),
+        "Should recover Słoma's PO background",
+    )
+    offices = get_facts_by_type(doc, "POLITICAL_OFFICE")
+    target_assert(
+        subtests,
+        any(
+            "Słoma" in get_entity_name(doc, f.get("subject_entity_id"))
+            and f.get("office_type") == "Radny"
+            for f in offices
+        ),
+        "Should recover Słoma's regional councillor background",
+    )
 
 
 def test_zona_posla_pis(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
