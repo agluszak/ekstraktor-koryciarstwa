@@ -9,6 +9,7 @@ from pipeline.domain_types import (
     EntityType,
     FactType,
     OrganizationKind,
+    RelationshipType,
 )
 from pipeline.extraction_context import SentenceContext
 from pipeline.models import EntityCandidate, Fact
@@ -31,10 +32,38 @@ from pipeline.utils import stable_id
 
 
 class TieFactExtractor:
+    COMPLAINT_TIE_MARKERS = (
+        "kolesiostw",
+        "rozdawanie posad",
+        "rozdawnictwo posad",
+        "partyjnych baron",
+        "zawłaszczyli",
+        "członków jego ekipy",
+    )
+    COMPLAINT_POWER_MARKERS = (
+        "prezydent",
+        "burmistrz",
+        "wójt",
+        "starosta",
+        "marszałek",
+        "przewodnicząc",
+        "koalicj",
+        "ekipy",
+    )
+    COMPLAINT_SPEAKER_MARKERS = (
+        "napisał",
+        "napisała",
+        "pisze",
+        "wylicza",
+        "próbowała",
+        "prosi",
+        "zada",
+    )
+
     def extract(self, context: SentenceContext) -> list[Fact]:
         trigger = self._tie_trigger(context)
         if trigger is None:
-            return []
+            return self._complaint_context_ties(context)
         person_edges = [
             edge
             for edge in context.graph.edges
@@ -77,6 +106,8 @@ class TieFactExtractor:
             )
         if not facts:
             facts.extend(self._owner_context_ties(context, trigger))
+        if not facts:
+            facts.extend(self._complaint_context_ties(context))
         return facts
 
     @staticmethod
@@ -176,6 +207,162 @@ class TieFactExtractor:
                 relationship_type=TIE_WORDS[trigger],
             )
         ]
+
+    def _complaint_context_ties(self, context: SentenceContext) -> list[Fact]:
+        paragraph_text = self._paragraph_text(context)
+        if not any(marker in paragraph_text for marker in self.COMPLAINT_TIE_MARKERS):
+            return []
+        if not any(marker in paragraph_text for marker in self.COMPLAINT_POWER_MARKERS):
+            return []
+
+        paragraph_people = self._unique_people(context.paragraph_persons)
+        if len(paragraph_people) < 2:
+            return []
+
+        source = self._complaint_source(context)
+        if source is None:
+            return []
+        target_candidates = [
+            candidate
+            for candidate in paragraph_people
+            if candidate.entity_id != source.entity_id
+            and self._has_complaint_power_context(context, candidate)
+            and not self._looks_like_complaint_recipient(context, candidate)
+            and not _is_quote_speaker_risk(context, candidate)
+        ]
+        if not target_candidates:
+            return []
+        anchor = paragraph_text.find("kolesi")
+        if anchor < 0:
+            anchor = paragraph_text.find("rozdawanie posad")
+        if anchor < 0:
+            anchor = source.start_char
+        target = min(
+            target_candidates,
+            key=lambda candidate: (abs(candidate.start_char - anchor), candidate.start_char),
+        )
+        score = SecondaryFactScore(
+            confidence=0.76,
+            extraction_signal="same_paragraph",
+            evidence_scope="same_paragraph",
+            reason="complaint_patronage_context",
+        )
+        return [
+            build_secondary_fact(
+                document=context.document,
+                sentence_context=context,
+                fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+                subject=source,
+                object_candidate=target,
+                value_text=RelationshipType.ASSOCIATE.value,
+                value_normalized=RelationshipType.ASSOCIATE.value,
+                confidence=score.confidence,
+                score=score,
+                source_extractor="tie",
+                relationship_type=RelationshipType.ASSOCIATE,
+            )
+        ]
+
+    @staticmethod
+    def _paragraph_text(context: SentenceContext) -> str:
+        return " ".join(
+            sentence.text.lower()
+            for sentence in context.document.sentences
+            if sentence.paragraph_index == context.sentence.paragraph_index
+        )
+
+    @staticmethod
+    def _unique_people(candidates: list[EntityCandidate]) -> list[EntityCandidate]:
+        unique: dict[str, EntityCandidate] = {}
+        for candidate in candidates:
+            if candidate.entity_id is None:
+                continue
+            unique.setdefault(str(candidate.entity_id), candidate)
+        return list(unique.values())
+
+    def _complaint_source(self, context: SentenceContext) -> EntityCandidate | None:
+        sentence_people = [
+            candidate
+            for candidate in self._unique_people(context.persons)
+            if not _is_quote_speaker_risk(context, candidate)
+        ]
+        if not sentence_people:
+            sentence_people = [
+                candidate
+                for candidate in self._unique_people(context.paragraph_persons)
+                if not _is_quote_speaker_risk(context, candidate)
+            ]
+        if not sentence_people:
+            return None
+        speaker_candidates = [
+            candidate
+            for candidate in sentence_people
+            if self._has_speaker_context(context, candidate)
+            and not self._looks_like_complaint_recipient(context, candidate)
+        ]
+        if speaker_candidates:
+            return max(
+                speaker_candidates,
+                key=lambda candidate: (
+                    self._has_whistleblower_context(context, candidate),
+                    -candidate.start_char,
+                ),
+            )
+        return min(
+            (
+                candidate
+                for candidate in sentence_people
+                if not self._has_complaint_power_context(context, candidate)
+                and not self._looks_like_complaint_recipient(context, candidate)
+            ),
+            key=lambda candidate: candidate.start_char,
+            default=None,
+        )
+
+    def _has_speaker_context(self, context: SentenceContext, candidate: EntityCandidate) -> bool:
+        window = self._candidate_context_window(context, candidate)
+        return any(marker in window for marker in self.COMPLAINT_SPEAKER_MARKERS)
+
+    def _has_complaint_power_context(
+        self,
+        context: SentenceContext,
+        candidate: EntityCandidate,
+    ) -> bool:
+        window = self._candidate_context_window(context, candidate)
+        return any(marker in window for marker in self.COMPLAINT_POWER_MARKERS)
+
+    def _has_whistleblower_context(
+        self,
+        context: SentenceContext,
+        candidate: EntityCandidate,
+    ) -> bool:
+        window = self._candidate_context_window(context, candidate)
+        return any(marker in window for marker in ("radna", "radny", "działacz", "działaczka"))
+
+    def _looks_like_complaint_recipient(
+        self,
+        context: SentenceContext,
+        candidate: EntityCandidate,
+    ) -> bool:
+        window = self._candidate_context_window(context, candidate)
+        return any(marker in window for marker in ("do premiera", "premiera", "premier"))
+
+    @staticmethod
+    def _candidate_context_window(context: SentenceContext, candidate: EntityCandidate) -> str:
+        paragraph_text = TieFactExtractor._paragraph_text(context)
+        names = [
+            candidate.canonical_name.lower(),
+            candidate.normalized_name.lower(),
+        ]
+        if candidate.canonical_name.split():
+            names.append(candidate.canonical_name.split()[0].lower())
+        if candidate.canonical_name.split():
+            names.append(candidate.canonical_name.split()[-1].lower())
+        for name in names:
+            anchor = paragraph_text.find(name)
+            if anchor >= 0:
+                return paragraph_text[max(0, anchor - 64) : anchor + len(name) + 64]
+        return paragraph_text[:128]
 
 
 def _document_owner_person_candidates(

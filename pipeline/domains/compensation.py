@@ -53,6 +53,41 @@ COMPENSATION_CONTEXT_TEXTS = frozenset(
         "brutto",
     }
 )
+PUBLIC_REMUNERATION_MARKERS = frozenset(
+    {
+        "uposaż",
+        "dieta",
+        "pieniądze publiczne",
+        "kasy sejmu",
+        "z sejmu",
+        "poselsk",
+        "mandatu posła",
+        "parlamentarzyst",
+        "pobrał",
+        "pobiera",
+        "otrzymuje",
+    }
+)
+EMPLOYER_ORGANIZATION_MARKERS = frozenset(
+    {
+        "sejm",
+        "senat",
+        "kancelari",
+        "urząd",
+        "fundusz",
+        "wodociąg",
+        "kanaliz",
+        "przedsiębiorstw",
+        "spół",
+        "zarząd",
+        "centrum",
+        "kolej",
+        "pogotow",
+        "instytut",
+        "szpital",
+        "port",
+    }
+)
 
 
 class PolishCompensationFrameExtractor(FrameExtractor):
@@ -86,6 +121,11 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             return None
         period = match.group("period")
         amount_start = clause.start_char + match.start("amount")
+        amount_rank = sum(
+            1
+            for earlier_match in COMPENSATION_PATTERN.finditer(clause.text)
+            if earlier_match.start("amount") < match.start("amount")
+        )
 
         person_clusters = clusters_for_mentions(
             document,
@@ -103,11 +143,27 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
 
-        person_cluster = best_cluster_near_offset(person_clusters, amount_start)
-        role_cluster = best_cluster_near_offset(role_clusters, amount_start)
+        local_person_cluster = self._best_local_cluster(person_clusters, clause, amount_start)
+        local_role_cluster = self._best_local_cluster(role_clusters, clause, amount_start)
+        local_org_cluster = self._best_local_org_cluster(org_clusters, clause, amount_start)
+
+        if (
+            amount_rank > 0
+            and local_person_cluster is None
+            and local_role_cluster is None
+            and local_org_cluster is None
+        ):
+            return None
+
+        person_cluster = local_person_cluster or best_cluster_near_offset(
+            person_clusters,
+            amount_start,
+        )
+        role_cluster = local_role_cluster or best_cluster_near_offset(role_clusters, amount_start)
         if role_cluster is None:
             role_cluster = self._find_role_from_text(document, clause)
-        org_cluster = best_cluster_near_offset(org_clusters, amount_start)
+        org_cluster = local_org_cluster or self._best_valid_org_cluster(org_clusters, amount_start)
+        local_org_selected = local_org_cluster is not None
 
         context_reason = "same_clause"
         if person_cluster is None:
@@ -128,6 +184,32 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             )
             if org_cluster is not None and context_reason == "same_clause":
                 context_reason = "paragraph_org"
+        if person_cluster is None and self._has_public_remuneration_context(clause.text):
+            person_cluster = self._extended_context_cluster(
+                document,
+                clause,
+                {EntityType.PERSON},
+                amount_start,
+                max_sentence_distance=1,
+            )
+            if person_cluster is not None:
+                context_reason = "cross_paragraph_person"
+        if role_cluster is None and self._has_public_remuneration_context(clause.text):
+            role_cluster = self._extended_context_cluster(
+                document,
+                clause,
+                {EntityType.POSITION},
+                amount_start,
+            )
+        if org_cluster is None and self._has_public_remuneration_context(clause.text):
+            org_cluster = self._extended_context_cluster(
+                document,
+                clause,
+                {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+                amount_start,
+            )
+            if org_cluster is not None and context_reason == "same_clause":
+                context_reason = "cross_paragraph_org"
 
         governance_context = self._governance_context(document, clause, person_cluster)
         if role_cluster is None and governance_context is not None:
@@ -136,6 +218,13 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             org_cluster = self._cluster_by_id(document, governance_context.target_org_cluster_id)
             if org_cluster is not None and context_reason == "same_clause":
                 context_reason = "governance_context"
+        if (
+            org_cluster is not None
+            and not local_org_selected
+            and context_reason in {"paragraph_org", "cross_paragraph_org"}
+            and not self._has_public_remuneration_context(clause.text)
+        ):
+            org_cluster = None
 
         if person_cluster is None and role_cluster is None and org_cluster is None:
             return None
@@ -209,9 +298,33 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             cluster
             for cluster in document.clusters
             if cluster.entity_type in entity_types
+            and cls._cluster_is_valid_compensation_anchor(cluster)
             and any(
                 mention.paragraph_index == clause.paragraph_index
                 and mention.sentence_index <= clause.sentence_index
+                for mention in cluster.mentions
+            )
+        ]
+        return best_cluster_near_offset(candidates, offset)
+
+    @classmethod
+    def _extended_context_cluster(
+        cls,
+        document: ArticleDocument,
+        clause: ClauseUnit,
+        entity_types: set[EntityType],
+        offset: int,
+        *,
+        max_sentence_distance: int = 3,
+    ) -> EntityCluster | None:
+        candidates = [
+            cluster
+            for cluster in document.clusters
+            if cluster.entity_type in entity_types
+            and cls._cluster_is_valid_compensation_anchor(cluster)
+            and any(
+                mention.sentence_index < clause.sentence_index
+                and clause.sentence_index - mention.sentence_index <= max_sentence_distance
                 for mention in cluster.mentions
             )
         ]
@@ -286,3 +399,80 @@ class PolishCompensationFrameExtractor(FrameExtractor):
         if "paragraph" in score_reason:
             return "same_paragraph"
         return "same_clause"
+
+    @staticmethod
+    def _has_public_remuneration_context(text: str) -> bool:
+        lowered = text.lower()
+        return any(marker in lowered for marker in PUBLIC_REMUNERATION_MARKERS)
+
+    @classmethod
+    def _cluster_is_valid_compensation_anchor(cls, cluster: EntityCluster) -> bool:
+        if cluster.entity_type != EntityType.ORGANIZATION:
+            return True
+        normalized = cluster.normalized_name.casefold()
+        if any(marker in normalized for marker in EMPLOYER_ORGANIZATION_MARKERS):
+            return True
+        stripped = cluster.canonical_name.strip()
+        return stripped.isupper() and 2 <= len(stripped) <= 8
+
+    @classmethod
+    def _best_valid_org_cluster(
+        cls,
+        clusters: list[EntityCluster],
+        offset: int,
+    ) -> EntityCluster | None:
+        valid_clusters = [
+            cluster for cluster in clusters if cls._cluster_is_valid_compensation_anchor(cluster)
+        ]
+        return best_cluster_near_offset(valid_clusters, offset)
+
+    @staticmethod
+    def _best_local_cluster(
+        clusters: list[EntityCluster],
+        clause: ClauseUnit,
+        offset: int,
+    ) -> EntityCluster | None:
+        candidates: list[tuple[int, EntityCluster]] = []
+        for cluster in clusters:
+            mention_offsets = [
+                max(0, offset - mention.end_char)
+                for mention in cluster.mentions
+                if mention.sentence_index == clause.sentence_index
+                and mention.end_char <= offset
+                and offset - mention.end_char <= 80
+            ]
+            if mention_offsets:
+                candidates.append((min(mention_offsets), cluster))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
+
+    @classmethod
+    def _best_local_org_cluster(
+        cls,
+        clusters: list[EntityCluster],
+        clause: ClauseUnit,
+        offset: int,
+    ) -> EntityCluster | None:
+        valid_clusters = [
+            cluster for cluster in clusters if cls._cluster_is_valid_compensation_anchor(cluster)
+        ]
+        before_amount = cls._best_local_cluster(valid_clusters, clause, offset)
+        if before_amount is not None:
+            return before_amount
+        candidates: list[tuple[int, EntityCluster]] = []
+        for cluster in valid_clusters:
+            mention_offsets = [
+                max(0, mention.start_char - offset)
+                for mention in cluster.mentions
+                if mention.sentence_index == clause.sentence_index
+                and mention.start_char >= offset
+                and mention.start_char - offset <= 80
+            ]
+            if mention_offsets:
+                candidates.append((min(mention_offsets), cluster))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]

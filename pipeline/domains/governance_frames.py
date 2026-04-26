@@ -44,6 +44,29 @@ from pipeline.role_text import find_role_text, find_role_text_from_text
 WEAK_APPOINTMENT_TRIGGER_LEMMAS = frozenset(
     {"objąć", "zająć", "pracować", "zatrudnić", "zatrudnienie", "trafić"}
 )
+PARLIAMENTARY_REMUNERATION_MARKERS = frozenset(
+    {
+        "uposaż",
+        "dieta",
+        "pieniądze publiczne",
+        "kasy sejmu",
+        "z sejmu",
+        "mandatu posła",
+        "pobrał",
+        "pobiera",
+        "posiedzeniu sejmu",
+        "interpelacji",
+    }
+)
+PARLIAMENTARY_CONTEXT_MARKERS = frozenset(
+    {
+        "do sejmu",
+        "w sejmie",
+        "w obecnej kadencji sejmu",
+        "posiedzeniu sejmu",
+        "prezydium sejmu",
+    }
+)
 
 
 class PolishGovernanceFrameExtractor(FrameExtractor):
@@ -74,6 +97,8 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
     ) -> EventType | None:
         lemma = clause.trigger_head_lemma.lower()
         lowered_text = clause.text.lower()
+        if self._is_parliamentary_non_governance_context(lowered_text):
+            return None
         if (
             self._has_trigger_head_appointment_signal(lemma, parsed_words or [])
             or self._has_appointment_lemma_signal(parsed_words or [])
@@ -90,6 +115,16 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         ):
             return EventType.DISMISSAL
         return None
+
+    @staticmethod
+    def _is_parliamentary_non_governance_context(lowered_text: str) -> bool:
+        if not any(marker in lowered_text for marker in PARLIAMENTARY_CONTEXT_MARKERS):
+            return False
+        return any(marker in lowered_text for marker in PARLIAMENTARY_REMUNERATION_MARKERS) or (
+            "do sejmu" in lowered_text
+            and "spół" not in lowered_text
+            and "zarząd" not in lowered_text
+        )
 
     @staticmethod
     def _has_trigger_head_appointment_signal(

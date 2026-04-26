@@ -123,6 +123,18 @@ def test_wp_lubczyk(benchmark_results: dict[str, Any], subtests: Subtests) -> No
         "Should recover Szymon Hołownia",
     )
 
+    compensation = get_facts_by_type(doc, "COMPENSATION")
+    target_assert(
+        subtests, len(compensation) >= 1, "Should extract a remuneration/public-money fact"
+    )
+
+    governance_facts = get_facts_by_type(doc, "APPOINTMENT") + get_facts_by_type(doc, "DISMISSAL")
+    target_assert(
+        subtests,
+        len(governance_facts) == 0,
+        "Should not invent appointment or dismissal facts for the Sejm salary article",
+    )
+
 
 def test_onet_totalizator(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
@@ -587,6 +599,28 @@ def test_olsztyn_wodkan(benchmark_results: dict[str, Any], subtests: Subtests) -
 
     compensation = get_facts_by_type(doc, "COMPENSATION")
     target_assert(subtests, len(compensation) >= 2, "Should extract multiple compensation facts")
+    compensation_pairs = [
+        (
+            get_entity_name(doc, fact.get("subject_entity_id")),
+            get_entity_name(doc, fact.get("object_entity_id"))
+            if fact.get("object_entity_id")
+            else "",
+        )
+        for fact in compensation
+    ]
+    target_assert(
+        subtests,
+        any("Pancer" in subject and "Olsztyn" in obj for subject, obj in compensation_pairs),
+        "Should keep Pancer tied to the Olsztyn utility",
+    )
+    target_assert(
+        subtests,
+        all(
+            obj not in {"Gdańska", "Warszawie", "Gorzowa Wielkopolskiego"}
+            for _, obj in compensation_pairs
+        ),
+        "Should not attach compensation to bare location fragments",
+    )
 
 
 def test_tvn24_siemianowice(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
@@ -980,8 +1014,7 @@ def test_polsat_ciechanow_family_starostwo(
     ), "Should capture daughter-in-law expectation"
 
 
-@pytest.mark.xfail(reason="Known relevance failure documented in AGENTS.md")
-def test_wfosigw_lublin_xfail(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
+def test_wfosigw_lublin(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
     Article: Nowe władze WFOŚiGW in Lublinie bez konkursu
     URL: https://wiadomosci.onet.pl/lublin/nowe-wladze-wfosigw-w-lublinie-bez-konkursu-i-bez-wysluchania-kandydatow/cpw9ltt

@@ -30,6 +30,19 @@ from pipeline.nlp_rules import (
 )
 from pipeline.utils import extract_role_from_text, stable_id
 
+PARLIAMENTARY_REMUNERATION_FACT_MARKERS = frozenset(
+    {
+        "uposaż",
+        "dieta",
+        "pieniądze publiczne",
+        "kasy sejmu",
+        "pobrał",
+        "pobiera",
+        "zarab",
+        "dochód",
+    }
+)
+
 
 @dataclass(slots=True)
 class GovernanceTargetResolution:
@@ -501,6 +514,17 @@ class GovernanceFactBuilder:
         target_id = cluster_to_entity_id.get(frame.target_org_cluster_id or "")
         if not subject_id or not target_id:
             return None
+        evidence = self._combined_evidence(frame.evidence)
+        target_cluster = next(
+            (
+                cluster
+                for cluster in document.clusters
+                if cluster.cluster_id == frame.target_org_cluster_id
+            ),
+            None,
+        )
+        if self._looks_like_parliamentary_remuneration_fact(target_cluster, evidence.text):
+            return None
 
         role_id = cluster_to_entity_id.get(frame.role_cluster_id or "")
         role_name = next(
@@ -519,7 +543,6 @@ class GovernanceFactBuilder:
         fact_type = (
             FactType.DISMISSAL if frame.event_type == EventType.DISMISSAL else FactType.APPOINTMENT
         )
-        evidence = self._combined_evidence(frame.evidence)
 
         fact = Fact(
             fact_id=FactID(
@@ -567,6 +590,19 @@ class GovernanceFactBuilder:
             fact.role_modifier = role_modifier
             fact.board_role = role_kind in BOARD_ROLE_KINDS if role_kind else False
         return fact
+
+    @staticmethod
+    def _looks_like_parliamentary_remuneration_fact(
+        target_cluster: EntityCluster | None,
+        evidence_text: str,
+    ) -> bool:
+        if target_cluster is None:
+            return False
+        target_name = target_cluster.normalized_name.casefold()
+        if not any(marker in target_name for marker in ("sejm", "senat", "kancelari")):
+            return False
+        lowered_evidence = evidence_text.casefold()
+        return any(marker in lowered_evidence for marker in PARLIAMENTARY_REMUNERATION_FACT_MARKERS)
 
     @staticmethod
     def _get_best_entity_id(cluster: EntityCluster) -> str:

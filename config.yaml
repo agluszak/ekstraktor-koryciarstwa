@@ -29,6 +29,11 @@ keywords:
   - pensja
   - uposażenie
   - miesięcznie
+  - bez konkursu
+  - nominację
+  - fundusz
+  - wfośigw
+  - nfośigw
   - CBA
   - Centralne Biuro Antykorupcyjne
 
@@ -62,6 +67,11 @@ patterns:
     - trafiła do rady nadzorczej
     - został prezesem
     - została prezeską
+    - odebrał nominację
+    - odebrała nominację
+    - będą kierować
+    - pokieruje
+    - pokierują
   dismissal_verbs:
     - odwołano
     - został odwołany
@@ -103,6 +113,15 @@ patterns:
     - samorząd
     - holding
     - miejska spółka
+    - fundusz
+    - instytucja
+    - urząd marszałkowski
+    - wojewódzki fundusz
+    - narodowy fundusz
+    - wfoś
+    - wfośigw
+    - nfoś
+    - nfośigw
   qualification_markers:
     - bez doświadczenia
     - bez kwalifikacji

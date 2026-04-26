@@ -49,6 +49,29 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
         "jest dyrektorem",
         "jest dyrektorką",
     )
+    EXPLICIT_EMPLOYMENT_MARKERS = (
+        "prac",
+        "zatrudn",
+        "praca",
+        "etat",
+        "stanowisk",
+        "koordynator",
+        "specjalist",
+        "doradc",
+        "funkcj",
+    )
+    PARTY_MARKERS = (
+        "platforma obywatelska",
+        "polskie stronnictwo ludowe",
+        "prawo i sprawiedliwość",
+        "koalicja obywatelska",
+        "lewica",
+        "polska 2050",
+        "suwerenna polska",
+        "po",
+        "pis",
+        "psl",
+    )
     ROLE_STOP_WORDS = frozenset(
         {"w", "we", "do", "na", "od", "przy", "oraz", "i", "a", "ale", "który", "która"}
     )
@@ -79,6 +102,12 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
             )
             role_label = grounded_role.label if grounded_role is not None else None
             role_cluster_id = grounded_role.role_cluster_id if grounded_role is not None else None
+            if (
+                signal == PublicEmploymentSignal.ENTRY
+                and role_label is None
+                and not self._has_explicit_employment_context(clause.text)
+            ):
+                continue
             document.public_employment_frames.append(
                 PublicEmploymentFrame(
                     frame_id=FrameID(f"public-employment-frame-{uuid.uuid4().hex[:8]}"),
@@ -130,7 +159,7 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
         current = [
             cluster
             for cluster in self._clusters_for_clause(document, clause)
-            if self._is_public_employer(cluster)
+            if self._is_public_employer(cluster) and not self._is_party_cluster(cluster)
         ]
         if current:
             return min(current, key=lambda cluster: self._cluster_clause_distance(cluster, clause))
@@ -139,6 +168,7 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
             for cluster in document.clusters
             if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
             and self._is_public_employer(cluster)
+            and not self._is_party_cluster(cluster)
             and any(
                 mention.paragraph_index == clause.paragraph_index
                 and abs(mention.sentence_index - clause.sentence_index) <= 2
@@ -174,6 +204,7 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
             for cluster in document.clusters
             if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
             and self._is_public_employer(cluster)
+            and not self._is_party_cluster(cluster)
             and any(
                 marker in cluster.normalized_name.casefold()
                 for marker in ("urząd gmin", "gmin", "starostw", "powiatow")
@@ -582,6 +613,18 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
             return True
         normalized = cluster.normalized_name.casefold()
         return any(term in normalized for term in PUBLIC_EMPLOYER_TERMS)
+
+    @classmethod
+    def _is_party_cluster(cls, cluster: EntityCluster) -> bool:
+        normalized = cluster.normalized_name.casefold().strip()
+        return normalized in cls.PARTY_MARKERS or any(
+            marker in normalized for marker in cls.PARTY_MARKERS if " " in marker
+        )
+
+    @classmethod
+    def _has_explicit_employment_context(cls, text: str) -> bool:
+        lowered = text.casefold()
+        return any(marker in lowered for marker in cls.EXPLICIT_EMPLOYMENT_MARKERS)
 
     @staticmethod
     def _is_public_office_role(cluster: EntityCluster) -> bool:

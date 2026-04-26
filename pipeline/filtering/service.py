@@ -9,6 +9,26 @@ from pipeline.models import ArticleDocument, RelevanceDecision
 
 class KeywordRelevanceFilter(RelevanceFilter):
     patronage_markers = ("kolesiostwo", "rozdawanie posad")
+    public_fund_markers = (
+        "fundusz",
+        "wojewódzki fundusz",
+        "narodowy fundusz",
+        "wfoś",
+        "wfośigw",
+        "nfoś",
+        "nfośigw",
+        "instytucja",
+        "urząd marszałkowski",
+    )
+    soft_governance_markers = (
+        "bez konkursu",
+        "nominacj",
+        "będą kierować",
+        "pokieruje",
+        "pokierują",
+        "powoływany jest przez radę nadzorczą",
+        "ma zostać",
+    )
     anti_corruption_markers = (
         "cba",
         "centralne biuro antykorupcyjne",
@@ -45,8 +65,15 @@ class KeywordRelevanceFilter(RelevanceFilter):
 
     def run(self, document: ArticleDocument) -> RelevanceDecision:
         lowered_full = document.cleaned_text.lower()
+        focus_segments = [document.title, document.lead_text, *document.paragraphs[:3]]
+        lowered_focus = " ".join(
+            segment.lower() for segment in focus_segments if isinstance(segment, str) and segment
+        )
         keyword_hits = [
             keyword for keyword in self.config.keywords if keyword.lower() in lowered_full
+        ]
+        focus_keyword_hits = [
+            keyword for keyword in self.config.keywords if keyword.lower() in lowered_focus
         ]
 
         # Sentence-level co-occurrence check
@@ -85,6 +112,16 @@ class KeywordRelevanceFilter(RelevanceFilter):
             self.config.patterns.appointment_verbs + self.config.patterns.dismissal_verbs
         )
         has_governance_event = any(verb in lowered_full for verb in event_markers)
+        public_fund_hits = [marker for marker in self.public_fund_markers if marker in lowered_full]
+        soft_governance_hits = [
+            marker for marker in self.soft_governance_markers if marker in lowered_full
+        ]
+        focus_public_fund_hits = [
+            marker for marker in self.public_fund_markers if marker in lowered_focus
+        ]
+        focus_soft_governance_hits = [
+            marker for marker in self.soft_governance_markers if marker in lowered_focus
+        ]
 
         score = 0.0
         reasons: list[str] = []
@@ -111,6 +148,17 @@ class KeywordRelevanceFilter(RelevanceFilter):
         if anti_corruption_hits and public_actor_hits:
             score += 0.18
             reasons.append(f"public-office actor context: {', '.join(public_actor_hits[:3])}")
+        if public_fund_hits:
+            score += min(0.25, 0.08 * len(public_fund_hits))
+            reasons.append(f"public-fund context: {', '.join(public_fund_hits[:4])}")
+        if soft_governance_hits:
+            score += min(0.18, 0.06 * len(soft_governance_hits))
+            reasons.append(f"soft governance language: {', '.join(soft_governance_hits[:4])}")
+        if focus_public_fund_hits and (
+            focus_soft_governance_hits or focus_keyword_hits or has_person_like
+        ):
+            score += 0.18
+            reasons.append("headline/lead public-fund governance signal")
 
         # Co-occurrence bonus (structural relevance)
         if co_occurrence_count > 0:
@@ -124,7 +172,7 @@ class KeywordRelevanceFilter(RelevanceFilter):
             reasons.append("contains person-like full name")
         if has_org_marker:
             score += 0.1
-            reasons.append("contains company or board marker")
+            reasons.append("contains public institution or board marker")
         if has_board_marker:
             score += 0.1
             reasons.append("contains board or management marker")

@@ -102,3 +102,40 @@ def test_cba_procurement_bribery_article_passes_relevance_without_named_person()
 
     assert decision.is_relevant is True
     assert decision.score >= 0.45
+
+
+def test_public_fund_governance_article_passes_relevance_from_lead_signals() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    relevance_filter = KeywordRelevanceFilter(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-wfosigw"),
+        source_url=None,
+        raw_html="",
+        title=(
+            "Bez konkursu i bez wysłuchania kandydatów. "
+            "Tak nowa władza wprowadza swoich ludzi do ważnej instytucji"
+        ),
+        publication_date=None,
+        cleaned_text=(
+            "Stanisław Mazur, hotelarz-milioner z Lewicy, "
+            "i działacz PSL Andrzej Kloc będą kierować "
+            "Wojewódzkim Funduszem Ochrony Środowiska i Gospodarki Wodnej w Lublinie. "
+            "Instytucja zostanie obsadzona bez konkursu. "
+            "Działacz Lewicy Stanisław Mazur odebrał dziś nominację na prezesa WFOŚiGW w Lublinie."
+        ),
+        paragraphs=[
+            (
+                "Stanisław Mazur, hotelarz-milioner z Lewicy, "
+                "i działacz PSL Andrzej Kloc będą kierować "
+                "Wojewódzkim Funduszem Ochrony Środowiska i Gospodarki Wodnej w Lublinie."
+            ),
+            "Instytucja zostanie obsadzona bez konkursu.",
+            "Działacz Lewicy Stanisław Mazur odebrał dziś nominację na prezesa WFOŚiGW w Lublinie.",
+        ],
+        lead_text=("Stanisław Mazur i Andrzej Kloc będą kierować WFOŚiGW w Lublinie bez konkursu."),
+    )
+
+    decision = relevance_filter.run(document)
+
+    assert decision.is_relevant is True
+    assert decision.score >= 0.45
