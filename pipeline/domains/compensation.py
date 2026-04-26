@@ -11,6 +11,7 @@ from pipeline.domain_context_helpers import (
 )
 from pipeline.domain_types import ClusterID, EntityType, FrameID
 from pipeline.domains.public_money import FUNDING_SURFACE_FALLBACKS
+from pipeline.entity_classifiers import is_employer_like_name
 from pipeline.extraction_context import ExtractionContext
 from pipeline.lemma_signals import lemma_set
 from pipeline.models import (
@@ -66,26 +67,6 @@ PUBLIC_REMUNERATION_MARKERS = frozenset(
         "pobrał",
         "pobiera",
         "otrzymuje",
-    }
-)
-EMPLOYER_ORGANIZATION_MARKERS = frozenset(
-    {
-        "sejm",
-        "senat",
-        "kancelari",
-        "urząd",
-        "fundusz",
-        "wodociąg",
-        "kanaliz",
-        "przedsiębiorstw",
-        "spół",
-        "zarząd",
-        "centrum",
-        "kolej",
-        "pogotow",
-        "instytut",
-        "szpital",
-        "port",
     }
 )
 
@@ -409,8 +390,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
     def _cluster_is_valid_compensation_anchor(cls, cluster: EntityCluster) -> bool:
         if cluster.entity_type != EntityType.ORGANIZATION:
             return True
-        normalized = cluster.normalized_name.casefold()
-        if any(marker in normalized for marker in EMPLOYER_ORGANIZATION_MARKERS):
+        if is_employer_like_name(cluster.normalized_name):
             return True
         stripped = cluster.canonical_name.strip()
         return stripped.isupper() and 2 <= len(stripped) <= 8

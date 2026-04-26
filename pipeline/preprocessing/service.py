@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 
 from pipeline.base import Preprocessor
 from pipeline.models import ArticleDocument, PipelineInput
+from pipeline.preprocessing.boilerplate import is_boilerplate_paragraph
 from pipeline.utils import compact_whitespace, generate_document_id
 
 SCRIPT_JSON_RE = re.compile(
@@ -16,32 +17,6 @@ SCRIPT_JSON_RE = re.compile(
     re.DOTALL,
 )
 AMOUNT_RE = re.compile(r"\b\d+(?:[ .,]\d+)*(?:\s*tys\.)?\s*zł\b", re.IGNORECASE)
-JUNK_PATTERNS = (
-    re.compile(r"^::addons", re.IGNORECASE),
-    re.compile(r"^płatny dostęp do treści$", re.IGNORECASE),
-    re.compile(r"^ten artykuł przeczytasz", re.IGNORECASE),
-    re.compile(r"^komentarze$", re.IGNORECASE),
-    re.compile(r"^reklama$", re.IGNORECASE),
-    re.compile(r"^twoje zdanie jest ważne", re.IGNORECASE),
-    re.compile(r"^skorzystaj z subskrypcji", re.IGNORECASE),
-    re.compile(r"^wiadomości pogodowe$", re.IGNORECASE),
-    re.compile(r"^popularne osoby$", re.IGNORECASE),
-    re.compile(r"^organizacje$", re.IGNORECASE),
-    re.compile(r"^inne tematy$", re.IGNORECASE),
-    re.compile(r"^pogoda$", re.IGNORECASE),
-    re.compile(r"^z tego artykułu dowiesz się:?$", re.IGNORECASE),
-)
-FEED_HINTS = (
-    "zobacz wszystkie",
-    "więcej informacji znajdziesz",
-    "strona główna onetu",
-    "logowanie",
-    "kup subskrypcję",
-    "premium",
-    "serwisy partnerskie",
-    "pogoda ",
-    "program tv",
-)
 
 
 class TrafilaturaPreprocessor(Preprocessor):
@@ -231,9 +206,7 @@ class TrafilaturaPreprocessor(Preprocessor):
             if not normalized:
                 continue
             lowered = normalized.lower()
-            if any(pattern.search(normalized) for pattern in JUNK_PATTERNS):
-                continue
-            if any(hint in lowered for hint in FEED_HINTS):
+            if is_boilerplate_paragraph(normalized):
                 continue
             if self._looks_like_comment(normalized):
                 continue

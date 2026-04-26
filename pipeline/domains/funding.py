@@ -17,6 +17,7 @@ from pipeline.domains.public_money import (
     is_reporting_przekazac_context,
     is_reporting_przekazac_without_amount,
 )
+from pipeline.entity_classifiers import is_public_funder_name
 from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.lemma_signals import lemma_set
@@ -207,7 +208,7 @@ class PolishFundingFrameExtractor(FrameExtractor):
     def _funder_score(cluster: EntityCluster) -> tuple[int, int, int]:
         normalized = cluster.normalized_name.lower()
         public_bonus = 2 if cluster.entity_type == EntityType.PUBLIC_INSTITUTION else 0
-        if any(term in normalized for term in ("minister", "fundusz", "urząd", "nfoś", "wfoś")):
+        if is_public_funder_name(normalized):
             public_bonus += 2
         if any(term in normalized for term in ("spółka", "agencja", "krajowy")):
             public_bonus += 1

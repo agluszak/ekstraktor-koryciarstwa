@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import re
 
+from pipeline.complaint_classifier import (
+    detect_patronage_complaint,
+    has_complaint_recipient_markers,
+    has_power_holder_markers,
+    has_speaker_markers,
+    has_whistleblower_markers,
+)
 from pipeline.domain_lexicons import KINSHIP_LEMMAS
 from pipeline.domain_types import (
     CandidateID,
@@ -32,34 +39,6 @@ from pipeline.utils import stable_id
 
 
 class TieFactExtractor:
-    COMPLAINT_TIE_MARKERS = (
-        "kolesiostw",
-        "rozdawanie posad",
-        "rozdawnictwo posad",
-        "partyjnych baron",
-        "zawłaszczyli",
-        "członków jego ekipy",
-    )
-    COMPLAINT_POWER_MARKERS = (
-        "prezydent",
-        "burmistrz",
-        "wójt",
-        "starosta",
-        "marszałek",
-        "przewodnicząc",
-        "koalicj",
-        "ekipy",
-    )
-    COMPLAINT_SPEAKER_MARKERS = (
-        "napisał",
-        "napisała",
-        "pisze",
-        "wylicza",
-        "próbowała",
-        "prosi",
-        "zada",
-    )
-
     def extract(self, context: SentenceContext) -> list[Fact]:
         trigger = self._tie_trigger(context)
         if trigger is None:
@@ -210,9 +189,8 @@ class TieFactExtractor:
 
     def _complaint_context_ties(self, context: SentenceContext) -> list[Fact]:
         paragraph_text = self._paragraph_text(context)
-        if not any(marker in paragraph_text for marker in self.COMPLAINT_TIE_MARKERS):
-            return []
-        if not any(marker in paragraph_text for marker in self.COMPLAINT_POWER_MARKERS):
+        complaint_signal = detect_patronage_complaint(paragraph_text)
+        if complaint_signal is None:
             return []
 
         paragraph_people = self._unique_people(context.paragraph_persons)
@@ -234,7 +212,10 @@ class TieFactExtractor:
             return []
         anchor = paragraph_text.find("kolesi")
         if anchor < 0:
-            anchor = paragraph_text.find("rozdawanie posad")
+            anchor = min(
+                (paragraph_text.find(marker) for marker in complaint_signal.patronage_markers),
+                default=-1,
+            )
         if anchor < 0:
             anchor = source.start_char
         target = min(
@@ -321,7 +302,7 @@ class TieFactExtractor:
 
     def _has_speaker_context(self, context: SentenceContext, candidate: EntityCandidate) -> bool:
         window = self._candidate_context_window(context, candidate)
-        return any(marker in window for marker in self.COMPLAINT_SPEAKER_MARKERS)
+        return has_speaker_markers(window)
 
     def _has_complaint_power_context(
         self,
@@ -329,7 +310,7 @@ class TieFactExtractor:
         candidate: EntityCandidate,
     ) -> bool:
         window = self._candidate_context_window(context, candidate)
-        return any(marker in window for marker in self.COMPLAINT_POWER_MARKERS)
+        return has_power_holder_markers(window)
 
     def _has_whistleblower_context(
         self,
@@ -337,7 +318,7 @@ class TieFactExtractor:
         candidate: EntityCandidate,
     ) -> bool:
         window = self._candidate_context_window(context, candidate)
-        return any(marker in window for marker in ("radna", "radny", "działacz", "działaczka"))
+        return has_whistleblower_markers(window)
 
     def _looks_like_complaint_recipient(
         self,
@@ -345,7 +326,7 @@ class TieFactExtractor:
         candidate: EntityCandidate,
     ) -> bool:
         window = self._candidate_context_window(context, candidate)
-        return any(marker in window for marker in ("do premiera", "premiera", "premier"))
+        return has_complaint_recipient_markers(window)
 
     @staticmethod
     def _candidate_context_window(context: SentenceContext, candidate: EntityCandidate) -> str:

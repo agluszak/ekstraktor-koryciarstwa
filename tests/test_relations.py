@@ -10,6 +10,7 @@ from pipeline.domain_types import (
     EntityID,
     EntityType,
     FactType,
+    KinshipDetail,
     OrganizationKind,
     RelationshipType,
     RoleKind,
@@ -357,6 +358,62 @@ def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
         for clause in document.clause_units
         for mention in clause.cluster_mentions
     )
+
+
+def test_proxy_person_does_not_emit_office_or_candidacy_facts() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Partnerka wójta kandyduje w wyborach."
+    document = prepared_single_clause_document(
+        document_id="doc-proxy-no-office",
+        text=text,
+        entities=[("Partnerka wójta", EntityType.PERSON, "Partnerka Wójta")],
+        parsed_words=[
+            word(1, "Partnerka", "partnerka", 0, head=3, deprel="nsubj"),
+            word(2, "wójta", "wójt", 10, head=1, deprel="nmod"),
+            word(3, "kandyduje", "kandydować", 16, upos="VERB"),
+            word(4, "w", "w", 26, head=5, deprel="case", upos="ADP"),
+            word(5, "wyborach", "wybory", 28, head=3, deprel="obl"),
+        ],
+    )
+    document.entities[0].is_proxy_person = True
+    document.entities[0].kinship_detail = KinshipDetail.PARTNER
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    assert not any(fact.fact_type == FactType.POLITICAL_OFFICE for fact in extracted.facts)
+    assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
+
+
+def test_kinship_phrase_does_not_attach_office_to_relative_name() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Agnieszka Królikowska, partnerka marszałka województwa Szymona Ogłazy, pracuje w urzędzie."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-kinship-office-guard",
+        text=text,
+        entities=[
+            ("Agnieszka Królikowska", EntityType.PERSON, "Agnieszka Królikowska"),
+            ("Szymona Ogłazy", EntityType.PERSON, "Szymon Ogłaza"),
+        ],
+        parsed_words=[
+            word(1, "Agnieszka", "Agnieszka", 0, head=8, deprel="nsubj", upos="PROPN"),
+            word(2, "Królikowska", "Królikowska", 10, head=1, deprel="flat", upos="PROPN"),
+            word(3, "partnerka", "partnerka", 24, head=1, deprel="appos"),
+            word(4, "marszałka", "marszałek", 34, head=3, deprel="nmod"),
+            word(5, "województwa", "województwo", 45, head=4, deprel="nmod"),
+            word(6, "Szymona", "Szymon", 57, head=4, deprel="nmod", upos="PROPN"),
+            word(7, "Ogłazy", "Ogłaza", 65, head=6, deprel="flat", upos="PROPN"),
+            word(8, "pracuje", "pracować", 73, upos="VERB"),
+            word(9, "w", "w", 81, head=10, deprel="case", upos="ADP"),
+            word(10, "urzędzie", "urząd", 83, head=8, deprel="obl"),
+        ],
+    )
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    offices = [fact for fact in extracted.facts if fact.fact_type == FactType.POLITICAL_OFFICE]
+    assert not any(fact.subject_entity_id == EntityID("entity-0") for fact in offices)
 
 
 def test_shared_enrichment_marks_public_institution_clusters() -> None:
@@ -2922,3 +2979,40 @@ def test_owner_context_collaborator_tie_skips_quote_attribution_person() -> None
         ties[0].subject_entity_id,
         ties[0].object_entity_id,
     }
+
+
+def test_patronage_complaint_context_emits_tie_without_article_specific_name_patch() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Radna Dorota Połedniok napisała, że w mieście trwa kolesiostwo i rozdawanie posad, "
+        "a prezydent Jacek Guza buduje koalicję dla członków swojej ekipy."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-patronage-complaint",
+        text=text,
+        entities=[
+            ("Dorota Połedniok", EntityType.PERSON, "Dorota Połedniok"),
+            ("Jacek Guza", EntityType.PERSON, "Jacek Guza"),
+        ],
+        parsed_words=[
+            word(1, "Radna", "radna", text.index("Radna"), upos="NOUN"),
+            word(2, "Dorota", "Dorota", text.index("Dorota"), upos="PROPN"),
+            word(3, "Połedniok", "Połedniok", text.index("Połedniok"), upos="PROPN"),
+            word(4, "napisała", "napisać", text.index("napisała"), upos="VERB"),
+            word(5, "prezydent", "prezydent", text.index("prezydent"), upos="NOUN"),
+            word(6, "Jacek", "Jacek", text.index("Jacek"), upos="PROPN"),
+            word(7, "Guza", "Guza", text.index("Guza"), upos="PROPN"),
+        ],
+    )
+
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    ties = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert ties
+    assert any(
+        fact.subject_entity_id == EntityID("entity-0")
+        and fact.object_entity_id == EntityID("entity-1")
+        for fact in ties
+    )

@@ -15,6 +15,11 @@ from pipeline.domain_types import (
     OrganizationKind,
     TimeScope,
 )
+from pipeline.entity_classifiers import (
+    is_media_like_name,
+    is_party_like_name,
+    is_target_organization_name,
+)
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -27,6 +32,11 @@ from pipeline.nlp_rules import (
     BOARD_ROLE_KINDS,
     BODY_CONTEXT_TERMS,
     OWNER_CONTEXT_TERMS,
+)
+from pipeline.semantic_signals import (
+    GOVERNANCE_ROLE_SURFACES,
+    GOVERNANCE_TARGET_HEAD_MARKERS,
+    OWNER_CONTEXT_EXTRA_TERMS,
 )
 from pipeline.utils import extract_role_from_text, stable_id
 
@@ -138,29 +148,21 @@ class GovernanceTargetResolver:
         )
 
     def is_party_like_cluster(self, cluster: EntityCluster) -> bool:
-        normalized = cluster.normalized_name.lower()
-        aliases = {
-            alias.lower()
-            for alias in [
-                cluster.canonical_name,
-                cluster.normalized_name,
-                *cluster.aliases,
-            ]
-            if isinstance(alias, str)
-        }
+        aliases = [
+            cluster.canonical_name,
+            cluster.normalized_name,
+            *[alias for alias in cluster.aliases if isinstance(alias, str)],
+        ]
+        if any(is_party_like_name(alias, self.config) for alias in aliases):
+            return True
         known_parties = {
             alias.lower() for pair in self.config.party_aliases.items() for alias in pair
         }
-        if aliases.intersection(known_parties):
-            return True
-        if any(
-            self._looks_like_inflected_party_alias(alias, party)
+        return any(
+            self._looks_like_inflected_party_alias(alias.lower(), party)
             for alias in aliases
             for party in known_parties
-        ):
-            return True
-        party_heads = {"partia", "stronnictwo", "koalicja", "ruch"}
-        return any(head in normalized for head in party_heads | {"koalicj"})
+        )
 
     def _target_score(
         self,
@@ -283,20 +285,7 @@ class GovernanceTargetResolver:
         normalized = cluster.normalized_name.lower()
         if cluster.organization_kind == OrganizationKind.COMPANY:
             return True
-        return any(
-            marker in normalized
-            for marker in (
-                "spół",
-                "stadnin",
-                "rewita",
-                "tour",
-                "wodociąg",
-                "centrum",
-                "hotel",
-                "totalizator",
-                "agencja",
-            )
-        )
+        return is_target_organization_name(normalized)
 
     def _role_evidence(
         self,
@@ -368,20 +357,9 @@ class GovernanceTargetResolver:
 
     @staticmethod
     def _has_staffed_target_phrase(before: str, local: str) -> bool:
-        target_heads = ("spółk", "przedsiębiorstw", "stadnin", "kolej", "wodociąg")
-        governance_roles = (
-            "do rady nadzorczej",
-            "członkiem rady",
-            "prezesem",
-            "prezeską",
-            "wiceprezesem",
-            "wiceprezeską",
-            "dyrektorem",
-            "zarządu",
-        )
         return (
-            any(head in before for head in target_heads)
-            and any(role in before or role in local for role in governance_roles)
+            any(head in before for head in GOVERNANCE_TARGET_HEAD_MARKERS)
+            and any(role in before or role in local for role in GOVERNANCE_ROLE_SURFACES)
         ) or before.rstrip().endswith(("spółki", "spółce", "stadniny"))
 
     @staticmethod
@@ -391,13 +369,7 @@ class GovernanceTargetResolver:
 
     @staticmethod
     def _has_owner_context_phrase(local: str) -> bool:
-        owner_terms = OWNER_CONTEXT_TERMS | {
-            "województw",
-            "urząd marszałkowski",
-            "marszałek województwa",
-            "samorząd",
-            "właściciel",
-        }
+        owner_terms = OWNER_CONTEXT_TERMS | OWNER_CONTEXT_EXTRA_TERMS
         return any(term in local for term in owner_terms)
 
     @staticmethod
@@ -426,21 +398,7 @@ class GovernanceTargetResolver:
 
     @staticmethod
     def _is_media_like_cluster(cluster: EntityCluster) -> bool:
-        normalized = cluster.normalized_name.lower()
-        media_markers = {
-            "onet",
-            "pap",
-            "wp",
-            "wirtualna polska",
-            "rzeczpospolita",
-            "fakt",
-            "tvn",
-            "tvp",
-            "interia",
-        }
-        # Note: 'is_media' was not in EntityCluster fields but used in attributes.get before.
-        # It's not in the new model either, so I'll just check markers.
-        return any(marker in normalized for marker in media_markers)
+        return is_media_like_name(cluster.normalized_name)
 
     @staticmethod
     def _is_expanded_name(cluster: EntityCluster) -> bool:

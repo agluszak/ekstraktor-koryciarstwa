@@ -56,6 +56,8 @@ class PoliticalProfileFactExtractor:
             APPOINTMENT_TRIGGER_TEXTS | DISMISSAL_TRIGGER_TEXTS,
         )
         for person in context.persons:
+            if person.is_proxy_person:
+                continue
             linked_party_ids: set[str] = set()
             parties = [
                 *context.outgoing("person-affiliated-party", person.candidate_id),

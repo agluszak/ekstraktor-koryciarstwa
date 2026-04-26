@@ -27,3 +27,18 @@ def test_radomszczanska_comments_are_removed_from_cleaned_text() -> None:
     assert "niezalogowany" not in document.cleaned_text.lower()
     assert "Twoje zdanie jest ważne" not in document.cleaned_text
     assert "Marek Rząsowski, radny powiatowy PO" in document.cleaned_text
+
+
+def test_generic_navigation_boilerplate_is_removed_without_publisher_name() -> None:
+    preprocessor = TrafilaturaPreprocessor()
+
+    paragraphs = [
+        "Strona główna wiadomości",
+        "Logowanie i kup subskrypcję premium",
+        "Program TV i pogoda",
+        "Radna opisała nepotyzm w miejskiej spółce i wskazała prezesa.",
+    ]
+
+    cleaned = preprocessor._sanitize_paragraphs(paragraphs)
+
+    assert cleaned == ["Radna opisała nepotyzm w miejskiej spółce i wskazała prezesa."]

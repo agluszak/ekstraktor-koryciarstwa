@@ -11,6 +11,7 @@ from pipeline.domain_lexicons import (
     PUBLIC_OFFICE_ROLE_KINDS,
 )
 from pipeline.domain_types import EntityType, FrameID, OrganizationKind, PublicEmploymentSignal
+from pipeline.entity_classifiers import is_party_like_name, is_public_employer_name
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
     ArticleDocument,
@@ -21,6 +22,7 @@ from pipeline.models import (
     ParsedWord,
     PublicEmploymentFrame,
 )
+from pipeline.semantic_signals import EMPLOYMENT_CONTEXT_MARKERS
 from pipeline.utils import normalize_entity_name
 
 
@@ -48,29 +50,6 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
         "był zatrudniony",
         "jest dyrektorem",
         "jest dyrektorką",
-    )
-    EXPLICIT_EMPLOYMENT_MARKERS = (
-        "prac",
-        "zatrudn",
-        "praca",
-        "etat",
-        "stanowisk",
-        "koordynator",
-        "specjalist",
-        "doradc",
-        "funkcj",
-    )
-    PARTY_MARKERS = (
-        "platforma obywatelska",
-        "polskie stronnictwo ludowe",
-        "prawo i sprawiedliwość",
-        "koalicja obywatelska",
-        "lewica",
-        "polska 2050",
-        "suwerenna polska",
-        "po",
-        "pis",
-        "psl",
     )
     ROLE_STOP_WORDS = frozenset(
         {"w", "we", "do", "na", "od", "przy", "oraz", "i", "a", "ale", "który", "która"}
@@ -612,19 +591,15 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
         if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
             return True
         normalized = cluster.normalized_name.casefold()
-        return any(term in normalized for term in PUBLIC_EMPLOYER_TERMS)
+        return is_public_employer_name(normalized)
 
-    @classmethod
-    def _is_party_cluster(cls, cluster: EntityCluster) -> bool:
-        normalized = cluster.normalized_name.casefold().strip()
-        return normalized in cls.PARTY_MARKERS or any(
-            marker in normalized for marker in cls.PARTY_MARKERS if " " in marker
-        )
+    def _is_party_cluster(self, cluster: EntityCluster) -> bool:
+        return is_party_like_name(cluster.normalized_name, self.config)
 
     @classmethod
     def _has_explicit_employment_context(cls, text: str) -> bool:
         lowered = text.casefold()
-        return any(marker in lowered for marker in cls.EXPLICIT_EMPLOYMENT_MARKERS)
+        return any(marker in lowered for marker in EMPLOYMENT_CONTEXT_MARKERS)
 
     @staticmethod
     def _is_public_office_role(cluster: EntityCluster) -> bool:

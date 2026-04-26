@@ -20,6 +20,7 @@ from pipeline.relation_signals import (
     is_quote_speaker_risk,
     party_context_window_supports,
     party_syntactic_signal,
+    person_role_syntactic_signal,
 )
 from pipeline.utils import stable_id
 
@@ -103,12 +104,41 @@ class SecondaryFactScorer:
         *,
         governance_signal: bool,
     ) -> SecondaryFactScore | None:
+        if person.is_proxy_person:
+            return None
         edge_confidence = context.edge_confidence(
             "person-has-role",
             person.candidate_id,
             role.candidate_id,
         )
+        syntactic_signal = person_role_syntactic_signal(
+            parsed_words=context.parsed_words,
+            lowered_text=context.lowered_text,
+            person=person,
+            role=role,
+            sentence_persons=context.persons,
+        )
         distance = abs(person.start_char - role.start_char)
+        if syntactic_signal == "syntactic_direct":
+            confidence = max(cls.SYNTACTIC_DIRECT, edge_confidence or 0.0)
+            if governance_signal:
+                confidence -= 0.08
+            return cls._score(
+                confidence,
+                syntactic_signal,
+                "same_sentence",
+                "direct_office_role",
+            )
+        if syntactic_signal == "appositive_context":
+            confidence = max(cls.APPOSITIVE_CONTEXT, edge_confidence or 0.0)
+            if governance_signal:
+                confidence -= 0.08
+            return cls._score(
+                confidence,
+                syntactic_signal,
+                "same_sentence",
+                "office_apposition",
+            )
         if edge_confidence is not None and edge_confidence >= 0.72:
             confidence = max(cls.DEPENDENCY_EDGE, edge_confidence)
             if governance_signal:
@@ -119,11 +149,10 @@ class SecondaryFactScorer:
                 "same_sentence",
                 "person_role_edge",
             )
-        if distance <= 28:
-            confidence = cls.SAME_SENTENCE - (0.08 if governance_signal else 0.0)
-            return cls._score(confidence, "same_sentence", "same_sentence", "near_office_role")
-        if distance <= 48 and not governance_signal:
-            return cls._score(cls.SAME_PARAGRAPH, "same_paragraph", "same_sentence", "loose_role")
+        if distance <= 20 and not governance_signal:
+            return cls._score(
+                cls.SAME_SENTENCE - 0.04, "same_sentence", "same_sentence", "near_title"
+            )
         return None
 
     @classmethod
@@ -132,6 +161,8 @@ class SecondaryFactScorer:
         context: SentenceContext,
         person: EntityCandidate,
     ) -> SecondaryFactScore | None:
+        if person.is_proxy_person:
+            return None
         lemmas = {word.lemma for word in context.parsed_words}
         if not (
             {"kandydować", "startować"}.intersection(lemmas)

@@ -5,55 +5,17 @@ import re
 from pipeline.base import RelevanceFilter
 from pipeline.config import PipelineConfig
 from pipeline.models import ArticleDocument, RelevanceDecision
+from pipeline.semantic_signals import (
+    ANTI_CORRUPTION_CONTEXT_MARKERS,
+    PATRONAGE_LANGUAGE_MARKERS,
+    PUBLIC_FUND_CONTEXT_MARKERS,
+    PUBLIC_OFFICE_ACTOR_MARKERS,
+    SOFT_GOVERNANCE_CONTEXT_MARKERS,
+    matching_markers,
+)
 
 
 class KeywordRelevanceFilter(RelevanceFilter):
-    patronage_markers = ("kolesiostwo", "rozdawanie posad")
-    public_fund_markers = (
-        "fundusz",
-        "wojewódzki fundusz",
-        "narodowy fundusz",
-        "wfoś",
-        "wfośigw",
-        "nfoś",
-        "nfośigw",
-        "instytucja",
-        "urząd marszałkowski",
-    )
-    soft_governance_markers = (
-        "bez konkursu",
-        "nominacj",
-        "będą kierować",
-        "pokieruje",
-        "pokierują",
-        "powoływany jest przez radę nadzorczą",
-        "ma zostać",
-    )
-    anti_corruption_markers = (
-        "cba",
-        "centralne biuro antykorupcyjne",
-        "korupcja",
-        "korupcyj",
-        "łapówka",
-        "łapówki",
-        "łapówkę",
-        "zamówienia publiczne",
-        "zamówień publicznych",
-        "ustawianie zleceń",
-        "ustawiania zleceń",
-        "przekroczenie uprawnień",
-        "przekroczenia uprawnień",
-    )
-    public_office_actor_markers = (
-        "wójt",
-        "wójta",
-        "burmistrz",
-        "starosta",
-        "sekretarz powiatu",
-        "marszałek województwa",
-        "wojewoda",
-    )
-
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
         self.person_like_re = re.compile(
@@ -112,16 +74,12 @@ class KeywordRelevanceFilter(RelevanceFilter):
             self.config.patterns.appointment_verbs + self.config.patterns.dismissal_verbs
         )
         has_governance_event = any(verb in lowered_full for verb in event_markers)
-        public_fund_hits = [marker for marker in self.public_fund_markers if marker in lowered_full]
-        soft_governance_hits = [
-            marker for marker in self.soft_governance_markers if marker in lowered_full
-        ]
-        focus_public_fund_hits = [
-            marker for marker in self.public_fund_markers if marker in lowered_focus
-        ]
-        focus_soft_governance_hits = [
-            marker for marker in self.soft_governance_markers if marker in lowered_focus
-        ]
+        public_fund_hits = matching_markers(lowered_full, PUBLIC_FUND_CONTEXT_MARKERS)
+        soft_governance_hits = matching_markers(lowered_full, SOFT_GOVERNANCE_CONTEXT_MARKERS)
+        focus_public_fund_hits = matching_markers(lowered_focus, PUBLIC_FUND_CONTEXT_MARKERS)
+        focus_soft_governance_hits = matching_markers(
+            lowered_focus, SOFT_GOVERNANCE_CONTEXT_MARKERS
+        )
 
         score = 0.0
         reasons: list[str] = []
@@ -131,17 +89,13 @@ class KeywordRelevanceFilter(RelevanceFilter):
             score += min(0.4, len(keyword_hits) * 0.1)
             reasons.append(f"keyword hits: {', '.join(keyword_hits[:5])}")
 
-        patronage_hits = [marker for marker in self.patronage_markers if marker in lowered_full]
+        patronage_hits = matching_markers(lowered_full, PATRONAGE_LANGUAGE_MARKERS)
         if patronage_hits:
             score += 0.25
             reasons.append(f"patronage language: {', '.join(patronage_hits)}")
 
-        anti_corruption_hits = [
-            marker for marker in self.anti_corruption_markers if marker in lowered_full
-        ]
-        public_actor_hits = [
-            marker for marker in self.public_office_actor_markers if marker in lowered_full
-        ]
+        anti_corruption_hits = matching_markers(lowered_full, ANTI_CORRUPTION_CONTEXT_MARKERS)
+        public_actor_hits = matching_markers(lowered_full, PUBLIC_OFFICE_ACTOR_MARKERS)
         if anti_corruption_hits:
             score += min(0.35, 0.12 * len(anti_corruption_hits))
             reasons.append(f"anti-corruption context: {', '.join(anti_corruption_hits[:4])}")

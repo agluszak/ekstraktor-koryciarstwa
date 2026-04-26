@@ -3,6 +3,27 @@ from __future__ import annotations
 from pipeline.models import EntityCandidate, ParsedWord
 from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, PARTY_PROFILE_CONTEXT_LEMMAS
 
+KINSHIP_CONTEXT_MARKERS = frozenset(
+    {
+        "mąż",
+        "żona",
+        "partner",
+        "partnerka",
+        "syn",
+        "córka",
+        "ojciec",
+        "matka",
+        "brat",
+        "siostra",
+        "szwagier",
+        "synowa",
+        "teść",
+        "teściowa",
+        "narzeczona",
+        "narzeczony",
+    }
+)
+
 
 def candidate_words(
     parsed_words: list[ParsedWord],
@@ -155,3 +176,94 @@ def supports_party_link(
         return distance <= 40
 
     return False
+
+
+def person_role_syntactic_signal(
+    *,
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+    person: EntityCandidate,
+    role: EntityCandidate,
+    sentence_persons: list[EntityCandidate],
+) -> str | None:
+    if person.is_proxy_person and _candidate_contains(person, role):
+        return None
+
+    if _other_person_between(person, role, sentence_persons):
+        return None
+
+    between_text = between_candidates_text(lowered_text, person, role)
+    if any(marker in between_text for marker in KINSHIP_CONTEXT_MARKERS):
+        return None
+
+    compact_between = between_text.strip(" \t,()[]\"'")
+    if compact_between == "":
+        return "appositive_context"
+
+    person_head = candidate_head_word(parsed_words, person)
+    role_head = candidate_head_word(parsed_words, role)
+    if person_head is None or role_head is None:
+        return None
+
+    if person_head.head == role_head.index or role_head.head == person_head.index:
+        return "syntactic_direct"
+
+    person_children = {word.index for word in parsed_words if word.head == person_head.index}
+    role_children = {word.index for word in parsed_words if word.head == role_head.index}
+    if person_head.index in role_children or role_head.index in person_children:
+        return "syntactic_direct"
+
+    return None
+
+
+def supports_person_role_link(
+    *,
+    parsed_words: list[ParsedWord],
+    sentence_text: str,
+    person: EntityCandidate,
+    role: EntityCandidate,
+    sentence_persons: list[EntityCandidate],
+) -> bool:
+    lowered_text = sentence_text.casefold()
+    signal = person_role_syntactic_signal(
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
+        person=person,
+        role=role,
+        sentence_persons=sentence_persons,
+    )
+    if signal is not None:
+        return True
+
+    distance = abs(person.start_char - role.start_char)
+    if person.is_proxy_person:
+        return False
+
+    if distance > 32:
+        return False
+
+    between_text = between_candidates_text(lowered_text, person, role)
+    if any(marker in between_text for marker in KINSHIP_CONTEXT_MARKERS):
+        return False
+    if _other_person_between(person, role, sentence_persons):
+        return False
+    return between_text.strip(" \t,:;()[]\"'") == ""
+
+
+def _candidate_contains(container: EntityCandidate, inner: EntityCandidate) -> bool:
+    return container.start_char <= inner.start_char and inner.end_char <= container.end_char
+
+
+def _other_person_between(
+    left: EntityCandidate,
+    right: EntityCandidate,
+    sentence_persons: list[EntityCandidate],
+) -> bool:
+    between_start = min(left.end_char, right.end_char)
+    between_end = max(left.start_char, right.start_char)
+    return any(
+        candidate.candidate_id not in {left.candidate_id, right.candidate_id}
+        and candidate.start_char >= between_start
+        and candidate.end_char <= between_end
+        for candidate in sentence_persons
+    )

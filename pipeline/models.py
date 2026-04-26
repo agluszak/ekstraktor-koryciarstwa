@@ -152,6 +152,8 @@ class EntityCandidate:
     organization_kind: OrganizationKind | None = None
     role_kind: RoleKind | None = None
     role_modifier: RoleModifier | None = None
+    is_proxy_person: bool = False
+    kinship_detail: KinshipDetail | None = None
 
 
 @dataclass(slots=True)

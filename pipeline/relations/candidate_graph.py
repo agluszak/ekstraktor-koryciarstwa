@@ -27,7 +27,7 @@ from pipeline.nlp_rules import (
     ROLE_PATTERNS,
     TIE_WORDS,
 )
-from pipeline.relation_signals import supports_party_link
+from pipeline.relation_signals import supports_party_link, supports_person_role_link
 from pipeline.role_matching import RoleMatch, match_role_mentions
 from pipeline.utils import (
     extract_role_from_text,
@@ -176,6 +176,8 @@ class CandidateGraphBuilder:
             end_char=anchor.end,
             source="mention",
             organization_kind=organization_kind,
+            is_proxy_person=entity.is_proxy_person,
+            kinship_detail=entity.kinship_detail,
         )
 
     def _derived_person_candidates(
@@ -230,6 +232,7 @@ class CandidateGraphBuilder:
                     start_char=match.start(),
                     end_char=match.end(),
                     source="derived_person",
+                    is_proxy_person=False,
                 )
             )
         return candidates
@@ -459,16 +462,25 @@ class CandidateGraphBuilder:
             for person in persons:
                 for position in positions:
                     distance = abs(person.start_char - position.start_char)
-                    if distance <= 96:
-                        edges.append(
-                            CandidateEdge(
-                                edge_type="person-has-role",
-                                source_candidate_id=person.candidate_id,
-                                target_candidate_id=position.candidate_id,
-                                confidence=max(0.45, 0.88 - distance / 100),
-                                sentence_index=sentence.sentence_index,
-                            )
+                    if distance > 96:
+                        continue
+                    if not self._supports_person_role_link(
+                        sentence.text,
+                        parsed_words,
+                        person=person,
+                        role=position,
+                        sentence_persons=persons,
+                    ):
+                        continue
+                    edges.append(
+                        CandidateEdge(
+                            edge_type="person-has-role",
+                            source_candidate_id=person.candidate_id,
+                            target_candidate_id=position.candidate_id,
+                            confidence=max(0.45, 0.88 - distance / 100),
+                            sentence_index=sentence.sentence_index,
                         )
+                    )
                 for party in parties:
                     if self._supports_party_link(
                         sentence.text,
@@ -635,6 +647,23 @@ class CandidateGraphBuilder:
             parsed_words=parsed_words,
             person=person,
             party=party,
+        )
+
+    @staticmethod
+    def _supports_person_role_link(
+        sentence_text: str,
+        parsed_words: list[ParsedWord],
+        *,
+        person: EntityCandidate,
+        role: EntityCandidate,
+        sentence_persons: list[EntityCandidate],
+    ) -> bool:
+        return supports_person_role_link(
+            parsed_words=parsed_words,
+            sentence_text=sentence_text,
+            person=person,
+            role=role,
+            sentence_persons=sentence_persons,
         )
 
     def _mentions_for_sentence(
