@@ -15,6 +15,7 @@ from pipeline.filtering import KeywordRelevanceFilter
 from pipeline.frames import PolishFrameExtractor
 from pipeline.identity import PolishFamilyIdentityResolver
 from pipeline.linking import InMemoryEntityLinker
+from pipeline.llm import OllamaLLMExtractionPipeline
 from pipeline.models import ExtractionResult, PipelineInput
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.nlp_services import StanzaPolishMorphologyAnalyzer
@@ -69,6 +70,48 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print the main JSON result to stdout.",
     )
     parser.add_argument(
+        "--engine",
+        choices=("rules", "llm"),
+        default="rules",
+        help="Extraction engine to use.",
+    )
+    parser.add_argument(
+        "--llm-model",
+        help="Ollama model name for --engine llm.",
+    )
+    parser.add_argument(
+        "--llm-host",
+        help="Ollama base URL for --engine llm.",
+    )
+    parser.add_argument(
+        "--llm-model-path",
+        help="Legacy alias for the Ollama model name.",
+    )
+    parser.add_argument(
+        "--llm-context-size",
+        type=int,
+        help="Ollama context size for --engine llm.",
+    )
+    parser.add_argument(
+        "--llm-gpu-layers",
+        type=int,
+        help="Deprecated llama.cpp option; ignored by the Ollama backend.",
+    )
+    parser.add_argument(
+        "--llm-max-output-tokens",
+        type=int,
+        help="Maximum generated tokens per LLM chunk.",
+    )
+    parser.add_argument(
+        "--llm-chat-format",
+        help="Deprecated llama.cpp option; ignored by the Ollama backend.",
+    )
+    parser.add_argument(
+        "--llm-temperature",
+        type=float,
+        help="LLM sampling temperature. Defaults to 0.0.",
+    )
+    parser.add_argument(
         "--worker",
         action="store_true",
         help="Run a persistent JSON-lines worker on stdin/stdout.",
@@ -102,6 +145,32 @@ def build_pipeline(
         frame_extractor=PolishFrameExtractor(config),
         scorer=RuleBasedNepotismScorer(config),
     )
+
+
+def build_llm_pipeline(config: PipelineConfig) -> OllamaLLMExtractionPipeline:
+    return OllamaLLMExtractionPipeline(config)
+
+
+def apply_cli_llm_overrides(args: argparse.Namespace, config: PipelineConfig) -> None:
+    if args.llm_model is not None:
+        config.llm.model = args.llm_model
+    if args.llm_host is not None:
+        config.llm.base_url = args.llm_host
+    if args.llm_model_path is not None:
+        config.llm.model = args.llm_model_path
+    if args.llm_context_size is not None:
+        config.llm.context_size = args.llm_context_size
+    if args.llm_max_output_tokens is not None:
+        config.llm.max_output_tokens = args.llm_max_output_tokens
+    if args.llm_temperature is not None:
+        config.llm.temperature = args.llm_temperature
+
+
+def select_pipeline(args: argparse.Namespace, config: PipelineConfig) -> PipelineRunner:
+    if args.engine == "llm":
+        apply_cli_llm_overrides(args, config)
+        return build_llm_pipeline(config)
+    return build_pipeline(config)
 
 
 def fetch_html(url: str) -> str:
@@ -261,7 +330,7 @@ def run_worker(args: argparse.Namespace, pipeline: PipelineRunner) -> int:
 def main() -> int:
     args = build_parser().parse_args()
     config = PipelineConfig.from_file(args.config)
-    pipeline = build_pipeline(config)
+    pipeline = select_pipeline(args, config)
     if args.worker:
         return run_worker(args, pipeline)
     if args.input_dir is not None:

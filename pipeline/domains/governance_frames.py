@@ -824,9 +824,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             if clause.paragraph_index - sentence.paragraph_index > 1:
                 continue
             parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
-            title_words = [
-                word for word in parsed_words if word.lemma.casefold() in title_lemmas
-            ]
+            title_words = [word for word in parsed_words if word.lemma.casefold() in title_lemmas]
             if not title_words:
                 continue
             for title_word in title_words:

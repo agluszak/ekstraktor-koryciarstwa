@@ -40,6 +40,20 @@ class RegistryConfig:
 
 
 @dataclass(slots=True)
+class LLMConfig:
+    model: str = "gemma4:latest"
+    base_url: str = "http://127.0.0.1:11434"
+    model_path: str | None = None
+    context_size: int = 8192
+    gpu_layers: int = -1
+    require_cuda: bool = True
+    max_output_tokens: int = 2048
+    chat_format: str | None = None
+    temperature: float = 0.0
+    request_timeout_seconds: int = 300
+
+
+@dataclass(slots=True)
 class PipelineConfig:
     models: ModelConfig
     keywords: list[str]
@@ -48,6 +62,7 @@ class PipelineConfig:
     patterns: PatternConfig
     score_weights: ScoreConfig
     registry: RegistryConfig
+    llm: LLMConfig
 
     @classmethod
     def from_file(cls, path: str | Path) -> "PipelineConfig":
@@ -60,4 +75,5 @@ class PipelineConfig:
             patterns=PatternConfig(**payload["patterns"]),
             score_weights=ScoreConfig(**payload["score_weights"]),
             registry=RegistryConfig(**payload["registry"]),
+            llm=LLMConfig(**payload.get("llm", {})),
         )
