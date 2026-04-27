@@ -1318,3 +1318,48 @@ Expected comparison standard:
 - The system should be relevant and should preserve unnamed proxy relatives for husband, brother-in-law, and daughter-in-law.
 - The most important named expectations are Joanna Pszczółkowska, Sławomir Morawski, Bartosz Pszczółkowski, Jakub Mieszko Pszczółkowski, and their county-unit employment contexts.
 - A strong result should not collapse all relatives into one person or attach every job to the public official directly.
+
+## 29. Tygodnik Płocki: Nowy zarząd Inwestycji Miejskich
+
+Source:
+- https://tp.com.pl/artykul/nowy-zarzad-inwestycji-miejskich-n684452
+
+Saved input:
+- inputs/tp.com.pl__artykul__nowy-zarzad-inwestycji-miejskich-n684452__downloaded_20260427.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a direct municipal-company governance turnover story with both removals and new appointments stated explicitly.
+
+Expected core entities:
+- Inwestycje Miejskie sp. z o.o.
+- Artur Biernat
+- Kamil Rybacki
+- Mariusz Stec
+- Piotr Śladowski
+- rada nadzorcza
+- Urząd Miasta / Miasto Płock
+
+Expected facts:
+- Artur Biernat -> `APPOINTMENT` -> Inwestycje Miejskie
+  Expected role: `prezes`
+- Kamil Rybacki -> `APPOINTMENT` -> Inwestycje Miejskie
+  Expected role: `wiceprezes` / `zastępca prezesa`
+- Mariusz Stec -> `DISMISSAL` -> Inwestycje Miejskie
+  Expected role: `prezes`
+- Piotr Śladowski -> `DISMISSAL` -> Inwestycje Miejskie
+  Expected role: `wiceprezes`
+
+Important text cues:
+- "rada nadzorcza Inwestycji Miejskich zmieniła dwuosobowy zarząd tej spółki"
+- "Stanowiska stracili prezes Mariusz Stec i wiceprezes Piotr Śladowski"
+- "Nowym prezesem został ... Artur Biernat"
+- "jego zastępcą ... Kamil Rybacki"
+- "rada nadzorcza ... podjęła decyzję o odwołaniu prezesa i wiceprezesa"
+
+Expected comparison standard:
+- Relevance should be `true`.
+- The core quality bar is robust recovery of the explicit board-driven turnover in a municipal company.
+- If the pipeline only finds the new appointees but misses the removals, that is a recall gap.
+- If it confuses `rada nadzorcza` or `Urząd Miasta` with the staffed organization instead of `Inwestycje Miejskie`,
+  target resolution is still too weak.
