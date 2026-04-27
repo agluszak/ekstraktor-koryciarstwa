@@ -44,10 +44,10 @@ class LLMConfig:
     model: str = "gemma4:latest"
     base_url: str = "http://127.0.0.1:11434"
     model_path: str | None = None
-    context_size: int = 8192
+    context_size: int = 16384
     gpu_layers: int = -1
     require_cuda: bool = True
-    max_output_tokens: int = 2048
+    max_output_tokens: int = 4096
     chat_format: str | None = None
     temperature: float = 0.0
     request_timeout_seconds: int = 300

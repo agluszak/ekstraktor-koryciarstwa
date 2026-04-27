@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 from pipeline.config import PipelineConfig
 from pipeline.llm.adapter import LLMExtractionAdapter, candidates_from_payload
 from pipeline.llm.dto import LLMExtractionCandidateSet
+from pipeline.llm.postprocessing import LLMPostProcessor
 from pipeline.llm.schema import build_llm_response_schema
 from pipeline.models import ExtractionResult, PipelineInput, extraction_result_from_document
 from pipeline.preprocessing import TrafilaturaPreprocessor
@@ -42,6 +43,7 @@ class OllamaLLMExtractionPipeline:
         self.preprocessor = TrafilaturaPreprocessor()
         self.segmenter = ParagraphSentenceSegmenter(config)
         self.adapter = LLMExtractionAdapter()
+        self.postprocessor = LLMPostProcessor(config)
         self.scorer = RuleBasedNepotismScorer(config)
         self.client = (client_factory or _load_ollama_client)(config)
         self.schema = build_llm_response_schema()
@@ -60,7 +62,9 @@ class OllamaLLMExtractionPipeline:
         document.execution_times["llm_chunking"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        candidate_sets = [self._extract_chunk(chunk) for chunk in chunks]
+        candidate_sets: list[LLMExtractionCandidateSet] = []
+        for chunk in chunks:
+            candidate_sets.extend(self._extract_chunk_recursive(chunk))
         document.execution_times["llm_extractor"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -68,15 +72,26 @@ class OllamaLLMExtractionPipeline:
         document.execution_times["llm_adapter"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
+        document = self.postprocessor.apply(document)
+        document.execution_times["llm_postprocessing"] = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         document = self.scorer.run(document)
         document.execution_times["scorer"] = time.perf_counter() - t0
         return extraction_result_from_document(document)
 
     def _chunks_for_document(self, cleaned_text: str) -> list[str]:
+        prompt_token_overhead = _estimate_token_count(_system_prompt()) + _estimate_token_count(
+            _user_prompt("")
+        )
         max_input_tokens = max(
             256,
-            self.config.llm.context_size - self.config.llm.max_output_tokens - 512,
+            self.config.llm.context_size
+            - self.config.llm.max_output_tokens
+            - prompt_token_overhead
+            - 256,
         )
+        max_input_tokens = min(max_input_tokens, 1200)
         chunks: list[str] = []
         current_parts: list[str] = []
         current_tokens = 0
@@ -97,7 +112,21 @@ class OllamaLLMExtractionPipeline:
             chunks.append("\n".join(current_parts))
         return chunks
 
-    def _extract_chunk(self, chunk_text: str) -> LLMExtractionCandidateSet:
+    def _extract_chunk_recursive(self, chunk_text: str) -> list[LLMExtractionCandidateSet]:
+        try:
+            return [self._extract_chunk_once(chunk_text)]
+        except ValueError:
+            paragraphs = [
+                paragraph.strip() for paragraph in chunk_text.splitlines() if paragraph.strip()
+            ]
+            if len(paragraphs) <= 1:
+                raise
+            midpoint = len(paragraphs) // 2
+            left = "\n".join(paragraphs[:midpoint])
+            right = "\n".join(paragraphs[midpoint:])
+            return self._extract_chunk_recursive(left) + self._extract_chunk_recursive(right)
+
+    def _extract_chunk_once(self, chunk_text: str) -> LLMExtractionCandidateSet:
         response = self.client.create_chat_completion(
             messages=[
                 {"role": "system", "content": _system_prompt()},
@@ -228,9 +257,32 @@ def _system_prompt() -> str:
         "Zwróć tylko JSON zgodny ze schematem. Każdy fakt musi mieć dokładny cytat "
         "evidence_quote skopiowany z tekstu wejściowego. Używaj tylko pól wymaganych "
         "przez schemat oraz opcjonalnego value_text wtedy, gdy dokładny krótki opis "
-        "roli, kwoty albo innej istotnej wartości występuje w cytacie. Nie twórz "
-        "identyfikatorów globalnych, spanów znakowych, sentence_id, paragraph_id, "
-        "aliasów, confidence ani metadanych wykonania."
+        "roli, kwoty albo innej istotnej wartości występuje w cytacie. Priorytetem "
+        "jest odzyskanie jawnie opisanych głównych faktów z artykułu; jeśli cytat "
+        "wprost podaje osobę, rolę i organizację albo jawny układ polityczny, lepiej "
+        "wyemitować taki fakt niż go pominąć. Rozdzielaj "
+        "osobno przynależność partyjną i urząd polityczny: gdy tekst mówi "
+        '"posłanka partii Razem", emituj osobny fakt PARTY_MEMBERSHIP oraz osobny '
+        "fakt POLITICAL_OFFICE. Rozwiązuj opisy zależne od kontekstu do możliwie "
+        "konkretnych nazw zakotwiczonych w tekście: nie używaj ogólników typu "
+        '"nasze województwo" ani opisowych bytów typu "fundacja dyrektora '
+        'pogotowia", jeśli tekst pozwala nazwać je przez wskazaną osobę lub urząd. '
+        "Canonical_name ma być krótki, konkretny i oparty na tekście artykułu. Jeśli "
+        "zdanie opisuje objęcie albo utratę funkcji w konkretnej spółce lub urzędzie, "
+        "preferuj APPOINTMENT albo DISMISSAL z organization/public institution jako "
+        "object_key zamiast samego gołego ROLE_HELD bez obiektu. Nie zamieniaj "
+        "kontekstu sterującego, np. rady nadzorczej lub urzędu miasta, w główny cel "
+        "obsadzanej funkcji, jeśli cytat jasno wskazuje właściwą spółkę. Nie "
+        "oznaczaj jako APPOINTMENT historycznego założenia, utworzenia, powołania do "
+        "życia organizacji ani biograficznego tła, jeśli cytat nie mówi o objęciu "
+        "albo utracie konkretnej funkcji przez tę osobę. Nie zamieniaj zwykłych "
+        "biograficznych zdań CV typu „wcześniej pracował jako”, „ostatnio był”, "
+        "„był też”, „pracował w” na nowe APPOINTMENT, jeśli tekst opisuje tylko "
+        "wcześniejsze doświadczenie zawodowe. Gdy jedno zdanie zawiera główną "
+        "nominację oraz opis poprzedniej pracy tej samej osoby, emituj tylko główną "
+        "nominację, a nie dodatkowy APPOINTMENT dla wcześniejszego stanowiska. Nie "
+        "twórz identyfikatorów globalnych, spanów znakowych, sentence_id, "
+        "paragraph_id, aliasów, confidence ani metadanych wykonania."
     )
 
 
@@ -240,6 +292,126 @@ def _user_prompt(chunk_text: str) -> str:
         "person_1 albo org_1, a fakty odwołuj do tych kluczy. Każda encja ma tylko "
         "key, entity_type i canonical_name. Każdy fakt ma tylko fact_type, "
         "subject_key, object_key, evidence_quote oraz opcjonalne value_text. "
-        "Jeśli cytat nie potwierdza faktu, nie emituj faktu.\n\nTEKST:\n"
+        "Jeśli jedna osoba ma w cytacie jednocześnie urząd i partię, zwróć dwa "
+        "osobne fakty. Dla fundacji, stowarzyszeń i urzędów używaj nazw możliwie "
+        "konkretnych i zakotwiczonych w cytacie, a nie samych opisów relacyjnych. "
+        "Gdy artykuł opisuje układ partyjny, lokalną koalicję, kolesiostwo albo "
+        "sieć wpływów w mieście lub instytucji publicznej, preferuj niepuste "
+        "wydobycie osób, partii i przynajmniej jednego PERSONAL_OR_POLITICAL_TIE "
+        "zamiast pustego wyniku. "
+        "Jeśli cytat nie potwierdza faktu, nie emituj faktu.\n\n"
+        "PRZYKŁADY OCZEKIWANEGO WYJŚCIA:\n"
+        f"{_few_shot_examples()}\n\n"
+        "TEKST:\n"
         f"{chunk_text}"
+    )
+
+
+def _few_shot_examples() -> str:
+    return (
+        "Przykład 1\n"
+        "Tekst: Marcelina Zawisza, posłanka partii Razem, zwróciła uwagę na sprawę.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Marcelina Zawisza"}, '
+        '{"key": "party_1", "entity_type": "PoliticalParty", "canonical_name": "Razem"}], '
+        '"facts": ['
+        '{"fact_type": "POLITICAL_OFFICE", "subject_key": "person_1", '
+        '"evidence_quote": "Marcelina Zawisza, posłanka partii Razem, zwróciła uwagę na sprawę.", '
+        '"value_text": "poseł"}, '
+        '{"fact_type": "PARTY_MEMBERSHIP", "subject_key": "person_1", "object_key": "party_1", '
+        '"evidence_quote": "Marcelina Zawisza, posłanka partii Razem, zwróciła uwagę na sprawę.", '
+        '"value_text": "Razem"}'
+        "]}\n\n"
+        "Przykład 2\n"
+        "Tekst: Jarosław Słoma od 25 lutego zajął nową funkcję zastępcy prezesa "
+        "Przedsiębiorstwa Wodociągów i Kanalizacji.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Jarosław Słoma"}, '
+        '{"key": "org_1", "entity_type": "Organization", '
+        '"canonical_name": "Przedsiębiorstwo Wodociągów i Kanalizacji"}], '
+        '"facts": ['
+        '{"fact_type": "APPOINTMENT", "subject_key": "person_1", "object_key": "org_1", '
+        '"evidence_quote": "Jarosław Słoma od 25 lutego zajął nową funkcję zastępcy prezesa '
+        'Przedsiębiorstwa Wodociągów i Kanalizacji.", "value_text": "wiceprezes"}'
+        "]}\n\n"
+        "Przykład 3\n"
+        "Tekst: Fundacja założona przez Karola Bielskiego otrzymała 100 tysięcy złotych "
+        "z urzędu marszałkowskiego za promowanie imprezy.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "org_1", "entity_type": "Organization", '
+        '"canonical_name": "Fundacja Karola Bielskiego"}, '
+        '{"key": "inst_1", "entity_type": "PublicInstitution", '
+        '"canonical_name": "Urząd Marszałkowski"}], '
+        '"facts": ['
+        '{"fact_type": "PUBLIC_CONTRACT", "subject_key": "org_1", "object_key": "inst_1", '
+        '"evidence_quote": "Fundacja założona przez Karola Bielskiego otrzymała 100 tysięcy '
+        'złotych z urzędu marszałkowskiego za promowanie imprezy.", '
+        '"value_text": "100 tysięcy złotych"}'
+        "]}\n\n"
+        "Przykład 4\n"
+        "Tekst: Stanowiska stracili prezes Mariusz Stec i wiceprezes Piotr Śladowski.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Mariusz Stec"}, '
+        '{"key": "person_2", "entity_type": "Person", "canonical_name": "Piotr Śladowski"}, '
+        '{"key": "org_1", "entity_type": "Organization", '
+        '"canonical_name": "Inwestycje Miejskie"}], '
+        '"facts": ['
+        '{"fact_type": "DISMISSAL", "subject_key": "person_1", "object_key": "org_1", '
+        '"evidence_quote": "Stanowiska stracili prezes Mariusz Stec i wiceprezes '
+        'Piotr Śladowski.", '
+        '"value_text": "prezes"}, '
+        '{"fact_type": "DISMISSAL", "subject_key": "person_2", "object_key": "org_1", '
+        '"evidence_quote": "Stanowiska stracili prezes Mariusz Stec i wiceprezes '
+        'Piotr Śladowski.", '
+        '"value_text": "wiceprezes"}'
+        "]}\n\n"
+        "Przykład 5\n"
+        "Tekst: Inwestycje Miejskie powołał do życia w 2009 roku ówczesny prezydent "
+        "Płocka Mirosław Milewski.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "org_1", "entity_type": "Organization", "canonical_name": "Inwestycje Miejskie"}, '
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Mirosław Milewski"}], '
+        '"facts": []'
+        "]}\n\n"
+        "Przykład 6\n"
+        "Tekst: Artur Biernat ostatnio był dyrektorem biura zakupów ogólnych PKN Orlen.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Artur Biernat"}, '
+        '{"key": "org_1", "entity_type": "Organization", "canonical_name": "PKN Orlen"}], '
+        '"facts": []'
+        "]}\n\n"
+        "Przykład 7\n"
+        "Tekst: Nowym prezesem został dotychczasowy dyrektor biura zakupów ogólnych "
+        "w PKN Orlen Artur Biernat.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Artur Biernat"}, '
+        '{"key": "org_1", "entity_type": "Organization", '
+        '"canonical_name": "Inwestycje Miejskie"}], '
+        '"facts": ['
+        '{"fact_type": "APPOINTMENT", "subject_key": "person_1", "object_key": "org_1", '
+        '"evidence_quote": "Nowym prezesem został dotychczasowy dyrektor biura zakupów '
+        'ogólnych w PKN Orlen Artur Biernat.", "value_text": "prezes"}'
+        "]}\n\n"
+        "Przykład 8\n"
+        "Tekst: PO tworzy tam koalicję z lokalnym Forum Samorządowym, a radna mówi o "
+        "lokalnych partyjnych baronach i rozdawaniu posad.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "party_1", "entity_type": "PoliticalParty", '
+        '"canonical_name": "Platforma Obywatelska"}, '
+        '{"key": "org_1", "entity_type": "Organization", '
+        '"canonical_name": "Forum Samorządowe"}], '
+        '"facts": ['
+        '{"fact_type": "PERSONAL_OR_POLITICAL_TIE", "subject_key": "party_1", '
+        '"object_key": "org_1", '
+        '"evidence_quote": "PO tworzy tam koalicję z lokalnym Forum Samorządowym, a radna mówi o '
+        'lokalnych partyjnych baronach i rozdawaniu posad.", "value_text": "koalicja lokalna"}'
+        "]}"
     )

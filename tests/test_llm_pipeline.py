@@ -14,11 +14,25 @@ from pipeline.config import (
     RegistryConfig,
     ScoreConfig,
 )
-from pipeline.domain_types import EntityType, FactType
+from pipeline.domain_types import EntityType, FactType, TimeScope
 from pipeline.llm.adapter import LLMExtractionAdapter, candidates_from_payload
-from pipeline.llm.runner import OllamaLLMExtractionPipeline, _configured_ollama_model
+from pipeline.llm.postprocessing import LLMPostProcessor
+from pipeline.llm.runner import (
+    OllamaLLMExtractionPipeline,
+    _configured_ollama_model,
+    _system_prompt,
+    _user_prompt,
+)
 from pipeline.llm.schema import build_llm_response_schema
-from pipeline.models import ArticleDocument, PipelineInput, SentenceFragment
+from pipeline.models import (
+    ArticleDocument,
+    Entity,
+    EvidenceSpan,
+    Fact,
+    PipelineInput,
+    SentenceFragment,
+)
+from pipeline.utils import generate_entity_id, generate_fact_id
 
 
 def make_config() -> PipelineConfig:
@@ -29,7 +43,13 @@ def make_config() -> PipelineConfig:
             stanza_coref_model_path="models/coref.pt",
         ),
         keywords=["prezes", "dotacja", "żona"],
-        party_aliases={},
+        party_aliases={
+            "Razem": "Razem",
+            "PO": "Platforma Obywatelska",
+            "Platforma Obywatelska": "Platforma Obywatelska",
+            "PSL": "Polskie Stronnictwo Ludowe",
+            "Polskie Stronnictwo Ludowe": "Polskie Stronnictwo Ludowe",
+        },
         institution_aliases={},
         patterns=PatternConfig(
             appointment_verbs=[],
@@ -80,6 +100,114 @@ def make_document() -> ArticleDocument:
                 sentence_index=1,
                 start_char=53,
                 end_char=len(text),
+            ),
+        ],
+    )
+
+
+def make_postprocessing_document() -> ArticleDocument:
+    text = (
+        "Fundacja założona przez dyrektora warszawskiego pogotowia ratunkowego Karola "
+        "Bielskiego otrzymała 100 tysięcy złotych z urzędu marszałkowskiego za "
+        "promowanie imprezy. "
+        "Marcelina Zawisza, posłanka partii Razem, zwróciła uwagę na sprawę. "
+        "Marszałkiem województwa od 25 lat jest Adam Struzik z Polskiego "
+        "Stronnictwa Ludowego. "
+        "Zapowiedziała też, że Razem złoży do urzędu marszałkowskiego zapytanie "
+        "o wszystkie umowy."
+    )
+    first = (
+        "Fundacja założona przez dyrektora warszawskiego pogotowia ratunkowego Karola "
+        "Bielskiego otrzymała 100 tysięcy złotych z urzędu marszałkowskiego za "
+        "promowanie imprezy."
+    )
+    second = "Marcelina Zawisza, posłanka partii Razem, zwróciła uwagę na sprawę."
+    third = "Marszałkiem województwa od 25 lat jest Adam Struzik z Polskiego Stronnictwa Ludowego."
+    fourth = (
+        "Zapowiedziała też, że Razem złoży do urzędu marszałkowskiego zapytanie o wszystkie umowy."
+    )
+    second_start = len(first) + 1
+    third_start = second_start + len(second) + 1
+    fourth_start = third_start + len(third) + 1
+    return ArticleDocument(
+        document_id="doc-post",
+        source_url=None,
+        raw_html="<html></html>",
+        title="Test",
+        publication_date="2026-04-27",
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=first,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(first),
+            ),
+            SentenceFragment(
+                text=second,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=second_start,
+                end_char=second_start + len(second),
+            ),
+            SentenceFragment(
+                text=third,
+                paragraph_index=0,
+                sentence_index=2,
+                start_char=third_start,
+                end_char=third_start + len(third),
+            ),
+            SentenceFragment(
+                text=fourth,
+                paragraph_index=0,
+                sentence_index=3,
+                start_char=fourth_start,
+                end_char=fourth_start + len(fourth),
+            ),
+        ],
+    )
+
+
+def make_appointment_postprocessing_document() -> ArticleDocument:
+    text = (
+        "Jarosław Słoma od 25 lutego zajął zupełnie nową, świeżo utworzoną funkcję "
+        "zastępcy prezesa Przedsiębiorstwa Wodociągów i Kanalizacji. "
+        "To Jarosław Słoma - działacz PO w regionie, a po ostatnich wyborach "
+        "samorządowych również radny wojewódzki."
+    )
+    first = (
+        "Jarosław Słoma od 25 lutego zajął zupełnie nową, świeżo utworzoną funkcję "
+        "zastępcy prezesa Przedsiębiorstwa Wodociągów i Kanalizacji."
+    )
+    second = (
+        "To Jarosław Słoma - działacz PO w regionie, a po ostatnich wyborach "
+        "samorządowych również radny wojewódzki."
+    )
+    second_start = len(first) + 1
+    return ArticleDocument(
+        document_id="doc-appointment",
+        source_url=None,
+        raw_html="<html></html>",
+        title="Appointment test",
+        publication_date="2026-04-27",
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=first,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(first),
+            ),
+            SentenceFragment(
+                text=second,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=second_start,
+                end_char=second_start + len(second),
             ),
         ],
     )
@@ -319,6 +447,52 @@ def test_engine_llm_builds_single_reused_runner(tmp_path) -> None:
     assert runner.client is runner.client
 
 
+def test_llm_chunking_accounts_for_prompt_overhead() -> None:
+    class FakeClient:
+        def create_chat_completion(
+            self,
+            *,
+            messages: list[dict[str, str]],
+            response_format,
+            temperature: float,
+            max_tokens: int,
+        ):
+            return {"message": {"content": '{"is_relevant": false, "entities": [], "facts": []}'}}
+
+    config = make_config()
+    config.llm.context_size = 1200
+    config.llm.max_output_tokens = 256
+    runner = OllamaLLMExtractionPipeline(config, client_factory=lambda _: FakeClient())
+    paragraph = " ".join(["To jest dłuższy akapit o nominacjach i spółkach publicznych."] * 12)
+
+    chunks = runner._chunks_for_document(f"{paragraph}\n{paragraph}")
+
+    assert len(chunks) >= 2
+
+
+def test_llm_runner_recursively_splits_invalid_chunk_responses(tmp_path) -> None:
+    class FakeClient:
+        def create_chat_completion(
+            self,
+            *,
+            messages: list[dict[str, str]],
+            response_format,
+            temperature: float,
+            max_tokens: int,
+        ):
+            user_message = messages[-1]["content"]
+            if "Akapit pierwszy." in user_message and "Akapit drugi." in user_message:
+                return {"message": {"content": ""}}
+            return {"message": {"content": '{"is_relevant": false, "entities": [], "facts": []}'}}
+
+    config = make_config()
+    runner = OllamaLLMExtractionPipeline(config, client_factory=lambda _: FakeClient())
+
+    candidate_sets = runner._extract_chunk_recursive("Akapit pierwszy.\nAkapit drugi.")
+
+    assert len(candidate_sets) == 2
+
+
 def test_llm_adapter_maps_value_text_to_amount_for_public_money_fact() -> None:
     document = make_document()
     payload = {
@@ -371,3 +545,310 @@ def test_configured_ollama_model_requires_model() -> None:
 
     with pytest.raises(ValueError, match="llm.model"):
         _configured_ollama_model(config)
+
+
+def test_llm_prompts_include_grounded_examples() -> None:
+    system_prompt = _system_prompt()
+    user_prompt = _user_prompt("Tekst testowy.")
+
+    assert "Priorytetem jest odzyskanie jawnie opisanych głównych faktów" in system_prompt
+    assert "preferuj APPOINTMENT albo DISMISSAL" in system_prompt
+    assert "Nie oznaczaj jako APPOINTMENT historycznego założenia" in system_prompt
+    assert "Nie zamieniaj zwykłych biograficznych zdań CV" in system_prompt
+    assert "emituj tylko główną nominację" in system_prompt
+    assert "preferuj niepuste wydobycie" in user_prompt
+    assert "PRZYKŁADY OCZEKIWANEGO WYJŚCIA" in user_prompt
+    assert '"fact_type": "APPOINTMENT"' in user_prompt
+    assert '"fact_type": "DISMISSAL"' in user_prompt
+    assert '"fact_type": "PUBLIC_CONTRACT"' in user_prompt
+    assert '"fact_type": "PERSONAL_OR_POLITICAL_TIE"' in user_prompt
+    assert "Mirosław Milewski" in user_prompt
+    assert "Artur Biernat ostatnio był dyrektorem" in user_prompt
+    assert "Nowym prezesem został dotychczasowy dyrektor" in user_prompt
+
+
+def test_llm_postprocessor_grounds_entities_and_splits_party_office_facts() -> None:
+    config = make_config()
+    document = make_postprocessing_document()
+    first = document.sentences[0]
+    second = document.sentences[1]
+    third = document.sentences[2]
+    fourth = document.sentences[3]
+
+    karol = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-post", "Karol Bielski"),
+        entity_type=EntityType.PERSON,
+        canonical_name="Karol Bielski",
+        normalized_name="karol bielski",
+    )
+    adam = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-post", "Adam Struzik"),
+        entity_type=EntityType.PERSON,
+        canonical_name="Adam Struzik",
+        normalized_name="adam struzik",
+    )
+    marcelina = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-post", "Marcelina Zawisza"),
+        entity_type=EntityType.PERSON,
+        canonical_name="Marcelina Zawisza",
+        normalized_name="marcelina zawisza",
+    )
+    urzad = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-post", "Urząd Marszałkowski"),
+        entity_type=EntityType.PUBLIC_INSTITUTION,
+        canonical_name="Urząd Marszałkowski",
+        normalized_name="urząd marszałkowski",
+        evidence=[
+            EvidenceSpan(
+                text="urzędu marszałkowskiego",
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=first.start_char + first.text.index("urzędu marszałkowskiego"),
+                end_char=first.start_char
+                + first.text.index("urzędu marszałkowskiego")
+                + len("urzędu marszałkowskiego"),
+            )
+        ],
+    )
+    fundacja = Entity(
+        entity_id=generate_entity_id(
+            "llm_entity",
+            "doc-post",
+            "Fundacja Dyrektora Warszawskiego Pogotowia",
+        ),
+        entity_type=EntityType.ORGANIZATION,
+        canonical_name="Fundacja Dyrektora Warszawskiego Pogotowia",
+        normalized_name="fundacja dyrektora warszawskiego pogotowia",
+    )
+    razem = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-post", "Razem"),
+        entity_type=EntityType.POLITICAL_PARTY,
+        canonical_name="Razem",
+        normalized_name="razem",
+    )
+    psl = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-post", "Polskie Stronnictwo Ludowe"),
+        entity_type=EntityType.POLITICAL_PARTY,
+        canonical_name="Polskie Stronnictwo Ludowe",
+        normalized_name="polskie stronnictwo ludowe",
+    )
+    document.entities = [karol, adam, marcelina, urzad, fundacja, razem, psl]
+    document.facts = [
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-post", "public_contract"),
+            fact_type=FactType.PUBLIC_CONTRACT,
+            subject_entity_id=fundacja.entity_id,
+            object_entity_id=urzad.entity_id,
+            value_text="100 tysięcy złotych za promowanie imprezy",
+            value_normalized="100 tysięcy złotych za promowanie imprezy",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=first.text,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=first.start_char,
+                end_char=first.end_char,
+            ),
+            amount_text="100 tysięcy złotych za promowanie imprezy",
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-post", "office-marcelina"),
+            fact_type=FactType.POLITICAL_OFFICE,
+            subject_entity_id=marcelina.entity_id,
+            object_entity_id=razem.entity_id,
+            value_text="posłanka partii Razem",
+            value_normalized="posłanka partii razem",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=second.text,
+                sentence_index=1,
+                paragraph_index=0,
+                start_char=second.start_char,
+                end_char=second.end_char,
+            ),
+            role="posłanka partii Razem",
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-post", "office-adam"),
+            fact_type=FactType.ROLE_HELD,
+            subject_entity_id=adam.entity_id,
+            object_entity_id=psl.entity_id,
+            value_text="Marszałek województwa od 25 lat",
+            value_normalized="marszałek województwa od 25 lat",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=third.text,
+                sentence_index=2,
+                paragraph_index=0,
+                start_char=third.start_char,
+                end_char=third.end_char,
+            ),
+            role="Marszałek województwa od 25 lat",
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-post", "bogus-office"),
+            fact_type=FactType.POLITICAL_OFFICE,
+            subject_entity_id=marcelina.entity_id,
+            object_entity_id=urzad.entity_id,
+            value_text="złoży do urzędu marszałkowskiego zapytanie o wszystkie umowy",
+            value_normalized="złoży do urzędu marszałkowskiego zapytanie o wszystkie umowy",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=fourth.text,
+                sentence_index=3,
+                paragraph_index=0,
+                start_char=fourth.start_char,
+                end_char=fourth.end_char,
+            ),
+            role="złoży do urzędu marszałkowskiego zapytanie o wszystkie umowy",
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+    ]
+
+    result = LLMPostProcessor(config).apply(document)
+    entity_by_name = {entity.canonical_name: entity for entity in result.entities}
+
+    assert "Fundacja Karola Bielskiego" in entity_by_name
+    assert entity_by_name["Fundacja Karola Bielskiego"].evidence
+
+    office_facts = [fact for fact in result.facts if fact.fact_type == FactType.POLITICAL_OFFICE]
+    party_facts = [fact for fact in result.facts if fact.fact_type == FactType.PARTY_MEMBERSHIP]
+
+    assert any(
+        fact.subject_entity_id == marcelina.entity_id and fact.role == "poseł"
+        for fact in office_facts
+    )
+    assert any(
+        fact.subject_entity_id == adam.entity_id and fact.role == "marszałek województwa"
+        for fact in office_facts
+    )
+    assert any(
+        fact.subject_entity_id == marcelina.entity_id and fact.value_text == "Razem"
+        for fact in party_facts
+    )
+    assert any(
+        fact.subject_entity_id == adam.entity_id and fact.value_text == "Polskie Stronnictwo Ludowe"
+        for fact in party_facts
+    )
+    assert not any(
+        fact.role == "złoży do urzędu marszałkowskiego zapytanie o wszystkie umowy"
+        for fact in result.facts
+    )
+
+
+def test_llm_postprocessor_recovers_appointment_from_role_evidence() -> None:
+    config = make_config()
+    document = make_appointment_postprocessing_document()
+    first = document.sentences[0]
+
+    sloma = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-appointment", "Jarosław Słoma", "Person"),
+        entity_type=EntityType.PERSON,
+        canonical_name="Jarosław Słoma",
+        normalized_name="jarosław słoma",
+        aliases=["Jarosław Słoma"],
+        evidence=[],
+    )
+    platforma = Entity(
+        entity_id=generate_entity_id(
+            "llm_entity", "doc-appointment", "Platforma Obywatelska", "PoliticalParty"
+        ),
+        entity_type=EntityType.POLITICAL_PARTY,
+        canonical_name="Platforma Obywatelska",
+        normalized_name="platforma obywatelska",
+        aliases=["Platforma Obywatelska"],
+        evidence=[],
+    )
+    document.entities = [sloma, platforma]
+    document.facts = [
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-appointment", "role-sloma"),
+            fact_type=FactType.ROLE_HELD,
+            subject_entity_id=sloma.entity_id,
+            object_entity_id=None,
+            value_text="prezes",
+            value_normalized="prezes",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=first.text,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=first.start_char,
+                end_char=first.end_char,
+            ),
+            role="prezes",
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-appointment", "party-sloma"),
+            fact_type=FactType.PARTY_MEMBERSHIP,
+            subject_entity_id=sloma.entity_id,
+            object_entity_id=platforma.entity_id,
+            value_text="PO",
+            value_normalized="po",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=document.sentences[1].text,
+                sentence_index=1,
+                paragraph_index=0,
+                start_char=document.sentences[1].start_char,
+                end_char=document.sentences[1].end_char,
+            ),
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+    ]
+
+    result = LLMPostProcessor(config).apply(document)
+
+    appointment_facts = [fact for fact in result.facts if fact.fact_type == FactType.APPOINTMENT]
+    assert any(
+        fact.subject_entity_id == sloma.entity_id and fact.role == "wiceprezes"
+        for fact in appointment_facts
+    )
+    assert not any(
+        fact.fact_type == FactType.ROLE_HELD and fact.subject_entity_id == sloma.entity_id
+        for fact in result.facts
+    )
+    assert any(
+        entity.canonical_name == "Przedsiębiorstwa Wodociągów i Kanalizacji"
+        and entity.entity_type == EntityType.ORGANIZATION
+        and entity.evidence
+        for entity in result.entities
+    )
+    assert any(
+        fact.fact_type == FactType.PARTY_MEMBERSHIP and fact.value_text == "Platforma Obywatelska"
+        for fact in result.facts
+    )

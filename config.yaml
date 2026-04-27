@@ -138,3 +138,11 @@ score_weights:
 
 registry:
   similarity_threshold: 0.92
+
+llm:
+  model: gemma4:latest
+  base_url: http://127.0.0.1:11434
+  context_size: 16384
+  max_output_tokens: 4096
+  temperature: 0.0
+  request_timeout_seconds: 300
