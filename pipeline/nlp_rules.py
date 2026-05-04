@@ -107,33 +107,15 @@ APPOINTMENT_TRIGGER_LEMMAS = frozenset(
         "zostać",
         "zatrudnić",
         "zatrudnienie",
+        "zatrudniony",
         "pracować",
+        "zasiąść",
+        "odebrać",
     }
 )
 DISMISSAL_TRIGGER_LEMMAS = frozenset({"odwołać", "odwoływać", "zrezygnować"})
 APPOINTMENT_NOUN_LEMMAS = frozenset({"nominacja", "stanowisko", "funkcja", "praca"})
 DISMISSAL_NOUN_LEMMAS = frozenset({"rezygnacja"})
-APPOINTMENT_TRIGGER_TEXTS = frozenset(
-    {
-        "odebrał nominację",
-        "zasiądzie w",
-        "zasiadł w",
-        "zasiadła w",
-        "ma zostać",
-        "jest zatrudniona",
-        "była zatrudniona",
-        "jest zatrudniony",
-        "był zatrudniony",
-        "pracuje w",
-        "pracowała w",
-    }
-)
-DISMISSAL_TRIGGER_TEXTS = frozenset(
-    {
-        "nie jest już",
-        "nie zasiada już",
-    }
-)
 
 PARTY_CONTEXT_LEMMAS = frozenset(
     {
@@ -158,7 +140,7 @@ PARTY_CONTEXT_LEMMAS = frozenset(
     }
 )
 PARTY_PROFILE_CONTEXT_LEMMAS = PARTY_CONTEXT_LEMMAS - frozenset({"prezes"})
-FORMER_MARKERS = frozenset({"były", "była", "dawny", "dawna", "eks"})
+FORMER_MARKERS = frozenset({"były", "dawny", "eks"})
 FUNDING_HINTS = frozenset(
     {
         "dotacja",

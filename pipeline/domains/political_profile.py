@@ -22,15 +22,13 @@ from pipeline.models import (
     ParsedWord,
     SentenceFragment,
 )
+from pipeline.lemma_signals import has_lemma
 from pipeline.nlp_rules import (
     APPOINTMENT_TRIGGER_LEMMAS,
-    APPOINTMENT_TRIGGER_TEXTS,
     DISMISSAL_TRIGGER_LEMMAS,
-    DISMISSAL_TRIGGER_TEXTS,
     PARTY_PROFILE_CONTEXT_LEMMAS,
 )
 from pipeline.secondary_fact_helpers import (
-    _has_signal,
     build_secondary_fact,
 )
 from pipeline.utils import stable_id
@@ -50,11 +48,9 @@ OMITTED_SUBJECT_PARTY_MARKERS = (
 class PoliticalProfileFactExtractor:
     def extract(self, context: SentenceContext) -> list[Fact]:
         facts: list[Fact] = []
-        governance_signal = _has_signal(
+        governance_signal = has_lemma(
             context.parsed_words,
-            context.lowered_text,
             APPOINTMENT_TRIGGER_LEMMAS | DISMISSAL_TRIGGER_LEMMAS,
-            APPOINTMENT_TRIGGER_TEXTS | DISMISSAL_TRIGGER_TEXTS,
         )
         for person in context.persons:
             if person.is_proxy_person:

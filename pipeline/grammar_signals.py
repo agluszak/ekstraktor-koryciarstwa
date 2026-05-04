@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from pipeline.domain_types import TimeScope
+from pipeline.lemma_signals import has_lemma, has_lemma_pair
 from pipeline.models import ParsedWord
 from pipeline.nlp_rules import FORMER_MARKERS
 
-_FUTURE_MARKERS = ("ma zostać", "ma objąć", "ma pełnić")
+_FUTURE_MODAL_COMPLEMENTS = frozenset({"zostać", "objąć", "pełnić"})
 _STATUS_LEMMAS = frozenset({"być", "pracować", "pełnić", "zasiadać"})
 
 
@@ -19,10 +20,11 @@ def has_tense(words: Iterable[ParsedWord], tense: str) -> bool:
 
 
 def infer_sentence_time_scope(text: str, parsed_words: list[ParsedWord]) -> TimeScope:
-    lowered = text.lower()
-    if any(marker in lowered for marker in FORMER_MARKERS):
+    if has_lemma(parsed_words, FORMER_MARKERS):
         return TimeScope.FORMER
-    if any(marker in lowered for marker in _FUTURE_MARKERS) or has_tense(parsed_words, "Fut"):
+    if has_tense(parsed_words, "Fut") or has_lemma_pair(
+        parsed_words, {"mieć"}, _FUTURE_MODAL_COMPLEMENTS
+    ):
         return TimeScope.FUTURE
     return TimeScope.CURRENT
 

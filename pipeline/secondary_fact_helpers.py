@@ -140,15 +140,9 @@ def build_secondary_fact(
 
 def _has_signal(
     parsed_words: list[ParsedWord],
-    lowered_text: str,
     lemmas: AbstractSet[str],
-    surface_triggers: AbstractSet[str],
 ) -> bool:
-    parsed_lemmas = lemma_set(parsed_words)
-    return bool(
-        parsed_lemmas.intersection(lemmas)
-        or any(trigger in lowered_text for trigger in surface_triggers)
-    )
+    return bool(lemma_set(parsed_words).intersection(lemmas))
 
 
 def _is_quote_speaker_risk(
