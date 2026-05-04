@@ -12,7 +12,7 @@ from pipeline.domains.secondary_facts import TieFactExtractor
 from pipeline.extraction_context import SentenceContext
 from pipeline.funding import FundingFactBuilder
 from pipeline.governance import GovernanceFactBuilder
-from pipeline.models import ArticleDocument, CandidateGraph, CoreferenceResult, Fact
+from pipeline.models import ArticleDocument, CoreferenceResult, Fact
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.public_facts import (
     AntiCorruptionInvestigationFactBuilder,
@@ -104,16 +104,6 @@ class PolishFactExtractor(FactExtractor):
 
         document.facts = self._deduplicate_facts(facts)
         return self.canonicalizer.run(document)
-
-    @staticmethod
-    def _cross_sentence_party_facts(
-        document: ArticleDocument,
-        candidate_graph: CandidateGraph,
-    ) -> list[Fact]:
-        return CrossSentencePartyFactBuilder().build_cross_sentence_party_facts(
-            document,
-            candidate_graph,
-        )
 
     @staticmethod
     def _deduplicate_facts(facts: list[Fact]) -> list[Fact]:

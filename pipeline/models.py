@@ -192,7 +192,6 @@ class SentenceFragment:
     sentence_index: int
     start_char: int
     end_char: int
-    is_candidate: bool = False
 
 
 @dataclass(slots=True)
