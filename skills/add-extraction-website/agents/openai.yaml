@@ -1,0 +1,4 @@
+interface:
+  display_name: "Add Extraction Website"
+  short_description: "Add extraction benchmark site"
+  default_prompt: "Add a new website to the extraction benchmark: write expected findings, run the pipeline, compare output, and identify improvements."
