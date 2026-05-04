@@ -240,6 +240,8 @@ class PersonNamePolicy:
                 score += 2
             elif base.endswith("ów"):
                 score += 2
+            elif base.endswith("owa"):
+                score += 2
             elif base.endswith("a") and not base.endswith(("owa", "yna")):
                 score += 1
         if len(tokens) >= 2:
@@ -432,12 +434,9 @@ class PersonNamePolicy:
 
     @classmethod
     def surface_repair_for_broken_name(cls, names: list[str]) -> str | None:
-        broken_names = [name for name in names if cls.person_name_has_broken_surface_stem(name)]
-        if not broken_names:
-            return None
         repairs = [
             candidate
-            for broken in broken_names
+            for broken in names
             for candidate in names
             if candidate != broken and cls.person_surface_repairs_broken_name(candidate, broken)
         ]
@@ -451,19 +450,22 @@ class PersonNamePolicy:
         if len(tokens) < 2:
             return False
         return any(
-            token.lower().endswith(("szk", "łaz", "ann", "ieszk"))
-            or token.lower() in {"agnieszk", "joann", "ogłaz"}
-            for token in tokens
+            PersonNamePolicy.person_token_has_broken_surface_stem(token.lower()) for token in tokens
         )
 
-    @staticmethod
-    def person_surface_repairs_broken_name(candidate: str, broken: str) -> bool:
+    @classmethod
+    def person_surface_repairs_broken_name(cls, candidate: str, broken: str) -> bool:
         candidate_tokens = candidate.split()
         broken_tokens = broken.split()
         if len(candidate_tokens) != len(broken_tokens):
             return False
         repaired = False
-        for candidate_token, broken_token in zip(candidate_tokens, broken_tokens, strict=True):
+        repaired_non_surname_surface = False
+        pending_surname_gender_repair = False
+        last_index = len(candidate_tokens) - 1
+        for index, (candidate_token, broken_token) in enumerate(
+            zip(candidate_tokens, broken_tokens, strict=True)
+        ):
             candidate_lower = candidate_token.lower()
             broken_lower = broken_token.lower()
             if candidate_lower == broken_lower:
@@ -471,13 +473,42 @@ class PersonNamePolicy:
             if candidate_lower.startswith(broken_lower) and len(candidate_lower) > len(
                 broken_lower
             ):
+                if len(candidate_tokens) == 1 and not cls.person_token_has_broken_surface_stem(
+                    broken_lower
+                ):
+                    return False
+                if index != last_index and not cls.person_token_has_broken_surface_stem(
+                    broken_lower
+                ):
+                    return False
                 repaired = True
+                if index != last_index:
+                    repaired_non_surname_surface = True
+                continue
+            if candidate_lower.replace("ó", "o").startswith(broken_lower.replace("ó", "o")) and len(
+                candidate_lower
+            ) > len(broken_lower):
+                repaired = True
+                if index != last_index:
+                    repaired_non_surname_surface = True
                 continue
             if broken_lower.endswith("i") and candidate_lower.endswith("a"):
+                if broken_lower.endswith(("ski", "cki", "dzki")):
+                    pending_surname_gender_repair = True
+                    continue
                 repaired = True
                 continue
             return False
-        return repaired
+        return repaired and (not pending_surname_gender_repair or repaired_non_surname_surface)
+
+    @staticmethod
+    def person_token_has_broken_surface_stem(token: str) -> bool:
+        return token.endswith(("szk", "łaz", "ann", "ieszk", "it")) or token in {
+            "agnieszk",
+            "joann",
+            "ogłaz",
+            "anit",
+        }
 
     @staticmethod
     def is_broken_stem(name: str) -> bool:

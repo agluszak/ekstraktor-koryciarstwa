@@ -7,6 +7,7 @@ from pipeline.domain_types import (
     EntityID,
     EntityType,
     EventType,
+    FactType,
     FrameID,
     OrganizationKind,
 )
@@ -130,6 +131,100 @@ def test_target_resolver_prefers_stadnina_over_skarb_panstwa() -> None:
 
     assert result.target_org == target
     assert result.owner_context == owner
+
+
+def test_target_resolver_rejects_city_context_when_company_target_is_present() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    resolver = GovernanceTargetResolver(config)
+    target = cluster(
+        "cluster-target",
+        "Polski Holding Nieruchomości",
+        start_char=42,
+        organization_kind=OrganizationKind.COMPANY,
+    )
+    city = cluster("cluster-city", "Warszawy", start_char=18)
+
+    result = resolver.resolve(
+        document=document([target, city]),
+        clause=clause(
+            "Marcin Kopania z Warszawy został wicedyrektorem w Polskim Holdingu Nieruchomości."
+        ),
+        org_clusters=[city, target],
+        role_cluster=None,
+    )
+
+    assert result.target_org == target
+
+
+def test_governance_fact_builder_expands_list_appointments_with_exception() -> None:
+    text = (
+        "Do rady nadzorczej spółki Alfa powołano Annę Nowak, Piotra Lisa i Ewę "
+        "Zielińską. Z wyjątkiem Marka Kota wszyscy kandydaci zostali powołani."
+    )
+    target = cluster(
+        "cluster-target",
+        "Spółka Alfa",
+        start_char=text.index("spółki Alfa"),
+        organization_kind=OrganizationKind.COMPANY,
+    )
+    anna = cluster(
+        "cluster-anna",
+        "Anna Nowak",
+        EntityType.PERSON,
+        start_char=text.index("Annę Nowak"),
+        entity_id="entity-anna",
+    )
+    piotr = cluster(
+        "cluster-piotr",
+        "Piotr Lis",
+        EntityType.PERSON,
+        start_char=text.index("Piotra Lisa"),
+        entity_id="entity-piotr",
+    )
+    ewa = cluster(
+        "cluster-ewa",
+        "Ewa Zielińska",
+        EntityType.PERSON,
+        start_char=text.index("Ewę Zielińską"),
+        entity_id="entity-ewa",
+    )
+    marek = cluster(
+        "cluster-marek",
+        "Marek Kot",
+        EntityType.PERSON,
+        start_char=text.index("Marka Kota"),
+        entity_id="entity-marek",
+    )
+    doc = ArticleDocument(
+        document_id=DocumentID("doc-list-governance"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        clusters=[target, anna, piotr, ewa, marek],
+    )
+
+    facts = GovernanceFactBuilder().build(doc)
+
+    assert {fact.subject_entity_id for fact in facts} == {
+        EntityID("entity-anna"),
+        EntityID("entity-piotr"),
+        EntityID("entity-ewa"),
+    }
+    assert all(fact.fact_type == FactType.APPOINTMENT for fact in facts)
+    assert all(fact.object_entity_id == EntityID("entity-target") for fact in facts)
+    assert all(fact.role == "rada nadzorcza" for fact in facts)
 
 
 def test_governance_event_detection_handles_stanza_copular_role_root() -> None:

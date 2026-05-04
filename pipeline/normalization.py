@@ -7,6 +7,7 @@ from pipeline.domain_types import EntityID, EntityType, FactType, OrganizationKi
 from pipeline.entity_graph_remapper import EntityGraphRemapper
 from pipeline.entity_name_policies import PartyNamingPolicy, PersonNamePolicy
 from pipeline.entity_naming import (
+    LocationNamingPolicy,
     OrganizationNamingPolicy,
     is_acronym_like,
 )
@@ -20,6 +21,9 @@ from pipeline.utils import (
     normalize_party_name,
     unique_preserve_order,
 )
+
+ADMIN_UNIT_HEADS = frozenset({"gmina", "miasto", "powiat", "województwo"})
+GOVERNING_BODY_TOKENS = frozenset({"komisja", "komitet", "rada", "rn", "zarząd"})
 
 
 @dataclass(slots=True)
@@ -56,6 +60,7 @@ class DocumentEntityCanonicalizer:
             institution_lookup=self.institution_lookup,
             known_acronyms=self.known_acronyms,
         )
+        self.location_naming = LocationNamingPolicy()
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         if not document.entities:
@@ -127,6 +132,25 @@ class DocumentEntityCanonicalizer:
             entity.normalized_name = canonical
             entity.aliases = unique_preserve_order([*alias_pool, canonical])
             entity.lemmas = self.person_naming.person_lemmas(canonical)
+            return
+
+        if entity.entity_type == EntityType.LOCATION:
+            institution_canonical = self._location_public_institution_name(alias_pool)
+            if institution_canonical is not None:
+                entity.entity_type = EntityType.PUBLIC_INSTITUTION
+                entity.canonical_name = institution_canonical
+                entity.normalized_name = institution_canonical
+                entity.aliases = self.organization_naming.organization_aliases(
+                    alias_pool,
+                    institution_canonical,
+                )
+                entity.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
+                return
+            canonical = self.location_naming.best_location_name(alias_pool)
+            if canonical:
+                entity.canonical_name = canonical
+                entity.normalized_name = canonical
+                entity.aliases = unique_preserve_order([*alias_pool, canonical])
             return
 
         specific_acronym_alias = self.organization_naming.specific_acronym_alias(alias_pool)
@@ -205,6 +229,8 @@ class DocumentEntityCanonicalizer:
 
         if left.entity_type == EntityType.PERSON:
             return self._persons_compatible(left, right)
+        if left.entity_type == EntityType.LOCATION:
+            return self._locations_compatible(left, right)
         if left.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
             return self._organizations_compatible(left, right)
         return left.normalized_name == right.normalized_name
@@ -228,6 +254,8 @@ class DocumentEntityCanonicalizer:
         right_names = self._names_for_entity(right)
         if left.normalized_name.lower() == right.normalized_name.lower():
             return True
+        if self._governing_body_mismatch(left_names, right_names):
+            return False
 
         left_signature = self._organization_signature(left)
         right_signature = self._organization_signature(right)
@@ -244,14 +272,59 @@ class DocumentEntityCanonicalizer:
             return True
         return False
 
+    def _locations_compatible(self, left: Entity, right: Entity) -> bool:
+        if left.normalized_name.lower() == right.normalized_name.lower():
+            return True
+        return self._location_signature(left) == self._location_signature(right)
+
+    def _location_public_institution_name(self, names: list[str]) -> str | None:
+        exact_alias = self.organization_naming.canonical_institution_name(
+            Entity(
+                entity_id=EntityID(""),
+                entity_type=EntityType.LOCATION,
+                canonical_name=names[0] if names else "",
+                normalized_name=names[0] if names else "",
+            ),
+            names,
+        )
+        if exact_alias is not None:
+            return exact_alias
+        for name in names:
+            normalized = normalize_entity_name(name)
+            tokens = normalized.split()
+            if len(tokens) < 2:
+                continue
+            if tokens[0].casefold() in ADMIN_UNIT_HEADS:
+                return normalized
+        return None
+
+    @staticmethod
+    def _governing_body_mismatch(left_names: list[str], right_names: list[str]) -> bool:
+        return DocumentEntityCanonicalizer._has_governing_body_marker(
+            left_names
+        ) != DocumentEntityCanonicalizer._has_governing_body_marker(right_names)
+
+    @staticmethod
+    def _has_governing_body_marker(names: list[str]) -> bool:
+        for name in names:
+            normalized = normalize_entity_name(name).casefold()
+            if normalized.startswith("rada nadzorcza"):
+                return True
+            tokens = set(lowercase_signature_tokens(normalized))
+            if tokens.intersection(GOVERNING_BODY_TOKENS):
+                return True
+        return False
+
     @staticmethod
     def _lemma_name_candidates(entity: Entity) -> list[str]:
         lemmas = [
             lemma for lemma in entity.lemmas if isinstance(lemma, str) and compact_whitespace(lemma)
         ]
-        if len(lemmas) < 2:
+        if not lemmas:
             return []
-        if entity.entity_type != EntityType.POLITICAL_PARTY:
+        if entity.entity_type == EntityType.LOCATION:
+            return [normalize_entity_name(" ".join(lemmas))]
+        if len(lemmas) < 2 or entity.entity_type != EntityType.POLITICAL_PARTY:
             return []
         if all(len(lemma) <= 1 for lemma in lemmas):
             return []
@@ -262,6 +335,7 @@ class DocumentEntityCanonicalizer:
             EntityType.ORGANIZATION,
             EntityType.PUBLIC_INSTITUTION,
             EntityType.POLITICAL_PARTY,
+            EntityType.LOCATION,
         }:
             return []
         candidates: list[str] = []
@@ -326,6 +400,17 @@ class DocumentEntityCanonicalizer:
             lemma.lower()
             for lemma in entity.lemmas
             if lemma and lemma.lower() not in {"i", "w", "z", "na", "do"}
+        ]
+        if lemmas:
+            return tuple(sorted(dict.fromkeys(lemmas)))
+        return tuple(lowercase_signature_tokens(entity.normalized_name))
+
+    @staticmethod
+    def _location_signature(entity: Entity) -> tuple[str, ...]:
+        lemmas = [
+            lemma.lower()
+            for lemma in entity.lemmas
+            if lemma and lemma.lower() not in {"i", "w", "we", "z", "na", "do"}
         ]
         if lemmas:
             return tuple(sorted(dict.fromkeys(lemmas)))

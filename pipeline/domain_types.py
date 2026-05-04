@@ -18,6 +18,7 @@ class EntityType(StrEnum):
     POLITICAL_PARTY = "PoliticalParty"
     POSITION = "Position"
     PUBLIC_INSTITUTION = "PublicInstitution"
+    LOCATION = "Location"
     EDUCATION = "Education"
 
 
@@ -27,6 +28,7 @@ class CandidateType(StrEnum):
     POLITICAL_PARTY = "PoliticalParty"
     POSITION = "Position"
     PUBLIC_INSTITUTION = "PublicInstitution"
+    LOCATION = "Location"
 
 
 class FactType(StrEnum):

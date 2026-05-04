@@ -75,6 +75,59 @@ _APPOINTMENT_CUES = (
     "w zarządzie",
     "został",
 )
+_NEW_APPOINTMENT_CUES = (
+    "nowym",
+    "nową",
+    "zajął",
+    "objął",
+    "powoł",
+    "powierzon",
+    "trafił",
+    "trafiła",
+    "zastąpił",
+    "zastąpiła",
+)
+_BACKGROUND_ROLE_CUES = (
+    "obecnie",
+    "pełni tę funkcję od",
+    "pełni funkcję od",
+    "od 20",
+    "od 19",
+    "wcześniej",
+    "ostatnio był",
+    "ostatnio była",
+    "był też",
+    "była też",
+    "pracował",
+    "pracowała",
+)
+_EXPLICIT_TIE_CUES = (
+    "brat",
+    "siostra",
+    "żona",
+    "mąż",
+    "syn",
+    "córka",
+    "znajomy",
+    "znajoma",
+    "współpracownik",
+    "współpracowniczka",
+    "doradca",
+    "rekomendował",
+    "z polecenia",
+    "związany z",
+)
+_WEAK_COMMENTARY_TIE_CUES = (
+    "twitter",
+    "x.com",
+    "hejter",
+    "atakował",
+    "chwalił",
+    "krytykował",
+    "wpisał",
+    "wpis",
+    "polubił",
+)
 _APPOINTMENT_ORG_HEAD = re.compile(
     r"(?P<surface>(?:[Pp]rzedsiębiorstw\w+|[Ss]półk\w+|[Zz]akład\w+|[Ff]undacj\w+|"
     r"[Ii]nstytut\w+|[Uu]rząd\w+|[Ww]odKan|PWiK)[^.!?;,:]*)"
@@ -126,6 +179,8 @@ class LLMPostProcessor:
         for fact in document.facts:
             subject = entities_by_id.get(fact.subject_entity_id)
             if subject is None:
+                continue
+            if _is_unsupported_llm_fact(fact):
                 continue
             if fact.fact_type == FactType.PUBLIC_CONTRACT:
                 self._normalize_public_money_fact(fact)
@@ -821,6 +876,29 @@ def _canonical_role_held_name(role_text: str) -> str | None:
         if pattern.search(role_text):
             return canonical_name
     return None
+
+
+def _is_unsupported_llm_fact(fact: Fact) -> bool:
+    evidence = fact.evidence.text.casefold()
+    if fact.fact_type == FactType.APPOINTMENT and _is_background_role_evidence(evidence):
+        return True
+    if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE and _is_weak_commentary_tie_evidence(
+        evidence
+    ):
+        return True
+    return False
+
+
+def _is_background_role_evidence(evidence: str) -> bool:
+    if any(cue in evidence for cue in _NEW_APPOINTMENT_CUES):
+        return False
+    return any(cue in evidence for cue in _BACKGROUND_ROLE_CUES)
+
+
+def _is_weak_commentary_tie_evidence(evidence: str) -> bool:
+    if any(cue in evidence for cue in _EXPLICIT_TIE_CUES):
+        return False
+    return any(cue in evidence for cue in _WEAK_COMMENTARY_TIE_CUES)
 
 
 def _span_from_local_match(

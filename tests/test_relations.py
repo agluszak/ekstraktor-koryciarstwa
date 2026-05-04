@@ -3121,6 +3121,38 @@ def test_paid_promotion_public_money_flow_emits_public_contract() -> None:
     )
 
 
+def test_public_contract_detects_zlecenia_with_amount_from_public_company() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Firma Bartosza Kopani otrzymywała od miejskiej spółki Gamma zlecenia "
+        "warte ponad 100 tys. zł."
+    )
+    document = prepared_single_clause_document(
+        document_id="doc-zlecenia-contract",
+        text=text,
+        entities=[
+            ("Firma Bartosza Kopani", EntityType.ORGANIZATION, "Firma Bartosza Kopani"),
+            ("miejskiej spółki Gamma", EntityType.ORGANIZATION, "Miejska Spółka Gamma"),
+        ],
+        parsed_words=[
+            word(1, "Firma", "firma", 0, head=3, deprel="nsubj"),
+            word(2, "Kopani", "Kopania", text.index("Kopani"), head=1, deprel="nmod"),
+            word(3, "otrzymywała", "otrzymywać", text.index("otrzymywała"), upos="VERB"),
+            word(4, "spółki", "spółka", text.index("spółki"), head=3, deprel="obl"),
+            word(5, "zlecenia", "zlecenie", text.index("zlecenia"), head=3, deprel="obj"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
+    assert len(contracts) == 1
+    assert contracts[0].value_text == "ponad 100 tys. zł"
+    assert contracts[0].subject_entity_id == EntityID("entity-0")
+    assert contracts[0].object_entity_id == EntityID("entity-1")
+
+
 def test_generic_contract_sentence_without_parties_does_not_emit_public_contract() -> None:
     config = PipelineConfig.from_file("config.yaml")
     text = "Wszystkie umowy zawierane są zgodnie z prawem."

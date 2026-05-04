@@ -7,6 +7,7 @@ from pipeline.domain_types import (
     FactType,
     TimeScope,
 )
+from pipeline.entity_name_policies import PersonNamePolicy
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Fact, Mention
 from pipeline.normalization import DocumentEntityCanonicalizer
 
@@ -47,6 +48,18 @@ def test_party_aliases_expand_to_canonical_name() -> None:
     assert len(normalized.entities) == 1
     assert normalized.entities[0].canonical_name == "Polskie Stronnictwo Ludowe"
     assert normalized.mentions[0].normalized_text == "Polskie Stronnictwo Ludowe"
+
+
+def test_person_name_policy_prefers_observed_complete_inflected_names() -> None:
+    policy = PersonNamePolicy()
+
+    assert policy.best_person_name(["Marcin Kopani", "Marcin Kopania"]) == "Marcin Kopania"
+    assert policy.best_person_name(["Bartosz Kopani", "Bartosz Kopania"]) == "Bartosz Kopania"
+    assert (
+        policy.best_person_name(["Małgorzata Kurzynóg", "Małgorzata Kurzynoga"])
+        == "Małgorzata Kurzynoga"
+    )
+    assert policy.best_person_name(["Anit Elżanowski", "Anita Elżanowska"]) == "Anita Elżanowska"
 
 
 def test_wfosigw_acronym_and_full_name_are_deduplicated() -> None:
@@ -205,8 +218,130 @@ def test_marshal_office_alias_is_normalized_to_nominative_public_institution() -
     normalized = canonicalizer.run(document)
 
     assert len(normalized.entities) == 1
+
+
+def test_location_aliases_are_deduplicated_by_lemma_form() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-location"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="W Lublinie. Lublin.",
+        paragraphs=["W Lublinie. Lublin."],
+        entities=[
+            Entity(
+                entity_id=EntityID("loc-1"),
+                entity_type=EntityType.LOCATION,
+                canonical_name="Lublinie",
+                normalized_name="Lublinie",
+                aliases=[],
+                lemmas=["lublin"],
+            ),
+            Entity(
+                entity_id=EntityID("loc-2"),
+                entity_type=EntityType.LOCATION,
+                canonical_name="Lublin",
+                normalized_name="Lublin",
+                aliases=[],
+                lemmas=["lublin"],
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Lublinie",
+                normalized_text="Lublinie",
+                mention_type=EntityType.LOCATION,
+                sentence_index=0,
+                entity_id=EntityID("loc-1"),
+            ),
+            Mention(
+                text="Lublin",
+                normalized_text="Lublin",
+                mention_type=EntityType.LOCATION,
+                sentence_index=0,
+                entity_id=EntityID("loc-2"),
+            ),
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert len(normalized.entities) == 1
+    assert normalized.entities[0].entity_type == EntityType.LOCATION
+    assert normalized.entities[0].canonical_name == "Lublin"
+    assert normalized.mentions[0].entity_id == normalized.mentions[1].entity_id
+
+
+def test_location_admin_unit_is_promoted_to_public_institution() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-admin-unit"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="gminy Poczesna",
+        paragraphs=["gminy Poczesna"],
+        entities=[
+            Entity(
+                entity_id=EntityID("loc-1"),
+                entity_type=EntityType.LOCATION,
+                canonical_name="gminy Poczesna",
+                normalized_name="gminy Poczesna",
+                aliases=[],
+                lemmas=["gmina", "poczesna"],
+            )
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert len(normalized.entities) == 1
     assert normalized.entities[0].entity_type == EntityType.PUBLIC_INSTITUTION
-    assert normalized.entities[0].canonical_name == "Urząd Marszałkowski"
+    assert normalized.entities[0].canonical_name == "Gmina Poczesna"
+
+
+def test_governing_body_alias_does_not_absorb_parent_institution() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-normalize-body-vs-institution"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="KZN i Rada Nadzorcza KZN",
+        paragraphs=["KZN i Rada Nadzorcza KZN"],
+        entities=[
+            Entity(
+                entity_id=EntityID("org-1"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="KZN",
+                normalized_name="KZN",
+                aliases=[],
+                lemmas=["kzn"],
+            ),
+            Entity(
+                entity_id=EntityID("org-2"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Rada Nadzorcza KZN",
+                normalized_name="Rada Nadzorcza KZN",
+                aliases=[],
+                lemmas=["rada", "nadzorcza", "kzn"],
+            ),
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert len(normalized.entities) == 2
+    canonical_names = {entity.canonical_name for entity in normalized.entities}
+    assert "Krajowy Zasób Nieruchomości" in canonical_names
+    assert "Rada Nadzorcza KZN" in canonical_names
 
 
 def test_inflected_full_person_name_variants_merge_to_nominative_canonical() -> None:

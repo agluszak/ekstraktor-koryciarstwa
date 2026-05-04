@@ -123,7 +123,9 @@ class SpacyPolishNERExtractor(NERExtractor):
         lowered = label.lower()
         if "pers" in lowered or lowered == "person":
             return EntityType.PERSON
-        if "org" in lowered or "geog" in lowered or "place" in lowered:
+        if lowered in {"loc", "gpe", "location"} or "geog" in lowered or "place" in lowered:
+            return EntityType.LOCATION
+        if "org" in lowered:
             return EntityType.ORGANIZATION
         return None
 

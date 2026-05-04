@@ -1363,3 +1363,152 @@ Expected comparison standard:
 - If the pipeline only finds the new appointees but misses the removals, that is a recall gap.
 - If it confuses `rada nadzorcza` or `Urząd Miasta` with the staffed organization instead of `Inwestycje Miejskie`,
   target resolution is still too weak.
+
+## 30. Onet: Totalizator Sportowy - prezes odwołany po publikacji
+
+Source:
+- https://wiadomosci.onet.pl/kraj/sa-skutki-afery-ujawnionej-przez-onet-leca-glowy-na-szczytach-totalizatora/v1x1k0e
+
+Saved input:
+- inputs/onet_totalizator_leca_glowy.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a direct state-company governance consequence story after a political-patronage staffing scandal.
+
+Expected core entities:
+- Totalizator Sportowy
+- Rafał Krzemień
+- Mariusz Błaszkiewicz
+- Rada nadzorcza
+- Jakub Jaworowski
+- Ministerstwo Aktywów Państwowych
+- Skarb Państwa
+- PO, PSL, Lewica
+- Sławomir Nitras
+- Stanisław Gawłowski
+- Donald Tusk
+- Borys Budka
+
+Expected facts:
+- Rafał Krzemień -> `DISMISSAL` -> Totalizator Sportowy
+  Expected role: prezes zarządu / prezes.
+- Mariusz Błaszkiewicz -> `APPOINTMENT` / acting-role equivalent -> Totalizator Sportowy
+  Expected role: pełniący obowiązki prezesa / obowiązki prezesa.
+- Totalizator Sportowy -> state-ownership context -> Skarb Państwa.
+- PO / PSL / Lewica / collaborators of Sławomir Nitras and Stanisław Gawłowski should be represented as political context for the prior regional-director staffing scandal, but not as invented named appointments where this article only summarizes groups.
+
+Important text cues:
+- "Totalizatora Sportowego odwołała ze stanowiska prezesa zarządu Rafała Krzemienia"
+- "obowiązki prezesa Totalizatora ma pełnić Mariusz Błaszkiewicz"
+- "stanowiska dyrektorów oddziałów regionalnych Totalizatora Sportowego zostały obsadzone bez przeprowadzania konkursów"
+- "lokalni radni PO i PSL, współpracownicy ministra sportu Sławomira Nitrasa i senatora Stanisława Gawłowskiego"
+
+Expected comparison standard:
+- Relevance should be `true`.
+- A good result must recover the Krzemień dismissal and Błaszkiewicz acting-role fact.
+- It should not attach appointment facts to Jakub Jaworowski or confuse `Skarb Państwa`/`rada nadzorcza` with the staffed company.
+
+## 31. Business Insider: Kadrowa czystka w PZU
+
+Source:
+- https://businessinsider.com.pl/biznes/kadrowa-czystka-objela-kolejna-panstwowa-spolke-nastepne-zmiany-niebawem/v75q3s4
+
+Saved input:
+- inputs/businessinsider_kadrowa_czystka_panstwowa_spolka.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It is a public-company supervisory-board turnover story controlled by the State Treasury.
+
+Expected core entities:
+- PZU
+- Skarb Państwa
+- Ministerstwo Aktywów Państwowych
+- Wojciech Olejniczak
+- SLD
+- Robert Jastrzębski, Paweł Górecki, Agata Górnicka, Marcin Chludziński, Krzysztof Opolski,
+  Radosław Sierpiński, Józef Wierzbowski, Maciej Zaborowski
+- Marcin Kubicza
+- Michał Jonczynski, Adam Uszpolewicz, Anita Elżanowska, Michał Bernaczyk, Filip Gorczyca,
+  Andrzej Kaleta, Małgorzata Kurzynoga, Anna Machnikowska
+- Andrzej Jarczyk
+
+Expected facts:
+- Prior PZU supervisory-board members -> `DISMISSAL` -> PZU
+  Expected role: rada nadzorcza / członek rady nadzorczej, with Marcin Kubicza explicitly excepted.
+- Paweł Górecki -> `DISMISSAL` -> PZU
+  Expected role: rada nadzorcza / wiceprzewodniczący rady nadzorczej.
+- Listed MAP nominees except Andrzej Jarczyk -> `APPOINTMENT` -> PZU
+  Expected role: rada nadzorcza / nadzór PZU.
+- Wojciech Olejniczak -> `FORMER_PARTY_MEMBERSHIP` / political-context fact -> SLD
+  Expected context: former MP and former SLD chairman/head.
+- PZU -> state-control context -> Skarb Państwa, `34,2 proc.` shares/votes.
+
+Important text cues:
+- "Głosami przede wszystkim Skarbu Państwa odwołano prawie całą dotychczasową radę nadzorczą"
+- "Do nadzoru powołano m.in. Wojciecha Olejniczaka, byłego szefa SLD"
+- "Spośród dotychczasowej rady nadzorczej odwołano w czwartek wszystkich z wyjątkiem Marcina Kubiczy"
+- "Wszyscy kandydaci zostali powołani do nadzoru PZU z wyjątkiem nominata Allianza OFE"
+- "kandydatura ta nie została poddana głosowaniu"
+
+Expected comparison standard:
+- Relevance should be `true`.
+- The extractor should handle list-level appointments and dismissals.
+- It should not emit an appointment for Andrzej Jarczyk.
+- It should not turn current management context such as Beata Kozłowska-Chyła into a new appointment fact.
+
+## 32. Onet: Marcin Kopania odnalazł się w PHN
+
+Source:
+- https://wiadomosci.onet.pl/tylko-w-onecie/rafal-trzaskowski-wyrzucil-go-za-hejterstwo-marcin-kopania-odnalazl-sie-w-phn/3zp8m3y
+
+Saved input:
+- inputs/onet_trzaskowski_kopania_phn.html
+
+Expectation:
+- This article is **strongly in scope**.
+- It combines a state-company appointment, earlier municipal-company dismissal, family/proxy context, and public-money contract context.
+
+Expected core entities:
+- Marcin Kopania
+- Polski Holding Nieruchomości / PHN
+- Skarb Państwa
+- Miejskie Przedsiębiorstwo Realizacji Inwestycji
+- Rafał Trzaskowski
+- Platforma Obywatelska / PO
+- Bartosz Kopania
+- Totalizator Sportowy
+- Szymon Gawryszczak
+- Robert Kropiwnicki
+- Wiesław Malicki
+
+Expected facts:
+- Marcin Kopania -> `APPOINTMENT` -> Polski Holding Nieruchomości
+  Expected role: wicedyrektor marketingu / zastępca dyrektora Biura Marketingu, Strategii, Relacji Inwestorskich i PR.
+- Marcin Kopania -> `DISMISSAL` -> Miejskie Przedsiębiorstwo Realizacji Inwestycji
+  Expected role: prezes.
+- Polski Holding Nieruchomości -> state-ownership context -> Skarb Państwa
+  Expected value: over `70 proc.`.
+- Marcin Kopania -> `PERSONAL_OR_POLITICAL_TIE` -> Bartosz Kopania
+  Expected relationship type: family; expected kinship detail: brother/sibling.
+- Bartosz Kopania -> `PUBLIC_CONTRACT` / public-money relation -> Totalizator Sportowy
+  Expected value: over `100 tys. zł`; expected work: redagowanie tekstów marketingowych.
+- Szymon Gawryszczak -> `PERSONAL_OR_POLITICAL_TIE` -> Robert Kropiwnicki
+  Expected relationship type: acquaintance / znajomy.
+- Robert Kropiwnicki -> `POLITICAL_OFFICE` / political context -> PO MP and deputy minister of state assets.
+
+Important text cues:
+- "Marcin Kopania ... został wicedyrektorem marketingu ... Polskim Holdingu Nieruchomości"
+- "stracił funkcję prezesa Miejskiego Przedsiębiorstwa Realizacji Inwestycji"
+- "Od poniedziałku jest zastępcą dyrektora Biura Marketingu, Strategii, Relacji Inwestorskich i PR w Polskim Holdingu Nieruchomości (PHN)"
+- "Spółka w ponad 70 proc. należy do Skarbu Państwa"
+- "Marcin Kopania prywatnie jest bratem Bartosza Kopani"
+- "Bartosz Kopania ... pracował dla Totalizatora Sportowego, od którego otrzymywał zlecenia ... warte ponad 100 tys. zł"
+- "Szymon Gawryszczak, znajomy posła PO i wiceministra aktywów państwowych Roberta Kropiwnickiego"
+
+Expected comparison standard:
+- Relevance should be `true`.
+- The core quality bar is recovery of the PHN appointment and municipal-company dismissal for Marcin Kopania.
+- A strong result should also recover the sibling tie and the Totalizator public-money contract for Bartosz Kopania.
+- It should not treat social-media handles or insult quotes as primary relation facts.

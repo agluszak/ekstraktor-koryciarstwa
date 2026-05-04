@@ -1,5 +1,5 @@
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import DocumentID
+from pipeline.domain_types import DocumentID, EntityType
 from pipeline.models import ArticleDocument
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.segmentation import ParagraphSentenceSegmenter
@@ -46,3 +46,10 @@ def test_business_context_person_span_is_retyped_as_organization() -> None:
         FakeEnt("Wnuk Consulting", 55, 70),
         text,
     )
+
+
+def test_location_like_spacy_labels_map_to_location_entity_type() -> None:
+    assert SpacyPolishNERExtractor._map_label("geogName") == EntityType.LOCATION
+    assert SpacyPolishNERExtractor._map_label("placeName") == EntityType.LOCATION
+    assert SpacyPolishNERExtractor._map_label("GPE") == EntityType.LOCATION
+    assert SpacyPolishNERExtractor._map_label("LOC") == EntityType.LOCATION

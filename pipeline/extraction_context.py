@@ -288,6 +288,14 @@ class SentenceContext:
         ]
 
     @property
+    def locations(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.candidates
+            if candidate.candidate_type == CandidateType.LOCATION
+        ]
+
+    @property
     def parties(self) -> list[EntityCandidate]:
         return [
             candidate
@@ -310,6 +318,14 @@ class SentenceContext:
             for candidate in self.paragraph_candidates
             if candidate.candidate_type
             in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
+        ]
+
+    @property
+    def paragraph_locations(self) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.paragraph_candidates
+            if candidate.candidate_type == CandidateType.LOCATION
         ]
 
     @property

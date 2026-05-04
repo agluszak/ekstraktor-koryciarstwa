@@ -384,3 +384,45 @@ class OrganizationNamingPolicy:
             elif normalized in evidence_name or evidence_name in normalized:
                 bonus += 1
         return bonus
+
+
+class LocationNamingPolicy:
+    def best_location_name(self, names: list[str]) -> str:
+        normalized = [
+            normalize_entity_name(name)
+            for name in names
+            if compact_whitespace(name) and "\n" not in name and "\r" not in name
+        ]
+        if not normalized:
+            return ""
+        return max(
+            normalized,
+            key=lambda name: (
+                len(name.split()),
+                -self._location_inflection_penalty(name),
+                -self._single_token_suffix_penalty(name),
+                len(name),
+                sum(char.isupper() for char in name),
+            ),
+        )
+
+    @staticmethod
+    def _location_inflection_penalty(name: str) -> int:
+        penalty = 0
+        for token in name.split():
+            lower = token.lower().strip(".,;:")
+            if len(lower) < 4:
+                continue
+            if lower.endswith(("ie", "iu", "ego", "ej", "owi", "ach", "ami", "om")):
+                penalty += 1
+        return penalty
+
+    @staticmethod
+    def _single_token_suffix_penalty(name: str) -> int:
+        tokens = [token.lower().strip(".,;:") for token in name.split() if token]
+        if len(tokens) != 1:
+            return 0
+        token = tokens[0]
+        if token.endswith(("ie", "iu", "ego", "ej", "owi", "ach", "ami", "om")):
+            return 1
+        return 0

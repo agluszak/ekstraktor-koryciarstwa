@@ -413,5 +413,73 @@ def _few_shot_examples() -> str:
         '"object_key": "org_1", '
         '"evidence_quote": "PO tworzy tam koalicję z lokalnym Forum Samorządowym, a radna mówi o '
         'lokalnych partyjnych baronach i rozdawaniu posad.", "value_text": "koalicja lokalna"}'
+        "]}\n\n"
+        "Przykład 9\n"
+        "Tekst: W tekście wymieniono Marcina Kopani i jego brata Bartosza Kopani. "
+        "Marcin Kopania wcześniej kierował miejską spółką.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Marcin Kopania"}, '
+        '{"key": "person_2", "entity_type": "Person", "canonical_name": "Bartosz Kopania"}], '
+        '"facts": ['
+        '{"fact_type": "PERSONAL_OR_POLITICAL_TIE", "subject_key": "person_1", '
+        '"object_key": "person_2", '
+        '"evidence_quote": "W tekście wymieniono Marcina Kopani i jego brata Bartosza Kopani.", '
+        '"value_text": "brat"}'
+        "]}\n\n"
+        "Przykład 10\n"
+        "Tekst: Do rady nadzorczej spółki Alfa powołano Annę Nowak, Piotra Lisa i "
+        "Ewę Zielińską. Z wyjątkiem Marka Kota wszyscy kandydaci zostali powołani.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Anna Nowak"}, '
+        '{"key": "person_2", "entity_type": "Person", "canonical_name": "Piotr Lis"}, '
+        '{"key": "person_3", "entity_type": "Person", "canonical_name": "Ewa Zielińska"}, '
+        '{"key": "person_4", "entity_type": "Person", "canonical_name": "Marek Kot"}, '
+        '{"key": "org_1", "entity_type": "Organization", "canonical_name": "Spółka Alfa"}], '
+        '"facts": ['
+        '{"fact_type": "APPOINTMENT", "subject_key": "person_1", "object_key": "org_1", '
+        '"evidence_quote": "Do rady nadzorczej spółki Alfa powołano Annę Nowak, '
+        'Piotra Lisa i Ewę Zielińską.", '
+        '"value_text": "rada nadzorcza"}, '
+        '{"fact_type": "APPOINTMENT", "subject_key": "person_2", "object_key": "org_1", '
+        '"evidence_quote": "Do rady nadzorczej spółki Alfa powołano Annę Nowak, '
+        'Piotra Lisa i Ewę Zielińską.", '
+        '"value_text": "rada nadzorcza"}, '
+        '{"fact_type": "APPOINTMENT", "subject_key": "person_3", "object_key": "org_1", '
+        '"evidence_quote": "Do rady nadzorczej spółki Alfa powołano Annę Nowak, '
+        'Piotra Lisa i Ewę Zielińską.", '
+        '"value_text": "rada nadzorcza"}'
+        "]}\n\n"
+        "Przykład 11\n"
+        "Tekst: Obecnie prezesem spółki Beta jest Beata Kania, która pełni tę funkcję od 2020 r.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Beata Kania"}, '
+        '{"key": "org_1", "entity_type": "Organization", "canonical_name": "Spółka Beta"}], '
+        '"facts": []}\n\n'
+        "Przykład 12\n"
+        "Tekst: Jan Nowak chwalił wpisy Platformy Obywatelskiej na Twitterze i krytykował PiS.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "person_1", "entity_type": "Person", "canonical_name": "Jan Nowak"}, '
+        '{"key": "party_1", "entity_type": "PoliticalParty", '
+        '"canonical_name": "Platforma Obywatelska"}, '
+        '{"key": "party_2", "entity_type": "PoliticalParty", '
+        '"canonical_name": "Prawo i Sprawiedliwość"}], '
+        '"facts": []}\n\n'
+        "Przykład 13\n"
+        "Tekst: Firma Anny Lis otrzymywała od miejskiej spółki Gamma zlecenia "
+        "warte ponad 100 tys. zł.\n"
+        "JSON: "
+        '{"is_relevant": true, "entities": ['
+        '{"key": "org_1", "entity_type": "Organization", "canonical_name": "Firma Anny Lis"}, '
+        '{"key": "org_2", "entity_type": "Organization", '
+        '"canonical_name": "Miejska Spółka Gamma"}], '
+        '"facts": ['
+        '{"fact_type": "PUBLIC_CONTRACT", "subject_key": "org_1", "object_key": "org_2", '
+        '"evidence_quote": "Firma Anny Lis otrzymywała od miejskiej spółki Gamma '
+        'zlecenia warte ponad 100 tys. zł.", '
+        '"value_text": "ponad 100 tys. zł"}'
         "]}"
     )

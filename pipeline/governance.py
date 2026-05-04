@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from pipeline.models import (
     EvidenceSpan,
     Fact,
     GovernanceFrame,
+    SentenceFragment,
 )
 from pipeline.nlp_rules import (
     BOARD_ROLE_KINDS,
@@ -58,6 +60,24 @@ APPOINTING_AUTHORITY_TITLE_LEMMAS = frozenset(
 )
 APPOINTING_AUTHORITY_CUE_LEMMAS = frozenset(
     {"powołać", "mianować", "nominować", "obsadzić", "wybrać", "wskazać"}
+)
+PLACE_CONTEXT_TARGETS = frozenset(
+    {
+        "warszawa",
+        "warszawy",
+        "kraków",
+        "krakowa",
+        "lublin",
+        "lublina",
+        "olsztyn",
+        "olsztyna",
+        "płock",
+        "płocka",
+        "polska",
+        "polsce",
+        "kraju",
+        "kraj",
+    }
 )
 
 
@@ -211,6 +231,9 @@ class GovernanceTargetResolver:
         if self._is_generic_fragment(cluster):
             score -= 3.0
             reasons.append("generic_fragment")
+        if self._is_place_context_cluster(cluster):
+            score -= 4.0
+            reasons.append("place_context")
         if self._is_media_like_cluster(cluster):
             score -= 4.0
             reasons.append("media_like")
@@ -244,9 +267,12 @@ class GovernanceTargetResolver:
         )
 
     def _is_rejected_target(self, cluster: EntityCluster) -> bool:
+        if cluster.organization_kind == OrganizationKind.COMPANY:
+            return self._is_generic_fragment(cluster) or self._is_media_like_cluster(cluster)
         return (
             self.is_party_like_cluster(cluster)
             or self._is_generic_fragment(cluster)
+            or self._is_place_context_cluster(cluster)
             or self._is_media_like_cluster(cluster)
         )
 
@@ -393,15 +419,16 @@ class GovernanceTargetResolver:
     @staticmethod
     def _is_generic_fragment(cluster: EntityCluster) -> bool:
         normalized = cluster.normalized_name.lower().strip(" .,:;")
-        return normalized in {
-            "polska",
-            "polsce",
-            "kraju",
-            "kraj",
-            "państwo",
-            "państwa",
-            "rzeczpospolita",
-        }
+        return normalized in {"państwo", "państwa", "rzeczpospolita"}
+
+    @staticmethod
+    def _is_place_context_cluster(cluster: EntityCluster) -> bool:
+        normalized = cluster.normalized_name.lower().strip(" .,:;")
+        if normalized in PLACE_CONTEXT_TARGETS:
+            return True
+        if cluster.organization_kind == OrganizationKind.COMPANY:
+            return False
+        return normalized in {f"miasto {place}" for place in PLACE_CONTEXT_TARGETS}
 
     @staticmethod
     def _is_media_like_cluster(cluster: EntityCluster) -> bool:
@@ -467,7 +494,190 @@ class GovernanceFactBuilder:
             for frame in document.governance_frames
             if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
         ]
+        facts.extend(self._list_governance_facts(document, cluster_to_entity_id))
         return self._deduplicate_governance_facts(facts)
+
+    def _list_governance_facts(
+        self,
+        document: ArticleDocument,
+        cluster_to_entity_id: dict[str, str],
+    ) -> list[Fact]:
+        output: list[Fact] = []
+        for sentence in document.sentences:
+            event_type = self._list_event_type(sentence.text)
+            if event_type is None:
+                continue
+            people = self._person_clusters_for_list_sentence(document, sentence)
+            if len(people) < 2:
+                continue
+            exceptions = self._exception_person_ids(document, sentence, people)
+            people = [cluster for cluster in people if cluster.cluster_id not in exceptions]
+            if len(people) < 2:
+                continue
+            target = self._target_cluster_for_list_sentence(document, sentence)
+            if target is None:
+                continue
+            role_text = self._list_role_text(sentence.text)
+            for person in people:
+                fact = self._fact_for_list_event(
+                    document,
+                    sentence,
+                    event_type,
+                    person,
+                    target,
+                    role_text,
+                    cluster_to_entity_id,
+                )
+                if fact is not None:
+                    output.append(fact)
+        return output
+
+    @staticmethod
+    def _list_event_type(text: str) -> EventType | None:
+        lowered = text.casefold()
+        has_list_cue = bool(
+            re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered)
+            or lowered.count(",") >= 1
+        )
+        if not has_list_cue:
+            return None
+        if "powoł" in lowered and any(
+            marker in lowered for marker in ("rada nadzorcza", "zarząd", "nadzór", "spół")
+        ):
+            return EventType.APPOINTMENT
+        if "odwoł" in lowered and any(
+            marker in lowered for marker in ("rada nadzorcza", "zarząd", "stanowisk", "funkcj")
+        ):
+            return EventType.DISMISSAL
+        return None
+
+    @staticmethod
+    def _person_clusters_for_list_sentence(
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+    ) -> list[EntityCluster]:
+        return [
+            cluster
+            for cluster in document.clusters
+            if cluster.entity_type == EntityType.PERSON
+            and any(
+                mention.paragraph_index == sentence.paragraph_index for mention in cluster.mentions
+            )
+        ]
+
+    @staticmethod
+    def _exception_person_ids(
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+        people: list[EntityCluster],
+    ) -> set[ClusterID]:
+        paragraph = (
+            document.paragraphs[sentence.paragraph_index] if document.paragraphs else sentence.text
+        )
+        exception_match = re.search(r"\bz wyjątkiem\b", paragraph, re.IGNORECASE)
+        if exception_match is None:
+            return set()
+        exception_start = sentence.start_char + exception_match.start()
+        return {
+            cluster.cluster_id
+            for cluster in people
+            if any(mention.start_char >= exception_start for mention in cluster.mentions)
+        }
+
+    @staticmethod
+    def _target_cluster_for_list_sentence(
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+    ) -> EntityCluster | None:
+        candidates = [
+            cluster
+            for cluster in document.clusters
+            if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            and any(
+                mention.paragraph_index == sentence.paragraph_index for mention in cluster.mentions
+            )
+            and (
+                cluster.organization_kind == OrganizationKind.COMPANY
+                or is_target_organization_name(cluster.normalized_name)
+            )
+        ]
+        if not candidates:
+            return None
+        return max(
+            candidates,
+            key=lambda cluster: (
+                cluster.organization_kind == OrganizationKind.COMPANY,
+                len(cluster.canonical_name),
+            ),
+        )
+
+    @staticmethod
+    def _list_role_text(text: str) -> str | None:
+        lowered = text.casefold()
+        if "rada nadzorcza" in lowered or "rady nadzorczej" in lowered or "nadzór" in lowered:
+            return "rada nadzorcza"
+        if "zarząd" in lowered:
+            return "zarząd"
+        return None
+
+    def _fact_for_list_event(
+        self,
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+        event_type: EventType,
+        person: EntityCluster,
+        target: EntityCluster,
+        role_text: str | None,
+        cluster_to_entity_id: dict[str, str],
+    ) -> Fact | None:
+        subject_id = cluster_to_entity_id.get(str(person.cluster_id))
+        target_id = cluster_to_entity_id.get(str(target.cluster_id))
+        if not subject_id or not target_id:
+            return None
+        fact_type = (
+            FactType.DISMISSAL if event_type == EventType.DISMISSAL else FactType.APPOINTMENT
+        )
+        evidence = EvidenceSpan(
+            text=sentence.text,
+            sentence_index=sentence.sentence_index,
+            paragraph_index=sentence.paragraph_index,
+            start_char=sentence.start_char,
+            end_char=sentence.end_char,
+        )
+        fact = Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    fact_type,
+                    subject_id,
+                    target_id,
+                    role_text or "",
+                    str(sentence.start_char),
+                )
+            ),
+            fact_type=fact_type,
+            subject_entity_id=EntityID(subject_id),
+            object_entity_id=EntityID(target_id),
+            value_text=role_text,
+            value_normalized=role_text.casefold() if role_text else None,
+            time_scope=TimeScope.CURRENT,
+            event_date=extract_local_event_date(sentence.text, document.publication_date)
+            or document.publication_date,
+            confidence=0.78,
+            evidence=evidence,
+            source_extractor="governance_list",
+            extraction_signal="governance_list",
+            evidence_scope="same_paragraph_list",
+            score_reason="governance_list_with_explicit_target",
+        )
+        if role_text:
+            fact.role = role_text
+            role_kind, role_modifier = extract_role_from_text(role_text)
+            fact.role_kind = role_kind
+            fact.role_modifier = role_modifier
+            fact.board_role = role_kind in BOARD_ROLE_KINDS if role_kind else False
+        return fact
 
     def _fact_for_frame(
         self,

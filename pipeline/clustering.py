@@ -146,6 +146,10 @@ class PolishEntityClusterer(EntityClusterer):
 
         if cluster.entity_type == EntityType.PERSON:
             cluster.canonical_name = self.canonicalizer._best_person_name(all_names)
+        elif cluster.entity_type == EntityType.LOCATION:
+            cluster.canonical_name = self.canonicalizer.location_naming.best_location_name(
+                all_names
+            )
         elif cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
             cluster.canonical_name = self.canonicalizer._best_organization_name(entity, all_names)
 

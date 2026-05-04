@@ -38,6 +38,7 @@ CONTRACT_TRIGGER_LEMMAS = frozenset(
     {
         "umowa",
         "kontrakt",
+        "zlecenie",
         "zamówienie",
         "podpisać",
         "zawrzeć",
@@ -49,6 +50,8 @@ CONTRACT_TEXT_MARKERS = frozenset(
     {
         "umow",
         "kontrakt",
+        "zleceń",
+        "zlecenia",
         "zamówie",
         "zamówienia publicz",
         "przetarg",
@@ -61,7 +64,9 @@ CONTRACT_TEXT_MARKERS = frozenset(
 FUNDING_SURFACE_FALLBACKS = frozenset(
     {"dotacj", "dofinansowa", "wyłożył", "wyłożyła", "wyłożyły", "sfinansowa", "pochłon"}
 )
-PUBLIC_MONEY_TRANSFER_LEMMAS = FUNDING_HINTS | frozenset({"otrzymać", "przelać", "zapłacić"})
+PUBLIC_MONEY_TRANSFER_LEMMAS = FUNDING_HINTS | frozenset(
+    {"otrzymać", "otrzymywać", "przelać", "zapłacić"}
+)
 PUBLIC_MONEY_CONTRACT_TEXT_MARKERS = frozenset(
     {
         "za promowanie",
@@ -69,12 +74,15 @@ PUBLIC_MONEY_CONTRACT_TEXT_MARKERS = frozenset(
         "działania promocyjne",
         "promocyjn",
         "umow",
+        "zleceń",
+        "zlecenia",
         "zamówie",
     }
 )
 PUBLIC_MONEY_FUNDING_TEXT_MARKERS = frozenset({"dotacj", "dofinansowa", "darowizn"})
 PUBLIC_MONEY_AMOUNT_PATTERN = re.compile(
-    r"\b(?P<amount>\d+(?:[ .,]\d+)*\s*(?:tysi(?:ąc|ęcy)|tys\.)\s*złotych)\b",
+    r"\b(?P<amount>(?:ponad\s+)?\d+(?:[ .,]\d+)*\s*"
+    r"(?:tysi(?:ąc|ęcy)|tys\.)\s*zł(?:otych)?\.?)\b",
     re.IGNORECASE,
 )
 
@@ -359,7 +367,7 @@ def _public_money_flow_signal(
     clause: ClauseUnit,
     grounded_orgs: list[GroundedOrganizationMention],
 ) -> PublicMoneyFlowSignal | None:
-    amount_match = COMPENSATION_PATTERN.search(clause.text) or PUBLIC_MONEY_AMOUNT_PATTERN.search(
+    amount_match = PUBLIC_MONEY_AMOUNT_PATTERN.search(clause.text) or COMPENSATION_PATTERN.search(
         clause.text
     )
     amount_text = amount_match.group("amount") if amount_match else None

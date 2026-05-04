@@ -565,6 +565,123 @@ def test_llm_prompts_include_grounded_examples() -> None:
     assert "Mirosław Milewski" in user_prompt
     assert "Artur Biernat ostatnio był dyrektorem" in user_prompt
     assert "Nowym prezesem został dotychczasowy dyrektor" in user_prompt
+    assert "Marcina Kopani" in user_prompt
+    assert "Marcin Kopania" in user_prompt
+    assert "Z wyjątkiem Marka Kota" in user_prompt
+    assert "pełni tę funkcję od 2020 r." in user_prompt
+    assert "Twitterze" in user_prompt
+    assert "zlecenia warte ponad 100 tys. zł" in user_prompt
+
+
+def test_llm_postprocessor_drops_background_appointments_and_weak_commentary_ties() -> None:
+    config = make_config()
+    current_role = (
+        "Obecnie prezesem spółki Beta jest Beata Kania, która pełni tę funkcję od 2020 r."
+    )
+    commentary = "Jan Nowak chwalił wpisy Platformy Obywatelskiej na Twitterze i krytykował PiS."
+    text = f"{current_role} {commentary}"
+    second_start = len(current_role) + 1
+    document = ArticleDocument(
+        document_id="doc-llm-filter",
+        source_url=None,
+        raw_html="<html></html>",
+        title="LLM filter test",
+        publication_date="2026-05-04",
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=current_role,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(current_role),
+            ),
+            SentenceFragment(
+                text=commentary,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=second_start,
+                end_char=second_start + len(commentary),
+            ),
+        ],
+    )
+    beata = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-llm-filter", "Beata Kania"),
+        entity_type=EntityType.PERSON,
+        canonical_name="Beata Kania",
+        normalized_name="beata kania",
+    )
+    beta = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-llm-filter", "Spółka Beta"),
+        entity_type=EntityType.ORGANIZATION,
+        canonical_name="Spółka Beta",
+        normalized_name="spółka beta",
+    )
+    jan = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-llm-filter", "Jan Nowak"),
+        entity_type=EntityType.PERSON,
+        canonical_name="Jan Nowak",
+        normalized_name="jan nowak",
+    )
+    platforma = Entity(
+        entity_id=generate_entity_id("llm_entity", "doc-llm-filter", "Platforma Obywatelska"),
+        entity_type=EntityType.POLITICAL_PARTY,
+        canonical_name="Platforma Obywatelska",
+        normalized_name="platforma obywatelska",
+    )
+    document.entities = [beata, beta, jan, platforma]
+    document.facts = [
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-llm-filter", "background-role"),
+            fact_type=FactType.APPOINTMENT,
+            subject_entity_id=beata.entity_id,
+            object_entity_id=beta.entity_id,
+            value_text="prezes",
+            value_normalized="prezes",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=current_role,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=len(current_role),
+            ),
+            role="prezes",
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+        Fact(
+            fact_id=generate_fact_id("llm_fact", "doc-llm-filter", "weak-commentary"),
+            fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+            subject_entity_id=jan.entity_id,
+            object_entity_id=platforma.entity_id,
+            value_text="Twitter",
+            value_normalized="twitter",
+            time_scope=TimeScope.UNKNOWN,
+            event_date=document.publication_date,
+            confidence=0.8,
+            evidence=EvidenceSpan(
+                text=commentary,
+                sentence_index=1,
+                paragraph_index=0,
+                start_char=second_start,
+                end_char=second_start + len(commentary),
+            ),
+            extraction_signal="schema_grounded_evidence",
+            evidence_scope="llm_evidence_quote",
+            source_extractor="llm_ollama",
+            score_reason="llm_schema_validated",
+        ),
+    ]
+
+    result = LLMPostProcessor(config).apply(document)
+
+    assert result.facts == []
 
 
 def test_llm_postprocessor_grounds_entities_and_splits_party_office_facts() -> None:
