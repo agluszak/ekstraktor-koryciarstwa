@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Protocol, cast
 
 import torch
 from stanza.pipeline.coref_processor import extract_text
@@ -11,6 +12,31 @@ from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, CoreferenceResult, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
+
+
+class CorefWord(Protocol):
+    start_char: int
+    end_char: int
+
+
+class CorefSentence(Protocol):
+    words: list[CorefWord]
+
+
+class CorefMention(Protocol):
+    sentence: int
+    start_word: int
+    end_word: int
+
+
+class CorefChain(Protocol):
+    representative_text: str
+    mentions: list[CorefMention]
+
+
+class CorefDocument(Protocol):
+    sentences: list[CorefSentence]
+    coref: list[CorefChain]
 
 
 class StanzaCoreferenceResolver(CoreferenceResolver):
@@ -28,9 +54,12 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         sentence_map = {sentence.sentence_index: sentence for sentence in document.sentences}
         try:
             with torch.inference_mode():
-                nlp_doc = self.runtime.get_stanza_coref_pipeline()(document.cleaned_text)
+                nlp_doc = cast(
+                    CorefDocument,
+                    self.runtime.get_stanza_coref_pipeline()(document.cleaned_text),
+                )
 
-            for chain in getattr(nlp_doc, "coref", []):
+            for chain in nlp_doc.coref:
                 representative_text = normalize_entity_name(chain.representative_text)
                 representative_entity = entity_by_name.get(representative_text)
                 if representative_entity is None:
@@ -84,34 +113,27 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         return None
 
     @staticmethod
-    def _mention_offsets(nlp_doc, mention: object) -> tuple[int | None, int | None]:
-        sentences = getattr(nlp_doc, "sentences", None)
-        if not isinstance(sentences, list):
-            return None, None
-        sentence_index = getattr(mention, "sentence", None)
-        start_word = getattr(mention, "start_word", None)
-        end_word = getattr(mention, "end_word", None)
+    def _mention_offsets(
+        nlp_doc: CorefDocument,
+        mention: CorefMention,
+    ) -> tuple[int | None, int | None]:
+        sentence_index = mention.sentence
+        start_word = mention.start_word
+        end_word = mention.end_word
         if (
-            not isinstance(sentence_index, int)
-            or not isinstance(start_word, int)
-            or not isinstance(end_word, int)
-            or start_word < 0
+            start_word < 0
             or end_word <= start_word
             or sentence_index < 0
-            or sentence_index >= len(sentences)
+            or sentence_index >= len(nlp_doc.sentences)
         ):
             return None, None
-        sentence = sentences[sentence_index]
+        sentence = nlp_doc.sentences[sentence_index]
         if end_word > len(sentence.words):
             return None, None
         first_word = sentence.words[start_word]
         last_word = sentence.words[end_word - 1]
-        start_char = getattr(first_word, "start_char", None)
-        end_char = getattr(last_word, "end_char", None)
-        if (
-            not isinstance(start_char, int)
-            or not isinstance(end_char, int)
-            or end_char <= start_char
-        ):
+        start_char = first_word.start_char
+        end_char = last_word.end_char
+        if end_char <= start_char:
             return None, None
         return start_char, end_char

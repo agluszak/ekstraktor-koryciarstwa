@@ -154,7 +154,17 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
         mentions: list[FakeCorefMention]
 
     @dataclass
+    class FakeWord:
+        start_char: int
+        end_char: int
+
+    @dataclass
+    class FakeSentence:
+        words: list[FakeWord]
+
+    @dataclass
     class FakeDoc:
+        sentences: list[FakeSentence]
         coref: list[FakeCorefChain]
 
     class FakePipeline:
@@ -164,6 +174,14 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
 
             observed_grad_enabled.append(torch.is_grad_enabled())
             return FakeDoc(
+                sentences=[
+                    FakeSentence(
+                        words=[
+                            FakeWord(start_char=0, end_char=3),
+                            FakeWord(start_char=4, end_char=12),
+                        ]
+                    )
+                ],
                 coref=[
                     FakeCorefChain(
                         representative_text="Jan Kowalski",
