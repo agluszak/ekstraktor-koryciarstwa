@@ -166,6 +166,8 @@ class EntityCandidate:
     role_modifier: RoleModifier | None = None
     is_proxy_person: bool = False
     kinship_detail: KinshipDetail | None = None
+    mention_type: EntityType | str | None = None
+    ner_label: NERLabel | None = None
 
 
 @dataclass(slots=True)

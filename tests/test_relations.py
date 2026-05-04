@@ -16,6 +16,7 @@ from pipeline.domain_types import (
     EntityType,
     FactType,
     KinshipDetail,
+    NERLabel,
     OrganizationKind,
     RelationshipType,
     RoleKind,
@@ -222,6 +223,113 @@ def build_sentence_context(document: ArticleDocument) -> SentenceContext:
         paragraph_candidates=sentence_candidates,
         previous_candidates=[],
     )
+
+
+def test_candidate_graph_prefers_exact_mention_offsets_and_keeps_ner_provenance() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Acme i Acme podpisaly umowe."
+    document = prepared_single_clause_document(
+        document_id="exact-mention-offsets",
+        text=text,
+        entities=[("Acme", EntityType.ORGANIZATION, "Acme")],
+        parsed_words=[
+            word(1, "Acme", "acme", 0, upos="PROPN"),
+            word(2, "i", "i", 5, upos="CCONJ"),
+            word(3, "Acme", "acme", 7, upos="PROPN"),
+            word(4, "podpisaly", "podpisac", 12, upos="VERB"),
+            word(5, "umowe", "umowa", 22, upos="NOUN"),
+        ],
+    )
+    entity_id = document.entities[0].entity_id
+    document.mentions.append(
+        Mention(
+            text="Acme",
+            normalized_text="Acme",
+            mention_type=EntityType.ORGANIZATION,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=7,
+            end_char=11,
+            entity_id=entity_id,
+            ner_label=NERLabel.ORGANIZATION,
+        )
+    )
+
+    graph = CandidateGraphBuilder(config).build(
+        document=document,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=document.parsed_sentences,
+    )
+
+    mention_candidates = [
+        candidate
+        for candidate in graph.candidates
+        if candidate.entity_id == entity_id and candidate.source == "mention"
+    ]
+    assert {(candidate.start_char, candidate.end_char) for candidate in mention_candidates} == {
+        (0, 4),
+        (7, 11),
+    }
+    exact_candidate = next(
+        candidate for candidate in mention_candidates if candidate.start_char == 7
+    )
+    assert exact_candidate.mention_type == EntityType.ORGANIZATION
+    assert exact_candidate.ner_label == NERLabel.ORGANIZATION
+
+
+def test_candidate_graph_skips_ambiguous_anchorless_mention_fallback() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Acme i Acme podpisaly umowe."
+    sentence = SentenceFragment(
+        text=text,
+        paragraph_index=0,
+        sentence_index=0,
+        start_char=0,
+        end_char=len(text),
+    )
+    entity_id = EntityID("entity-0")
+    document = ArticleDocument(
+        document_id=DocumentID("anchorless-mention"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[sentence],
+        entities=[
+            Entity(
+                entity_id=entity_id,
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Acme",
+                normalized_name="Acme",
+            )
+        ],
+        mentions=[
+            Mention(
+                text="Acme",
+                normalized_text="Acme",
+                mention_type=EntityType.ORGANIZATION,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=0,
+                entity_id=entity_id,
+            )
+        ],
+        parsed_sentences={0: []},
+    )
+
+    graph = CandidateGraphBuilder(config).build(
+        document=document,
+        coreference=CoreferenceResult(resolved_mentions=[]),
+        parsed_sentences=document.parsed_sentences,
+    )
+
+    mention_candidates = [
+        candidate for candidate in graph.candidates if candidate.source == "mention"
+    ]
+    assert mention_candidates == []
 
 
 def test_role_matcher_uses_wojewoda_lemma_for_inflected_surface() -> None:

@@ -20,6 +20,7 @@ from pipeline.models import (
     CoreferenceResult,
     Entity,
     EntityCandidate,
+    Mention,
     ParsedWord,
 )
 from pipeline.nlp_rules import (
@@ -44,6 +45,7 @@ class SentenceEntityAnchor:
     entity: Entity
     start: int
     end: int
+    mention: Mention
 
 
 class CandidateGraphBuilder:
@@ -178,6 +180,8 @@ class CandidateGraphBuilder:
             organization_kind=organization_kind,
             is_proxy_person=entity.is_proxy_person,
             kinship_detail=entity.kinship_detail,
+            mention_type=anchor.mention.mention_type,
+            ner_label=anchor.mention.ner_label,
         )
 
     def _derived_person_candidates(
@@ -675,24 +679,67 @@ class CandidateGraphBuilder:
     ) -> list[SentenceEntityAnchor]:
         entity_map = {entity.entity_id: entity for entity in document.entities}
         grouped: dict[tuple[str, int, int], SentenceEntityAnchor] = {}
-        sentence_text = document.sentences[sentence_index].text.lower()
+        sentence = document.sentences[sentence_index]
         for mention in [*document.mentions, *coreference.resolved_mentions]:
             if mention.sentence_index != sentence_index:
                 continue
             if not mention.entity_id or mention.entity_id not in entity_map:
                 continue
-            start = sentence_text.find(mention.text.lower())
-            if start < 0:
-                start = self._approximate_mention_start(sentence_text, mention.text.lower())
-            if start < 0:
+            local_span = self._local_span_for_mention(sentence, mention)
+            if local_span is None:
                 continue
+            start, end = local_span
             anchor = SentenceEntityAnchor(
                 entity=entity_map[mention.entity_id],
                 start=start,
-                end=start + len(mention.text),
+                end=end,
+                mention=mention,
             )
-            grouped[(anchor.entity.entity_id, anchor.start, anchor.end)] = anchor
+            key = (anchor.entity.entity_id, anchor.start, anchor.end)
+            existing = grouped.get(key)
+            if existing is None or (
+                existing.mention.ner_label is None and anchor.mention.ner_label is not None
+            ):
+                grouped[key] = anchor
         return list(grouped.values())
+
+    def _local_span_for_mention(self, sentence, mention: Mention) -> tuple[int, int] | None:
+        if mention.end_char > mention.start_char:
+            local_start = mention.start_char - sentence.start_char
+            local_end = mention.end_char - sentence.start_char
+            if 0 <= local_start < local_end <= len(sentence.text):
+                return local_start, local_end
+        fallback = self._fallback_span(sentence.text.lower(), mention.text.lower())
+        if fallback is None:
+            return None
+        return fallback
+
+    def _fallback_span(self, sentence_text: str, mention_text: str) -> tuple[int, int] | None:
+        start = self._unique_substring_start(sentence_text, mention_text)
+        if start is not None:
+            return start, start + len(mention_text)
+        approximate_start = self._approximate_mention_start(sentence_text, mention_text)
+        if approximate_start < 0:
+            return None
+        return approximate_start, approximate_start + len(mention_text)
+
+    @staticmethod
+    def _unique_substring_start(sentence_text: str, mention_text: str) -> int | None:
+        if not mention_text:
+            return None
+        starts: list[int] = []
+        search_start = 0
+        while True:
+            index = sentence_text.find(mention_text, search_start)
+            if index < 0:
+                break
+            starts.append(index)
+            search_start = index + 1
+            if len(starts) > 1:
+                return None
+        if len(starts) == 1:
+            return starts[0]
+        return None
 
     @staticmethod
     def _approximate_mention_start(sentence_text: str, mention_text: str) -> int:
@@ -700,8 +747,8 @@ class CandidateGraphBuilder:
         if not tokens:
             return -1
         last_token = tokens[-1]
-        last_index = sentence_text.find(last_token)
-        if last_index < 0:
+        last_index = CandidateGraphBuilder._unique_substring_start(sentence_text, last_token)
+        if last_index is None:
             return -1
         return max(0, last_index - max(0, len(mention_text) - len(last_token)))
 

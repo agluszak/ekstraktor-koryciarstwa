@@ -78,11 +78,23 @@ class NepotismPipeline:
 
         if coreference.resolved_mentions:
             existing_keys = {
-                (mention.text, mention.sentence_index, mention.entity_id)
+                (
+                    mention.text,
+                    mention.sentence_index,
+                    mention.entity_id,
+                    mention.start_char,
+                    mention.end_char,
+                )
                 for mention in document.mentions
             }
             for mention in coreference.resolved_mentions:
-                key = (mention.text, mention.sentence_index, mention.entity_id)
+                key = (
+                    mention.text,
+                    mention.sentence_index,
+                    mention.entity_id,
+                    mention.start_char,
+                    mention.end_char,
+                )
                 if key not in existing_keys:
                     document.mentions.append(mention)
                     existing_keys.add(key)

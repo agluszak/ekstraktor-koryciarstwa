@@ -193,6 +193,7 @@ class PolishEntityClusterer(EntityClusterer):
             isinstance(mention.start_char, int)
             and isinstance(mention.end_char, int)
             and isinstance(mention.paragraph_index, int)
+            and mention.end_char > mention.start_char
         ):
             return mention.start_char, mention.end_char, mention.paragraph_index
 

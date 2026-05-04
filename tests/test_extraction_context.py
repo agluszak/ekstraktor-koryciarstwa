@@ -14,7 +14,7 @@ from pipeline.models import (
 )
 
 
-def test_clusters_for_mentions_matches_span_before_text_fallback() -> None:
+def test_cluster_for_mention_does_not_fallback_when_exact_span_is_present() -> None:
     person_mention = ClusterMention(
         text="Jan Kowalski",
         entity_type=EntityType.PERSON,
@@ -68,12 +68,53 @@ def test_clusters_for_mentions_matches_span_before_text_fallback() -> None:
         entity_id=EntityID("entity-person"),
     )
 
-    clusters = ExtractionContext.build(document).clusters_for_mentions(
-        [clause_mention, organization_mention],
-        {EntityType.PERSON},
+    cluster = ExtractionContext.build(document).cluster_for_mention(clause_mention)
+
+    assert cluster is None
+
+
+def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions() -> None:
+    person_mention = ClusterMention(
+        text="Jan Kowalski",
+        entity_type=EntityType.PERSON,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=10,
+        end_char=22,
+        entity_id=EntityID("entity-person"),
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=[],
+        clusters=[
+            EntityCluster(
+                cluster_id=ClusterID("cluster-person"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="jan kowalski",
+                mentions=[person_mention],
+            )
+        ],
+    )
+    anchorless_mention = ClusterMention(
+        text="Jan Kowalski",
+        entity_type=EntityType.PERSON,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=0,
+        entity_id=EntityID("entity-person"),
     )
 
-    assert [cluster.cluster_id for cluster in clusters] == [ClusterID("cluster-person")]
+    cluster = ExtractionContext.build(document).cluster_for_mention(anchorless_mention)
+
+    assert cluster is not None
+    assert cluster.cluster_id == ClusterID("cluster-person")
 
 
 def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:

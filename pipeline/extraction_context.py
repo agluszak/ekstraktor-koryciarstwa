@@ -52,6 +52,7 @@ class ExtractionContext:
         return clusters
 
     def cluster_for_mention(self, mention_ref: ClusterMention) -> EntityCluster | None:
+        exact_match = None
         for cluster in self.document.clusters:
             for mention in cluster.mentions:
                 if (
@@ -60,14 +61,40 @@ class ExtractionContext:
                     and mention.sentence_index == mention_ref.sentence_index
                     and mention.entity_type == mention_ref.entity_type
                 ):
-                    return cluster
+                    exact_match = cluster
+                    break
+            if exact_match is not None:
+                break
+        if exact_match is not None:
+            return exact_match
+        if self._has_exact_span(mention_ref):
+            return None
+
+        fallback_matches: list[EntityCluster] = []
+        for cluster in self.document.clusters:
+            for mention in cluster.mentions:
                 if (
-                    mention.text == mention_ref.text
-                    and mention.sentence_index == mention_ref.sentence_index
-                    and mention.entity_type == mention_ref.entity_type
+                    mention.text != mention_ref.text
+                    or mention.sentence_index != mention_ref.sentence_index
+                    or mention.paragraph_index != mention_ref.paragraph_index
+                    or mention.entity_type != mention_ref.entity_type
                 ):
-                    return cluster
+                    continue
+                if (
+                    mention_ref.entity_id is not None
+                    and mention.entity_id is not None
+                    and mention.entity_id != mention_ref.entity_id
+                ):
+                    continue
+                fallback_matches.append(cluster)
+                break
+        if len(fallback_matches) == 1:
+            return fallback_matches[0]
         return None
+
+    @staticmethod
+    def _has_exact_span(mention: ClusterMention) -> bool:
+        return mention.end_char > mention.start_char
 
     def cluster_by_id(self, cluster_id: ClusterID | None) -> EntityCluster | None:
         if cluster_id is None:
