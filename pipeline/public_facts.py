@@ -10,6 +10,7 @@ from pipeline.domain_types import (
     PublicEmploymentSignal,
     TimeScope,
 )
+from pipeline.grammar_signals import infer_status_time_scope
 from pipeline.models import (
     AntiCorruptionInvestigationFrame,
     AntiCorruptionReferralFrame,
@@ -21,6 +22,7 @@ from pipeline.models import (
     PublicEmploymentFrame,
     PublicProcurementAbuseFrame,
 )
+from pipeline.temporal import extract_temporal_period, resolve_event_date
 from pipeline.utils import stable_id
 
 
@@ -64,7 +66,13 @@ class PublicContractFactBuilder:
             value_text=frame.amount_text,
             value_normalized=frame.amount_normalized,
             time_scope=TimeScope.UNKNOWN,
-            event_date=document.publication_date,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,
@@ -115,7 +123,13 @@ class AntiCorruptionReferralFactBuilder:
             value_text=target.canonical_name if target is not None else None,
             value_normalized=target.normalized_name if target is not None else None,
             time_scope=TimeScope.UNKNOWN,
-            event_date=document.publication_date,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             organization_kind=target.organization_kind if target is not None else None,
@@ -165,7 +179,13 @@ class AntiCorruptionInvestigationFactBuilder:
             value_text=target.canonical_name if target is not None else None,
             value_normalized=target.normalized_name if target is not None else None,
             time_scope=TimeScope.UNKNOWN,
-            event_date=document.publication_date,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             organization_kind=target.organization_kind if target is not None else None,
@@ -224,7 +244,13 @@ class PublicProcurementAbuseFactBuilder:
             value_text=frame.amount_text,
             value_normalized=frame.amount_normalized,
             time_scope=TimeScope.UNKNOWN,
-            event_date=document.publication_date,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,
@@ -268,6 +294,17 @@ class PublicEmploymentFactBuilder:
             if frame.signal == PublicEmploymentSignal.ENTRY
             else FactType.ROLE_HELD
         )
+        time_scope = (
+            TimeScope.CURRENT
+            if fact_type == FactType.APPOINTMENT
+            else infer_status_time_scope(
+                evidence.text,
+                document.parsed_sentences.get(
+                    evidence.sentence_index if evidence.sentence_index is not None else -1,
+                    [],
+                ),
+            )
+        )
         return Fact(
             fact_id=FactID(
                 stable_id(
@@ -285,10 +322,27 @@ class PublicEmploymentFactBuilder:
             object_entity_id=EntityID(employer_id),
             value_text=frame.role_label,
             value_normalized=frame.role_label,
-            time_scope=TimeScope.CURRENT,
-            event_date=document.publication_date,
+            time_scope=time_scope,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
             confidence=round(frame.confidence, 3),
             evidence=evidence,
+            period=(
+                extract_temporal_period(
+                    document,
+                    sentence_index=evidence.sentence_index,
+                    text=evidence.text,
+                    start_char=evidence.start_char,
+                    end_char=evidence.end_char,
+                )
+                if fact_type == FactType.ROLE_HELD
+                else None
+            ),
             position_entity_id=_get_best_entity_id(role_cluster) if role_cluster else None,
             role=frame.role_label,
             role_kind=role_cluster.role_kind if role_cluster is not None else None,

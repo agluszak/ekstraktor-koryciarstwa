@@ -28,6 +28,7 @@ from pipeline.public_money_signals import (
     is_company_like_contractor,
     is_public_counterparty,
 )
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
 
 REPORTING_RECIPIENT_LEMMAS = frozenset({"my", "redakcja", "dziennikarz", "czytelnik"})
@@ -105,9 +106,13 @@ class PublicMoneyFlowSignal:
 
 
 class PolishPublicContractFrameExtractor(FrameExtractor):
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+    ) -> None:
         self.config = config
-        self.slot_grounder = FrameSlotGrounder(config)
+        self.slot_grounder = FrameSlotGrounder(config, runtime=runtime)
 
     def name(self) -> str:
         return "polish_public_contract_frame_extractor"

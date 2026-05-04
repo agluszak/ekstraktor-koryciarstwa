@@ -203,6 +203,7 @@ class ParsedWord:
     deprel: str
     start: int
     end: int
+    feats: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

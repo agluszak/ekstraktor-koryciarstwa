@@ -86,6 +86,7 @@ def word(
     head: int = 0,
     deprel: str = "root",
     upos: str = "NOUN",
+    feats: dict[str, str] | None = None,
 ) -> ParsedWord:
     return ParsedWord(
         index=index,
@@ -96,6 +97,7 @@ def word(
         deprel=deprel,
         start=start,
         end=start + len(text),
+        feats=feats or {},
     )
 
 
@@ -2793,6 +2795,53 @@ def test_public_employment_status_wording_emits_role_held() -> None:
     assert role_facts[0].object_entity_id == EntityID("entity-1")
     assert role_facts[0].role == "Główny Specjalista"
     assert role_facts[0].time_scope == TimeScope.CURRENT
+
+
+def test_public_employment_past_status_emits_former_scope_and_period() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Anna Nowak pracowała jako główny specjalista od 2020 r. w Powiatowym Urzędzie Pracy."
+    document = prepared_single_clause_document(
+        document_id="doc-public-employment-former-status",
+        text=text,
+        entities=[
+            ("Anna Nowak", EntityType.PERSON, "Anna Nowak"),
+            (
+                "Powiatowym Urzędzie Pracy",
+                EntityType.PUBLIC_INSTITUTION,
+                "Powiatowy Urząd Pracy",
+            ),
+        ],
+        parsed_words=[
+            word(1, "Anna", "Anna", 0, head=3, deprel="nsubj", upos="PROPN"),
+            word(2, "Nowak", "Nowak", 5, head=1, deprel="flat", upos="PROPN"),
+            word(
+                3,
+                "pracowała",
+                "pracować",
+                11,
+                upos="VERB",
+                feats={"Tense": "Past"},
+            ),
+            word(4, "jako", "jako", 21, head=6, deprel="case", upos="SCONJ"),
+            word(5, "główny", "główny", 26, head=6, deprel="amod"),
+            word(6, "specjalista", "specjalista", 34, head=3, deprel="xcomp"),
+            word(7, "od", "od", 46, head=8, deprel="case", upos="ADP"),
+            word(8, "2020", "2020", 49, head=3, deprel="obl", upos="NUM"),
+            word(9, "r.", "rok", 54, head=8, deprel="nmod"),
+            word(10, "w", "w", 57, head=13, deprel="case", upos="ADP"),
+            word(11, "Powiatowym", "powiatowy", 59, head=12, deprel="amod"),
+            word(12, "Urzędzie", "urząd", 71, head=3, deprel="obl"),
+            word(13, "Pracy", "praca", 79, head=12, deprel="nmod"),
+        ],
+    )
+
+    document = PolishFrameExtractor(config).run(document)
+    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+
+    role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
+    assert role_facts
+    assert role_facts[0].time_scope == TimeScope.FORMER
+    assert role_facts[0].period == "od 2020 r"
 
 
 def test_public_employment_frame_extracts_passive_hiring_patient() -> None:

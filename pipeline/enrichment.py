@@ -19,6 +19,7 @@ from pipeline.models import (
 )
 from pipeline.relations.org_typing import OrganizationMentionClassifier
 from pipeline.role_matching import RoleMatch, match_role_mentions
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import stable_id
 
 DERIVED_ORGANIZATION_HEADS = frozenset(
@@ -71,10 +72,14 @@ class DerivedOrganizationMention:
 
 
 class SharedEntityEnricher(EntityEnricher):
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+    ) -> None:
         self.config = config
         self.organization_classifier = OrganizationMentionClassifier(config)
-        self.slot_grounder = FrameSlotGrounder(config)
+        self.slot_grounder = FrameSlotGrounder(config, runtime=runtime)
 
     def name(self) -> str:
         return "shared_entity_enricher"

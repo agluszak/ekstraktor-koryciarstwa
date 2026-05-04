@@ -8,6 +8,7 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     EntityCluster,
+    ParsedWord,
     SentenceFragment,
     TemporalExpression,
 )
@@ -167,6 +168,53 @@ def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
     )
 
     assert context.event_date == "2019-02-25"
+
+
+def test_sentence_context_time_scope_detects_future_from_morphology() -> None:
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date="2019-03-22",
+        cleaned_text="",
+        paragraphs=[],
+        sentences=[
+            SentenceFragment(
+                text="Anna będzie pełnić funkcję dyrektora.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=36,
+            )
+        ],
+    )
+    sentence = document.sentences[0]
+    context = SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=[
+            ParsedWord(1, "Anna", "Anna", "PROPN", 2, "nsubj", 0, 4),
+            ParsedWord(
+                2,
+                "będzie",
+                "być",
+                "AUX",
+                0,
+                "root",
+                5,
+                11,
+                feats={"Tense": "Fut"},
+            ),
+            ParsedWord(3, "pełnić", "pełnić", "VERB", 2, "xcomp", 12, 18),
+        ],
+        graph=MagicMock(spec=CandidateGraph),
+        candidates=[],
+        paragraph_candidates=[],
+        previous_candidates=[],
+    )
+
+    assert context.time_scope.value == "future"
 
 
 def test_sentence_context_event_date_prefers_preserved_ner_date_span() -> None:

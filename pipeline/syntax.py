@@ -99,6 +99,7 @@ class StanzaClauseParser(ClauseParser):
                 deprel=word.deprel or "",
                 start=int(word.start_char),
                 end=int(word.end_char),
+                feats=_parse_feats(getattr(word, "feats", None)),
             )
             for word in sentence.words
         ]
@@ -137,6 +138,7 @@ class StanzaClauseParser(ClauseParser):
                 deprel=word.deprel,
                 start=max(0, word.start - sentence.start_char),
                 end=max(0, word.end - sentence.start_char),
+                feats=dict(word.feats),
             )
             for word in best_sentence.words
         ]
@@ -168,3 +170,9 @@ class StanzaClauseParser(ClauseParser):
             if (word.start + sent_offset) >= mention.start_char
             and (word.end + sent_offset) <= mention.end_char
         ]
+
+
+def _parse_feats(raw_feats: str | None) -> dict[str, str]:
+    if raw_feats is None:
+        return {}
+    return dict(feature.split("=", 1) for feature in raw_feats.split("|") if "=" in feature)

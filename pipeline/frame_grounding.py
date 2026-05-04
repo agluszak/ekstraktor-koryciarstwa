@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+import numpy as np
+
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import (
     INVALID_PUBLIC_EMPLOYMENT_ROLE_HEADS,
@@ -11,6 +13,7 @@ from pipeline.domain_lexicons import (
     PUBLIC_OFFICE_ROLE_KINDS,
 )
 from pipeline.domain_types import ClusterID, EntityID, EntityType, OrganizationKind
+from pipeline.entity_naming import org_token_base
 from pipeline.lemma_signals import word_by_index
 from pipeline.models import (
     ArticleDocument,
@@ -24,6 +27,7 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.relations.org_typing import OrganizationMentionClassifier
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name, stable_id
 
 DERIVED_ORGANIZATION_HEADS = frozenset(
@@ -85,6 +89,7 @@ ALL_CAPS_PATTERN = re.compile(r"\b[A-ZŁŚŻŹĆŃÓĘ]{2,6}\b")
 MIXED_CASE_ORG_ALIAS_PATTERN = re.compile(
     r"\b[A-ZŁŚŻŹĆŃÓĘ][a-ząćęłńóśźż]{2,}[A-ZŁŚŻŹĆŃÓĘ][A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]{1,10}\b"
 )
+COMPACT_ALIAS_EMBEDDING_THRESHOLD = 0.74
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,9 +141,15 @@ class _RoleLabelCandidate:
 
 
 class FrameSlotGrounder:
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+    ) -> None:
         self.config = config
+        self.runtime = runtime or PipelineRuntime(config)
         self.organization_classifier = OrganizationMentionClassifier(config)
+        self._embedding_cache: dict[str, np.ndarray] = {}
 
     def ground_public_employment_role(
         self,
@@ -545,8 +556,39 @@ class FrameSlotGrounder:
         ]
         ranked_matches = [(score, cluster) for score, cluster in matches if score > 0]
         if not ranked_matches:
-            return None
+            return self._embedding_cluster_for_compact_alias(alias, candidates)
         return max(ranked_matches, key=lambda item: (item[0], len(item[1].canonical_name)))[1]
+
+    def _embedding_cluster_for_compact_alias(
+        self,
+        alias: str,
+        candidates: list[EntityCluster],
+    ) -> EntityCluster | None:
+        alias_tokens = self._compact_alias_tokens(alias)
+        alias_bases = {
+            org_token_base(token.casefold()) for token in alias_tokens if len(token) >= 4
+        }
+        if len(alias_tokens) < 2 or not alias_bases:
+            return None
+        alias_embedding = self._encode_text(" ".join(alias_tokens))
+        ranked: list[tuple[float, EntityCluster]] = []
+        for cluster in candidates:
+            cluster_bases = {
+                org_token_base(token.casefold())
+                for token in normalize_entity_name(cluster.canonical_name).split()
+                if len(token) >= 4
+            }
+            if not alias_bases.intersection(cluster_bases):
+                continue
+            similarity = self._cosine_similarity(
+                alias_embedding,
+                self._encode_text(cluster.canonical_name),
+            )
+            if similarity >= COMPACT_ALIAS_EMBEDDING_THRESHOLD:
+                ranked.append((similarity, cluster))
+        if not ranked:
+            return None
+        return max(ranked, key=lambda item: (item[0], len(item[1].canonical_name)))[1]
 
     def _canonical_name_for_grounding(
         self,
@@ -953,6 +995,35 @@ class FrameSlotGrounder:
     @staticmethod
     def _looks_like_compact_org_alias(surface: str) -> bool:
         return bool(MIXED_CASE_ORG_ALIAS_PATTERN.fullmatch(surface))
+
+    @staticmethod
+    def _compact_alias_tokens(surface: str) -> list[str]:
+        expanded = re.sub(r"(?<=[a-ząćęłńóśźż])(?=[A-ZŁŚŻŹĆŃÓĘ])", " ", surface)
+        return [token for token in expanded.split() if token]
+
+    def _encode_text(self, text: str) -> np.ndarray:
+        cached = self._embedding_cache.get(text)
+        if cached is not None:
+            return cached
+        model = self.runtime.get_sentence_transformer_model()
+        try:
+            encoded = model.encode(text, normalize_embeddings=True)
+        except TypeError:
+            encoded = model.encode(text)
+        vector = np.asarray(encoded, dtype=float)
+        if vector.ndim != 1:
+            vector = vector.reshape(-1)
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+        self._embedding_cache[text] = vector
+        return vector
+
+    @staticmethod
+    def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
+        if left.size == 0 or right.size == 0:
+            return 0.0
+        return float(np.dot(left, right))
 
     @staticmethod
     def _deduplicate_grounded_mentions(

@@ -32,6 +32,7 @@ from pipeline.models import (
     Mention,
     ParsedWord,
     SentenceFragment,
+    TemporalExpression,
 )
 
 
@@ -1028,6 +1029,57 @@ def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
     assert facts[0].object_entity_id == "org-1"
     assert facts[0].position_entity_id == "position-1"
     assert facts[0].source_extractor == "compensation_frame"
+
+
+def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> None:
+    person = cluster(
+        "cluster-person",
+        "Łukasz Bałajewicz",
+        EntityType.PERSON,
+        entity_id=EntityID("person-1"),
+    )
+    organization = cluster("cluster-org", "KZN", entity_id=EntityID("org-1"))
+    doc = document([person, organization])
+    doc.publication_date = "2019-03-22"
+    doc.temporal_expressions = [
+        TemporalExpression(
+            text="25 lut.",
+            label=NERLabel.DATE,
+            normalized_value="2019-02-25",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=24,
+            end_char=31,
+        )
+    ]
+    doc.compensation_frames = [
+        CompensationFrame(
+            frame_id=FrameID("comp-frame-date"),
+            amount_text="31 tys. zł brutto",
+            amount_normalized="31 Tys. Zł Brutto",
+            period="Miesięcznie",
+            person_cluster_id=person.cluster_id,
+            organization_cluster_id=organization.cluster_id,
+            confidence=0.85,
+            evidence=[
+                EvidenceSpan(
+                    text="Łukasz Bałajewicz od 25 lut. zarabia 31 tys. zł brutto.",
+                    sentence_index=0,
+                    paragraph_index=0,
+                    start_char=0,
+                    end_char=58,
+                )
+            ],
+            extraction_signal="syntactic_direct",
+            evidence_scope="same_clause",
+            score_reason="person_amount_org_same_clause",
+        )
+    ]
+
+    facts = CompensationFactBuilder().build(doc)
+
+    assert len(facts) == 1
+    assert facts[0].event_date == "2019-02-25"
 
 
 def test_compensation_frame_extractor_ignores_funding_amounts() -> None:

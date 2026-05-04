@@ -13,6 +13,7 @@ from pipeline.models import (
     EvidenceSpan,
     PublicEmploymentFrame,
 )
+from pipeline.runtime import PipelineRuntime
 from pipeline.semantic_signals import EMPLOYMENT_CONTEXT_MARKERS
 
 
@@ -42,9 +43,13 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
         "jest dyrektorką",
     )
 
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+    ) -> None:
         self.config = config
-        self.slot_grounder = FrameSlotGrounder(config)
+        self.slot_grounder = FrameSlotGrounder(config, runtime=runtime)
 
     def name(self) -> str:
         return "polish_public_employment_frame_extractor"

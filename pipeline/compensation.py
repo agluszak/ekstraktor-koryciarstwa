@@ -4,6 +4,7 @@ from collections import Counter
 
 from pipeline.domain_types import EntityID, EntityType, FactID, FactType, TimeScope
 from pipeline.models import ArticleDocument, CompensationFrame, EntityCluster, EvidenceSpan, Fact
+from pipeline.temporal import resolve_event_date
 from pipeline.utils import stable_id
 
 
@@ -72,7 +73,13 @@ class CompensationFactBuilder:
             value_text=frame.amount_text,
             value_normalized=frame.amount_normalized,
             time_scope=TimeScope.CURRENT,
-            event_date=document.publication_date,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,

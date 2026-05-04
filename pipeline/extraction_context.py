@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from pipeline.domain_types import CandidateType, ClusterID, EntityType, TimeScope
+from pipeline.grammar_signals import infer_sentence_time_scope
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -15,36 +16,7 @@ from pipeline.models import (
     ParsedWord,
     SentenceFragment,
 )
-from pipeline.nlp_rules import FORMER_MARKERS
-from pipeline.utils import extract_local_event_date
-
-
-def resolve_event_date(
-    document: ArticleDocument,
-    *,
-    sentence_index: int | None,
-    text: str,
-) -> str | None:
-    if sentence_index is not None:
-        temporal_matches = sorted(
-            [
-                expression
-                for expression in document.temporal_expressions
-                if expression.sentence_index == sentence_index
-            ],
-            key=lambda expression: (
-                expression.start_char if expression.start_char is not None else 10**9
-            ),
-        )
-        for expression in temporal_matches:
-            if expression.label.value != "date":
-                continue
-            if expression.normalized_value is not None:
-                return expression.normalized_value
-            normalized = extract_local_event_date(expression.text, document.publication_date)
-            if normalized is not None:
-                return normalized
-    return extract_local_event_date(text, document.publication_date) or document.publication_date
+from pipeline.temporal import resolve_event_date
 
 
 @dataclass(slots=True)
@@ -370,12 +342,7 @@ class SentenceContext:
 
     @property
     def time_scope(self) -> TimeScope:
-        lowered = self.lowered_text
-        if any(marker in lowered for marker in FORMER_MARKERS):
-            return TimeScope.FORMER
-        if "ma zostać" in lowered:
-            return TimeScope.FUTURE
-        return TimeScope.CURRENT
+        return infer_sentence_time_scope(self.sentence.text, self.parsed_words)
 
     @property
     def evidence(self) -> EvidenceSpan:

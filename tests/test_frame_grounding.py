@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
+import numpy as np
+
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType
 from pipeline.enrichment import SharedEntityEnricher
@@ -313,5 +317,90 @@ def test_shared_grounding_retypes_compact_company_alias_to_existing_organization
     assert "WodKan" in company_clusters[0].aliases
     assert not any(
         cluster.entity_type == EntityType.PERSON and cluster.canonical_name == "WodKan"
+        for cluster in document.clusters
+    )
+
+
+def test_shared_grounding_uses_embedding_fallback_for_compact_org_alias() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Urząd Marszałkowski Województwa Mazowieckiego zawarł umowę, a później "
+        "MarszałkowskiMazowsze potwierdził realizację projektu."
+    )
+    document = _document(
+        text,
+        entities=[
+            (
+                "Urząd Marszałkowski Województwa Mazowieckiego",
+                EntityType.PUBLIC_INSTITUTION,
+                "Urząd Marszałkowski Województwa Mazowieckiego",
+            ),
+            ("MarszałkowskiMazowsze", EntityType.PERSON, "MarszałkowskiMazowsze"),
+        ],
+        parsed_words=[
+            _word(1, "Urząd", "urząd", 0),
+            _word(
+                2,
+                "Marszałkowski",
+                "marszałkowski",
+                text.index("Marszałkowski"),
+                head=1,
+                deprel="amod",
+            ),
+            _word(
+                3,
+                "Województwa",
+                "województwo",
+                text.index("Województwa"),
+                head=1,
+                deprel="nmod",
+            ),
+            _word(
+                4,
+                "Mazowieckiego",
+                "mazowiecki",
+                text.index("Mazowieckiego"),
+                head=3,
+                deprel="amod",
+            ),
+            _word(5, "zawarł", "zawrzeć", text.index("zawarł"), upos="VERB"),
+            _word(
+                6,
+                "MarszałkowskiMazowsze",
+                "MarszałkowskiMazowsze",
+                text.index("MarszałkowskiMazowsze"),
+                head=7,
+                deprel="nsubj",
+                upos="PROPN",
+            ),
+            _word(7, "potwierdził", "potwierdzić", text.index("potwierdził"), upos="VERB"),
+        ],
+    )
+    runtime = MagicMock()
+    model = MagicMock()
+    vectors = {
+        "Marszałkowski Mazowsze": np.array([1.0, 0.0, 0.0]),
+        "Urząd Marszałkowski Województwa Mazowieckiego": np.array([1.0, 0.0, 0.0]),
+    }
+    model.encode.side_effect = lambda text, normalize_embeddings=True: vectors.get(
+        text,
+        np.array([0.0, 1.0, 0.0]),
+    )
+    runtime.get_sentence_transformer_model.return_value = model
+
+    SharedEntityEnricher(config, runtime=runtime).run(document)
+
+    office_clusters = [
+        cluster
+        for cluster in document.clusters
+        if cluster.entity_type == EntityType.PUBLIC_INSTITUTION
+        and cluster.canonical_name == "Urząd Marszałkowski Województwa Mazowieckiego"
+    ]
+
+    assert len(office_clusters) == 1
+    assert "MarszałkowskiMazowsze" in office_clusters[0].aliases
+    assert not any(
+        cluster.entity_type == EntityType.PERSON
+        and cluster.canonical_name == "MarszałkowskiMazowsze"
         for cluster in document.clusters
     )

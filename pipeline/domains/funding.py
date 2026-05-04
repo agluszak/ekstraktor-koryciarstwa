@@ -23,13 +23,18 @@ from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.lemma_signals import lemma_set
 from pipeline.models import ArticleDocument, ClauseUnit, EntityCluster, FundingFrame
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
 
 
 class PolishFundingFrameExtractor(FrameExtractor):
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+    ) -> None:
         self.config = config
-        self.slot_grounder = FrameSlotGrounder(config)
+        self.slot_grounder = FrameSlotGrounder(config, runtime=runtime)
 
     def name(self) -> str:
         return "polish_funding_frame_extractor"

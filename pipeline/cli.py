@@ -139,10 +139,10 @@ def build_pipeline(
         fact_extractor=PolishFactExtractor(config),
         entity_linker=InMemoryEntityLinker(config, runtime=shared_runtime),
         entity_clusterer=PolishEntityClusterer(config),
-        entity_enricher=SharedEntityEnricher(config),
+        entity_enricher=SharedEntityEnricher(config, runtime=shared_runtime),
         clause_parser=StanzaClauseParser(config, runtime=shared_runtime),
         identity_resolver=PolishFamilyIdentityResolver(config),
-        frame_extractor=PolishFrameExtractor(config),
+        frame_extractor=PolishFrameExtractor(config, runtime=shared_runtime),
         scorer=RuleBasedNepotismScorer(config),
     )
 
