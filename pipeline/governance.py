@@ -11,9 +11,9 @@ from pipeline.domain_types import (
     ClusterID,
     EntityID,
     EntityType,
-    EventType,
     FactID,
     FactType,
+    GovernanceSignal,
     OrganizationKind,
     TimeScope,
 )
@@ -22,6 +22,7 @@ from pipeline.entity_classifiers import (
     is_party_like_name,
     is_target_organization_name,
 )
+from pipeline.extraction_context import resolve_event_date
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -41,7 +42,7 @@ from pipeline.semantic_signals import (
     GOVERNANCE_TARGET_HEAD_MARKERS,
     OWNER_CONTEXT_EXTRA_TERMS,
 )
-from pipeline.utils import extract_local_event_date, extract_role_from_text, stable_id
+from pipeline.utils import extract_role_from_text, stable_id
 
 PARLIAMENTARY_REMUNERATION_FACT_MARKERS = frozenset(
     {
@@ -504,8 +505,8 @@ class GovernanceFactBuilder:
     ) -> list[Fact]:
         output: list[Fact] = []
         for sentence in document.sentences:
-            event_type = self._list_event_type(sentence.text)
-            if event_type is None:
+            signal = self._list_signal(sentence.text)
+            if signal is None:
                 continue
             people = self._person_clusters_for_list_sentence(document, sentence)
             if len(people) < 2:
@@ -522,7 +523,7 @@ class GovernanceFactBuilder:
                 fact = self._fact_for_list_event(
                     document,
                     sentence,
-                    event_type,
+                    signal,
                     person,
                     target,
                     role_text,
@@ -533,7 +534,7 @@ class GovernanceFactBuilder:
         return output
 
     @staticmethod
-    def _list_event_type(text: str) -> EventType | None:
+    def _list_signal(text: str) -> GovernanceSignal | None:
         lowered = text.casefold()
         has_list_cue = bool(
             re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered)
@@ -544,11 +545,11 @@ class GovernanceFactBuilder:
         if "powoł" in lowered and any(
             marker in lowered for marker in ("rada nadzorcza", "zarząd", "nadzór", "spół")
         ):
-            return EventType.APPOINTMENT
+            return GovernanceSignal.APPOINTMENT
         if "odwoł" in lowered and any(
             marker in lowered for marker in ("rada nadzorcza", "zarząd", "stanowisk", "funkcj")
         ):
-            return EventType.DISMISSAL
+            return GovernanceSignal.DISMISSAL
         return None
 
     @staticmethod
@@ -624,7 +625,7 @@ class GovernanceFactBuilder:
         self,
         document: ArticleDocument,
         sentence: SentenceFragment,
-        event_type: EventType,
+        signal: GovernanceSignal,
         person: EntityCluster,
         target: EntityCluster,
         role_text: str | None,
@@ -635,7 +636,7 @@ class GovernanceFactBuilder:
         if not subject_id or not target_id:
             return None
         fact_type = (
-            FactType.DISMISSAL if event_type == EventType.DISMISSAL else FactType.APPOINTMENT
+            FactType.DISMISSAL if signal == GovernanceSignal.DISMISSAL else FactType.APPOINTMENT
         )
         evidence = EvidenceSpan(
             text=sentence.text,
@@ -662,8 +663,11 @@ class GovernanceFactBuilder:
             value_text=role_text,
             value_normalized=role_text.casefold() if role_text else None,
             time_scope=TimeScope.CURRENT,
-            event_date=extract_local_event_date(sentence.text, document.publication_date)
-            or document.publication_date,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=sentence.sentence_index,
+                text=sentence.text,
+            ),
             confidence=0.78,
             evidence=evidence,
             source_extractor="governance_list",
@@ -716,7 +720,9 @@ class GovernanceFactBuilder:
             if role_kind in PUBLIC_OFFICE_ROLE_KINDS:
                 return None
         fact_type = (
-            FactType.DISMISSAL if frame.event_type == EventType.DISMISSAL else FactType.APPOINTMENT
+            FactType.DISMISSAL
+            if frame.signal == GovernanceSignal.DISMISSAL
+            else FactType.APPOINTMENT
         )
         appointing_authority_entity_id = (
             EntityID(cluster_to_entity_id.get(frame.appointing_authority_cluster_id or "") or "")
@@ -742,8 +748,11 @@ class GovernanceFactBuilder:
             value_text=role_text,
             value_normalized=role_text.lower() if role_text else None,
             time_scope=TimeScope.CURRENT,
-            event_date=extract_local_event_date(evidence.text, document.publication_date)
-            or document.publication_date,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+            ),
             confidence=frame.confidence,
             evidence=evidence,
             position_entity_id=EntityID(role_id) if role_id else None,
@@ -808,7 +817,7 @@ class GovernanceFactBuilder:
         frame: GovernanceFrame,
         cluster_to_entity_id: dict[str, str],
     ) -> EntityID | None:
-        if frame.event_type != EventType.APPOINTMENT:
+        if frame.signal != GovernanceSignal.APPOINTMENT:
             return None
         sentence_lookup = {sentence.sentence_index: sentence for sentence in document.sentences}
         candidate_matches: list[tuple[float, int, int, str]] = []

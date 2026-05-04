@@ -54,16 +54,23 @@ class PolishEntityClusterer(EntityClusterer):
 
                 m_start, m_end, m_para = self._mention_location(document, mention)
 
-                if not any(
-                    (m.start_char == m_start and m.sentence_index == mention.sentence_index)
-                    or (
-                        m.text == mention.text
-                        and m.sentence_index == mention.sentence_index
-                        and not m.start_char
-                        and not m_start
-                    )
-                    for m in cluster.mentions
-                ):
+                existing_mention = next(
+                    (
+                        m
+                        for m in cluster.mentions
+                        if (
+                            (m.start_char == m_start and m.sentence_index == mention.sentence_index)
+                            or (
+                                m.text == mention.text
+                                and m.sentence_index == mention.sentence_index
+                                and not m.start_char
+                                and not m_start
+                            )
+                        )
+                    ),
+                    None,
+                )
+                if existing_mention is None:
                     cluster.mentions.append(
                         ClusterMention(
                             text=mention.text,
@@ -73,8 +80,11 @@ class PolishEntityClusterer(EntityClusterer):
                             start_char=m_start,
                             end_char=m_end,
                             entity_id=mention.entity_id,
+                            ner_label=mention.ner_label,
                         )
                     )
+                elif existing_mention.ner_label is None and mention.ner_label is not None:
+                    existing_mention.ner_label = mention.ner_label
 
         document.clusters = clusters
         return document
@@ -113,6 +123,7 @@ class PolishEntityClusterer(EntityClusterer):
                     start_char=0 if evidence.start_char is None else evidence.start_char,
                     end_char=0 if evidence.end_char is None else evidence.end_char,
                     entity_id=entity.entity_id,
+                    ner_label=None,
                 )
             )
 
@@ -172,6 +183,7 @@ class PolishEntityClusterer(EntityClusterer):
                         start_char=0 if evidence.start_char is None else evidence.start_char,
                         end_char=0 if evidence.end_char is None else evidence.end_char,
                         entity_id=entity.entity_id,
+                        ner_label=None,
                     )
                 )
 

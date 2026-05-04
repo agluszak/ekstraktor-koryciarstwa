@@ -11,13 +11,14 @@ from pipeline.domain_types import (
     DocumentID,
     EntityID,
     EntityType,
-    EventType,
     FactID,
     FactType,
     FrameID,
+    GovernanceSignal,
     IdentityHypothesisReason,
     IdentityHypothesisStatus,
     KinshipDetail,
+    NERLabel,
     OrganizationKind,
     ProxyKind,
     PublicEmploymentSignal,
@@ -39,6 +40,17 @@ class PipelineInput:
 @dataclass(slots=True)
 class EvidenceSpan:
     text: str
+    sentence_index: int | None = None
+    paragraph_index: int | None = None
+    start_char: int | None = None
+    end_char: int | None = None
+
+
+@dataclass(slots=True)
+class TemporalExpression:
+    text: str
+    label: NERLabel
+    normalized_value: str | None = None
     sentence_index: int | None = None
     paragraph_index: int | None = None
     start_char: int | None = None
@@ -213,6 +225,7 @@ class Mention:
 
     # Inlined attributes
     lemmas: list[str] = field(default_factory=list)
+    ner_label: NERLabel | None = None
 
 
 @dataclass(slots=True)
@@ -224,6 +237,7 @@ class ClusterMention:
     start_char: int
     end_char: int
     entity_id: EntityID | None = None
+    ner_label: NERLabel | None = None
 
 
 @dataclass(slots=True)
@@ -264,7 +278,7 @@ class ClauseUnit:
 @dataclass(slots=True)
 class GovernanceFrame:
     frame_id: FrameID
-    event_type: EventType
+    signal: GovernanceSignal
     person_cluster_id: ClusterID | None = None
     role_cluster_id: ClusterID | None = None
     target_org_cluster_id: ClusterID | None = None
@@ -422,6 +436,7 @@ class ArticleDocument:
     entities: list[Entity] = field(default_factory=list)
     mentions: list[Mention] = field(default_factory=list)
     facts: list[Fact] = field(default_factory=list)
+    temporal_expressions: list[TemporalExpression] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
     score: ScoreResult | None = None
     clusters: list[EntityCluster] = field(default_factory=list)

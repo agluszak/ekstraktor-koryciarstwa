@@ -48,9 +48,18 @@ class FactType(StrEnum):
     PERSONAL_OR_POLITICAL_TIE = "PERSONAL_OR_POLITICAL_TIE"
 
 
-class EventType(StrEnum):
+class GovernanceSignal(StrEnum):
     APPOINTMENT = "appointment"
     DISMISSAL = "dismissal"
+
+
+class NERLabel(StrEnum):
+    PERSON = "persName"
+    ORGANIZATION = "orgName"
+    GEOGRAPHY = "geogName"
+    PLACE = "placeName"
+    DATE = "date"
+    TIME = "time"
 
 
 class PublicEmploymentSignal(StrEnum):

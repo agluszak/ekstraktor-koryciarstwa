@@ -34,6 +34,8 @@ from pipeline.models import (
 )
 from pipeline.utils import generate_entity_id, generate_fact_id
 
+pytestmark = pytest.mark.llm
+
 
 def make_config() -> PipelineConfig:
     return PipelineConfig(

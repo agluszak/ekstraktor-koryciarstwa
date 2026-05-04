@@ -14,7 +14,7 @@ from pipeline.domain_context_helpers import (
     sort_clusters_by_clause_distance,
 )
 from pipeline.domain_lexicons import KINSHIP_LEMMAS
-from pipeline.domain_types import ClusterID, EntityType, EventType, FrameID
+from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
 from pipeline.lemma_signals import has_lemma, has_lemma_pair, lemma_set
@@ -88,19 +88,19 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         context = ExtractionContext.build(document)
         for clause in document.clause_units:
             parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
-            event_type = self._detect_event_type(clause, parsed_words)
-            if event_type is None:
+            signal = self._detect_signal(clause, parsed_words)
+            if signal is None:
                 continue
-            frame = self._extract_discourse_frame(clause, document, context, event_type)
+            frame = self._extract_discourse_frame(clause, document, context, signal)
             if frame is not None:
                 document.governance_frames.append(frame)
         return document
 
-    def _detect_event_type(
+    def _detect_signal(
         self,
         clause: ClauseUnit,
         parsed_words: list[ParsedWord] | None = None,
-    ) -> EventType | None:
+    ) -> GovernanceSignal | None:
         lemma = clause.trigger_head_lemma.lower()
         lowered_text = clause.text.lower()
         if self._is_parliamentary_non_governance_context(lowered_text):
@@ -112,14 +112,14 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             or has_copular_role_appointment(parsed_words or [])
             or has_governance_verb_with_role(parsed_words or [], APPOINTMENT_TRIGGER_LEMMAS)
         ):
-            return EventType.APPOINTMENT
+            return GovernanceSignal.APPOINTMENT
         if (
             lemma in DISMISSAL_TRIGGER_LEMMAS
             or self._has_dismissal_lemma_signal(parsed_words or [])
             or any(trigger in lowered_text for trigger in DISMISSAL_TRIGGER_TEXTS)
             or has_governance_verb_with_role(parsed_words or [], DISMISSAL_TRIGGER_LEMMAS)
         ):
-            return EventType.DISMISSAL
+            return GovernanceSignal.DISMISSAL
         return None
 
     @staticmethod
@@ -176,7 +176,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         clause: ClauseUnit,
         document: ArticleDocument,
         context: ExtractionContext,
-        event_type: EventType,
+        signal: GovernanceSignal,
     ) -> GovernanceFrame | None:
         person_clusters = clusters_for_mentions(
             document,
@@ -192,7 +192,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 ),
                 clause,
             )
-            if not person_clusters and event_type == EventType.DISMISSAL:
+            if not person_clusters and signal == GovernanceSignal.DISMISSAL:
                 person_clusters = sort_clusters_by_clause_distance(
                     context.following_clusters(
                         clause,
@@ -201,7 +201,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                     ),
                     clause,
                 )
-        elif event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+        elif signal == GovernanceSignal.APPOINTMENT and self._has_object_pronoun(document, clause):
             person_clusters = merge_clusters(
                 person_clusters,
                 sort_clusters_by_clause_distance(
@@ -255,7 +255,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             clause,
             document,
             person_clusters,
-            event_type,
+            signal,
         )
         if person_cluster_id is None:
             return None
@@ -312,7 +312,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
 
         return GovernanceFrame(
             frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
-            event_type=event_type,
+            signal=signal,
             person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
             role_cluster_id=role_cluster.cluster_id if role_cluster is not None else None,
             target_org_cluster_id=target_resolution.target_org.cluster_id,
@@ -336,7 +336,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         self,
         clause: ClauseUnit,
         document: ArticleDocument,
-        event_type: EventType,
+        signal: GovernanceSignal,
     ) -> GovernanceFrame | None:
         person_clusters = clusters_for_mentions(
             document,
@@ -359,7 +359,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 clause,
                 {EntityType.PERSON},
             )
-        elif event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+        elif signal == GovernanceSignal.APPOINTMENT and self._has_object_pronoun(document, clause):
             person_clusters = merge_clusters(
                 person_clusters,
                 paragraph_context_clusters(
@@ -382,7 +382,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             clause,
             document,
             person_clusters,
-            event_type,
+            signal,
         )
         if person_cluster_id is None:
             return None
@@ -404,7 +404,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
 
         return GovernanceFrame(
             frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
-            event_type=event_type,
+            signal=signal,
             person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
             role_cluster_id=role_cluster_id,
             target_org_cluster_id=target_resolution.target_org.cluster_id,
@@ -436,7 +436,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         clause: ClauseUnit,
         document: ArticleDocument,
         person_clusters: list[EntityCluster],
-        event_type: EventType,
+        signal: GovernanceSignal,
     ) -> tuple[str | None, str | None]:
         appointees: list[ClusterID] = []
         authorities: list[ClusterID] = []
@@ -453,7 +453,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 document,
                 excluded_cluster_ids=current_sentence_ids | speech_speaker_ids,
             )
-            if event_type == EventType.APPOINTMENT
+            if signal == GovernanceSignal.APPOINTMENT
             else None
         )
         for mention in clause.cluster_mentions:
@@ -490,7 +490,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         if authorities:
             authority_ids = (
                 self._non_speaker_ids(authorities, speech_speaker_ids)
-                if event_type == EventType.DISMISSAL
+                if signal == GovernanceSignal.DISMISSAL
                 else authorities
             )
             if authority_ids:
@@ -503,7 +503,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             if previous_person is None:
                 return None, None
             return previous_person.cluster_id, None
-        if event_type == EventType.APPOINTMENT and self._has_object_pronoun(document, clause):
+        if signal == GovernanceSignal.APPOINTMENT and self._has_object_pronoun(document, clause):
             current_sentence_ids = {
                 cluster.cluster_id
                 for cluster in person_clusters
@@ -525,12 +525,12 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 if cluster.cluster_id not in speech_speaker_ids
                 and self._cluster_has_dismissal_subject_signal(clause, cluster)
             ]
-            if event_type == EventType.DISMISSAL
+            if signal == GovernanceSignal.DISMISSAL
             else person_clusters
         )
         if (
             not candidate_clusters
-            and event_type == EventType.DISMISSAL
+            and signal == GovernanceSignal.DISMISSAL
             and not self._near_family_subject(document, clause)
         ):
             candidate_clusters = [

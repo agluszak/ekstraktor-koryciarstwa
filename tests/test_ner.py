@@ -1,5 +1,5 @@
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import DocumentID, EntityType
+from pipeline.domain_types import DocumentID, EntityType, NERLabel
 from pipeline.models import ArticleDocument
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.segmentation import ParagraphSentenceSegmenter
@@ -53,3 +53,12 @@ def test_location_like_spacy_labels_map_to_location_entity_type() -> None:
     assert SpacyPolishNERExtractor._map_label("placeName") == EntityType.LOCATION
     assert SpacyPolishNERExtractor._map_label("GPE") == EntityType.LOCATION
     assert SpacyPolishNERExtractor._map_label("LOC") == EntityType.LOCATION
+
+
+def test_spacy_raw_labels_are_preserved_as_typed_ner_labels() -> None:
+    assert SpacyPolishNERExtractor._ner_label("persName") == NERLabel.PERSON
+    assert SpacyPolishNERExtractor._ner_label("orgName") == NERLabel.ORGANIZATION
+    assert SpacyPolishNERExtractor._ner_label("geogName") == NERLabel.GEOGRAPHY
+    assert SpacyPolishNERExtractor._ner_label("placeName") == NERLabel.PLACE
+    assert SpacyPolishNERExtractor._ner_label("date") == NERLabel.DATE
+    assert SpacyPolishNERExtractor._ner_label("time") == NERLabel.TIME

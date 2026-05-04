@@ -6,9 +6,10 @@ from pipeline.domain_types import (
     DocumentID,
     EntityID,
     EntityType,
-    EventType,
     FactType,
     FrameID,
+    GovernanceSignal,
+    NERLabel,
     OrganizationKind,
 )
 from pipeline.frames import (
@@ -264,7 +265,7 @@ def test_governance_event_detection_handles_stanza_copular_role_root() -> None:
         ),
     ]
 
-    detected = extractor._detect_event_type(
+    detected = extractor._detect_signal(
         ClauseUnit(
             clause_id=ClauseID("clause-copular-role"),
             text=text,
@@ -278,7 +279,7 @@ def test_governance_event_detection_handles_stanza_copular_role_root() -> None:
         parsed_words,
     )
 
-    assert detected == EventType.APPOINTMENT
+    assert detected == GovernanceSignal.APPOINTMENT
 
 
 def test_governance_event_detection_uses_lemma_for_objac_stanowisko() -> None:
@@ -286,7 +287,7 @@ def test_governance_event_detection_uses_lemma_for_objac_stanowisko() -> None:
     extractor = PolishGovernanceFrameExtractor(config)
     text = "Anna stanowisko objęła w poniedziałek."
 
-    detected = extractor._detect_event_type(
+    detected = extractor._detect_signal(
         ClauseUnit(
             clause_id=ClauseID("clause-objac-role"),
             text=text,
@@ -304,7 +305,7 @@ def test_governance_event_detection_uses_lemma_for_objac_stanowisko() -> None:
         ],
     )
 
-    assert detected == EventType.APPOINTMENT
+    assert detected == GovernanceSignal.APPOINTMENT
 
 
 def test_governance_event_detection_uses_lemma_for_rezygnacja() -> None:
@@ -312,7 +313,7 @@ def test_governance_event_detection_uses_lemma_for_rezygnacja() -> None:
     extractor = PolishGovernanceFrameExtractor(config)
     text = "Anna rezygnację złożyła w poniedziałek."
 
-    detected = extractor._detect_event_type(
+    detected = extractor._detect_signal(
         ClauseUnit(
             clause_id=ClauseID("clause-resignation"),
             text=text,
@@ -330,7 +331,7 @@ def test_governance_event_detection_uses_lemma_for_rezygnacja() -> None:
         ],
     )
 
-    assert detected == EventType.DISMISSAL
+    assert detected == GovernanceSignal.DISMISSAL
 
 
 def test_resolve_people_recovers_previous_sentence_appointing_authority() -> None:
@@ -410,7 +411,7 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
         clause,
         document,
         [appointee],
-        EventType.APPOINTMENT,
+        GovernanceSignal.APPOINTMENT,
     )
 
     assert person_cluster_id == appointee.cluster_id
@@ -511,7 +512,7 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
         clause,
         document,
         [appointee],
-        EventType.APPOINTMENT,
+        GovernanceSignal.APPOINTMENT,
     )
 
     assert person_cluster_id == appointee.cluster_id
@@ -735,7 +736,7 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
 
     assert len(extracted.governance_frames) == 1
     frame = extracted.governance_frames[0]
-    assert frame.event_type == EventType.DISMISSAL
+    assert frame.signal == GovernanceSignal.DISMISSAL
     assert frame.person_cluster_id == "cluster-person"
     assert frame.target_org_cluster_id == "cluster-target"
     assert frame.found_role == "Prezes"
@@ -787,6 +788,7 @@ def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
                 start_char=start,
                 end_char=start + len("Stadninę Koni Iwno"),
                 entity_id=EntityID("org-1"),
+                ner_label=NERLabel.ORGANIZATION,
             )
         ],
     )
@@ -799,6 +801,7 @@ def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
     assert mention.paragraph_index == 1
     assert mention.start_char == start
     assert mention.end_char == start + len("Stadninę Koni Iwno")
+    assert mention.ner_label == NERLabel.ORGANIZATION
 
 
 def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
@@ -819,7 +822,7 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
     doc.governance_frames = [
         GovernanceFrame(
             frame_id=FrameID("frame-roleless"),
-            event_type=EventType.APPOINTMENT,
+            signal=GovernanceSignal.APPOINTMENT,
             person_cluster_id=person.cluster_id,
             target_org_cluster_id=organization.cluster_id,
             confidence=0.7,
@@ -827,7 +830,7 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
         ),
         GovernanceFrame(
             frame_id=FrameID("frame-role"),
-            event_type=EventType.APPOINTMENT,
+            signal=GovernanceSignal.APPOINTMENT,
             person_cluster_id=person.cluster_id,
             role_cluster_id=role.cluster_id,
             target_org_cluster_id=organization.cluster_id,
@@ -868,7 +871,7 @@ def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> Non
     doc.governance_frames = [
         GovernanceFrame(
             frame_id=FrameID("frame-date"),
-            event_type=EventType.APPOINTMENT,
+            signal=GovernanceSignal.APPOINTMENT,
             person_cluster_id=person.cluster_id,
             role_cluster_id=role.cluster_id,
             target_org_cluster_id=organization.cluster_id,
@@ -952,7 +955,7 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
     doc.governance_frames = [
         GovernanceFrame(
             frame_id=FrameID("frame-authority"),
-            event_type=EventType.APPOINTMENT,
+            signal=GovernanceSignal.APPOINTMENT,
             person_cluster_id=person.cluster_id,
             role_cluster_id=role.cluster_id,
             target_org_cluster_id=organization.cluster_id,

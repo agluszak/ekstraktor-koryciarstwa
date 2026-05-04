@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType
+from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType, NERLabel
 from pipeline.extraction_context import ExtractionContext, SentenceContext
 from pipeline.models import (
     ArticleDocument,
@@ -9,6 +9,7 @@ from pipeline.models import (
     ClusterMention,
     EntityCluster,
     SentenceFragment,
+    TemporalExpression,
 )
 
 
@@ -151,6 +152,50 @@ def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
                 sentence_index=0,
                 start_char=0,
                 end_char=48,
+            )
+        ],
+    )
+    sentence = document.sentences[0]
+    context = SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=[],
+        graph=MagicMock(spec=CandidateGraph),
+        candidates=[],
+        paragraph_candidates=[],
+        previous_candidates=[],
+    )
+
+    assert context.event_date == "2019-02-25"
+
+
+def test_sentence_context_event_date_prefers_preserved_ner_date_span() -> None:
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date="2019-03-22",
+        cleaned_text="",
+        paragraphs=[],
+        temporal_expressions=[
+            TemporalExpression(
+                text="25 lut.",
+                label=NERLabel.DATE,
+                normalized_value="2019-02-25",
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=18,
+                end_char=25,
+            )
+        ],
+        sentences=[
+            SentenceFragment(
+                text="Jarosław Słoma od 25 lut. zajął nową funkcję.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=45,
             )
         ],
     )

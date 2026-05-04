@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
-from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
+from pipeline.domain_types import EntityType, NERLabel
+from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention, TemporalExpression
 from pipeline.nlp_services import MorphologyAnalyzer, StanzaPolishMorphologyAnalyzer
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
-from pipeline.utils import join_hyphenated_parts, normalize_entity_name, stable_id
+from pipeline.utils import (
+    extract_local_event_date,
+    join_hyphenated_parts,
+    normalize_entity_name,
+    stable_id,
+)
 
 
 class SpacyPolishNERExtractor(NERExtractor):
@@ -36,6 +41,25 @@ class SpacyPolishNERExtractor(NERExtractor):
         party_values_lower = {v.lower() for v in self.config.party_aliases.values()}
 
         for ent in parsed.ents:
+            ner_label = self._ner_label(ent.label_)
+            if ner_label in {NERLabel.DATE, NERLabel.TIME}:
+                sentence = self._sentence_for_offset(document, ent.start_char)
+                document.temporal_expressions.append(
+                    TemporalExpression(
+                        text=ent.text,
+                        label=ner_label,
+                        normalized_value=extract_local_event_date(
+                            ent.text, document.publication_date
+                        )
+                        if ner_label == NERLabel.DATE
+                        else None,
+                        start_char=ent.start_char,
+                        end_char=ent.end_char,
+                        sentence_index=sentence.sentence_index if sentence is not None else 0,
+                        paragraph_index=sentence.paragraph_index if sentence is not None else 0,
+                    )
+                )
+                continue
             entity_type = self._map_label(ent.label_)
             if not entity_type:
                 continue
@@ -112,6 +136,7 @@ class SpacyPolishNERExtractor(NERExtractor):
                     end_char=ent.end_char,
                     entity_id=entity.entity_id,
                     lemmas=lemmas,
+                    ner_label=ner_label,
                 )
             )
 
@@ -120,13 +145,28 @@ class SpacyPolishNERExtractor(NERExtractor):
 
     @staticmethod
     def _map_label(label: str) -> EntityType | None:
-        lowered = label.lower()
-        if "pers" in lowered or lowered == "person":
+        ner_label = SpacyPolishNERExtractor._ner_label(label)
+        if ner_label == NERLabel.PERSON:
             return EntityType.PERSON
-        if lowered in {"loc", "gpe", "location"} or "geog" in lowered or "place" in lowered:
+        if ner_label in {NERLabel.GEOGRAPHY, NERLabel.PLACE}:
             return EntityType.LOCATION
-        if "org" in lowered:
+        if ner_label == NERLabel.ORGANIZATION:
             return EntityType.ORGANIZATION
+        return None
+
+    @staticmethod
+    def _ner_label(label: str) -> NERLabel | None:
+        lowered = label.lower()
+        if lowered in {"date", "time"}:
+            return NERLabel(lowered)
+        if "pers" in lowered or lowered == "person":
+            return NERLabel.PERSON
+        if lowered in {"loc", "gpe", "location"} or "place" in lowered:
+            return NERLabel.PLACE
+        if "geog" in lowered:
+            return NERLabel.GEOGRAPHY
+        if "org" in lowered:
+            return NERLabel.ORGANIZATION
         return None
 
     @staticmethod
