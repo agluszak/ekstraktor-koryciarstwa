@@ -68,22 +68,13 @@ class InMemoryEntityLinker(EntityLinker):
     ) -> None:
         self._kb._upsert_registry(registry_id, entity_type, canonical_name, fingerprint, embedding)
 
-    @property
-    def _knowledge_seeded(self) -> bool:
-        return self._kb._knowledge_seeded
-
-    @_knowledge_seeded.setter
-    def _knowledge_seeded(self, value: bool) -> None:
-        self._kb._knowledge_seeded = value
-
     # ------------------------------------------------------------------
     # DocumentStage
     # ------------------------------------------------------------------
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        if not self._kb._knowledge_seeded and (document.entities or document.clusters):
+        if not self._kb.is_seeded and (document.entities or document.clusters):
             self._kb.seed()
-            self._kb._knowledge_seeded = True
 
         if document.clusters:
             self._run_cluster_based(document)

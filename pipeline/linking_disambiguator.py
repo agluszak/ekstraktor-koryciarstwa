@@ -56,23 +56,6 @@ class RuleBasedEntityDisambiguator(EntityDisambiguator):
     # Scoring helpers (also called directly by the orchestrator)
     # ------------------------------------------------------------------
 
-    def score_entity_against_entry(
-        self,
-        entity: Entity,
-        current_fp: EntityFingerprint,
-        stored_fp: EntityFingerprint,
-        current_embedding: np.ndarray,
-        stored_embedding: list[float],
-    ) -> float:
-        """Score a raw registry entry against an entity fingerprint."""
-        return self._match_score(
-            entity.entity_type,
-            current_fp,
-            stored_fp,
-            current_embedding,
-            stored_embedding,
-        )
-
     def match_score(
         self,
         entity_type: EntityType,

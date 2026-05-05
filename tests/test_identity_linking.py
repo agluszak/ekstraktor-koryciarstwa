@@ -280,7 +280,7 @@ def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):
         {},
         [],
     )
-    linker._knowledge_seeded = False
+    linker._kb.mark_unseeded()
 
     doc = ArticleDocument(
         document_id=DocumentID("test-doc-refresh-party"),

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import numpy as np
 
 from pipeline.base import EntityKnowledgeBase
@@ -19,9 +17,6 @@ from pipeline.models import (
 )
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_party_name, stable_id
-
-if TYPE_CHECKING:
-    pass
 
 
 class _RegistryEntry:
@@ -52,6 +47,15 @@ class InMemoryKnowledgeBase(EntityKnowledgeBase):
         self._registry: dict[str, _RegistryEntry] = {}
         # alias string -> list of kb_ids (UNIQUE(kb_id, alias) semantics)
         self._alias_to_registry: dict[str, list[str]] = {}
+        self._knowledge_seeded = False
+
+    @property
+    def is_seeded(self) -> bool:
+        """True once the KB has been populated with configured seed data."""
+        return self._knowledge_seeded
+
+    def mark_unseeded(self) -> None:
+        """Force re-seeding on the next :meth:`seed` call (useful in tests)."""
         self._knowledge_seeded = False
 
     # ------------------------------------------------------------------
@@ -214,6 +218,9 @@ class InMemoryKnowledgeBase(EntityKnowledgeBase):
 
     def seed(self) -> None:
         """Populate the KB with configured parties, institutions, and media."""
+        if self._knowledge_seeded:
+            return
+        self._knowledge_seeded = True
         # --- political parties ---
         canonical_groups: dict[str, set[str]] = {}
         for alias, canonical in self.config.party_aliases.items():
