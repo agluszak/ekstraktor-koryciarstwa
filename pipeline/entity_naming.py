@@ -114,6 +114,11 @@ def org_token_base(token: str) -> str:
     return token
 
 
+def org_token_bases(tokens: list[str]) -> set[str]:
+    """Return the set of inflection-normalised bases for a list of tokens."""
+    return {org_token_base(token.casefold()) for token in tokens if token}
+
+
 class OrganizationNamingPolicy:
     def __init__(
         self,

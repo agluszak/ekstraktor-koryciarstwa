@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 from pipeline.domain_types import ClauseID, ClusterID, EntityType
 from pipeline.grammar_signals import (
-    infer_sentence_time_scope,
     infer_time_scope_with_temporal_context,
 )
 from pipeline.models import ArticleDocument, ClauseUnit, EntityCluster, ParsedWord

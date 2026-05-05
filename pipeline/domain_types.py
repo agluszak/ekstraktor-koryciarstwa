@@ -14,6 +14,7 @@ DocumentID = NewType("DocumentID", str)
 CandidateID = NewType("CandidateID", str)
 ClauseID = NewType("ClauseID", str)
 FrameID = NewType("FrameID", str)
+KBID = NewType("KBID", str)
 
 
 class EntityType(StrEnum):
