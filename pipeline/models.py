@@ -410,11 +410,6 @@ class RelevanceDecision:
 
 
 @dataclass(slots=True)
-class CoreferenceResult:
-    resolved_mentions: list[Mention]
-
-
-@dataclass(slots=True)
 class ArticleDocument:
     document_id: DocumentID | str
     source_url: str | None

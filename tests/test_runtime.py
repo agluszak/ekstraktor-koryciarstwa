@@ -14,7 +14,6 @@ from pipeline.domain_types import (
 )
 from pipeline.models import (
     ArticleDocument,
-    CoreferenceResult,
     Entity,
     Mention,
     PipelineInput,
@@ -96,8 +95,9 @@ class StubRelevanceFilter(RelevanceFilter):
     def name(self) -> str:
         return "stub_relevance_filter"
 
-    def run(self, document: ArticleDocument) -> RelevanceDecision:
-        return RelevanceDecision(is_relevant=False, score=0.0, reasons=["irrelevant"])
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        document.relevance = RelevanceDecision(is_relevant=False, score=0.0, reasons=["irrelevant"])
+        return document
 
 
 def test_irrelevant_pipeline_run_does_not_load_heavy_models() -> None:
@@ -127,7 +127,7 @@ def test_irrelevant_pipeline_run_does_not_load_heavy_models() -> None:
     )
     pipeline = build_pipeline(config, runtime=runtime)
     pipeline.preprocessor = StubPreprocessor()
-    pipeline.relevance_filter = StubRelevanceFilter()
+    pipeline.stages[1] = StubRelevanceFilter()
 
     result = pipeline.run(PipelineInput(raw_html="<html></html>", source_url=None))
 
@@ -228,7 +228,7 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
     with patch("pipeline.coref.extract_text", return_value="Jan Kowalski"):
         result = resolver.run(document)
 
-    assert isinstance(result, CoreferenceResult)
+    assert isinstance(result, ArticleDocument)
     assert observed_grad_enabled == [False]
     assert factory_calls == 1
     assert runtime.stanza_coref_loaded is False

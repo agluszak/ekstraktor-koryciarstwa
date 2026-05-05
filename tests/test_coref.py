@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from __future__ import annotations
 
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
@@ -6,34 +6,41 @@ from pipeline.domain_types import DocumentID, EntityID, EntityType
 from pipeline.models import ArticleDocument, Entity, SentenceFragment
 
 
-@dataclass
 class FakeWord:
-    start_char: int
-    end_char: int
+    def __init__(self, start_char: int, end_char: int) -> None:
+        self.start_char = start_char
+        self.end_char = end_char
 
 
-@dataclass
 class FakeSentence:
-    words: list[FakeWord]
+    def __init__(self, words: list[FakeWord]) -> None:
+        self.words = words
 
 
-@dataclass
 class FakeMention:
-    sentence: int
-    start_word: int
-    end_word: int
+    def __init__(self, sentence: int, start_word: int, end_word: int) -> None:
+        self.sentence = sentence
+        self.start_word = start_word
+        self.end_word = end_word
 
 
-@dataclass
 class FakeChain:
-    representative_text: str
-    mentions: list[FakeMention]
+    def __init__(self, representative_text: str, mentions: list[FakeMention]) -> None:
+        self.representative_text = representative_text
+        self.mentions = mentions
 
 
-@dataclass
 class FakeCorefDoc:
-    sentences: list[FakeSentence]
-    coref: list[FakeChain]
+    def __init__(self, sentences: list[FakeSentence], coref: list[FakeChain]) -> None:
+        self.sentences = sentences
+        self.coref = coref
+
+
+def _fake_span(doc: FakeCorefDoc, sentence_index: int, start_word: int, end_word: int) -> slice:
+    sentence = doc.sentences[sentence_index]
+    start = sentence.words[start_word].start_char
+    end = sentence.words[end_word - 1].end_char
+    return slice(start, end)
 
 
 def test_coref_resolved_mentions_preserve_exact_offsets(monkeypatch) -> None:
@@ -99,25 +106,12 @@ def test_coref_resolved_mentions_preserve_exact_offsets(monkeypatch) -> None:
     )
     monkeypatch.setattr(resolver.runtime, "reset_stanza_coref_pipeline", lambda: None)
 
-    resolved = resolver.run(document)
+    document = resolver.run(document)
 
-    assert len(resolved.resolved_mentions) == 1
-    mention = resolved.resolved_mentions[0]
-    assert mention.text == "on"
-    assert mention.sentence_index == 1
-    assert mention.paragraph_index == 0
-    assert mention.start_char == 27
-    assert mention.end_char == 29
-    assert mention.entity_id == EntityID("person-1")
-
-
-def _fake_span(
-    doc: FakeCorefDoc,
-    sentence_index: int,
-    start_word: int,
-    end_word: int,
-) -> slice:
-    return slice(
-        doc.sentences[sentence_index].words[start_word].start_char,
-        doc.sentences[sentence_index].words[end_word - 1].end_char,
-    )
+    assert len(document.mentions) == 1
+    m = document.mentions[0]
+    assert m.text == "on"
+    assert m.start_char == 27
+    assert m.end_char == 29
+    assert m.entity_id == "person-1"
+    assert m.mention_type == "ResolvedPersonReference"

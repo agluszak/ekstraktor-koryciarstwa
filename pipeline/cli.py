@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.request import Request, urlopen
 
+from pipeline.base import DocumentStage
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
@@ -16,7 +17,7 @@ from pipeline.filtering import KeywordRelevanceFilter
 from pipeline.frames import PolishFrameExtractor
 from pipeline.identity import PolishFamilyIdentityResolver
 from pipeline.linking import InMemoryEntityLinker
-from pipeline.llm import OllamaLLMExtractionPipeline
+from pipeline.llm import OllamaLLMEngine
 from pipeline.models import ExtractionResult, PipelineInput
 from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.nlp_services import StanzaPolishMorphologyAnalyzer
@@ -93,18 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Ollama context size for --engine llm.",
     )
     parser.add_argument(
-        "--llm-gpu-layers",
-        type=int,
-        help="Deprecated llama.cpp option; ignored by the Ollama backend.",
-    )
-    parser.add_argument(
         "--llm-max-output-tokens",
         type=int,
         help="Maximum generated tokens per LLM chunk.",
-    )
-    parser.add_argument(
-        "--llm-chat-format",
-        help="Deprecated llama.cpp option; ignored by the Ollama backend.",
     )
     parser.add_argument(
         "--llm-temperature",
@@ -122,33 +114,44 @@ def build_parser() -> argparse.ArgumentParser:
 def build_pipeline(
     config: PipelineConfig,
     *,
+    engine: str = "rules",
     runtime: PipelineRuntime | None = None,
 ) -> NepotismPipeline:
     shared_runtime = runtime or PipelineRuntime(config)
     morphology = StanzaPolishMorphologyAnalyzer(shared_runtime)
+
+    stages: list[DocumentStage] = [
+        ParagraphSentenceSegmenter(config),
+        KeywordRelevanceFilter(config),
+    ]
+
+    if engine == "rules":
+        stages.extend(
+            [
+                SpacyPolishNERExtractor(
+                    config,
+                    runtime=shared_runtime,
+                    morphology=morphology,
+                ),
+                StanzaCoreferenceResolver(config, runtime=shared_runtime),
+                PolishEntityClusterer(config),
+                StanzaClauseParser(config, runtime=shared_runtime),
+                PolishFamilyIdentityResolver(config),
+                SharedEntityEnricher(config, runtime=shared_runtime),
+                PolishFrameExtractor(config, runtime=shared_runtime),
+                PolishFactExtractor(config),
+                InMemoryEntityLinker(config, runtime=shared_runtime),
+            ]
+        )
+    elif engine == "llm":
+        stages.append(OllamaLLMEngine(config))
+
+    stages.append(RuleBasedNepotismScorer(config))
+
     return NepotismPipeline(
         preprocessor=TrafilaturaPreprocessor(),
-        relevance_filter=KeywordRelevanceFilter(config),
-        segmenter=ParagraphSentenceSegmenter(config),
-        ner_extractor=SpacyPolishNERExtractor(
-            config,
-            runtime=shared_runtime,
-            morphology=morphology,
-        ),
-        coreference_resolver=StanzaCoreferenceResolver(config, runtime=shared_runtime),
-        fact_extractor=PolishFactExtractor(config),
-        entity_linker=InMemoryEntityLinker(config, runtime=shared_runtime),
-        entity_clusterer=PolishEntityClusterer(config),
-        entity_enricher=SharedEntityEnricher(config, runtime=shared_runtime),
-        clause_parser=StanzaClauseParser(config, runtime=shared_runtime),
-        identity_resolver=PolishFamilyIdentityResolver(config),
-        frame_extractor=PolishFrameExtractor(config, runtime=shared_runtime),
-        scorer=RuleBasedNepotismScorer(config),
+        stages=stages,
     )
-
-
-def build_llm_pipeline(config: PipelineConfig) -> OllamaLLMExtractionPipeline:
-    return OllamaLLMExtractionPipeline(config)
 
 
 def apply_cli_llm_overrides(args: argparse.Namespace, config: PipelineConfig) -> None:
@@ -166,11 +169,10 @@ def apply_cli_llm_overrides(args: argparse.Namespace, config: PipelineConfig) ->
         config.llm.temperature = args.llm_temperature
 
 
-def select_pipeline(args: argparse.Namespace, config: PipelineConfig) -> PipelineRunner:
+def select_pipeline(args: argparse.Namespace, config: PipelineConfig) -> NepotismPipeline:
     if args.engine == "llm":
         apply_cli_llm_overrides(args, config)
-        return build_llm_pipeline(config)
-    return build_pipeline(config)
+    return build_pipeline(config, engine=args.engine)
 
 
 def fetch_html(url: str) -> str:

@@ -4,9 +4,7 @@ from abc import ABC, abstractmethod
 
 from pipeline.models import (
     ArticleDocument,
-    CoreferenceResult,
     PipelineInput,
-    RelevanceDecision,
 )
 
 
@@ -22,73 +20,79 @@ class Preprocessor(PipelineStage):
         raise NotImplementedError
 
 
-class RelevanceFilter(PipelineStage):
-    @abstractmethod
-    def run(self, document: ArticleDocument) -> RelevanceDecision:
-        raise NotImplementedError
-
-
-class Segmenter(PipelineStage):
+class DocumentStage(PipelineStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class NERExtractor(PipelineStage):
+class RelevanceFilter(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class CoreferenceResolver(PipelineStage):
-    @abstractmethod
-    def run(self, document: ArticleDocument) -> CoreferenceResult:
-        raise NotImplementedError
-
-
-class FactExtractor(PipelineStage):
+class Segmenter(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class EntityLinker(PipelineStage):
+class NERExtractor(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class Scorer(PipelineStage):
+class CoreferenceResolver(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class EntityClusterer(PipelineStage):
+class FactExtractor(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class ClauseParser(PipelineStage):
+class EntityLinker(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class IdentityResolver(PipelineStage):
+class Scorer(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class EntityEnricher(PipelineStage):
+class EntityClusterer(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 
-class FrameExtractor(PipelineStage):
+class ClauseParser(DocumentStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
+
+
+class IdentityResolver(DocumentStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
+
+
+class EntityEnricher(DocumentStage):
+    @abstractmethod
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        raise NotImplementedError
+
+
+class FrameExtractor(DocumentStage):
     @abstractmethod
     def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError

@@ -32,7 +32,7 @@ class ParagraphSentenceSegmenter(Segmenter):
             if local_offset < 0:
                 local_offset = running_offset
             cursor = local_offset
-            for sentence_index, sentence in enumerate(sentences, start=len(fragments)):
+            for sentence in sentences:
                 start_char = document.cleaned_text.find(sentence, cursor)
                 if start_char < 0:
                     start_char = cursor
@@ -41,7 +41,7 @@ class ParagraphSentenceSegmenter(Segmenter):
                     SentenceFragment(
                         text=sentence,
                         paragraph_index=paragraph_index,
-                        sentence_index=sentence_index,
+                        sentence_index=len(fragments),
                         start_char=start_char,
                         end_char=end_char,
                     )
