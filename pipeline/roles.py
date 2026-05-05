@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import DocumentStage
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType, NERLabel
+from pipeline.domain_types import EntityType
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
 from pipeline.role_matching import match_role_mentions
 from pipeline.utils import stable_id
@@ -33,9 +33,9 @@ class PolishPositionExtractor(DocumentStage):
                 canonical_name = match.canonical_name
                 # Use canonical name as merge key for roles within a document
                 merge_key = canonical_name.lower()
-                
+
                 from pipeline.domain_types import EntityID
-                
+
                 key = merge_key
                 if key not in entity_index:
                     entity_index[key] = Entity(
@@ -50,7 +50,7 @@ class PolishPositionExtractor(DocumentStage):
                         role_modifier=match.role_modifier,
                     )
                 entity = entity_index[key]
-                
+
                 entity.evidence.append(
                     EvidenceSpan(
                         text=sentence.text[
@@ -62,7 +62,7 @@ class PolishPositionExtractor(DocumentStage):
                         paragraph_index=sentence.paragraph_index,
                     )
                 )
-                
+
                 document.mentions.append(
                     Mention(
                         text=sentence.text[
@@ -76,7 +76,7 @@ class PolishPositionExtractor(DocumentStage):
                         end_char=match.end,
                         entity_id=entity.entity_id,
                         lemmas=entity.lemmas,
-                        ner_label=None, # Roles don't have standard NER labels
+                        ner_label=None,  # Roles don't have standard NER labels
                     )
                 )
 

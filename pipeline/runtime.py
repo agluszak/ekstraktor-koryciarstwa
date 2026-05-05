@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import numpy as np
 import spacy
 import stanza
 from sentence_transformers import SentenceTransformer
@@ -32,6 +33,7 @@ class PipelineRuntime:
         self._stanza_coref_pipeline: Any | None = None
         self._stanza_syntax_pipeline: Any | None = None
         self._sentence_transformer_model: Any | None = None
+        self._embedding_cache: dict[str, np.ndarray] = {}
 
     @property
     def spacy_loaded(self) -> bool:
@@ -82,3 +84,20 @@ class PipelineRuntime:
                 self.config.models.sentence_transformer_model
             )
         return self._sentence_transformer_model
+
+    def encode_text(self, text: str) -> np.ndarray:
+        if text in self._embedding_cache:
+            return self._embedding_cache[text]
+        model = self.get_sentence_transformer_model()
+        try:
+            encoded = model.encode(text, normalize_embeddings=True)
+        except (TypeError, AttributeError):
+            encoded = model.encode(text)
+        vector = np.asarray(encoded, dtype=float)
+        if vector.ndim != 1:
+            vector = vector.reshape(-1)
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+        self._embedding_cache[text] = vector
+        return vector

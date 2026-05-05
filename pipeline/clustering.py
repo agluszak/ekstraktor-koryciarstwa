@@ -25,7 +25,6 @@ class PolishEntityClusterer(EntityClusterer):
         self.config = config
         self.runtime = runtime
         self.canonicalizer = DocumentEntityCanonicalizer(config)
-        self._embedding_cache: dict[str, np.ndarray] = {}
         self._org_similarity_threshold = 0.85
 
     def name(self) -> str:
@@ -136,23 +135,9 @@ class PolishEntityClusterer(EntityClusterer):
         return False
 
     def _encode_text(self, text: str) -> np.ndarray:
-        if text in self._embedding_cache:
-            return self._embedding_cache[text]
         if self.runtime is None:
             return np.array([], dtype=float)
-        model = self.runtime.get_sentence_transformer_model()
-        try:
-            encoded = model.encode(text, normalize_embeddings=True)
-        except TypeError:
-            encoded = model.encode(text)
-        vector = np.asarray(encoded, dtype=float)
-        if vector.ndim != 1:
-            vector = vector.reshape(-1)
-        norm = np.linalg.norm(vector)
-        if norm > 0:
-            vector = vector / norm
-        self._embedding_cache[text] = vector
-        return vector
+        return self.runtime.encode_text(text)
 
     @staticmethod
     def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
@@ -254,7 +239,9 @@ class PolishEntityClusterer(EntityClusterer):
         if cluster.entity_type == EntityType.PERSON:
             cluster.canonical_name = self.canonicalizer.best_person_name(all_names)
         elif cluster.entity_type == EntityType.LOCATION:
-            cluster.canonical_name = self.canonicalizer.location_naming.best_location_name(all_names)
+            cluster.canonical_name = self.canonicalizer.location_naming.best_location_name(
+                all_names
+            )
         elif cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
             cluster.canonical_name = self.canonicalizer.best_organization_name(
                 representative_entity, all_names

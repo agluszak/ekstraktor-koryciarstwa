@@ -116,7 +116,7 @@ class FrameSlotGrounder:
     ) -> None:
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
-        self.organization_classifier = OrganizationMentionClassifier(config)
+        self.organization_classifier = OrganizationMentionClassifier(config, runtime=self.runtime)
         self._embedding_cache: dict[str, np.ndarray] = {}
 
     def ground_public_employment_role(

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import CandidateType, OrganizationKind
 from pipeline.models import ParsedWord
+from pipeline.runtime import PipelineRuntime
 from pipeline.utils import compact_whitespace, normalize_entity_name, normalize_party_name
 
 STRONG_PUBLIC_HEADS = frozenset(
@@ -69,6 +72,25 @@ WEAK_PARTY_HEADS = frozenset({"komitet"})
 PARTY_MODIFIERS = frozenset({"wyborczy", "polityczny", "obywatelski", "ludowy"})
 GOVERNING_BODY_HEADS = frozenset({"zarząd", "rada", "komitet", "komisja"})
 
+PUBLIC_REPRESENTATIVES = (
+    "ministerstwo",
+    "urząd miejski",
+    "agencja państwowa",
+    "instytut narodowy",
+    "inspektorat",
+    "rząd",
+)
+
+COMPANY_REPRESENTATIVES = (
+    "spółka z o.o.",
+    "przedsiębiorstwo prywatne",
+    "holding finansowy",
+    "fabryka maszyn",
+    "zakłady produkcyjne",
+    "sklep",
+    "biuro",
+)
+
 
 @dataclass(slots=True)
 class OrganizationTypingResult:
@@ -87,8 +109,9 @@ class OrganizationMentionFeatures:
 
 
 class OrganizationMentionClassifier:
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
+        self.runtime = runtime
         self.institution_lookup = {
             normalize_entity_name(alias).lower(): normalize_entity_name(canonical)
             for alias, canonical in config.institution_aliases.items()
@@ -96,6 +119,9 @@ class OrganizationMentionClassifier:
         for canonical in config.institution_aliases.values():
             normalized_canonical = normalize_entity_name(canonical)
             self.institution_lookup[normalized_canonical.lower()] = normalized_canonical
+
+        self._public_embeddings: list[np.ndarray] = []
+        self._company_embeddings: list[np.ndarray] = []
 
     def resolve_party_name(
         self,
@@ -194,6 +220,13 @@ class OrganizationMentionClassifier:
             )
 
         organization_kind = self._organization_kind(features)
+
+        # Semantic fallback if lexical scoring is weak or tied
+        if self.runtime is not None and organization_kind == OrganizationKind.ORGANIZATION:
+            semantic_kind = self._semantic_organization_kind(features)
+            if semantic_kind != OrganizationKind.ORGANIZATION:
+                organization_kind = semantic_kind
+
         candidate_type = (
             CandidateType.PUBLIC_INSTITUTION
             if organization_kind == OrganizationKind.PUBLIC_INSTITUTION
@@ -204,6 +237,36 @@ class OrganizationMentionClassifier:
             organization_kind=organization_kind,
             canonical_name=None,
         )
+
+    def _semantic_organization_kind(
+        self, features: OrganizationMentionFeatures
+    ) -> OrganizationKind:
+        if not self._public_embeddings:
+            self._public_embeddings = [
+                self.runtime.encode_text(text) for text in PUBLIC_REPRESENTATIVES
+            ]
+            self._company_embeddings = [
+                self.runtime.encode_text(text) for text in COMPANY_REPRESENTATIVES
+            ]
+
+        text_to_check = " ".join(features.lemmas)
+        if not text_to_check:
+            return OrganizationKind.ORGANIZATION
+
+        emb = self.runtime.encode_text(text_to_check)
+
+        def max_sim(target_embs: list[np.ndarray]) -> float:
+            return max((float(np.dot(emb, target)) for target in target_embs), default=0.0)
+
+        public_sim = max_sim(self._public_embeddings)
+        company_sim = max_sim(self._company_embeddings)
+
+        if public_sim > company_sim and public_sim >= 0.72:
+            return OrganizationKind.PUBLIC_INSTITUTION
+        if company_sim > public_sim and company_sim >= 0.72:
+            return OrganizationKind.COMPANY
+
+        return OrganizationKind.ORGANIZATION
 
     def _resolve_party_alias(
         self,

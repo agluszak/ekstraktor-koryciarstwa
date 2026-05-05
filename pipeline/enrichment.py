@@ -8,7 +8,6 @@ from pipeline.domain_lexicons import (
     DERIVED_ORGANIZATION_HEADS,
     DERIVED_ORGANIZATION_PATTERN,
     ORGANIZATION_GROUNDING_MARKERS,
-    PUBLIC_OFFICE_ROLE_KINDS,
 )
 from pipeline.domain_types import ClusterID, EntityID, EntityType, OrganizationKind
 from pipeline.frame_grounding import FrameSlotGrounder
@@ -22,7 +21,6 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.relations.org_typing import OrganizationMentionClassifier
-from pipeline.role_matching import RoleMatch, match_role_mentions
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import stable_id
 
@@ -46,7 +44,7 @@ class SharedEntityEnricher(EntityEnricher):
         runtime: PipelineRuntime | None = None,
     ) -> None:
         self.config = config
-        self.organization_classifier = OrganizationMentionClassifier(config)
+        self.organization_classifier = OrganizationMentionClassifier(config, runtime=runtime)
         self.slot_grounder = FrameSlotGrounder(config, runtime=runtime)
 
     def name(self) -> str:
