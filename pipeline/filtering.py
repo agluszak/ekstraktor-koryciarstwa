@@ -25,7 +25,11 @@ class KeywordRelevanceFilter(RelevanceFilter):
     def name(self) -> str:
         return "keyword_relevance_filter"
 
-    def run(self, document: ArticleDocument) -> RelevanceDecision:
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        document.relevance = self._check_relevance(document)
+        return document
+
+    def _check_relevance(self, document: ArticleDocument) -> RelevanceDecision:
         lowered_full = document.cleaned_text.lower()
         focus_segments = [document.title, document.lead_text, *document.paragraphs[:3]]
         lowered_focus = " ".join(

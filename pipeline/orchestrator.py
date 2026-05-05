@@ -1,21 +1,14 @@
 from __future__ import annotations
 
-from pipeline.base import (
-    ClauseParser,
-    CoreferenceResolver,
-    EntityClusterer,
-    EntityEnricher,
-    EntityLinker,
-    FactExtractor,
-    FrameExtractor,
-    IdentityResolver,
-    NERExtractor,
-    Preprocessor,
-    RelevanceFilter,
-    Scorer,
-    Segmenter,
+import time
+from collections.abc import Sequence
+
+from pipeline.base import DocumentStage, Preprocessor
+from pipeline.models import (
+    ExtractionResult,
+    PipelineInput,
+    extraction_result_from_document,
 )
-from pipeline.models import ExtractionResult, PipelineInput, extraction_result_from_document
 
 
 class NepotismPipeline:
@@ -23,113 +16,24 @@ class NepotismPipeline:
         self,
         *,
         preprocessor: Preprocessor,
-        relevance_filter: RelevanceFilter,
-        segmenter: Segmenter,
-        ner_extractor: NERExtractor,
-        coreference_resolver: CoreferenceResolver,
-        fact_extractor: FactExtractor,
-        entity_linker: EntityLinker,
-        entity_clusterer: EntityClusterer,
-        entity_enricher: EntityEnricher,
-        clause_parser: ClauseParser,
-        identity_resolver: IdentityResolver,
-        frame_extractor: FrameExtractor,
-        scorer: Scorer,
+        stages: Sequence[DocumentStage],
     ) -> None:
         self.preprocessor = preprocessor
-        self.relevance_filter = relevance_filter
-        self.segmenter = segmenter
-        self.ner_extractor = ner_extractor
-        self.coreference_resolver = coreference_resolver
-        self.fact_extractor = fact_extractor
-        self.entity_linker = entity_linker
-        self.entity_clusterer = entity_clusterer
-        self.entity_enricher = entity_enricher
-        self.clause_parser = clause_parser
-        self.identity_resolver = identity_resolver
-        self.frame_extractor = frame_extractor
-        self.scorer = scorer
+        self.stages = list(stages)
 
     def run(self, data: PipelineInput) -> ExtractionResult:
-        import time
-
         t0 = time.perf_counter()
         document = self.preprocessor.run(data)
-        document.raw_html = ""  # free raw HTML memory — no stage after preprocessing needs it
+        document.raw_html = ""  # free raw HTML memory
         document.execution_times["preprocessor"] = time.perf_counter() - t0
 
-        t0 = time.perf_counter()
-        document = self.segmenter.run(document)
-        document.execution_times["segmenter"] = time.perf_counter() - t0
+        for stage in self.stages:
+            # Skip subsequent stages if document is determined irrelevant
+            if document.relevance is not None and not document.relevance.is_relevant:
+                break
 
-        t0 = time.perf_counter()
-        document.relevance = self.relevance_filter.run(document)
-        document.execution_times["relevance_filter"] = time.perf_counter() - t0
-
-        if not document.relevance.is_relevant:
-            return extraction_result_from_document(document)
-
-        t0 = time.perf_counter()
-        document = self.ner_extractor.run(document)
-        document.execution_times["ner_extractor"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        coreference = self.coreference_resolver.run(document)
-        document.execution_times["coreference_resolver"] = time.perf_counter() - t0
-
-        if coreference.resolved_mentions:
-            existing_keys = {
-                (
-                    mention.text,
-                    mention.sentence_index,
-                    mention.entity_id,
-                    mention.start_char,
-                    mention.end_char,
-                )
-                for mention in document.mentions
-            }
-            for mention in coreference.resolved_mentions:
-                key = (
-                    mention.text,
-                    mention.sentence_index,
-                    mention.entity_id,
-                    mention.start_char,
-                    mention.end_char,
-                )
-                if key not in existing_keys:
-                    document.mentions.append(mention)
-                    existing_keys.add(key)
-
-        t0 = time.perf_counter()
-        document = self.entity_clusterer.run(document)
-        document.execution_times["entity_clusterer"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        document = self.clause_parser.run(document)
-        document.execution_times["clause_parser"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        document = self.identity_resolver.run(document)
-        document.execution_times["identity_resolver"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        document = self.entity_enricher.run(document)
-        document.execution_times["entity_enricher"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        document = self.frame_extractor.run(document)
-        document.execution_times["frame_extractor"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        document = self.fact_extractor.run(document)
-        document.execution_times["fact_extractor"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        document = self.entity_linker.run(document)
-        document.execution_times["entity_linker"] = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        document = self.scorer.run(document)
-        document.execution_times["scorer"] = time.perf_counter() - t0
+            t0 = time.perf_counter()
+            document = stage.run(document)
+            document.execution_times[stage.name()] = time.perf_counter() - t0
 
         return extraction_result_from_document(document)
