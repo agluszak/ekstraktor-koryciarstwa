@@ -17,7 +17,13 @@ from pipeline.domain_lexicons import KINSHIP_LEMMAS
 from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
-from pipeline.lemma_signals import has_lemma, has_lemma_pair, lemma_set
+from pipeline.lemma_signals import (
+    child_words,
+    has_lemma,
+    has_lemma_pair,
+    lemma_set,
+    words_with_lemmas,
+)
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -172,13 +178,10 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
     def _has_dismissal_negation_signal(parsed_words: list[ParsedWord]) -> bool:
         """Detect negated-verb dismissal patterns ('nie jest już', 'nie zasiada już')."""
         _negated_verb_lemmas = frozenset({"być", "zasiadać"})
-        for word in parsed_words:
-            if (word.lemma or word.text).casefold() not in _negated_verb_lemmas:
-                continue
-            children = [c for c in parsed_words if c.head == word.index]
+        for word in words_with_lemmas(parsed_words, _negated_verb_lemmas):
             if any(
-                (c.lemma or c.text).casefold() == "nie" and c.deprel in {"advmod", "neg"}
-                for c in children
+                c.deprel in {"advmod", "neg"}
+                for c in words_with_lemmas(child_words(parsed_words, word), {"nie"})
             ):
                 return True
         return False
