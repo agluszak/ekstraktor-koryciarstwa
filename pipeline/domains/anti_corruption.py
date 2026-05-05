@@ -4,9 +4,9 @@ import uuid
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_context_helpers import ATTRIBUTION_SPEECH_LEMMAS, clusters_for_mentions
 from pipeline.domain_lexicons import (
     ACCOUNTABILITY_INSTITUTION_MARKERS,
+    ATTRIBUTION_SPEECH_LEMMAS,
     INVESTIGATION_NOUN_LEMMAS,
     INVESTIGATION_TRIGGER_LEMMAS,
     PROCUREMENT_ABUSE_LEMMAS,
@@ -53,8 +53,7 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
     ) -> AntiCorruptionReferralFrame | None:
-        clusters = clusters_for_mentions(
-            document,
+        clusters = ExtractionContext.build(document).clusters_for_mentions(
             clause.cluster_mentions,
             {
                 EntityType.PERSON,
@@ -218,8 +217,7 @@ class PolishAntiCorruptionAbuseFrameExtractor(FrameExtractor):
         document.public_procurement_abuse_frames = []
         recent_public_actor: EntityCluster | None = None
         for clause in document.clause_units:
-            clusters = clusters_for_mentions(
-                document,
+            clusters = ExtractionContext.build(document).clusters_for_mentions(
                 clause.cluster_mentions,
                 {
                     EntityType.PERSON,

@@ -33,6 +33,10 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.nlp_rules import (
+    APPOINTING_AUTHORITY_LEMMAS as APPOINTING_AUTHORITY_CUE_LEMMAS,
+)
+from pipeline.nlp_rules import (
+    APPOINTING_AUTHORITY_TITLE_LEMMAS,
     BOARD_ROLE_KINDS,
     BODY_CONTEXT_TERMS,
     OWNER_CONTEXT_TERMS,
@@ -55,12 +59,6 @@ PARLIAMENTARY_REMUNERATION_FACT_MARKERS = frozenset(
         "zarab",
         "dochód",
     }
-)
-APPOINTING_AUTHORITY_TITLE_LEMMAS = frozenset(
-    {"prezydent", "burmistrz", "wójt", "wojt", "starosta", "marszałek", "wojewoda", "minister"}
-)
-APPOINTING_AUTHORITY_CUE_LEMMAS = frozenset(
-    {"powołać", "mianować", "nominować", "obsadzić", "wybrać", "wskazać"}
 )
 PLACE_CONTEXT_TARGETS = frozenset(
     {

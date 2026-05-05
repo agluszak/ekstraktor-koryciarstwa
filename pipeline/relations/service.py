@@ -12,7 +12,7 @@ from pipeline.domains.secondary_facts import TieFactExtractor
 from pipeline.extraction_context import SentenceContext
 from pipeline.funding import FundingFactBuilder
 from pipeline.governance import GovernanceFactBuilder
-from pipeline.models import ArticleDocument, CoreferenceResult, Fact
+from pipeline.models import ArticleDocument, Fact
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.public_facts import (
     AntiCorruptionInvestigationFactBuilder,
@@ -48,10 +48,9 @@ class PolishFactExtractor(FactExtractor):
     def name(self) -> str:
         return "polish_fact_extractor"
 
-    def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
+    def run(self, document: ArticleDocument) -> ArticleDocument:
         candidate_graph = self.graph_builder.build(
             document=document,
-            coreference=coreference,
             parsed_sentences=document.parsed_sentences,
         )
         facts: list[Fact] = list(document.facts)

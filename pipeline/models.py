@@ -426,11 +426,11 @@ class CoreferenceResult:
 class ArticleDocument:
     document_id: DocumentID | str
     source_url: str | None
-    raw_html: str
     title: str
     publication_date: str | None
     cleaned_text: str
     paragraphs: list[str]
+    raw_html: str = ""
     lead_text: str | None = None
     content_source: str = "trafilatura"
     content_quality_flags: list[str] = field(default_factory=list)

@@ -187,7 +187,7 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
                         representative_text="Jan Kowalski",
                         mentions=[FakeCorefMention(sentence=0, start_word=0, end_word=1)],
                     )
-                ]
+                ],
             )
 
     def fake_stanza_factory(*args, **kwargs):

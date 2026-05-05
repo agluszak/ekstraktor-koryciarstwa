@@ -4,11 +4,6 @@ import uuid
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_context_helpers import (
-    cluster_clause_distance,
-    clusters_for_mentions,
-    paragraph_context_clusters,
-)
 from pipeline.domain_types import EntityType, FrameID
 from pipeline.domains.public_money import (
     FUNDING_SURFACE_FALLBACKS,
@@ -84,14 +79,13 @@ class PolishFundingFrameExtractor(FrameExtractor):
         clause: ClauseUnit,
         amount_match,
     ) -> FundingFrame | None:
-        org_clusters = clusters_for_mentions(
-            document,
+        context = ExtractionContext.build(document)
+        org_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
         if not org_clusters:
-            org_clusters = paragraph_context_clusters(
-                document,
+            org_clusters = context.paragraph_context_clusters(
                 clause,
                 {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
             )
@@ -206,7 +200,7 @@ class PolishFundingFrameExtractor(FrameExtractor):
             return None
         return min(
             candidates,
-            key=lambda cluster: cluster_clause_distance(cluster, clause),
+            key=lambda cluster: ExtractionContext.cluster_clause_distance(cluster, clause),
         )
 
     @staticmethod

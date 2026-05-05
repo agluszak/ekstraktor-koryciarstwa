@@ -7,7 +7,6 @@ from enum import StrEnum
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_context_helpers import clusters_for_mentions
 from pipeline.domain_types import EntityType, FrameID
 from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder, GroundedOrganizationMention
@@ -168,8 +167,7 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
         *,
         explicit_public_procurement: bool,
     ) -> list[PublicContractFrame]:
-        clusters = clusters_for_mentions(
-            document,
+        clusters = ExtractionContext.build(document).clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION, EntityType.PERSON},
         )

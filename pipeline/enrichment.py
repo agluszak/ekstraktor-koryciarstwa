@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
 from pipeline.base import EntityEnricher
 from pipeline.config import PipelineConfig
-from pipeline.domain_lexicons import PUBLIC_OFFICE_ROLE_KINDS
+from pipeline.domain_lexicons import (
+    DERIVED_ORGANIZATION_HEADS,
+    DERIVED_ORGANIZATION_PATTERN,
+    ORGANIZATION_GROUNDING_MARKERS,
+    PUBLIC_OFFICE_ROLE_KINDS,
+)
 from pipeline.domain_types import ClusterID, EntityID, EntityType, OrganizationKind
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
@@ -21,42 +25,6 @@ from pipeline.relations.org_typing import OrganizationMentionClassifier
 from pipeline.role_matching import RoleMatch, match_role_mentions
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import stable_id
-
-DERIVED_ORGANIZATION_HEADS = frozenset(
-    {
-        "fundacja",
-        "instytut",
-        "pogotowie",
-        "stowarzyszenie",
-        "urząd",
-    }
-)
-
-DERIVED_ORGANIZATION_PATTERN = re.compile(
-    r"\b(?P<surface>"
-    r"(?:fundacj(?:a|ę|i|ą)|stowarzyszeni(?:e|a|u|em)|instytut(?:em|u)?|pogotowi(?:e|a|u|em))"
-    r"(?:\s+[A-ZŁŚŻŹĆŃÓĘ][\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ.-]*){0,4}"
-    r"|urz(?:ąd|ędu|ędzie|ędem)(?:\s+(?!za\b|od\b|z\b|ze\b|do\b)[a-ząćęłńóśźż-]+){0,3})\b",
-    re.IGNORECASE,
-)
-
-ORGANIZATION_GROUNDING_MARKERS = frozenset(
-    {
-        "założ",
-        "fundator",
-        "należąc",
-        "prowadz",
-        "otrzyma",
-        "przekaza",
-        "przela",
-        "dotacj",
-        "dofinansowa",
-        "100 tysi",
-        "zł",
-        "umow",
-        "promocyj",
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)

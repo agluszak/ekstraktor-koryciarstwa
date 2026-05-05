@@ -48,7 +48,7 @@ class CoreferenceResolver(PipelineStage):
 
 class FactExtractor(PipelineStage):
     @abstractmethod
-    def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
+    def run(self, document: ArticleDocument) -> ArticleDocument:
         raise NotImplementedError
 
 

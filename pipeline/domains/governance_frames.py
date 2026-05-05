@@ -4,16 +4,7 @@ import uuid
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_context_helpers import (
-    ATTRIBUTION_SPEECH_LEMMAS,
-    cluster_clause_distance,
-    cluster_for_mention,
-    clusters_for_mentions,
-    merge_clusters,
-    paragraph_context_clusters,
-    sort_clusters_by_clause_distance,
-)
-from pipeline.domain_lexicons import KINSHIP_LEMMAS
+from pipeline.domain_lexicons import ATTRIBUTION_SPEECH_LEMMAS, KINSHIP_LEMMAS
 from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
@@ -28,6 +19,8 @@ from pipeline.models import (
     ParsedWord,
 )
 from pipeline.nlp_rules import (
+    APPOINTING_AUTHORITY_LEMMAS,
+    APPOINTING_AUTHORITY_TITLE_LEMMAS,
     APPOINTMENT_NOUN_LEMMAS,
     APPOINTMENT_TRIGGER_LEMMAS,
     APPOINTMENT_TRIGGER_TEXTS,
@@ -66,12 +59,6 @@ PARLIAMENTARY_CONTEXT_MARKERS = frozenset(
         "posiedzeniu sejmu",
         "prezydium sejmu",
     }
-)
-APPOINTING_AUTHORITY_LEMMAS = frozenset(
-    {"powołać", "mianować", "nominować", "obsadzić", "wybrać", "wskazać"}
-)
-APPOINTING_AUTHORITY_TITLE_LEMMAS = frozenset(
-    {"prezydent", "burmistrz", "wójt", "wojt", "starosta", "marszałek", "wojewoda", "minister"}
 )
 
 
@@ -178,13 +165,12 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         context: ExtractionContext,
         signal: GovernanceSignal,
     ) -> GovernanceFrame | None:
-        person_clusters = clusters_for_mentions(
-            document,
+        person_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.PERSON},
         )
         if not person_clusters:
-            person_clusters = sort_clusters_by_clause_distance(
+            person_clusters = ExtractionContext.sort_clusters_by_clause_distance(
                 context.previous_clusters(
                     clause,
                     {EntityType.PERSON},
@@ -193,7 +179,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 clause,
             )
             if not person_clusters and signal == GovernanceSignal.DISMISSAL:
-                person_clusters = sort_clusters_by_clause_distance(
+                person_clusters = ExtractionContext.sort_clusters_by_clause_distance(
                     context.following_clusters(
                         clause,
                         {EntityType.PERSON},
@@ -202,9 +188,9 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                     clause,
                 )
         elif signal == GovernanceSignal.APPOINTMENT and self._has_object_pronoun(document, clause):
-            person_clusters = merge_clusters(
+            person_clusters = ExtractionContext.merge_clusters(
                 person_clusters,
-                sort_clusters_by_clause_distance(
+                ExtractionContext.sort_clusters_by_clause_distance(
                     context.previous_clusters(
                         clause,
                         {EntityType.PERSON},
@@ -216,8 +202,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         if not person_clusters:
             return None
 
-        role_clusters = clusters_for_mentions(
-            document,
+        role_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.POSITION},
         )
@@ -226,14 +211,13 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         )
         role_text = None if role_cluster is not None else self._find_role_text(document, clause)
 
-        clause_orgs = clusters_for_mentions(
-            document,
+        clause_orgs = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
-        discourse_orgs = merge_clusters(
+        discourse_orgs = ExtractionContext.merge_clusters(
             clause_orgs,
-            merge_clusters(
+            ExtractionContext.merge_clusters(
                 context.following_clusters(
                     clause,
                     {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
@@ -247,7 +231,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 ),
             ),
         )
-        org_clusters = sort_clusters_by_clause_distance(discourse_orgs, clause)
+        org_clusters = ExtractionContext.sort_clusters_by_clause_distance(discourse_orgs, clause)
         if not org_clusters:
             return None
 
@@ -338,39 +322,34 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         signal: GovernanceSignal,
     ) -> GovernanceFrame | None:
-        person_clusters = clusters_for_mentions(
-            document,
+        context = ExtractionContext.build(document)
+        person_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.PERSON},
         )
-        role_clusters = clusters_for_mentions(
-            document,
+        role_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.POSITION},
         )
-        org_clusters = clusters_for_mentions(
-            document,
+        org_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
         if not person_clusters:
-            person_clusters = paragraph_context_clusters(
-                document,
+            person_clusters = context.paragraph_context_clusters(
                 clause,
                 {EntityType.PERSON},
             )
         elif signal == GovernanceSignal.APPOINTMENT and self._has_object_pronoun(document, clause):
-            person_clusters = merge_clusters(
+            person_clusters = ExtractionContext.merge_clusters(
                 person_clusters,
-                paragraph_context_clusters(
-                    document,
+                context.paragraph_context_clusters(
                     clause,
                     {EntityType.PERSON},
                 ),
             )
         if not org_clusters:
-            org_clusters = paragraph_context_clusters(
-                document,
+            org_clusters = context.paragraph_context_clusters(
                 clause,
                 {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
             )
@@ -653,7 +632,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         mention_ref: ClusterMention,
         document: ArticleDocument,
     ) -> EntityCluster | None:
-        return cluster_for_mention(document, mention_ref)
+        return ExtractionContext.build(document).cluster_for_mention(mention_ref)
 
     def _cluster_matches_mention(
         self,
@@ -684,7 +663,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             return None
         return min(
             candidates,
-            key=lambda cluster: cluster_clause_distance(cluster, clause),
+            key=lambda cluster: ExtractionContext.cluster_clause_distance(cluster, clause),
         )
 
     def _previous_sentence_appointing_authority(
