@@ -1405,3 +1405,93 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
 
     assert person_cluster_id == appointee.cluster_id
     assert appointing_authority_id is None
+
+
+def test_imperfective_strong_trigger_requires_noun_support() -> None:
+    """A strong appointment trigger verb with Aspect=Imp should be treated like a weak
+    trigger and require an appointment noun in the sentence.  Without the noun it must
+    return no signal, because imperfective ('powoływać') describes habitual/background
+    processes rather than single completed appointment events."""
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishGovernanceFrameExtractor(config)
+    # 'powoływać' is a strong trigger lemma but with Aspect=Imp
+    parsed_words_no_noun = [
+        ParsedWord(
+            index=1, text="powoływać", lemma="powołać", upos="VERB",
+            head=0, deprel="root", start=0, end=9,
+            feats={"Aspect": "Imp"},
+        ),
+    ]
+    clause_no_noun = ClauseUnit(
+        clause_id=ClauseID("clause-imp-no-noun"),
+        text="powoływać",
+        trigger_head_text="powoływać",
+        trigger_head_lemma="powołać",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=9,
+    )
+
+    signal_no_noun = extractor._detect_signal(clause_no_noun, parsed_words_no_noun)
+    assert signal_no_noun is None, "Imp trigger without noun support should yield no signal"
+
+    # With an appointment noun ('prezes') the imperfective trigger should still fire
+    parsed_words_with_noun = [
+        ParsedWord(
+            index=1, text="powoływać", lemma="powołać", upos="VERB",
+            head=0, deprel="root", start=0, end=9,
+            feats={"Aspect": "Imp"},
+        ),
+        ParsedWord(
+            index=2, text="prezesów", lemma="prezes", upos="NOUN",
+            head=1, deprel="obj", start=10, end=18,
+        ),
+    ]
+    clause_with_noun = ClauseUnit(
+        clause_id=ClauseID("clause-imp-noun"),
+        text="powoływać prezesów",
+        trigger_head_text="powoływać",
+        trigger_head_lemma="powołać",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=18,
+    )
+
+    signal_with_noun = extractor._detect_signal(clause_with_noun, parsed_words_with_noun)
+    assert signal_with_noun == GovernanceSignal.APPOINTMENT, (
+        "Imp trigger with appointment noun should still yield APPOINTMENT signal"
+    )
+
+
+def test_przekazac_numeric_dep_object_detects_money_transfer() -> None:
+    """_przekazac_has_numeric_dep_object should return True when 'przekazać' has
+    a NUM token in its direct dep subtree, and False for a communication context."""
+    from pipeline.domains.public_money import _przekazac_has_numeric_dep_object
+
+    # 'przekazał 300 tys. zł' – NUM directly attached to przekazać
+    transfer_words = [
+        parsed_word(1, "przekazał", "przekazać", 0, upos="VERB"),
+        ParsedWord(index=2, text="300", lemma="300", upos="NUM",
+                   head=1, deprel="obj", start=10, end=13),
+        parsed_word(3, "tys", "tysiąc", 14, head=2, deprel="nummod"),
+    ]
+    assert _przekazac_has_numeric_dep_object(transfer_words) is True
+
+    # 'przekazał nam informacje' – no NUM child of przekazać
+    communication_words = [
+        parsed_word(1, "przekazał", "przekazać", 0, upos="VERB"),
+        parsed_word(2, "nam", "my", 10, head=1, deprel="iobj"),
+        parsed_word(3, "informacje", "informacja", 14, head=1, deprel="obj"),
+    ]
+    assert _przekazac_has_numeric_dep_object(communication_words) is False
+
+    # 'przekazał fundacji 300 tys.' – NUM attached to obj child of przekazać
+    grant_words = [
+        parsed_word(1, "przekazał", "przekazać", 0, upos="VERB"),
+        parsed_word(2, "fundacji", "fundacja", 10, head=1, deprel="iobj"),
+        ParsedWord(index=3, text="300", lemma="300", upos="NUM",
+                   head=2, deprel="nummod", start=19, end=22),
+    ]
+    assert _przekazac_has_numeric_dep_object(grant_words) is True
