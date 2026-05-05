@@ -42,6 +42,11 @@ def test_domain_modules_import_shared_helpers_from_non_domain_modules() -> None:
             "pipeline.extraction_context",
             "pipeline.frame_grounding",
         },
+        "pipeline/domains/governance.py": {
+            "pipeline.extraction_context",
+            "pipeline.nlp_rules",
+            "pipeline.semantic_signals",
+        },
         "pipeline/domains/governance_frames.py": {"pipeline.extraction_context"},
         "pipeline/domains/political_profile.py": {
             "pipeline.attribution",

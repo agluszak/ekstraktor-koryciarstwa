@@ -1,4 +1,3 @@
-from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClauseID,
@@ -12,13 +11,14 @@ from pipeline.domain_types import (
     NERLabel,
     OrganizationKind,
 )
+from pipeline.domains.compensation import CompensationFactBuilder
+from pipeline.domains.funding import FundingFactBuilder
+from pipeline.domains.governance import GovernanceFactBuilder, GovernanceTargetResolver
 from pipeline.frames import (
     PolishCompensationFrameExtractor,
     PolishFundingFrameExtractor,
     PolishGovernanceFrameExtractor,
 )
-from pipeline.funding import FundingFactBuilder
-from pipeline.governance import GovernanceFactBuilder, GovernanceTargetResolver
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,

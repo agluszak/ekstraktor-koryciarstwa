@@ -37,8 +37,8 @@ from pipeline.models import (
     ParsedWord,
     SentenceFragment,
 )
-from pipeline.relations import PolishFactExtractor
 from pipeline.relations.candidate_graph import CandidateGraphBuilder
+from pipeline.relations.service import PolishFactExtractor
 from pipeline.role_matching import match_role_mentions
 from pipeline.runtime import PipelineRuntime
 from pipeline.segmentation.service import ParagraphSentenceSegmenter

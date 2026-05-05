@@ -21,7 +21,7 @@ from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.nlp_services import StanzaPolishMorphologyAnalyzer
 from pipeline.orchestrator import NepotismPipeline
 from pipeline.preprocessing import TrafilaturaPreprocessor
-from pipeline.relations import PolishFactExtractor
+from pipeline.relations.service import PolishFactExtractor
 from pipeline.runtime import PipelineRuntime
 from pipeline.scoring import RuleBasedNepotismScorer
 from pipeline.segmentation import ParagraphSentenceSegmenter

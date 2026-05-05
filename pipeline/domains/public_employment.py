@@ -1,20 +1,34 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 
 from pipeline.attribution import resolve_public_employment_attribution
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import FrameID, PublicEmploymentSignal
+from pipeline.domain_types import (
+    ClusterID,
+    EntityID,
+    FactID,
+    FactType,
+    FrameID,
+    PublicEmploymentSignal,
+    TimeScope,
+)
 from pipeline.frame_grounding import FrameSlotGrounder
+from pipeline.grammar_signals import infer_status_time_scope
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
+    EntityCluster,
     EvidenceSpan,
+    Fact,
     PublicEmploymentFrame,
 )
 from pipeline.runtime import PipelineRuntime
 from pipeline.semantic_signals import EMPLOYMENT_CONTEXT_MARKERS
+from pipeline.temporal import extract_temporal_period, resolve_event_date
+from pipeline.utils import stable_id
 
 
 class PolishPublicEmploymentFrameExtractor(FrameExtractor):
@@ -140,4 +154,129 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
             paragraph_index=clause.paragraph_index,
             start_char=clause.start_char,
             end_char=clause.end_char,
+        )
+
+
+def _pe_cluster_to_entity_id(document: ArticleDocument) -> dict[ClusterID, EntityID]:
+    return {cluster.cluster_id: _pe_get_best_entity_id(cluster) for cluster in document.clusters}
+
+
+def _pe_get_best_entity_id(cluster: EntityCluster) -> EntityID:
+    entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
+    if entity_ids:
+        return EntityID(Counter(entity_ids).most_common(1)[0][0])
+    return EntityID(cluster.cluster_id)
+
+
+def _pe_cluster_by_id(document: ArticleDocument, cluster_id: ClusterID) -> EntityCluster | None:
+    return next(
+        (cluster for cluster in document.clusters if cluster.cluster_id == cluster_id), None
+    )
+
+
+def _pe_deduplicate_facts(facts: list[Fact]) -> list[Fact]:
+    deduplicated: dict[tuple[FactType, EntityID, EntityID | None, str | None, str], Fact] = {}
+    for fact in facts:
+        key = (
+            fact.fact_type,
+            fact.subject_entity_id,
+            fact.object_entity_id,
+            fact.value_normalized,
+            fact.evidence.text,
+        )
+        if key not in deduplicated or deduplicated[key].confidence < fact.confidence:
+            deduplicated[key] = fact
+    return list(deduplicated.values())
+
+
+class PublicEmploymentFactBuilder:
+    def build(self, document: ArticleDocument) -> list[Fact]:
+        cluster_to_entity_id = _pe_cluster_to_entity_id(document)
+        facts = [
+            fact
+            for frame in document.public_employment_frames
+            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
+        ]
+        return _pe_deduplicate_facts(facts)
+
+    @staticmethod
+    def _fact_for_frame(
+        document: ArticleDocument,
+        frame: PublicEmploymentFrame,
+        cluster_to_entity_id: dict[ClusterID, EntityID],
+    ) -> Fact | None:
+        employee_id = cluster_to_entity_id.get(frame.employee_cluster_id)
+        employer_id = cluster_to_entity_id.get(frame.employer_cluster_id)
+        if employee_id is None or employer_id is None:
+            return None
+        evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
+        employer = _pe_cluster_by_id(document, frame.employer_cluster_id)
+        role_cluster = (
+            _pe_cluster_by_id(document, frame.role_cluster_id)
+            if frame.role_cluster_id is not None
+            else None
+        )
+        fact_type = (
+            FactType.APPOINTMENT
+            if frame.signal == PublicEmploymentSignal.ENTRY
+            else FactType.ROLE_HELD
+        )
+        time_scope = (
+            TimeScope.CURRENT
+            if fact_type == FactType.APPOINTMENT
+            else infer_status_time_scope(
+                evidence.text,
+                document.parsed_sentences.get(
+                    evidence.sentence_index if evidence.sentence_index is not None else -1,
+                    [],
+                ),
+            )
+        )
+        return Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    fact_type,
+                    employee_id,
+                    employer_id,
+                    frame.role_label or "",
+                    str(evidence.start_char or ""),
+                )
+            ),
+            fact_type=fact_type,
+            subject_entity_id=EntityID(employee_id),
+            object_entity_id=EntityID(employer_id),
+            value_text=frame.role_label,
+            value_normalized=frame.role_label,
+            time_scope=time_scope,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
+            confidence=round(frame.confidence, 3),
+            evidence=evidence,
+            period=(
+                extract_temporal_period(
+                    document,
+                    sentence_index=evidence.sentence_index,
+                    text=evidence.text,
+                    start_char=evidence.start_char,
+                    end_char=evidence.end_char,
+                )
+                if fact_type == FactType.ROLE_HELD
+                else None
+            ),
+            position_entity_id=_pe_get_best_entity_id(role_cluster) if role_cluster else None,
+            role=frame.role_label,
+            role_kind=role_cluster.role_kind if role_cluster is not None else None,
+            role_modifier=role_cluster.role_modifier if role_cluster is not None else None,
+            organization_kind=employer.organization_kind if employer is not None else None,
+            extraction_signal=frame.extraction_signal,
+            evidence_scope=frame.evidence_scope,
+            source_extractor="public_employment_frame",
+            score_reason=frame.score_reason,
         )

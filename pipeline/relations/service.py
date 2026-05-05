@@ -1,26 +1,26 @@
 from __future__ import annotations
 
 from pipeline.base import FactExtractor
-from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
+from pipeline.domains.anti_corruption import (
+    AntiCorruptionInvestigationFactBuilder,
+    AntiCorruptionReferralFactBuilder,
+    PublicProcurementAbuseFactBuilder,
+)
+from pipeline.domains.compensation import CompensationFactBuilder
+from pipeline.domains.funding import FundingFactBuilder
+from pipeline.domains.governance import GovernanceFactBuilder
 from pipeline.domains.kinship import KinshipTieBuilder
 from pipeline.domains.political_profile import (
     CrossSentencePartyFactBuilder,
     PoliticalProfileFactExtractor,
 )
+from pipeline.domains.public_employment import PublicEmploymentFactBuilder
+from pipeline.domains.public_money import PublicContractFactBuilder
 from pipeline.domains.secondary_facts import TieFactExtractor
 from pipeline.extraction_context import SentenceContext
-from pipeline.funding import FundingFactBuilder
-from pipeline.governance import GovernanceFactBuilder
 from pipeline.models import ArticleDocument, Fact
 from pipeline.normalization import DocumentEntityCanonicalizer
-from pipeline.public_facts import (
-    AntiCorruptionInvestigationFactBuilder,
-    AntiCorruptionReferralFactBuilder,
-    PublicContractFactBuilder,
-    PublicEmploymentFactBuilder,
-    PublicProcurementAbuseFactBuilder,
-)
 
 from .candidate_graph import CandidateGraphBuilder
 

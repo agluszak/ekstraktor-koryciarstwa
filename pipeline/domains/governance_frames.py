@@ -6,8 +6,8 @@ from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import ATTRIBUTION_SPEECH_LEMMAS, KINSHIP_LEMMAS
 from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
+from pipeline.domains.governance import GovernanceTargetResolver
 from pipeline.extraction_context import ExtractionContext
-from pipeline.governance import GovernanceTargetResolver
 from pipeline.lemma_signals import has_lemma, has_lemma_pair, lemma_set
 from pipeline.models import (
     ArticleDocument,
