@@ -5,7 +5,9 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from pipeline.domain_types import CandidateType, ClusterID, EntityID, EntityType, TimeScope
-from pipeline.grammar_signals import infer_sentence_time_scope
+from pipeline.grammar_signals import (
+    infer_time_scope_with_temporal_context,
+)
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -421,7 +423,13 @@ class SentenceContext:
 
     @property
     def time_scope(self) -> TimeScope:
-        return infer_sentence_time_scope(self.sentence.text, self.parsed_words)
+        return infer_time_scope_with_temporal_context(
+            self.sentence.text,
+            self.parsed_words,
+            temporal_expressions=self.document.temporal_expressions,
+            sentence_index=self.sentence.sentence_index,
+            publication_date=self.document.publication_date,
+        )
 
     @property
     def evidence(self) -> EvidenceSpan:

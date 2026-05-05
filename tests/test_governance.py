@@ -1355,3 +1355,53 @@ def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
     assert facts[0].subject_entity_id == "org-recipient"
     assert facts[0].object_entity_id == "org-funder"
     assert facts[0].source_extractor == "funding_frame"
+
+
+def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> None:
+    """In passive appointment sentences ("Jan Kowalski został powołany") the person
+    with deprel nsubj:pass is the recipient of the appointment (appointee), not the
+    appointing authority.  Before the fix this was mis-classified as an authority
+    because the code only checked role.startswith("nsubj")."""
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishGovernanceFrameExtractor(config)
+    text = "Jan Kowalski został powołany na prezesa."
+    appointee = cluster(
+        "cluster-appointee",
+        "Jan Kowalski",
+        EntityType.PERSON,
+        sentence_index=0,
+        start_char=0,
+        end_char=12,
+    )
+    clause_unit = ClauseUnit(
+        clause_id=ClauseID("clause-passive"),
+        text=text,
+        trigger_head_text="powołany",
+        trigger_head_lemma="powołać",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=len(text),
+        cluster_mentions=[appointee.mentions[0]],
+        mention_roles={"Jan Kowalski": "nsubj:pass"},
+    )
+    doc = ArticleDocument(
+        document_id=DocumentID("doc-passive"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        clusters=[appointee],
+    )
+
+    person_cluster_id, appointing_authority_id = extractor._resolve_people(
+        clause_unit,
+        doc,
+        [appointee],
+        GovernanceSignal.APPOINTMENT,
+    )
+
+    assert person_cluster_id == appointee.cluster_id
+    assert appointing_authority_id is None

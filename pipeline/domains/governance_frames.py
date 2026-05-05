@@ -127,8 +127,25 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         if trigger_head_lemma not in APPOINTMENT_TRIGGER_LEMMAS:
             return False
         if trigger_head_lemma not in WEAK_APPOINTMENT_TRIGGER_LEMMAS:
+            # Strong trigger: if the verb is imperfective (habitual/ongoing) rather than
+            # perfective (completed event), require additional noun support — imperfective
+            # signals like "powoływać" describe repeated or background processes and produce
+            # more noise than perfective "powołać" (single appointment event).
+            if PolishGovernanceFrameExtractor._trigger_word_is_imperfective(
+                trigger_head_lemma, parsed_words
+            ):
+                return PolishGovernanceFrameExtractor._has_appointment_lemma_signal(parsed_words)
             return True
         return PolishGovernanceFrameExtractor._has_appointment_lemma_signal(parsed_words)
+
+    @staticmethod
+    def _trigger_word_is_imperfective(trigger_lemma: str, parsed_words: list[ParsedWord]) -> bool:
+        """Return True if the trigger verb has Aspect=Imp in Stanza morphological features."""
+        for word in parsed_words:
+            if (word.lemma or word.text).casefold() == trigger_lemma:
+                if word.feats.get("Aspect") == "Imp":
+                    return True
+        return False
 
     @staticmethod
     def _has_appointment_lemma_signal(parsed_words: list[ParsedWord]) -> bool:
@@ -448,6 +465,10 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
                 continue
             role = clause.mention_roles.get(mention.text)
             if role and role.startswith("obj"):
+                appointees.append(cluster.cluster_id)
+            elif role == "nsubj:pass":
+                # In passive constructions ("został powołany"), the passive subject
+                # is the recipient of the appointment, not the appointing authority.
                 appointees.append(cluster.cluster_id)
             elif role and role.startswith("nsubj"):
                 authorities.append(cluster.cluster_id)
