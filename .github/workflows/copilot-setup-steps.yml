@@ -33,6 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            .venv/
             models/
             ~/stanza_resources
           key: ml-models-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ hashFiles('scripts/setup_models.py') }}
