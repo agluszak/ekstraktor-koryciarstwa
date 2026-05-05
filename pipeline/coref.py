@@ -32,6 +32,16 @@ _GENERIC_ORG_NOUNS = frozenset(
     }
 )
 
+_ORG_ANAPHOR_MARKERS = (
+    "tej spółki",
+    "tej spółce",
+    "tą spółką",
+    "tej fundacji",
+    "wspomnianej fundacji",
+    "jej zarząd",
+    "jej rad",
+)
+
 
 class CorefWord(Protocol):
     start_char: int
@@ -128,6 +138,9 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         finally:
             self.runtime.reset_stanza_coref_pipeline()
 
+        # Add rule-based organization anaphor resolution
+        resolved_mentions.extend(self._resolve_rule_based_org_anaphors(document, orgs))
+
         if resolved_mentions:
             existing_keys = {
                 (
@@ -151,6 +164,70 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     document.mentions.append(m)
                     existing_keys.add(key)
         return document
+
+    @staticmethod
+    def _resolve_rule_based_org_anaphors(
+        document: ArticleDocument,
+        org_entities: list[Entity],
+    ) -> list[Mention]:
+        resolved: list[Mention] = []
+        if not org_entities:
+            return resolved
+
+        # Track last mention sentence index for each entity
+        entity_last_pos: dict[str, int] = {}
+        for entity in org_entities:
+            last = -1
+            for evidence in entity.evidence:
+                if evidence.sentence_index is not None and evidence.sentence_index > last:
+                    last = evidence.sentence_index
+            entity_last_pos[entity.entity_id] = last
+
+        # Also track already resolved mentions to avoid duplicates
+        existing_offsets: set[tuple[int, int, int]] = {
+            (m.sentence_index, m.start_char, m.end_char) for m in document.mentions
+        }
+
+        for sentence in document.sentences:
+            lowered = sentence.text.lower()
+            for marker in _ORG_ANAPHOR_MARKERS:
+                start_idx = lowered.find(marker)
+                if start_idx < 0:
+                    continue
+
+                abs_start = sentence.start_char + start_idx
+                abs_end = abs_start + len(marker)
+
+                if (sentence.sentence_index, abs_start, abs_end) in existing_offsets:
+                    continue
+
+                # Find the nearest preceding org entity
+                candidates = [
+                    (eid, pos)
+                    for eid, pos in entity_last_pos.items()
+                    if pos <= sentence.sentence_index
+                ]
+                if not candidates:
+                    continue
+
+                # Closest by sentence distance
+                best_eid = max(candidates, key=lambda x: (x[1], x[0]))[0]
+
+                resolved.append(
+                    Mention(
+                        text=sentence.text[start_idx : start_idx + len(marker)],
+                        normalized_text=normalize_entity_name(marker),
+                        mention_type="ResolvedOrgAnaphor",
+                        sentence_index=sentence.sentence_index,
+                        paragraph_index=sentence.paragraph_index,
+                        start_char=abs_start,
+                        end_char=abs_end,
+                        entity_id=best_eid,
+                    )
+                )
+                existing_offsets.add((sentence.sentence_index, abs_start, abs_end))
+
+        return resolved
 
     @staticmethod
     def _match_person_entity(

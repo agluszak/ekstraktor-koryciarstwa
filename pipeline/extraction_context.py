@@ -14,6 +14,7 @@ from pipeline.domain_types import (
     TimeScope,
 )
 from pipeline.grammar_signals import (
+    infer_sentence_time_scope,
     infer_time_scope_with_temporal_context,
 )
 from pipeline.models import (
@@ -336,7 +337,13 @@ class ExtractionContext:
         if evidence.sentence_index is None:
             return TimeScope.UNKNOWN
         parsed_words = self.document.parsed_sentences.get(evidence.sentence_index, [])
-        return infer_sentence_time_scope(evidence.text, parsed_words)
+        return infer_time_scope_with_temporal_context(
+            evidence.text,
+            parsed_words,
+            temporal_expressions=self.document.temporal_expressions,
+            sentence_index=evidence.sentence_index,
+            publication_date=self.document.publication_date,
+        )
 
     @staticmethod
     def cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> tuple[int, int]:

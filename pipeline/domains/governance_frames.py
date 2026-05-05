@@ -239,13 +239,6 @@ class PolishGovernanceFrameExtractor:
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
         dependency_orgs = self._dependency_orgs(dependency_frame, context)
-        if (
-            dependency_frame is not None
-            and dependency_frame.anaphoric_org_cluster_id is not None
-            and (anaphoric_org := context.cluster_by_id(dependency_frame.anaphoric_org_cluster_id))
-            is not None
-        ):
-            dependency_orgs = ExtractionContext.merge_clusters(dependency_orgs, [anaphoric_org])
         clause_orgs = ExtractionContext.merge_clusters(dependency_orgs, clause_orgs)
         discourse_orgs = ExtractionContext.merge_clusters(
             clause_orgs,

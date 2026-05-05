@@ -6,7 +6,10 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from pipeline.domain_types import ClauseID, ClusterID, EntityType
-from pipeline.grammar_signals import infer_sentence_time_scope
+from pipeline.grammar_signals import (
+    infer_sentence_time_scope,
+    infer_time_scope_with_temporal_context,
+)
 from pipeline.models import ArticleDocument, ClauseUnit, EntityCluster, ParsedWord
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
 
@@ -54,7 +57,6 @@ class TriggerArgumentFrame:
     time_scope_hint: str
     arguments: tuple[DependencyArgument, ...] = ()
     money_spans: tuple[DependencyMoneySpan, ...] = ()
-    anaphoric_org_cluster_id: ClusterID | None = None
     reporting_transfer: bool = False
     money_transfer_evidence: bool = False
 
@@ -95,15 +97,6 @@ class DependencyFrameBuilder:
     _REPORTING_RECIPIENT_LEMMAS = frozenset({"redakcja", "dziennikarz", "nam", "mi"})
     _REPORTING_OBJECT_LEMMAS = frozenset({"informacja", "komunikat", "stanowisko", "odpowiedź"})
     _FUNDING_NOUN_LEMMAS = frozenset({"dotacja", "dofinansowanie", "pieniądz", "środki"})
-    _ORG_ANAPHOR_MARKERS = (
-        "tej spółki",
-        "tej spółce",
-        "tej fundacji",
-        "tej fundacji",
-        "wspomnianej fundacji",
-        "jej zarząd",
-        "jej rad",
-    )
 
     def build(
         self,
@@ -117,7 +110,7 @@ class DependencyFrameBuilder:
             if trigger is None:
                 continue
             arguments = tuple(self._arguments_for_clause(clause, parsed_words, trigger, context))
-            money_spans = tuple(self._money_spans(clause))
+            money_spans = tuple(self._money_spans(clause, parsed_words, trigger))
             reporting_transfer = self._is_reporting_transfer(trigger, arguments, parsed_words)
             money_transfer_evidence = self._has_money_transfer_evidence(
                 trigger,
@@ -131,10 +124,15 @@ class DependencyFrameBuilder:
                 trigger_text=trigger.text,
                 trigger_lemma=trigger.lemma,
                 trigger_aspect=trigger.feats.get("Aspect"),
-                time_scope_hint=infer_sentence_time_scope(clause.text, parsed_words).value,
+                time_scope_hint=infer_time_scope_with_temporal_context(
+                    clause.text,
+                    parsed_words,
+                    temporal_expressions=document.temporal_expressions,
+                    sentence_index=clause.sentence_index,
+                    publication_date=document.publication_date,
+                ).value,
                 arguments=arguments,
                 money_spans=money_spans,
-                anaphoric_org_cluster_id=self._anaphoric_org_cluster_id(clause, context),
                 reporting_transfer=reporting_transfer,
                 money_transfer_evidence=money_transfer_evidence,
             )
@@ -247,20 +245,67 @@ class DependencyFrameBuilder:
             return min(candidates, key=lambda cluster: len(cluster.canonical_name))
         return None
 
-    @staticmethod
-    def _money_spans(clause: ClauseUnit) -> list[DependencyMoneySpan]:
+    def _money_spans(
+        self,
+        clause: ClauseUnit,
+        parsed_words: list[ParsedWord],
+        trigger: ParsedWord,
+    ) -> list[DependencyMoneySpan]:
         spans: list[DependencyMoneySpan] = []
-        for match in COMPENSATION_PATTERN.finditer(clause.text):
-            amount = match.group("amount")
-            spans.append(
-                DependencyMoneySpan(
-                    text=amount,
-                    normalized_text=amount.title(),
-                    start_char=clause.start_char + match.start("amount"),
-                    end_char=clause.start_char + match.end("amount"),
-                    attached_role=DependencyArgumentRole.OBJECT,
+        seen_offsets: set[tuple[int, int]] = set()
+
+        # 1. Syntactic discovery: find numeric arguments of the trigger
+        for word in parsed_words:
+            role = self._argument_role(word, trigger, parsed_words)
+            if role is None:
+                continue
+
+            # If it's a number or contains digits, it might be an amount
+            if word.upos == "NUM" or any(c.isdigit() for c in word.text):
+                # Search for the full currency pattern starting near this word
+                search_start = max(0, word.start - 10)
+                search_end = min(len(clause.text), word.end + 20)
+
+                for match in COMPENSATION_PATTERN.finditer(clause.text, search_start, search_end):
+                    amount = match.group("amount")
+                    offsets = (
+                        clause.start_char + match.start("amount"),
+                        clause.start_char + match.end("amount"),
+                    )
+                    if offsets in seen_offsets:
+                        continue
+
+                    spans.append(
+                        DependencyMoneySpan(
+                            text=amount,
+                            normalized_text=amount.title(),
+                            start_char=offsets[0],
+                            end_char=offsets[1],
+                            attached_role=role,
+                        )
+                    )
+                    seen_offsets.add(offsets)
+
+        # 2. Global fallback for the clause if no syntactic links found
+        if not spans:
+            for match in COMPENSATION_PATTERN.finditer(clause.text):
+                amount = match.group("amount")
+                offsets = (
+                    clause.start_char + match.start("amount"),
+                    clause.start_char + match.end("amount"),
                 )
-            )
+                if offsets in seen_offsets:
+                    continue
+                spans.append(
+                    DependencyMoneySpan(
+                        text=amount,
+                        normalized_text=amount.title(),
+                        start_char=offsets[0],
+                        end_char=offsets[1],
+                        attached_role=DependencyArgumentRole.OBJECT,
+                    )
+                )
+                seen_offsets.add(offsets)
         return spans
 
     def _is_reporting_transfer(
@@ -302,27 +347,3 @@ class DependencyFrameBuilder:
                 DependencyArgumentRole.OBLIQUE,
             }
         )
-
-    def _anaphoric_org_cluster_id(
-        self,
-        clause: ClauseUnit,
-        context: ExtractionContext,
-    ) -> ClusterID | None:
-        lowered = clause.text.casefold()
-        if not any(marker in lowered for marker in self._ORG_ANAPHOR_MARKERS):
-            return None
-        candidates = context.previous_clusters(
-            clause,
-            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
-            max_distance=2,
-        )
-        same_paragraph = [
-            cluster
-            for cluster in candidates
-            if any(
-                mention.paragraph_index == clause.paragraph_index for mention in cluster.mentions
-            )
-        ]
-        if len(same_paragraph) == 1:
-            return same_paragraph[0].cluster_id
-        return None
