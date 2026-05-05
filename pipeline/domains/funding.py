@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_context_helpers import (
-    cluster_clause_distance,
-    clusters_for_mentions,
-    paragraph_context_clusters,
-)
-from pipeline.domain_types import EntityType, FrameID
+from pipeline.domain_types import EntityID, EntityType, FactID, FactType, FrameID, TimeScope
 from pipeline.domains.public_money import (
     FUNDING_SURFACE_FALLBACKS,
     PublicMoneyFlowKind,
@@ -21,10 +17,18 @@ from pipeline.entity_classifiers import is_public_funder_name
 from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.lemma_signals import lemma_set
-from pipeline.models import ArticleDocument, ClauseUnit, EntityCluster, FundingFrame
+from pipeline.models import (
+    ArticleDocument,
+    ClauseUnit,
+    EntityCluster,
+    EvidenceSpan,
+    Fact,
+    FundingFrame,
+)
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
 from pipeline.runtime import PipelineRuntime
-from pipeline.utils import normalize_entity_name
+from pipeline.temporal import resolve_event_date
+from pipeline.utils import normalize_entity_name, stable_id
 
 
 class PolishFundingFrameExtractor(FrameExtractor):
@@ -84,14 +88,13 @@ class PolishFundingFrameExtractor(FrameExtractor):
         clause: ClauseUnit,
         amount_match,
     ) -> FundingFrame | None:
-        org_clusters = clusters_for_mentions(
-            document,
+        context = ExtractionContext.build(document)
+        org_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
         if not org_clusters:
-            org_clusters = paragraph_context_clusters(
-                document,
+            org_clusters = context.paragraph_context_clusters(
                 clause,
                 {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
             )
@@ -206,7 +209,7 @@ class PolishFundingFrameExtractor(FrameExtractor):
             return None
         return min(
             candidates,
-            key=lambda cluster: cluster_clause_distance(cluster, clause),
+            key=lambda cluster: ExtractionContext.cluster_clause_distance(cluster, clause),
         )
 
     @staticmethod
@@ -303,3 +306,98 @@ class PolishFundingFrameExtractor(FrameExtractor):
         if "paragraph" in score_reason:
             return "same_paragraph"
         return "same_clause"
+
+
+class FundingFactBuilder:
+    def build(self, document: ArticleDocument) -> list[Fact]:
+        cluster_to_entity_id: dict[str, str] = {
+            str(cluster.cluster_id): str(self._get_best_entity_id(cluster))
+            for cluster in document.clusters
+        }
+        facts = [
+            fact
+            for frame in document.funding_frames
+            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
+        ]
+        return self._deduplicate_funding_facts(facts)
+
+    def _fact_for_frame(
+        self,
+        document: ArticleDocument,
+        frame: FundingFrame,
+        cluster_to_entity_id: dict[str, str],
+    ) -> Fact | None:
+        recipient_id = cluster_to_entity_id.get(frame.recipient_cluster_id or "")
+        funder_id = cluster_to_entity_id.get(frame.funder_cluster_id or "")
+        project_id = cluster_to_entity_id.get(frame.project_cluster_id or "")
+        subject_id = recipient_id or project_id
+        if subject_id is None:
+            return None
+        evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
+
+        funder = next(
+            (
+                cluster
+                for cluster in document.clusters
+                if cluster.cluster_id == frame.funder_cluster_id
+            ),
+            None,
+        )
+
+        return Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    FactType.FUNDING,
+                    subject_id,
+                    funder_id or "",
+                    frame.amount_normalized or "",
+                    str(evidence.start_char or ""),
+                )
+            ),
+            fact_type=FactType.FUNDING,
+            subject_entity_id=EntityID(subject_id),
+            object_entity_id=EntityID(funder_id) if funder_id else None,
+            value_text=frame.amount_text,
+            value_normalized=frame.amount_normalized,
+            time_scope=TimeScope.UNKNOWN,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
+            confidence=round(frame.confidence, 3),
+            evidence=evidence,
+            amount_text=frame.amount_normalized,
+            organization_kind=funder.organization_kind if funder is not None else None,
+            extraction_signal=frame.extraction_signal,
+            evidence_scope=frame.evidence_scope,
+            overlaps_governance=False,
+            source_extractor="funding_frame",
+            score_reason=frame.score_reason,
+            owner_context_entity_id=EntityID(project_id) if project_id else None,
+        )
+
+    @staticmethod
+    def _get_best_entity_id(cluster: EntityCluster) -> str:
+        entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
+        if entity_ids:
+            return Counter(entity_ids).most_common(1)[0][0]
+        return cluster.cluster_id
+
+    @staticmethod
+    def _deduplicate_funding_facts(facts: list[Fact]) -> list[Fact]:
+        deduplicated: dict[tuple[str, str | None, str | None, str], Fact] = {}
+        for fact in facts:
+            key = (
+                fact.subject_entity_id,
+                fact.object_entity_id,
+                fact.value_normalized,
+                fact.evidence.text,
+            )
+            if key not in deduplicated or deduplicated[key].confidence < fact.confidence:
+                deduplicated[key] = fact
+        return list(deduplicated.values())

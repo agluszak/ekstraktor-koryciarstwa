@@ -7,8 +7,11 @@ import numpy as np
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import (
+    DERIVED_ORGANIZATION_HEADS,
+    DERIVED_ORGANIZATION_PATTERN,
     INVALID_PUBLIC_EMPLOYMENT_ROLE_HEADS,
     KINSHIP_LEMMAS,
+    ORGANIZATION_GROUNDING_MARKERS,
     PUBLIC_EMPLOYER_TERMS,
     PUBLIC_OFFICE_ROLE_KINDS,
 )
@@ -30,41 +33,6 @@ from pipeline.relations.org_typing import OrganizationMentionClassifier
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name, stable_id
 
-DERIVED_ORGANIZATION_HEADS = frozenset(
-    {
-        "fundacja",
-        "instytut",
-        "pogotowie",
-        "stowarzyszenie",
-        "urząd",
-    }
-)
-DERIVED_ORGANIZATION_PATTERN = re.compile(
-    r"\b(?P<surface>"
-    r"(?:fundacj(?:a|ę|i|ą)|stowarzyszeni(?:e|a|u|em)|instytut(?:em|u)?|pogotowi(?:e|a|u|em))"
-    r"(?:\s+[A-ZŁŚŻŹĆŃÓĘ][\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ.-]*){0,4}"
-    r"|urz(?:ąd|ędu|ędzie|ędem)(?:\s+(?!za\b|od\b|z\b|ze\b|do\b)[a-ząćęłńóśźż-]+){0,4})\b",
-    re.IGNORECASE,
-)
-ORGANIZATION_GROUNDING_MARKERS = frozenset(
-    {
-        "założ",
-        "fundator",
-        "należąc",
-        "prowadz",
-        "otrzyma",
-        "przekaza",
-        "przela",
-        "dotacj",
-        "dofinansowa",
-        "100 tysi",
-        "zł",
-        "umow",
-        "promocyj",
-        "kontrakt",
-        "zamówie",
-    }
-)
 ROLE_STOP_WORDS = frozenset(
     {"w", "we", "do", "na", "od", "przy", "oraz", "i", "a", "ale", "który", "która"}
 )

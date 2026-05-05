@@ -262,6 +262,15 @@ class ExtractionContext:
             merged.append(cluster)
         return merged
 
+    @staticmethod
+    def sort_clusters_by_clause_distance(
+        clusters: list[EntityCluster],
+        clause: ClauseUnit,
+    ) -> list[EntityCluster]:
+        return sorted(
+            clusters, key=lambda cluster: ExtractionContext.cluster_clause_distance(cluster, clause)
+        )
+
     def _clusters_with_mentions(
         self,
         entity_types: set[EntityType],

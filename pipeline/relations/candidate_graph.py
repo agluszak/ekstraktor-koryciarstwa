@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
+from pipeline.domain_lexicons import KINSHIP_LEMMAS
 from pipeline.domain_types import (
     CandidateID,
     CandidateType,
@@ -17,14 +18,12 @@ from pipeline.models import (
     ArticleDocument,
     CandidateEdge,
     CandidateGraph,
-    CoreferenceResult,
     Entity,
     EntityCandidate,
     Mention,
     ParsedWord,
 )
 from pipeline.nlp_rules import (
-    KINSHIP_LEMMAS,
     ROLE_PATTERNS,
     TIE_WORDS,
 )
@@ -57,16 +56,13 @@ class CandidateGraphBuilder:
         self,
         *,
         document: ArticleDocument,
-        coreference: CoreferenceResult,
         parsed_sentences: dict[int, list[ParsedWord]],
     ) -> CandidateGraph:
         graph = CandidateGraph()
         mention_candidates: dict[tuple[str, int, int], EntityCandidate] = {}
 
         for sentence in document.sentences:
-            sentence_mentions = self._mentions_for_sentence(
-                document, coreference, sentence.sentence_index
-            )
+            sentence_mentions = self._mentions_for_sentence(document, sentence.sentence_index)
             parsed_words = parsed_sentences.get(sentence.sentence_index, [])
             for anchor in sentence_mentions:
                 candidate = self._candidate_for_anchor(
@@ -674,13 +670,12 @@ class CandidateGraphBuilder:
     def _mentions_for_sentence(
         self,
         document: ArticleDocument,
-        coreference: CoreferenceResult,
         sentence_index: int,
     ) -> list[SentenceEntityAnchor]:
         entity_map = {entity.entity_id: entity for entity in document.entities}
         grouped: dict[tuple[str, int, int], SentenceEntityAnchor] = {}
         sentence = document.sentences[sentence_index]
-        for mention in [*document.mentions, *coreference.resolved_mentions]:
+        for mention in document.mentions:
             if mention.sentence_index != sentence_index:
                 continue
             if not mention.entity_id or mention.entity_id not in entity_map:

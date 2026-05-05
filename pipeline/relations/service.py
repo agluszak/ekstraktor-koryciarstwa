@@ -1,26 +1,26 @@
 from __future__ import annotations
 
 from pipeline.base import FactExtractor
-from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
+from pipeline.domains.anti_corruption import (
+    AntiCorruptionInvestigationFactBuilder,
+    AntiCorruptionReferralFactBuilder,
+    PublicProcurementAbuseFactBuilder,
+)
+from pipeline.domains.compensation import CompensationFactBuilder
+from pipeline.domains.funding import FundingFactBuilder
+from pipeline.domains.governance import GovernanceFactBuilder
 from pipeline.domains.kinship import KinshipTieBuilder
 from pipeline.domains.political_profile import (
     CrossSentencePartyFactBuilder,
     PoliticalProfileFactExtractor,
 )
+from pipeline.domains.public_employment import PublicEmploymentFactBuilder
+from pipeline.domains.public_money import PublicContractFactBuilder
 from pipeline.domains.secondary_facts import TieFactExtractor
 from pipeline.extraction_context import SentenceContext
-from pipeline.funding import FundingFactBuilder
-from pipeline.governance import GovernanceFactBuilder
-from pipeline.models import ArticleDocument, CandidateGraph, CoreferenceResult, Fact
+from pipeline.models import ArticleDocument, Fact
 from pipeline.normalization import DocumentEntityCanonicalizer
-from pipeline.public_facts import (
-    AntiCorruptionInvestigationFactBuilder,
-    AntiCorruptionReferralFactBuilder,
-    PublicContractFactBuilder,
-    PublicEmploymentFactBuilder,
-    PublicProcurementAbuseFactBuilder,
-)
 
 from .candidate_graph import CandidateGraphBuilder
 
@@ -48,10 +48,9 @@ class PolishFactExtractor(FactExtractor):
     def name(self) -> str:
         return "polish_fact_extractor"
 
-    def run(self, document: ArticleDocument, coreference: CoreferenceResult) -> ArticleDocument:
+    def run(self, document: ArticleDocument) -> ArticleDocument:
         candidate_graph = self.graph_builder.build(
             document=document,
-            coreference=coreference,
             parsed_sentences=document.parsed_sentences,
         )
         facts: list[Fact] = list(document.facts)
@@ -104,16 +103,6 @@ class PolishFactExtractor(FactExtractor):
 
         document.facts = self._deduplicate_facts(facts)
         return self.canonicalizer.run(document)
-
-    @staticmethod
-    def _cross_sentence_party_facts(
-        document: ArticleDocument,
-        candidate_graph: CandidateGraph,
-    ) -> list[Fact]:
-        return CrossSentencePartyFactBuilder().build_cross_sentence_party_facts(
-            document,
-            candidate_graph,
-        )
 
     @staticmethod
     def _deduplicate_facts(facts: list[Fact]) -> list[Fact]:

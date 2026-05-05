@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from pipeline.domain_types import KinshipDetail, RoleKind
 
 PUBLIC_OFFICE_ROLE_KINDS = frozenset(
@@ -139,5 +141,61 @@ ACCOUNTABILITY_INSTITUTION_MARKERS = frozenset(
         "prokuratury",
         "nik",
         "najwyższa izba kontroli",
+    }
+)
+
+ATTRIBUTION_SPEECH_LEMMAS = frozenset(
+    {
+        "mówić",
+        "powiedzieć",
+        "tłumaczyć",
+        "przekonywać",
+        "dodać",
+        "komentować",
+        "zaznaczyć",
+        "podkreślić",
+        "wyjaśnić",
+        "ocenić",
+        "przypomnieć",
+        "stwierdzić",
+        "odnieść",
+    }
+)
+
+DERIVED_ORGANIZATION_HEADS = frozenset(
+    {
+        "fundacja",
+        "instytut",
+        "pogotowie",
+        "stowarzyszenie",
+        "urząd",
+    }
+)
+
+DERIVED_ORGANIZATION_PATTERN = re.compile(
+    r"\b(?P<surface>"
+    r"(?:fundacj(?:a|ę|i|ą)|stowarzyszeni(?:e|a|u|em)|instytut(?:em|u)?|pogotowi(?:e|a|u|em))"
+    r"(?:\s+[A-ZŁŚŻŹĆŃÓĘ][\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ.-]*){0,4}"
+    r"|urz(?:ąd|ędu|ędzie|ędem)(?:\s+(?!za\b|od\b|z\b|ze\b|do\b)[a-ząćęłńóśźż-]+){0,4})\b",
+    re.IGNORECASE,
+)
+
+ORGANIZATION_GROUNDING_MARKERS = frozenset(
+    {
+        "założ",
+        "fundator",
+        "należąc",
+        "prowadz",
+        "otrzyma",
+        "przekaza",
+        "przela",
+        "dotacj",
+        "dofinansowa",
+        "100 tysi",
+        "zł",
+        "umow",
+        "promocyj",
+        "kontrakt",
+        "zamówie",
     }
 )

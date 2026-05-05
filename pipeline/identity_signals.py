@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pipeline.domain_context_helpers import ATTRIBUTION_SPEECH_LEMMAS
-from pipeline.domain_lexicons import KINSHIP_BY_LEMMA, PUBLIC_SUBJECT_ROLE_LEMMAS
+from pipeline.domain_lexicons import (
+    ATTRIBUTION_SPEECH_LEMMAS,
+    KINSHIP_BY_LEMMA,
+    PUBLIC_SUBJECT_ROLE_LEMMAS,
+)
 from pipeline.domain_types import EntityType, KinshipDetail
 from pipeline.models import ArticleDocument, EntityCluster, ParsedWord, SentenceFragment
 from pipeline.utils import normalize_entity_name

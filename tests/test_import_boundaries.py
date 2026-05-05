@@ -19,7 +19,6 @@ def _imports_for(path: Path) -> set[str]:
 
 def test_shared_grounding_modules_do_not_import_domains() -> None:
     for relative_path in (
-        "pipeline/domain_context_helpers.py",
         "pipeline/attribution.py",
         "pipeline/entity_graph_remapper.py",
         "pipeline/entity_name_policies.py",
@@ -35,15 +34,20 @@ def test_shared_grounding_modules_do_not_import_domains() -> None:
 def test_domain_modules_import_shared_helpers_from_non_domain_modules() -> None:
     expected_imports = {
         "pipeline/domains/anti_corruption.py": {
-            "pipeline.domain_context_helpers",
+            "pipeline.extraction_context",
             "pipeline.public_money_signals",
         },
-        "pipeline/domains/compensation.py": {"pipeline.domain_context_helpers"},
+        "pipeline/domains/compensation.py": {"pipeline.extraction_context"},
         "pipeline/domains/funding.py": {
-            "pipeline.domain_context_helpers",
+            "pipeline.extraction_context",
             "pipeline.frame_grounding",
         },
-        "pipeline/domains/governance_frames.py": {"pipeline.domain_context_helpers"},
+        "pipeline/domains/governance.py": {
+            "pipeline.extraction_context",
+            "pipeline.nlp_rules",
+            "pipeline.semantic_signals",
+        },
+        "pipeline/domains/governance_frames.py": {"pipeline.extraction_context"},
         "pipeline/domains/political_profile.py": {
             "pipeline.attribution",
             "pipeline.secondary_fact_helpers",
@@ -53,7 +57,7 @@ def test_domain_modules_import_shared_helpers_from_non_domain_modules() -> None:
             "pipeline.frame_grounding",
         },
         "pipeline/domains/public_money.py": {
-            "pipeline.domain_context_helpers",
+            "pipeline.extraction_context",
             "pipeline.frame_grounding",
             "pipeline.public_money_signals",
         },

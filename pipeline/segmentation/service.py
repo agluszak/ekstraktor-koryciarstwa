@@ -37,8 +37,6 @@ class ParagraphSentenceSegmenter(Segmenter):
                 if start_char < 0:
                     start_char = cursor
                 end_char = start_char + len(sentence)
-                lowered = sentence.lower()
-                is_candidate = any(keyword.lower() in lowered for keyword in self.config.keywords)
                 fragments.append(
                     SentenceFragment(
                         text=sentence,
@@ -46,7 +44,6 @@ class ParagraphSentenceSegmenter(Segmenter):
                         sentence_index=sentence_index,
                         start_char=start_char,
                         end_char=end_char,
-                        is_candidate=is_candidate,
                     )
                 )
                 cursor = end_char

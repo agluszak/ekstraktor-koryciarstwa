@@ -55,7 +55,12 @@ class NepotismPipeline:
 
         t0 = time.perf_counter()
         document = self.preprocessor.run(data)
+        document.raw_html = ""  # free raw HTML memory — no stage after preprocessing needs it
         document.execution_times["preprocessor"] = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        document = self.segmenter.run(document)
+        document.execution_times["segmenter"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         document.relevance = self.relevance_filter.run(document)
@@ -63,10 +68,6 @@ class NepotismPipeline:
 
         if not document.relevance.is_relevant:
             return extraction_result_from_document(document)
-
-        t0 = time.perf_counter()
-        document = self.segmenter.run(document)
-        document.execution_times["segmenter"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         document = self.ner_extractor.run(document)
@@ -120,7 +121,7 @@ class NepotismPipeline:
         document.execution_times["frame_extractor"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        document = self.fact_extractor.run(document, coreference)
+        document = self.fact_extractor.run(document)
         document.execution_times["fact_extractor"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()

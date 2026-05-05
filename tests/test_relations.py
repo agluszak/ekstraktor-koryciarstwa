@@ -23,6 +23,7 @@ from pipeline.domain_types import (
     RoleModifier,
     TimeScope,
 )
+from pipeline.domains.political_profile import CrossSentencePartyFactBuilder
 from pipeline.enrichment import SharedEntityEnricher
 from pipeline.extraction_context import SentenceContext
 from pipeline.frames import PolishFrameExtractor
@@ -30,15 +31,14 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
-    CoreferenceResult,
     Entity,
     EntityCluster,
     Mention,
     ParsedWord,
     SentenceFragment,
 )
-from pipeline.relations import PolishFactExtractor
 from pipeline.relations.candidate_graph import CandidateGraphBuilder
+from pipeline.relations.service import PolishFactExtractor
 from pipeline.role_matching import match_role_mentions
 from pipeline.runtime import PipelineRuntime
 from pipeline.segmentation.service import ParagraphSentenceSegmenter
@@ -205,7 +205,6 @@ def build_sentence_context(document: ArticleDocument) -> SentenceContext:
     config = PipelineConfig.from_file("config.yaml")
     candidate_graph = CandidateGraphBuilder(config).build(
         document=document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=document.parsed_sentences,
     )
     sentence = document.sentences[0]
@@ -257,7 +256,6 @@ def test_candidate_graph_prefers_exact_mention_offsets_and_keeps_ner_provenance(
 
     graph = CandidateGraphBuilder(config).build(
         document=document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=document.parsed_sentences,
     )
 
@@ -322,7 +320,6 @@ def test_candidate_graph_skips_ambiguous_anchorless_mention_fallback() -> None:
 
     graph = CandidateGraphBuilder(config).build(
         document=document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=document.parsed_sentences,
     )
 
@@ -404,7 +401,6 @@ def test_candidate_graph_uses_wicewojewoda_lemma_for_deputy_role() -> None:
 
     candidate_graph = CandidateGraphBuilder(config).build(
         document=document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences={0: parsed_words},
     )
     positions = [
@@ -452,7 +448,6 @@ def test_role_title_surface_is_not_derived_as_person() -> None:
 
     candidate_graph = CandidateGraphBuilder(config).build(
         document=document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=document.parsed_sentences,
     )
 
@@ -577,7 +572,7 @@ def test_proxy_person_does_not_emit_office_or_candidacy_facts() -> None:
     document.entities[0].is_proxy_person = True
     document.entities[0].kinship_detail = KinshipDetail.PARTNER
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     assert not any(fact.fact_type == FactType.POLITICAL_OFFICE for fact in extracted.facts)
     assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
@@ -609,7 +604,7 @@ def test_kinship_phrase_does_not_attach_office_to_relative_name() -> None:
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     offices = [fact for fact in extracted.facts if fact.fact_type == FactType.POLITICAL_OFFICE]
     assert not any(fact.subject_entity_id == EntityID("entity-0") for fact in offices)
@@ -751,7 +746,6 @@ def test_party_aliases_match_whole_tokens_only() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
     party_names = sorted(
         entity.canonical_name
@@ -778,7 +772,7 @@ def test_razem_party_alias_yields_membership_fact() -> None:
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     assert any(
         fact.fact_type == FactType.PARTY_MEMBERSHIP and fact.value_normalized == "Razem"
@@ -862,7 +856,7 @@ def test_omitted_subject_party_membership_attaches_to_previous_unique_person() -
         ],
     }
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     assert any(
         fact.fact_type == FactType.PARTY_MEMBERSHIP
@@ -915,7 +909,6 @@ def test_syndrom_does_not_trigger_fake_syn_relation() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert not any(fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE for fact in extracted.facts)
@@ -977,7 +970,6 @@ def test_compensation_relation_is_extracted() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     compensation_facts = [
@@ -1049,7 +1041,6 @@ def test_party_cannot_become_appointment_destination() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert not any(fact.fact_type == FactType.APPOINTMENT for fact in extracted.facts)
@@ -1111,7 +1102,6 @@ def test_party_membership_requires_local_structural_support() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert not any(
@@ -1176,7 +1166,6 @@ def test_direct_party_profile_fact_has_high_confidence_metadata() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     party_facts = [
@@ -1276,7 +1265,7 @@ def test_lowercase_po_preposition_does_not_create_party_membership() -> None:
         entities=[("Maciej Pach", EntityType.PERSON, "Maciej Pach")],
     )
     document = prepare_for_relation_extraction(config, document)
-    extracted = extractor.run(document, coreference=CoreferenceResult(resolved_mentions=[]))
+    extracted = extractor.run(document)
 
     assert not any(
         fact.fact_type in {FactType.PARTY_MEMBERSHIP, FactType.FORMER_PARTY_MEMBERSHIP}
@@ -1371,7 +1360,6 @@ def test_initials_and_paragraph_carryover_support_governance_fact() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [
@@ -1451,7 +1439,6 @@ def test_headline_party_context_links_next_sentence_person() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     party_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.PARTY_MEMBERSHIP]
@@ -1564,12 +1551,10 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     candidate_graph = CandidateGraphBuilder(config).build(
         document=extracted,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=extracted.parsed_sentences,
     )
     assert any(
@@ -1634,12 +1619,10 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     candidate_graph = CandidateGraphBuilder(config).build(
         document=extracted,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=extracted.parsed_sentences,
     )
     assert any(
@@ -1705,7 +1688,6 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert any(
@@ -1791,12 +1773,10 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     candidate_graph = CandidateGraphBuilder(config).build(
         document=extracted,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=extracted.parsed_sentences,
     )
     public_institutions = {
@@ -1887,7 +1867,6 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -1967,7 +1946,6 @@ def test_party_affiliation_supports_lider_psl_phrase() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     party_facts = [
@@ -2035,7 +2013,6 @@ def test_tie_extractor_supports_zaufany_ludzi_phrase() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     tie_facts = [
@@ -2128,7 +2105,6 @@ def test_clause_parser_parses_syntax_once_per_document() -> None:
     document = clause_parser.run(document)
     extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert syntax_pipeline.call_count == 1
@@ -2203,7 +2179,6 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -2288,7 +2263,6 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
@@ -2358,7 +2332,6 @@ def test_candidacy_requires_explicit_election_context() -> None:
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
@@ -2459,7 +2432,6 @@ def test_party_membership_does_not_cross_attach_between_multiple_people() -> Non
     document = prepare_for_relation_extraction(config, document)
     extracted = extractor.run(
         document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
     )
 
     party_facts = {
@@ -2495,7 +2467,7 @@ def test_named_person_referral_to_cba_emits_anti_corruption_fact() -> None:
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     referrals = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
@@ -2518,7 +2490,7 @@ def test_party_referral_to_cba_uses_party_actor_when_no_person_present() -> None
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     referrals = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
@@ -2548,7 +2520,7 @@ def test_referral_context_uses_stanza_lemmas_for_inflected_trigger() -> None:
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     referrals = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
@@ -2582,7 +2554,7 @@ def test_cba_investigation_and_procurement_abuse_emit_public_abuse_facts() -> No
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     investigations = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_INVESTIGATION
@@ -2667,11 +2639,13 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
     }
     candidate_graph = CandidateGraphBuilder(config).build(
         document=document,
-        coreference=CoreferenceResult(resolved_mentions=[]),
         parsed_sentences=document.parsed_sentences,
     )
 
-    facts = PolishFactExtractor._cross_sentence_party_facts(document, candidate_graph)
+    facts = CrossSentencePartyFactBuilder().build_cross_sentence_party_facts(
+        document,
+        candidate_graph,
+    )
 
     assert facts
     assert facts[0].subject_entity_id == EntityID("person-1")
@@ -2815,7 +2789,7 @@ def test_public_employment_uses_adjacent_public_employer_context() -> None:
     ]
     document = PolishFrameExtractor(config).run(document)
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
     assert appointments
@@ -2855,7 +2829,7 @@ def test_public_employment_entry_wording_emits_appointment_with_job_label() -> N
 
     document = PolishFrameExtractor(config).run(document)
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
     assert appointments
@@ -2895,7 +2869,7 @@ def test_public_employment_status_wording_emits_role_held() -> None:
 
     document = PolishFrameExtractor(config).run(document)
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
     assert role_facts
@@ -2944,7 +2918,7 @@ def test_public_employment_past_status_emits_former_scope_and_period() -> None:
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
     assert role_facts
@@ -3226,7 +3200,7 @@ def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 2
@@ -3261,7 +3235,7 @@ def test_paid_promotion_public_money_flow_emits_public_contract() -> None:
 
     SharedEntityEnricher(config).run(document)
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 1
@@ -3301,7 +3275,7 @@ def test_public_contract_detects_zlecenia_with_amount_from_public_company() -> N
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 1
@@ -3320,7 +3294,7 @@ def test_generic_contract_sentence_without_parties_does_not_emit_public_contract
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     assert not any(fact.fact_type == FactType.PUBLIC_CONTRACT for fact in extracted.facts)
 
@@ -3346,7 +3320,7 @@ def test_zalozona_does_not_trigger_family_tie() -> None:
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     assert not any(
         fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
@@ -3371,7 +3345,7 @@ def test_owner_context_collaborator_tie_skips_quote_attribution_person() -> None
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     ties = [
         fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
@@ -3410,7 +3384,7 @@ def test_patronage_complaint_context_emits_tie_without_article_specific_name_pat
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document, CoreferenceResult(resolved_mentions=[]))
+    extracted = PolishFactExtractor(config).run(document)
 
     ties = [
         fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE

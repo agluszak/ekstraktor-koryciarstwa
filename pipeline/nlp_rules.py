@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from pipeline.domain_lexicons import KINSHIP_LEMMAS as DOMAIN_KINSHIP_LEMMAS
 from pipeline.domain_types import RelationshipType, RoleKind, RoleModifier
 
 BOARD_ROLE_KINDS = {
@@ -228,4 +227,9 @@ TIE_WORDS: Mapping[str, RelationshipType] = {
     "szef biura": RelationshipType.OFFICE_CHIEF,
 }
 
-KINSHIP_LEMMAS = DOMAIN_KINSHIP_LEMMAS
+APPOINTING_AUTHORITY_LEMMAS = frozenset(
+    {"powołać", "mianować", "nominować", "obsadzić", "wybrać", "wskazać"}
+)
+APPOINTING_AUTHORITY_TITLE_LEMMAS = frozenset(
+    {"prezydent", "burmistrz", "wójt", "wojt", "starosta", "marszałek", "wojewoda", "minister"}
+)

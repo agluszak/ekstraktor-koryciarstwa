@@ -1,4 +1,3 @@
-from pipeline.compensation import CompensationFactBuilder
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClauseID,
@@ -12,13 +11,14 @@ from pipeline.domain_types import (
     NERLabel,
     OrganizationKind,
 )
+from pipeline.domains.compensation import CompensationFactBuilder
+from pipeline.domains.funding import FundingFactBuilder
+from pipeline.domains.governance import GovernanceFactBuilder, GovernanceTargetResolver
 from pipeline.frames import (
     PolishCompensationFrameExtractor,
     PolishFundingFrameExtractor,
     PolishGovernanceFrameExtractor,
 )
-from pipeline.funding import FundingFactBuilder
-from pipeline.governance import GovernanceFactBuilder, GovernanceTargetResolver
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -156,6 +156,21 @@ def test_target_resolver_rejects_city_context_when_company_target_is_present() -
     )
 
     assert result.target_org == target
+
+
+def test_target_resolver_rejects_ner_location_targets() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    resolver = GovernanceTargetResolver(config)
+    location = cluster("cluster-location", "Poznań", EntityType.LOCATION, start_char=30)
+
+    result = resolver.resolve(
+        document=document([location]),
+        clause=clause("Jan Kowalski z Poznania został dyrektorem."),
+        org_clusters=[location],
+        role_cluster=None,
+    )
+
+    assert result.target_org is None
 
 
 def test_governance_fact_builder_expands_list_appointments_with_exception() -> None:

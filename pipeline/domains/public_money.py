@@ -2,13 +2,21 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from enum import StrEnum
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_context_helpers import clusters_for_mentions
-from pipeline.domain_types import EntityType, FrameID
+from pipeline.domain_types import (
+    ClusterID,
+    EntityID,
+    EntityType,
+    FactID,
+    FactType,
+    FrameID,
+    TimeScope,
+)
 from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder, GroundedOrganizationMention
 from pipeline.lemma_signals import has_lemma, lemma_set, words_with_lemmas
@@ -16,6 +24,8 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     EntityCluster,
+    EvidenceSpan,
+    Fact,
     ParsedWord,
     PublicContractFrame,
 )
@@ -29,7 +39,8 @@ from pipeline.public_money_signals import (
     is_public_counterparty,
 )
 from pipeline.runtime import PipelineRuntime
-from pipeline.utils import normalize_entity_name
+from pipeline.temporal import resolve_event_date
+from pipeline.utils import normalize_entity_name, stable_id
 
 REPORTING_RECIPIENT_LEMMAS = frozenset({"my", "redakcja", "dziennikarz", "czytelnik"})
 REPORTING_OBJECT_LEMMAS = frozenset(
@@ -168,8 +179,7 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
         *,
         explicit_public_procurement: bool,
     ) -> list[PublicContractFrame]:
-        clusters = clusters_for_mentions(
-            document,
+        clusters = ExtractionContext.build(document).clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION, EntityType.PERSON},
         )
@@ -544,3 +554,95 @@ def _public_money_recipient(
         recipient_candidates or candidates,
         key=lambda cluster: ExtractionContext.cluster_clause_distance(cluster, clause),
     )
+
+
+def _cluster_to_entity_id_map(document: ArticleDocument) -> dict[ClusterID, EntityID]:
+    return {
+        cluster.cluster_id: _get_best_entity_id_public(cluster) for cluster in document.clusters
+    }
+
+
+def _get_best_entity_id_public(cluster: EntityCluster) -> EntityID:
+    entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
+    if entity_ids:
+        return EntityID(Counter(entity_ids).most_common(1)[0][0])
+    return EntityID(cluster.cluster_id)
+
+
+def _cluster_by_id_public(document: ArticleDocument, cluster_id: ClusterID) -> EntityCluster | None:
+    return next(
+        (cluster for cluster in document.clusters if cluster.cluster_id == cluster_id), None
+    )
+
+
+def _deduplicate_public_facts(facts: list[Fact]) -> list[Fact]:
+    deduplicated: dict[tuple[FactType, EntityID, EntityID | None, str | None, str], Fact] = {}
+    for fact in facts:
+        key = (
+            fact.fact_type,
+            fact.subject_entity_id,
+            fact.object_entity_id,
+            fact.value_normalized,
+            fact.evidence.text,
+        )
+        if key not in deduplicated or deduplicated[key].confidence < fact.confidence:
+            deduplicated[key] = fact
+    return list(deduplicated.values())
+
+
+class PublicContractFactBuilder:
+    def build(self, document: ArticleDocument) -> list[Fact]:
+        cluster_to_entity_id = _cluster_to_entity_id_map(document)
+        facts = [
+            fact
+            for frame in document.public_contract_frames
+            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
+        ]
+        return _deduplicate_public_facts(facts)
+
+    @staticmethod
+    def _fact_for_frame(
+        document: ArticleDocument,
+        frame: PublicContractFrame,
+        cluster_to_entity_id: dict[ClusterID, EntityID],
+    ) -> Fact | None:
+        contractor_id = cluster_to_entity_id.get(frame.contractor_cluster_id)
+        counterparty_id = cluster_to_entity_id.get(frame.counterparty_cluster_id)
+        if contractor_id is None or counterparty_id is None:
+            return None
+        evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
+        counterparty = _cluster_by_id_public(document, frame.counterparty_cluster_id)
+        return Fact(
+            fact_id=FactID(
+                stable_id(
+                    "fact",
+                    document.document_id,
+                    FactType.PUBLIC_CONTRACT,
+                    contractor_id,
+                    counterparty_id,
+                    frame.amount_normalized or "",
+                    str(evidence.start_char or ""),
+                )
+            ),
+            fact_type=FactType.PUBLIC_CONTRACT,
+            subject_entity_id=EntityID(contractor_id),
+            object_entity_id=EntityID(counterparty_id),
+            value_text=frame.amount_text,
+            value_normalized=frame.amount_normalized,
+            time_scope=TimeScope.UNKNOWN,
+            event_date=resolve_event_date(
+                document,
+                sentence_index=evidence.sentence_index,
+                text=evidence.text,
+                start_char=evidence.start_char,
+                end_char=evidence.end_char,
+            ),
+            confidence=round(frame.confidence, 3),
+            evidence=evidence,
+            amount_text=frame.amount_normalized,
+            organization_kind=counterparty.organization_kind if counterparty is not None else None,
+            extraction_signal=frame.extraction_signal,
+            evidence_scope=frame.evidence_scope,
+            source_extractor="public_contract_frame",
+            score_reason=frame.score_reason,
+        )
