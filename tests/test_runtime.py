@@ -225,7 +225,7 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
         ],
     )
 
-    with patch("pipeline.coref.service.extract_text", return_value="Jan Kowalski"):
+    with patch("pipeline.coref.extract_text", return_value="Jan Kowalski"):
         result = resolver.run(document)
 
     assert isinstance(result, CoreferenceResult)

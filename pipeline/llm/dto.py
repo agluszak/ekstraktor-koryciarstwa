@@ -1,31 +1,35 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import NewType
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from pipeline.domain_types import EntityType, FactType
 
 EntityKey = NewType("EntityKey", str)
 
 
-@dataclass(slots=True)
-class LLMEntityCandidate:
+class LLMEntityCandidate(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     key: EntityKey
     entity_type: EntityType
     canonical_name: str
 
 
-@dataclass(slots=True)
-class LLMFactCandidate:
+class LLMFactCandidate(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     fact_type: FactType
     subject_key: EntityKey
-    object_key: EntityKey | None
-    evidence_quote: str
+    object_key: EntityKey | None = None
     value_text: str | None = None
+    evidence_quote: str
 
 
-@dataclass(slots=True)
-class LLMExtractionCandidateSet:
+class LLMExtractionCandidateSet(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     is_relevant: bool
-    entities: list[LLMEntityCandidate]
-    facts: list[LLMFactCandidate]
+    entities: list[LLMEntityCandidate] = Field(default_factory=list)
+    facts: list[LLMFactCandidate] = Field(default_factory=list)

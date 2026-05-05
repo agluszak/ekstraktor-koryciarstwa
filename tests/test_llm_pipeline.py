@@ -381,7 +381,7 @@ def test_candidates_from_payload_rejects_invalid_enum_without_try_except_flow() 
         "facts": [],
     }
 
-    with pytest.raises(ValueError, match="Unknown LLM entity type"):
+    with pytest.raises(ValueError, match="LLM response does not match schema"):
         candidates_from_payload(payload)
 
 

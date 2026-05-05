@@ -11,6 +11,7 @@ from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
 from pipeline.enrichment import SharedEntityEnricher
+from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.filtering import KeywordRelevanceFilter
 from pipeline.frames import PolishFrameExtractor
 from pipeline.identity import PolishFamilyIdentityResolver
@@ -21,7 +22,6 @@ from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.nlp_services import StanzaPolishMorphologyAnalyzer
 from pipeline.orchestrator import NepotismPipeline
 from pipeline.preprocessing import TrafilaturaPreprocessor
-from pipeline.relations.service import PolishFactExtractor
 from pipeline.runtime import PipelineRuntime
 from pipeline.scoring import RuleBasedNepotismScorer
 from pipeline.segmentation import ParagraphSentenceSegmenter

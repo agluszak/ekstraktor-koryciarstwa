@@ -75,7 +75,6 @@ class Entity:
     proxy_kind: ProxyKind | None = None
     kinship_detail: KinshipDetail | None = None
     proxy_anchor_entity_id: EntityID | None = None
-    proxy_surface: str | None = None
     role_kind: RoleKind | None = None
     role_modifier: RoleModifier | None = None
 
@@ -88,12 +87,6 @@ class IdentityHypothesis:
     reason: IdentityHypothesisReason
     evidence: list[EvidenceSpan] = field(default_factory=list)
     status: IdentityHypothesisStatus = IdentityHypothesisStatus.POSSIBLE
-
-
-@dataclass(slots=True)
-class ConfidenceBreakdown:
-    person_role: float | None = None
-    role_org: float | None = None
 
 
 @dataclass(slots=True)
@@ -124,7 +117,6 @@ class Fact:
     owner_context_entity_id: EntityID | None = None
     appointing_authority_entity_id: EntityID | None = None
     governing_body_entity_id: EntityID | None = None
-    confidence_breakdown: ConfidenceBreakdown | None = None
     party: str | None = None
     office_type: str | None = None
     candidacy_scope: str | None = None
@@ -433,7 +425,6 @@ class ArticleDocument:
     raw_html: str = ""
     lead_text: str | None = None
     content_source: str = "trafilatura"
-    content_quality_flags: list[str] = field(default_factory=list)
     sentences: list[SentenceFragment] = field(default_factory=list)
     entities: list[Entity] = field(default_factory=list)
     mentions: list[Mention] = field(default_factory=list)

@@ -23,7 +23,6 @@ from pipeline.nlp_rules import (
     TARGET_CONTEXT_TERMS,
 )
 from pipeline.relation_signals import (
-    is_quote_speaker_risk,
     party_context_window_supports,
     party_syntactic_signal,
     person_role_syntactic_signal,
@@ -43,15 +42,6 @@ class ResolvedRoleAttribution:
     person: EntityCandidate
     role: EntityCandidate
     score: SecondaryFactScore
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedOrganizationAttribution:
-    person: EntityCandidate
-    organization: EntityCandidate
-    role: EntityCandidate | None
-    confidence: float
-    priority: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,66 +126,6 @@ def resolve_candidacy_score(
     if any(abs(person.start_char - word.start) <= 28 for word in governing_words):
         return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
     return _score(0.55, "same_sentence", "same_sentence", "election_context")
-
-
-def best_role_candidate(
-    context: SentenceContext,
-    person: EntityCandidate,
-) -> EntityCandidate | None:
-    roles = context.outgoing("person-has-role", person.candidate_id)
-    if not roles:
-        if context.positions:
-            return max(
-                context.positions,
-                key=lambda role: (
-                    _role_priority(role),
-                    -abs(person.start_char - role.start_char)
-                    if role.sentence_index == person.sentence_index
-                    else 0,
-                ),
-            )
-        return None
-    return max(
-        roles,
-        key=lambda role: (
-            _role_priority(role),
-            context.edge_confidence("person-has-role", person.candidate_id, role.candidate_id)
-            or 0.0,
-            -abs(person.start_char - role.start_char),
-        ),
-    )
-
-
-def best_organization_attribution(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate | None,
-) -> ResolvedOrganizationAttribution | None:
-    organization_pool = _candidate_organization_pool(context, person, role)
-    if not organization_pool:
-        return None
-    organization = max(
-        organization_pool,
-        key=lambda candidate: _organization_resolution_score(
-            context=context,
-            candidate=candidate,
-            role=role,
-            person=person,
-        ),
-    )
-    confidence, priority, _ = _organization_resolution_score(
-        context=context,
-        candidate=organization,
-        role=role,
-        person=person,
-    )
-    return ResolvedOrganizationAttribution(
-        person=person,
-        organization=organization,
-        role=role,
-        confidence=confidence,
-        priority=priority,
-    )
 
 
 def resolve_public_employment_attribution(
@@ -750,10 +680,3 @@ def _score(
         evidence_scope=evidence_scope,
         reason=reason,
     )
-
-
-def is_quote_speaker_candidate(
-    context: SentenceContext,
-    candidate: EntityCandidate,
-) -> bool:
-    return is_quote_speaker_risk(context.parsed_words, candidate)

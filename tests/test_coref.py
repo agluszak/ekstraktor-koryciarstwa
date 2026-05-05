@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
-from pipeline.coref.service import StanzaCoreferenceResolver
+from pipeline.coref import StanzaCoreferenceResolver
 from pipeline.domain_types import DocumentID, EntityID, EntityType
 from pipeline.models import ArticleDocument, Entity, SentenceFragment
 
@@ -85,7 +85,7 @@ def test_coref_resolved_mentions_preserve_exact_offsets(monkeypatch) -> None:
         ],
     )
     monkeypatch.setattr(
-        "pipeline.coref.service.extract_text",
+        "pipeline.coref.extract_text",
         lambda doc, sentence_index, start_word, end_word: cleaned_text[
             _fake_span(doc, sentence_index, start_word, end_word)
         ],

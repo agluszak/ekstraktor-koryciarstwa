@@ -26,6 +26,7 @@ from pipeline.domain_types import (
 from pipeline.domains.political_profile import CrossSentencePartyFactBuilder
 from pipeline.enrichment import SharedEntityEnricher
 from pipeline.extraction_context import SentenceContext
+from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
     ArticleDocument,
@@ -38,10 +39,9 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.relations.candidate_graph import CandidateGraphBuilder
-from pipeline.relations.service import PolishFactExtractor
 from pipeline.role_matching import match_role_mentions
 from pipeline.runtime import PipelineRuntime
-from pipeline.segmentation.service import ParagraphSentenceSegmenter
+from pipeline.segmentation import ParagraphSentenceSegmenter
 from pipeline.syntax import StanzaClauseParser
 
 

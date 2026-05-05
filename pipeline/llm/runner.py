@@ -8,6 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from pipeline.config import PipelineConfig
+from pipeline.domain_types import Json
 from pipeline.llm.adapter import LLMExtractionAdapter, candidates_from_payload
 from pipeline.llm.dto import LLMExtractionCandidateSet
 from pipeline.llm.postprocessing import LLMPostProcessor
@@ -23,10 +24,10 @@ class LLMChatClient(Protocol):
         self,
         *,
         messages: list[dict[str, str]],
-        response_format: Mapping[str, object],
+        response_format: Mapping[str, Json],
         temperature: float,
         max_tokens: int,
-    ) -> object: ...
+    ) -> Json: ...
 
 
 LLMClientFactory = Callable[[PipelineConfig], LLMChatClient]
@@ -172,10 +173,10 @@ class _OllamaChatClient:
         self,
         *,
         messages: list[dict[str, str]],
-        response_format: Mapping[str, object],
+        response_format: Mapping[str, Json],
         temperature: float,
         max_tokens: int,
-    ) -> object:
+    ) -> Json:
         schema = response_format.get("schema")
         if not isinstance(schema, Mapping):
             raise ValueError("LLM response_format.schema must be an object")
@@ -224,25 +225,16 @@ def _configured_ollama_model(config: PipelineConfig) -> str:
     raise ValueError("--llm-model or llm.model is required when --engine llm is used")
 
 
-def _chat_content(response: object) -> str:
-    response = _object_mapping(response, "Ollama response")
+def _chat_content(response: Json) -> str:
+    if not isinstance(response, Mapping):
+        raise ValueError("Ollama response must be an object")
     message = response.get("message")
-    message = _object_mapping(message, "Ollama message")
+    if not isinstance(message, Mapping):
+        raise ValueError("Ollama message must be an object")
     content = message.get("content")
     if not isinstance(content, str) or not content:
         raise ValueError("Ollama response content must be a non-empty string")
     return content
-
-
-def _object_mapping(payload: object, label: str) -> Mapping[str, object]:
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"{label} must be an object")
-    output: dict[str, object] = {}
-    for key, value in payload.items():
-        if not isinstance(key, str):
-            raise ValueError(f"{label} object keys must be strings")
-        output[key] = value
-    return output
 
 
 def _estimate_token_count(text: str) -> int:

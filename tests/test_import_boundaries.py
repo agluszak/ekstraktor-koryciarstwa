@@ -68,6 +68,15 @@ def test_domain_modules_import_shared_helpers_from_non_domain_modules() -> None:
             assert expected_module in imports, f"{relative_path}: missing {expected_module}"
 
 
-def test_relations_service_remains_domain_facing_facade() -> None:
-    imports = _imports_for(REPO_ROOT / "pipeline/relations/service.py")
+def test_fact_extractor_is_domain_facing_facade() -> None:
+    imports = _imports_for(REPO_ROOT / "pipeline/fact_extractor.py")
     assert any(module.startswith("pipeline.domains") for module in imports)
+
+
+def test_relations_modules_do_not_import_domains() -> None:
+    for relative_path in (
+        "pipeline/relations/candidate_graph.py",
+        "pipeline/relations/org_typing.py",
+    ):
+        imports = _imports_for(REPO_ROOT / relative_path)
+        assert not any(module.startswith("pipeline.domains") for module in imports), relative_path

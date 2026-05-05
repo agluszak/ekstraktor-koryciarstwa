@@ -520,47 +520,6 @@ def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
     return None
 
 
-def _appointment_object_candidate(
-    context: SentenceContext,
-    subject: EntityCandidate,
-) -> EntityCandidate | None:
-    root = next((word for word in context.parsed_words if word.deprel == "root"), None)
-    if root is None or root.lemma not in {"powoływać", "powołać", "mianować", "wybrać"}:
-        return None
-
-    object_words = [
-        word
-        for word in context.parsed_words
-        if word.head == root.index and word.deprel in {"obj", "iobj"}
-    ]
-    if not object_words:
-        return None
-
-    for word in object_words:
-        candidate = next(
-            (
-                person
-                for person in context.persons
-                if person.entity_id != subject.entity_id
-                and person.start_char <= word.start < person.end_char
-            ),
-            None,
-        )
-        if candidate is not None:
-            return candidate
-
-    if any(word.upos == "PRON" for word in object_words):
-        previous_persons = [
-            candidate
-            for candidate in context.previous_candidates
-            if candidate.candidate_type == CandidateType.PERSON
-            and candidate.entity_id != subject.entity_id
-        ]
-        if previous_persons:
-            return min(previous_persons, key=lambda candidate: candidate.start_char)
-    return None
-
-
 def _nearest_candidate(
     candidates: list[EntityCandidate],
     index: int,

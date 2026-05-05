@@ -3,6 +3,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import NewType
 
+from pydantic import JsonValue
+
+type Json = JsonValue
+
 EntityID = NewType("EntityID", str)
 FactID = NewType("FactID", str)
 ClusterID = NewType("ClusterID", str)
@@ -19,7 +23,6 @@ class EntityType(StrEnum):
     POSITION = "Position"
     PUBLIC_INSTITUTION = "PublicInstitution"
     LOCATION = "Location"
-    EDUCATION = "Education"
 
 
 class CandidateType(StrEnum):

@@ -9,8 +9,8 @@ import trafilatura
 from bs4 import BeautifulSoup
 
 from pipeline.base import Preprocessor
+from pipeline.domain_types import Json
 from pipeline.models import ArticleDocument, PipelineInput
-from pipeline.preprocessing.boilerplate import is_boilerplate_paragraph
 from pipeline.utils import compact_whitespace, generate_document_id
 
 SCRIPT_JSON_RE = re.compile(
@@ -34,7 +34,7 @@ class TrafilaturaPreprocessor(Preprocessor):
             or metadata.get("publication_date")
         )
         trafilatura_paragraphs = self._extract_trafilatura_paragraphs(data.raw_html)
-        paragraphs, content_source, quality_flags = self._build_paragraphs(
+        paragraphs, content_source = self._build_paragraphs(
             title=title,
             trafilatura_paragraphs=trafilatura_paragraphs,
             metadata=metadata,
@@ -53,7 +53,6 @@ class TrafilaturaPreprocessor(Preprocessor):
             paragraphs=paragraphs,
             lead_text=lead_text,
             content_source=content_source,
-            content_quality_flags=quality_flags,
         )
 
     def _build_paragraphs(
@@ -62,15 +61,12 @@ class TrafilaturaPreprocessor(Preprocessor):
         title: str,
         trafilatura_paragraphs: list[str],
         metadata: dict[str, str],
-    ) -> tuple[list[str], str, list[str]]:
-        quality_flags: list[str] = []
+    ) -> tuple[list[str], str]:
         cleaned_trafilatura = self._sanitize_paragraphs(trafilatura_paragraphs)
         if self._looks_usable(cleaned_trafilatura):
             paragraphs = cleaned_trafilatura
             content_source = "trafilatura"
         else:
-            if trafilatura_paragraphs:
-                quality_flags.append("low_quality_trafilatura")
             paragraphs = []
             content_source = "metadata_recovery"
 
@@ -82,7 +78,6 @@ class TrafilaturaPreprocessor(Preprocessor):
                 content_source = "hybrid"
         elif recovered:
             paragraphs = recovered
-            quality_flags.append("metadata_recovery_used")
 
         paragraphs = self._sanitize_paragraphs(paragraphs)
         if metadata.get("lead") and metadata["lead"] not in paragraphs:
@@ -91,9 +86,7 @@ class TrafilaturaPreprocessor(Preprocessor):
             if content_source == "trafilatura":
                 content_source = "hybrid"
 
-        if not self._looks_usable(paragraphs):
-            quality_flags.append("thin_content")
-        return paragraphs, content_source, quality_flags
+        return paragraphs, content_source
 
     @staticmethod
     def _extract_trafilatura_paragraphs(raw_html: str) -> list[str]:
@@ -156,8 +149,8 @@ class TrafilaturaPreprocessor(Preprocessor):
         return metadata
 
     @staticmethod
-    def _iter_json_payloads(text: str) -> list[dict[str, object]]:
-        payloads: list[dict[str, object]] = []
+    def _iter_json_payloads(text: str) -> list[dict[str, Json]]:
+        payloads: list[dict[str, Json]] = []
         try:
             decoded = json.loads(text)
         except json.JSONDecodeError:
@@ -172,7 +165,7 @@ class TrafilaturaPreprocessor(Preprocessor):
         return payloads
 
     @staticmethod
-    def _merge_metadata(metadata: dict[str, str], payload: dict[str, object]) -> None:
+    def _merge_metadata(metadata: dict[str, str], payload: dict[str, Json]) -> None:
         field_map = {
             "description": ("description", "abstract"),
             "lead": ("lead", "text_paragraph_lead"),
@@ -196,7 +189,7 @@ class TrafilaturaPreprocessor(Preprocessor):
                     break
 
     @staticmethod
-    def _metadata_value_as_text(value: object) -> str | None:
+    def _metadata_value_as_text(value: Json) -> str | None:
         if isinstance(value, str):
             normalized = TrafilaturaPreprocessor._normalize_metadata_text(value)
             return normalized if compact_whitespace(normalized) else None
@@ -211,7 +204,7 @@ class TrafilaturaPreprocessor(Preprocessor):
         return None
 
     @staticmethod
-    def _metadata_block_text(block: object) -> str | None:
+    def _metadata_block_text(block: Json) -> str | None:
         if not isinstance(block, Mapping):
             return None
         for key, value in block.items():
@@ -316,3 +309,70 @@ class TrafilaturaPreprocessor(Preprocessor):
     def _extract_canonical_url(soup: BeautifulSoup) -> str | None:
         canonical = soup.find("link", attrs={"rel": "canonical"})
         return str(canonical.get("href")) if canonical and canonical.get("href") else None
+
+
+GENERIC_JUNK_PATTERNS = (
+    re.compile(r"^::addons", re.IGNORECASE),
+    re.compile(r"^płatny dostęp do treści$", re.IGNORECASE),
+    re.compile(r"^ten artykuł przeczytasz", re.IGNORECASE),
+    re.compile(r"^komentarze$", re.IGNORECASE),
+    re.compile(r"^reklama$", re.IGNORECASE),
+    re.compile(r"^twoje zdanie jest ważne", re.IGNORECASE),
+    re.compile(r"^skorzystaj z subskrypcji", re.IGNORECASE),
+    re.compile(r"^wiadomości pogodowe$", re.IGNORECASE),
+    re.compile(r"^popularne osoby$", re.IGNORECASE),
+    re.compile(r"^organizacje$", re.IGNORECASE),
+    re.compile(r"^inne tematy$", re.IGNORECASE),
+    re.compile(r"^pogoda$", re.IGNORECASE),
+    re.compile(r"^z tego artykułu dowiesz się:?$", re.IGNORECASE),
+)
+
+UI_NAVIGATION_MARKERS = frozenset(
+    {
+        "strona główna",
+        "zobacz wszystkie",
+        "więcej informacji znajdziesz",
+        "logowanie",
+        "zaloguj",
+        "kup subskrypcję",
+        "subskrypcj",
+        "premium",
+        "serwisy partnerskie",
+        "pogoda",
+        "program tv",
+        "czytaj także",
+        "przeczytaj także",
+        "powiązane artykuły",
+        "zobacz również",
+        "następny artykuł",
+        "poprzedni artykuł",
+    }
+)
+
+UI_CATEGORY_MARKERS = frozenset(
+    {
+        "popularne osoby",
+        "organizacje",
+        "inne tematy",
+        "wiadomości pogodowe",
+        "komentarze",
+        "reklama",
+    }
+)
+
+
+def is_boilerplate_paragraph(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.casefold()
+    if any(pattern.search(normalized) for pattern in GENERIC_JUNK_PATTERNS):
+        return True
+
+    marker_hits = sum(marker in lowered for marker in UI_NAVIGATION_MARKERS)
+    category_hits = sum(marker in lowered for marker in UI_CATEGORY_MARKERS)
+    short_ui_block = len(normalized) <= 120 and marker_hits > 0
+    dense_ui_block = marker_hits >= 2 or category_hits >= 2
+    title_like_menu = (
+        normalized == normalized.title() and len(normalized.split()) <= 4 and category_hits > 0
+    )
+
+    return short_ui_block or dense_ui_block or title_like_menu

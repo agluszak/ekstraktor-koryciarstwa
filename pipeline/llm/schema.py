@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from pipeline.domain_types import EntityType, FactType
+from pipeline.domain_types import EntityType, FactType, Json
 
 
-def build_llm_response_schema() -> dict[str, object]:
-    entity_schema: dict[str, object] = {
+def build_llm_response_schema() -> dict[str, Json]:
+    entity_schema: dict[str, Json] = {
         "type": "object",
         "additionalProperties": False,
         "required": ["key", "entity_type", "canonical_name"],
@@ -14,7 +14,7 @@ def build_llm_response_schema() -> dict[str, object]:
             "canonical_name": {"type": "string", "minLength": 1},
         },
     }
-    fact_schema: dict[str, object] = {
+    fact_schema: dict[str, Json] = {
         "type": "object",
         "additionalProperties": False,
         "required": ["fact_type", "subject_key", "object_key", "evidence_quote"],

@@ -5,7 +5,7 @@ import pytest
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import DocumentID, EntityID, EntityType
-from pipeline.linking.service import InMemoryEntityLinker
+from pipeline.linking import InMemoryEntityLinker
 from pipeline.models import ArticleDocument, Entity
 
 

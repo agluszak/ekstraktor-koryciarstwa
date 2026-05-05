@@ -18,11 +18,6 @@ class EntityFingerprint(TypedDict, total=False):
     normalized_name: str
     name_tokens: list[str]
     lemmas: list[str]
-    organizations: list[str]
-    education: list[str]
-    positions: list[str]
-    parties: list[str]
-    is_media: bool
 
 
 class _RegistryEntry(TypedDict):
@@ -209,7 +204,6 @@ class InMemoryEntityLinker(EntityLinker):
                     "normalized_name": normalized,
                     "name_tokens": normalized.split(),
                     "lemmas": [t.lower() for t in normalized.split()],
-                    "is_media": True,
                 }
                 embedding = self._encode_embedding(normalized)
                 self._upsert_registry(
@@ -225,10 +219,7 @@ class InMemoryEntityLinker(EntityLinker):
 
     def _encode_embedding(self, text: str) -> np.ndarray:
         model = self.runtime.get_sentence_transformer_model()
-        try:
-            return model.encode(text, normalize_embeddings=True)  # type: ignore[no-any-return]
-        except TypeError:
-            return model.encode(text)  # type: ignore[no-any-return]
+        return model.encode(text, normalize_embeddings=True)
 
     def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
         # Try alias-based match first (case-insensitive via multiple
@@ -437,11 +428,6 @@ class InMemoryEntityLinker(EntityLinker):
             "normalized_name": entity.normalized_name,
             "name_tokens": tokens,
             "lemmas": entity.lemmas,
-            "organizations": [],
-            "education": [],
-            "positions": [],
-            "parties": [],
-            "is_media": False,
         }
 
     def _match_score(
