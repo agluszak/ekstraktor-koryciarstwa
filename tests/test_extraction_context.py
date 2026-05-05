@@ -333,3 +333,95 @@ def test_sentence_context_event_date_falls_back_to_publication_date() -> None:
     )
 
     assert context.event_date == "2019-03-22"
+
+
+def test_sentence_context_time_scope_anchors_former_from_past_temporal_expression() -> None:
+    """A sentence whose text gives no FORMER signal but contains a dated temporal
+    expression older than the publication date should be tagged FORMER."""
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date="2024-06-01",
+        cleaned_text="",
+        paragraphs=[],
+        temporal_expressions=[
+            TemporalExpression(
+                text="15 marca 2023",
+                label=NERLabel.DATE,
+                normalized_value="2023-03-15",
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=14,
+                end_char=27,
+            )
+        ],
+        sentences=[
+            SentenceFragment(
+                text="Powołano go 15 marca 2023 na stanowisko prezesa.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=47,
+            )
+        ],
+    )
+    sentence = document.sentences[0]
+    context = SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=[],
+        graph=MagicMock(spec=CandidateGraph),
+        candidates=[],
+        paragraph_candidates=[],
+        previous_candidates=[],
+    )
+
+    assert context.time_scope.value == "former"
+
+
+def test_sentence_context_time_scope_anchors_future_from_future_temporal_expression() -> None:
+    """A sentence with a future temporal expression (after publication date) should
+    be tagged FUTURE even without morphological future-tense markers."""
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date="2024-06-01",
+        cleaned_text="",
+        paragraphs=[],
+        temporal_expressions=[
+            TemporalExpression(
+                text="1 września 2025",
+                label=NERLabel.DATE,
+                normalized_value="2025-09-01",
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=17,
+                end_char=32,
+            )
+        ],
+        sentences=[
+            SentenceFragment(
+                text="Objęcie funkcji nastąpi 1 września 2025.",
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=39,
+            )
+        ],
+    )
+    sentence = document.sentences[0]
+    context = SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=[],
+        graph=MagicMock(spec=CandidateGraph),
+        candidates=[],
+        paragraph_candidates=[],
+        previous_candidates=[],
+    )
+
+    assert context.time_scope.value == "future"

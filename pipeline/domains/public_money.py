@@ -361,7 +361,33 @@ def is_reporting_przekazac_without_amount(
         return False
     if not parsed_words and ("dotacj" in lowered or "dofinansowa" in lowered):
         return False
+    # If dep-parse shows a numeric argument attached to 'przekazać' or its direct
+    # objects, this is likely a money-transfer clause where the regex failed to match
+    # the amount (e.g. unusual formatting) — do not suppress.
+    if _przekazac_has_numeric_dep_object(parsed_words):
+        return False
     return True
+
+
+def _przekazac_has_numeric_dep_object(parsed_words: list[ParsedWord]) -> bool:
+    """Return True if any 'przekazać' token has a NUM token in its immediate subtree.
+
+    This distinguishes genuine money-transfer clauses ("przekazał 300 tys. zł") from
+    communication clauses ("przekazał nam") even when the amount regex did not fire.
+    """
+    przekazac_words = words_with_lemmas(parsed_words, frozenset({"przekazać"}))
+    for trigger in przekazac_words:
+        for child in parsed_words:
+            if child.head != trigger.index:
+                continue
+            if child.upos == "NUM":
+                return True
+            # Also check one level deeper: obj/iobj/obl children that have nummod
+            if child.deprel in {"obj", "iobj", "obl"}:
+                for grandchild in parsed_words:
+                    if grandchild.head == child.index and grandchild.upos == "NUM":
+                        return True
+    return False
 
 
 def funding_recipient_score(cluster: EntityCluster) -> tuple[int, int, int]:

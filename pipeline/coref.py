@@ -13,6 +13,25 @@ from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
 
+# Short common-noun anaphors that Stanza's coref may use as representative text for an
+# org chain, but which are too ambiguous to resolve reliably (e.g. "spółka" could be
+# any org in the document).  These are skipped in org chain resolution.
+_GENERIC_ORG_NOUNS = frozenset(
+    {
+        "spółka",
+        "firma",
+        "instytucja",
+        "organizacja",
+        "stowarzyszenie",
+        "fundacja",
+        "podmiot",
+        "przedsiębiorstwo",
+        "zakład",
+        "towarzystwo",
+        "urząd",
+    }
+)
+
 
 class CorefWord(Protocol):
     start_char: int
@@ -49,8 +68,16 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         resolved_mentions: list[Mention] = []
+        # Build lookup maps for person and organization entities so that Stanza coref
+        # chains can be resolved for both entity types.
         people = [entity for entity in document.entities if entity.entity_type == EntityType.PERSON]
-        entity_by_name = {entity.normalized_name: entity for entity in people}
+        orgs = [
+            entity
+            for entity in document.entities
+            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+        ]
+        person_by_name = {entity.normalized_name: entity for entity in people}
+        org_by_name = {entity.normalized_name: entity for entity in orgs}
         sentence_map = {sentence.sentence_index: sentence for sentence in document.sentences}
         try:
             with torch.inference_mode():
@@ -61,13 +88,21 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
 
             for chain in nlp_doc.coref:
                 representative_text = normalize_entity_name(chain.representative_text)
-                representative_entity = entity_by_name.get(representative_text)
+                representative_entity = person_by_name.get(representative_text)
                 if representative_entity is None:
                     representative_entity = self._match_person_entity(
-                        entity_by_name, representative_text
+                        person_by_name, representative_text
                     )
                 if representative_entity is None:
-                    continue
+                    # Try organization entities for this chain.  We only do this when the
+                    # representative text is not a bare generic noun (too ambiguous).
+                    representative_entity = self._match_org_entity(org_by_name, representative_text)
+                    if representative_entity is not None:
+                        mention_type = "ResolvedOrgReference"
+                    else:
+                        continue
+                else:
+                    mention_type = "ResolvedPersonReference"
 
                 for mention in chain.mentions:
                     sentence_index = mention.sentence
@@ -82,7 +117,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     resolved = Mention(
                         text=mention_text,
                         normalized_text=normalize_entity_name(mention_text),
-                        mention_type="ResolvedPersonReference",
+                        mention_type=mention_type,
                         sentence_index=sentence_index,
                         paragraph_index=0 if sentence is None else sentence.paragraph_index,
                         start_char=0 if start_char is None else start_char,
@@ -131,6 +166,39 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                 return entity
             if rep_tokens and candidate_tokens and rep_tokens[-1] == candidate_tokens[-1]:
                 if len(rep_tokens) == len(candidate_tokens):
+                    return entity
+        return None
+
+    @staticmethod
+    def _match_org_entity(
+        org_by_name: Mapping[str, Entity],
+        representative_text: str,
+    ) -> Entity | None:
+        """Match org chains by representative text, skipping generic bare nouns.
+
+        We require either an exact match against a known org or a multi-token
+        representative (≥2 words) whose suffix matches a known org name, to avoid
+        binding generic demonstratives like 'ta spółka' to a randomly chosen org.
+        """
+        if not representative_text:
+            return None
+        # Reject if any token of the representative text is a generic bare noun.
+        # Multi-word representatives like "ta spółka" are caught by the per-token check.
+        if any(token in _GENERIC_ORG_NOUNS for token in representative_text.split()):
+            return None
+        if representative_text in org_by_name:
+            return org_by_name[representative_text]
+        rep_tokens = representative_text.split()
+        # Multi-word representative: try exact and suffix matching
+        if len(rep_tokens) < 2:
+            return None
+        for candidate_name, entity in org_by_name.items():
+            candidate_tokens = candidate_name.split()
+            if rep_tokens == candidate_tokens:
+                return entity
+            # suffix match: representative ends with all tokens of candidate
+            if len(rep_tokens) >= len(candidate_tokens) >= 2:
+                if rep_tokens[-len(candidate_tokens) :] == candidate_tokens:
                     return entity
         return None
 
