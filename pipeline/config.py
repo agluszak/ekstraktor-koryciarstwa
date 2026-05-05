@@ -35,6 +35,7 @@ class ScoreConfig:
 @dataclass(slots=True)
 class RegistryConfig:
     similarity_threshold: float
+    db_path: str | None = None
 
 
 @dataclass(slots=True)

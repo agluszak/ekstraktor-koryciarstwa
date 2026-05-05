@@ -1,82 +1,92 @@
+"""Entity linking orchestration.
+
+``InMemoryEntityLinker``
+    In-process linker that resolves document entities to a shared in-memory
+    knowledge base.  Linking is cluster-aware: when the document already has
+    entity clusters (built by ``PolishEntityClusterer``), the linker works at
+    the cluster level and writes the resolved ``registry_id`` back to every
+    constituent entity.  When no clusters are present it falls back to the
+    per-entity path.
+
+``PersistentEntityLinker``
+    Drop-in replacement for ``InMemoryEntityLinker`` that backs the knowledge
+    base with a SQLite store (see ``linking_sqlite.py``).  The in-memory cache
+    is still kept for the duration of a process; new records are flushed back
+    to SQLite after each document.
+"""
+
 from __future__ import annotations
-
-from typing import TypedDict
-
-import numpy as np
 
 from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityID, EntityType
-from pipeline.entity_naming import org_token_base
-from pipeline.models import ArticleDocument, Entity
+from pipeline.domain_types import KBID, EntityID, EntityType
+from pipeline.linking_candidates import AliasCandidateGenerator
+from pipeline.linking_dedup import RegistryDeduplicator
+from pipeline.linking_disambiguator import RuleBasedEntityDisambiguator
+from pipeline.linking_kb import (
+    InMemoryKnowledgeBase,
+)
+from pipeline.models import (
+    ArticleDocument,
+    Entity,
+    EntityCluster,
+    EntityFingerprint,
+    KBEntityRecord,
+)
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
-from pipeline.utils import normalize_party_name, stable_id
-
-
-class EntityFingerprint(TypedDict, total=False):
-    normalized_name: str
-    name_tokens: list[str]
-    lemmas: list[str]
-
-
-class _RegistryEntry(TypedDict):
-    entity_type: str
-    canonical_name: str
-    fingerprint: EntityFingerprint
-    embedding: list[float]
+from pipeline.utils import stable_id
 
 
 class InMemoryEntityLinker(EntityLinker):
+    """Thin orchestrator composed of KB, candidate generator, disambiguator, deduplicator."""
+
     def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
         self.config = config
-        self.runtime = runtime or PipelineRuntime(config)
-        # registry_id -> entry
-        self._registry: dict[str, _RegistryEntry] = {}
-        # alias string -> list of registry_ids ordered by insertion
-        # (UNIQUE(registry_id, alias) semantics: a registry_id appears at most once per alias)
-        self._alias_to_registry: dict[str, list[str]] = {}
-        self._knowledge_seeded = False
+        _runtime = runtime or PipelineRuntime(config)
+        self._kb = InMemoryKnowledgeBase(config, _runtime)
+        self._candidates = AliasCandidateGenerator(self._kb)
+        self._disambiguator = RuleBasedEntityDisambiguator(config, _runtime)
+        self._dedup = RegistryDeduplicator()
         self.canonicalizer = DocumentEntityCanonicalizer(config)
         self.organization_naming = self.canonicalizer.organization_naming
 
     def name(self) -> str:
         return "in_memory_entity_linker"
 
+    # ------------------------------------------------------------------
+    # Backward-compat delegates (used by tests that inspect internals)
+    # ------------------------------------------------------------------
+
+    def _upsert_registry(
+        self,
+        registry_id: str,
+        entity_type: str,
+        canonical_name: str,
+        fingerprint: EntityFingerprint,
+        embedding: list[float],
+    ) -> None:
+        self._kb._upsert_registry(registry_id, entity_type, canonical_name, fingerprint, embedding)
+
+    # ------------------------------------------------------------------
+    # DocumentStage
+    # ------------------------------------------------------------------
+
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        if not self._knowledge_seeded and document.entities:
-            self._seed_knowledge_graph()
-            self._knowledge_seeded = True
-        for entity in document.entities:
-            if entity.is_proxy_person or entity.is_honorific_person_ref:
-                entity.registry_id = stable_id(
-                    "document_local_ref", document.document_id, entity.entity_id
-                )
-                continue
-            fingerprint = self._fingerprint(entity)
-            registry_id = self._match_or_create(entity, fingerprint)
-            entity.registry_id = registry_id
+        if not self._kb.is_seeded and (document.entities or document.clusters):
+            self._kb.seed()
 
-            # Update entity name to the canonical form from the registry
-            entry = self._registry.get(registry_id)
-            if entry is not None:
-                preferred_canonical = self._preferred_registry_canonical(
-                    entity,
-                    entry["canonical_name"],
-                )
-                entity.canonical_name = preferred_canonical
-                entity.normalized_name = preferred_canonical
-                if preferred_canonical != entry["canonical_name"]:
-                    entry["canonical_name"] = preferred_canonical
+        if document.clusters:
+            self._run_cluster_based(document)
+        else:
+            self._run_entity_based(document)
 
-        # Deduplicate: merge entities that resolved to the same registry_id
-        document.entities, id_remap = self._deduplicate_by_registry(document.entities)
-        document.entities, exact_name_remap = self._deduplicate_exact_names(
-            document.entities,
-        )
+        # Deduplicate entities that resolved to the same registry_id
+        document.entities, id_remap = self._dedup.deduplicate_by_registry(document.entities)
+        document.entities, exact_name_remap = self._dedup.deduplicate_exact_names(document.entities)
         id_remap.update(exact_name_remap)
 
-        # Remap entity references in extracted facts
+        # Remap entity references in extracted facts / mentions
         if id_remap:
             for fact in document.facts:
                 fact.subject_entity_id = id_remap.get(
@@ -94,6 +104,202 @@ class InMemoryEntityLinker(EntityLinker):
 
         return self.canonicalizer.run(document)
 
+    # ------------------------------------------------------------------
+    # Cluster-based linking (Step 5)
+    # ------------------------------------------------------------------
+
+    def _run_cluster_based(self, document: ArticleDocument) -> None:
+        """Link each cluster as a unit, writing registry_id to all its entities."""
+        entity_by_id: dict[EntityID, Entity] = {e.entity_id: e for e in document.entities}
+
+        for cluster in document.clusters:
+            cluster_entity_ids: set[EntityID] = {
+                m.entity_id for m in cluster.mentions if m.entity_id is not None
+            }
+            cluster_entities = [
+                entity_by_id[eid] for eid in cluster_entity_ids if eid in entity_by_id
+            ]
+
+            proxy_entities = [
+                e for e in cluster_entities if e.is_proxy_person or e.is_honorific_person_ref
+            ]
+            real_entities = [
+                e
+                for e in cluster_entities
+                if not e.is_proxy_person and not e.is_honorific_person_ref
+            ]
+
+            for entity in proxy_entities:
+                entity.registry_id = stable_id(
+                    "document_local_ref", document.document_id, entity.entity_id
+                )
+
+            if not real_entities:
+                continue
+
+            registry_id = self._match_or_create_from_cluster(cluster)
+
+            entry = self._kb.get_entry(registry_id)
+            for entity in real_entities:
+                entity.registry_id = registry_id
+                if entry is not None:
+                    preferred = self._preferred_registry_canonical(entity, entry.canonical_name)
+                    entity.canonical_name = preferred
+                    entity.normalized_name = preferred
+                    if preferred != entry.canonical_name:
+                        entry.canonical_name = preferred
+
+        # Handle entities not referenced by any cluster (defensive)
+        clustered_entity_ids: set[EntityID] = {
+            m.entity_id
+            for cluster in document.clusters
+            for m in cluster.mentions
+            if m.entity_id is not None
+        }
+        for entity in document.entities:
+            if entity.entity_id not in clustered_entity_ids:
+                if entity.is_proxy_person or entity.is_honorific_person_ref:
+                    entity.registry_id = stable_id(
+                        "document_local_ref", document.document_id, entity.entity_id
+                    )
+                else:
+                    fingerprint = self._candidates.fingerprint_from_entity(entity)
+                    entity.registry_id = self._match_or_create(entity, fingerprint)
+
+    # ------------------------------------------------------------------
+    # Per-entity fallback linking (used when no clusters present)
+    # ------------------------------------------------------------------
+
+    def _run_entity_based(self, document: ArticleDocument) -> None:
+        for entity in document.entities:
+            if entity.is_proxy_person or entity.is_honorific_person_ref:
+                entity.registry_id = stable_id(
+                    "document_local_ref", document.document_id, entity.entity_id
+                )
+                continue
+            fingerprint = self._candidates.fingerprint_from_entity(entity)
+            registry_id = self._match_or_create(entity, fingerprint)
+            entity.registry_id = registry_id
+
+            entry = self._kb.get_entry(registry_id)
+            if entry is not None:
+                preferred = self._preferred_registry_canonical(entity, entry.canonical_name)
+                entity.canonical_name = preferred
+                entity.normalized_name = preferred
+                if preferred != entry.canonical_name:
+                    entry.canonical_name = preferred
+
+    # ------------------------------------------------------------------
+    # Match-or-create: entity path
+    # ------------------------------------------------------------------
+
+    def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
+        search_names = self._candidates.alias_search_names_from_entity(entity)
+        matches = self._kb.alias_matches(search_names, entity.entity_type.value)
+        if matches:
+            match_id = matches[0]
+            self._kb.upsert_aliases_from_entity(match_id, entity)
+            return match_id
+
+        entity_embedding = self._disambiguator.encode_embedding(
+            self._disambiguator.embedding_text_from_entity(entity)
+        )
+
+        tokens = entity.normalized_name.split()
+        search_term = (
+            tokens[-1].lower() if entity.entity_type == EntityType.PERSON and tokens else None
+        )
+
+        candidates = self._kb.type_candidates(entity.entity_type.value, search_term)
+        for registry_id, entry in candidates:
+            score = self._disambiguator.match_score(
+                entity.entity_type,
+                fingerprint,
+                stored_tokens=entry.fingerprint.get("name_tokens", []),
+                stored_lemmas=entry.fingerprint.get("lemmas", []),
+                current_embedding=entity_embedding,
+                stored_embedding=entry.embedding,
+            )
+            if score >= self.config.registry.similarity_threshold:
+                self._kb.upsert_aliases_from_entity(registry_id, entity)
+                return registry_id
+
+        registry_id = stable_id(
+            f"{entity.entity_type.value.lower()}_registry",
+            entity.normalized_name,
+            entity.entity_id,
+        )
+        self._kb.upsert_entity(
+            KBEntityRecord(
+                kb_id=KBID(registry_id),
+                entity_type=entity.entity_type,
+                canonical_name=entity.normalized_name,
+                normalized_name=entity.normalized_name,
+                embedding=entity_embedding.tolist(),
+                lemmas=fingerprint.get("lemmas", []),
+            )
+        )
+        self._kb.upsert_aliases_from_entity(registry_id, entity)
+        return registry_id
+
+    # ------------------------------------------------------------------
+    # Match-or-create: cluster path
+    # ------------------------------------------------------------------
+
+    def _match_or_create_from_cluster(self, cluster: EntityCluster) -> str:
+        search_names = self._candidates.alias_search_names_from_cluster(cluster)
+        matches = self._kb.alias_matches(search_names, cluster.entity_type.value)
+        if matches:
+            match_id = matches[0]
+            self._kb.upsert_aliases_from_cluster(match_id, cluster)
+            return match_id
+
+        cluster_embedding = self._disambiguator.encode_embedding(
+            self._disambiguator.embedding_text_from_cluster(cluster)
+        )
+        cluster_fp = self._candidates.fingerprint_from_cluster(cluster)
+
+        tokens = cluster.normalized_name.split()
+        search_term = (
+            tokens[-1].lower() if cluster.entity_type == EntityType.PERSON and tokens else None
+        )
+
+        candidates = self._kb.type_candidates(cluster.entity_type.value, search_term)
+        for kb_id, entry in candidates:
+            score = self._disambiguator.match_score(
+                cluster.entity_type,
+                cluster_fp,
+                stored_tokens=entry.fingerprint.get("name_tokens", []),
+                stored_lemmas=entry.fingerprint.get("lemmas", []),
+                current_embedding=cluster_embedding,
+                stored_embedding=entry.embedding,
+            )
+            if score >= self.config.registry.similarity_threshold:
+                self._kb.upsert_aliases_from_cluster(kb_id, cluster)
+                return kb_id
+
+        kb_id = stable_id(
+            f"{cluster.entity_type.value.lower()}_registry",
+            cluster.normalized_name,
+            cluster.cluster_id,
+        )
+        self._kb.upsert_entity(
+            KBEntityRecord(
+                kb_id=KBID(kb_id),
+                entity_type=cluster.entity_type,
+                canonical_name=cluster.normalized_name,
+                normalized_name=cluster.normalized_name,
+                embedding=cluster_embedding.tolist(),
+                lemmas=cluster_fp.get("lemmas", []),
+            )
+        )
+        self._kb.upsert_aliases_from_cluster(kb_id, cluster)
+        return kb_id
+
+    # ------------------------------------------------------------------
+    # Canonical-name resolution
+    # ------------------------------------------------------------------
+
     def _preferred_registry_canonical(self, entity: Entity, registry_canonical: str) -> str:
         if entity.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
             return registry_canonical
@@ -110,398 +316,40 @@ class InMemoryEntityLinker(EntityLinker):
             return institution_canonical
         return self.organization_naming.best_organization_name(entity, candidates)
 
-    def _upsert_registry(
+
+# ---------------------------------------------------------------------------
+# PersistentEntityLinker
+# ---------------------------------------------------------------------------
+
+
+class PersistentEntityLinker(InMemoryEntityLinker):
+    """``InMemoryEntityLinker`` backed by a SQLite knowledge base.
+
+    The in-memory cache stays warm for the duration of the process.  After
+    each document, newly created KB records are flushed back to SQLite so
+    they survive across runs.
+    """
+
+    def __init__(
         self,
-        registry_id: str,
-        entity_type: str,
-        canonical_name: str,
-        fingerprint: EntityFingerprint,
-        embedding: list[float],
+        config: PipelineConfig,
+        *,
+        db_path: str,
+        runtime: PipelineRuntime | None = None,
     ) -> None:
-        """Insert or replace a registry entry (always overwrites, same semantics as seed upsert)."""
-        self._registry[registry_id] = {
-            "entity_type": entity_type,
-            "canonical_name": canonical_name,
-            "fingerprint": fingerprint,
-            "embedding": embedding,
-        }
+        from pipeline.linking_sqlite import SQLiteKnowledgeBase
 
-    def _add_alias(self, registry_id: str, alias: str) -> None:
-        """Add alias -> registry_id mapping.
+        _runtime = runtime or PipelineRuntime(config)
+        super().__init__(config, runtime=_runtime)
+        self._sqlite_kb = SQLiteKnowledgeBase(db_path)
+        # Replace the in-memory KB with one warmed from SQLite.
+        self._kb = self._sqlite_kb.to_in_memory_kb(config, _runtime)
+        self._candidates._kb = self._kb
 
-        Matches UNIQUE(registry_id, alias) semantics: a registry_id is added
-        at most once per alias, but the same alias may point to several registry
-        entries (different entities / types).
-        """
-        bucket = self._alias_to_registry.setdefault(alias, [])
-        if registry_id not in bucket:
-            bucket.append(registry_id)
+    def name(self) -> str:
+        return "persistent_entity_linker"
 
-    def _seed_knowledge_graph(self) -> None:
-        # Group aliases by canonical party name so all aliases of one party
-        # share a single registry_id.
-        canonical_groups: dict[str, set[str]] = {}
-        for alias, canonical in self.config.party_aliases.items():
-            normalized_canonical = normalize_party_name(canonical)
-            canonical_groups.setdefault(normalized_canonical, set()).add(alias)
-            canonical_groups[normalized_canonical].add(canonical)
-
-        for normalized, aliases in canonical_groups.items():
-            registry_id = stable_id("politicalparty_registry", normalized, normalized)
-            fingerprint = self._fingerprint_from_name(normalized)
-            fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
-            embedding = self._encode_embedding(normalized)
-            self._upsert_registry(
-                registry_id,
-                EntityType.POLITICAL_PARTY.value,
-                normalized,
-                fingerprint,
-                embedding.tolist(),
-            )
-            for alias_text in aliases:
-                for variant in {alias_text, alias_text.title(), alias_text.lower()}:
-                    self._add_alias(registry_id, variant)
-
-        institution_groups: dict[str, set[str]] = {}
-        for alias, canonical in self.config.institution_aliases.items():
-            normalized_canonical = alias if alias == canonical else canonical
-            normalized_canonical = normalized_canonical.strip(" ,.;:")
-            institution_groups.setdefault(normalized_canonical, set()).add(alias)
-            institution_groups[normalized_canonical].add(canonical)
-
-        for normalized, aliases in institution_groups.items():
-            registry_id = stable_id(
-                "publicinstitution_registry",
-                normalized,
-                normalized,
-            )
-            fingerprint = self._fingerprint_from_name(normalized)
-            fingerprint["lemmas"] = [t.lower() for t in normalized.split()]
-            embedding = self._encode_embedding(normalized)
-            self._upsert_registry(
-                registry_id,
-                EntityType.PUBLIC_INSTITUTION.value,
-                normalized,
-                fingerprint,
-                embedding.tolist(),
-            )
-            for alias_text in aliases:
-                for variant in {alias_text, alias_text.title(), alias_text.lower()}:
-                    self._add_alias(registry_id, variant)
-
-        # Seed common media organizations with aliases
-        media_groups = {
-            "Onet": ["Onet", "Onetowi", "Onetem"],
-            "PAP": ["PAP", "Pap"],
-            "Wirtualna Polska": ["Wirtualna Polska", "WP", "Wp", "Wirtualnej Polski"],
-            "Rzeczypospolita": ["Rzeczypospolita", "Rzeczpospolitej"],
-            "Fakt": ["Fakt", "Faktu"],
-        }
-        for normalized, aliases in media_groups.items():
-            registry_id = stable_id("organization_registry", "media", normalized)
-            if registry_id not in self._registry:
-                fingerprint: EntityFingerprint = {
-                    "normalized_name": normalized,
-                    "name_tokens": normalized.split(),
-                    "lemmas": [t.lower() for t in normalized.split()],
-                }
-                embedding = self._encode_embedding(normalized)
-                self._upsert_registry(
-                    registry_id,
-                    EntityType.ORGANIZATION.value,
-                    normalized,
-                    fingerprint,
-                    embedding.tolist(),
-                )
-            for alias_text in aliases:
-                for variant in {alias_text, alias_text.title(), alias_text.lower()}:
-                    self._add_alias(registry_id, variant)
-
-    def _encode_embedding(self, text: str) -> np.ndarray:
-        model = self.runtime.get_sentence_transformer_model()
-        return model.encode(text, normalize_embeddings=True)
-
-    def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
-        # Try alias-based match first (case-insensitive via multiple
-        # candidate forms: canonical_name, normalized_name, raw aliases).
-        search_names = self._alias_search_names(entity)
-        for name in search_names:
-            for variant in {name, name.title(), name.lower()}:
-                for match_id in self._alias_to_registry.get(variant, []):
-                    entry = self._registry.get(match_id)
-                    if entry is not None:
-                        match_type = entry["entity_type"]
-                        type_match = self._registry_types_compatible(
-                            entity.entity_type.value,
-                            match_type,
-                        )
-                        if type_match:
-                            self._upsert_alias(match_id, entity)
-                            return match_id
-
-        # Candidate search
-        entity_embedding = self._encode_embedding(self._embedding_text(entity))
-
-        if entity.entity_type == EntityType.PERSON:
-            search_term = entity.normalized_name.split()[-1].lower()
-            candidate_ids = [
-                rid
-                for rid, entry in self._registry.items()
-                if entry["entity_type"] == entity.entity_type.value
-                and search_term in entry["canonical_name"].lower()
-            ]
-        else:
-            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
-                compatible_types = {
-                    EntityType.ORGANIZATION.value,
-                    EntityType.PUBLIC_INSTITUTION.value,
-                }
-                candidate_ids = [
-                    rid
-                    for rid, entry in self._registry.items()
-                    if entry["entity_type"] in compatible_types
-                ]
-            else:
-                candidate_ids = [
-                    rid
-                    for rid, entry in self._registry.items()
-                    if entry["entity_type"] == entity.entity_type.value
-                ]
-
-        for registry_id in candidate_ids:
-            entry = self._registry[registry_id]
-            stored = entry["fingerprint"]
-            score = self._match_score(
-                entity.entity_type,
-                fingerprint,
-                stored,
-                entity_embedding,
-                entry["embedding"],
-            )
-            if score >= self.config.registry.similarity_threshold:
-                self._upsert_alias(registry_id, entity)
-                return registry_id
-
-        registry_id = stable_id(
-            f"{entity.entity_type.value.lower()}_registry",
-            entity.normalized_name,
-            entity.entity_id,
-        )
-        self._upsert_registry(
-            registry_id,
-            entity.entity_type.value,
-            entity.normalized_name,
-            fingerprint,
-            entity_embedding.tolist(),
-        )
-        self._upsert_alias(registry_id, entity)
-        return registry_id
-
-    def _alias_search_names(self, entity: Entity) -> set[str]:
-        primary_names = {
-            name
-            for name in {entity.canonical_name, entity.normalized_name}
-            if "\n" not in name and "\r" not in name
-        }
-        if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
-            primary_names = {
-                name for name in primary_names if self._is_specific_organization_alias(name)
-            }
-        primary_tokens = {
-            token.lower() for name in primary_names for token in name.split() if token
-        }
-        has_multi_token_primary = any(len(name.split()) > 1 for name in primary_names)
-        names = set(primary_names)
-        for alias in entity.aliases:
-            if "\n" in alias or "\r" in alias:
-                continue
-            alias_tokens = alias.split()
-            alias_allowed = True
-            alias_is_component_acronym = (
-                has_multi_token_primary
-                and len(alias_tokens) == 1
-                and alias_tokens[0].lower() in primary_tokens
-                and alias_tokens[0].isupper()
-            )
-            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
-                alias_allowed = self._is_specific_organization_alias(alias)
-            if alias_allowed and not alias_is_component_acronym:
-                names.add(alias)
-        return names
-
-    @staticmethod
-    def _deduplicate_by_registry(
-        entities: list[Entity],
-    ) -> tuple[list[Entity], dict[EntityID, EntityID]]:
-        """Merge entities that resolved to the same registry_id.
-
-        Returns the deduplicated list and a mapping from removed entity_ids
-        to the primary entity_id they were merged into.
-        """
-        registry_map: dict[str, Entity] = {}
-        id_remap: dict[EntityID, EntityID] = {}
-        result: list[Entity] = []
-        for entity in entities:
-            if entity.is_proxy_person or entity.is_honorific_person_ref:
-                result.append(entity)
-                continue
-            rid = entity.registry_id
-            if rid is None or rid not in registry_map:
-                if rid is not None:
-                    registry_map[rid] = entity
-                result.append(entity)
-            else:
-                # Merge aliases and evidence into the first entity
-                primary = registry_map[rid]
-                primary.aliases = list(
-                    dict.fromkeys(
-                        [*primary.aliases, *entity.aliases, entity.canonical_name],
-                    )
-                )
-                primary.evidence.extend(entity.evidence)
-                id_remap[entity.entity_id] = primary.entity_id
-        return result, id_remap
-
-    @staticmethod
-    def _deduplicate_exact_names(
-        entities: list[Entity],
-    ) -> tuple[list[Entity], dict[EntityID, EntityID]]:
-        exact_name_map: dict[tuple[str, str], Entity] = {}
-        id_remap: dict[EntityID, EntityID] = {}
-        result: list[Entity] = []
-        for entity in entities:
-            if entity.is_proxy_person or entity.is_honorific_person_ref:
-                result.append(entity)
-                continue
-            key_type = entity.entity_type.value
-            if entity.entity_type in {
-                EntityType.ORGANIZATION,
-                EntityType.PUBLIC_INSTITUTION,
-            }:
-                key_type = "org-or-public-institution"
-            key = (key_type, entity.canonical_name.casefold())
-            existing = exact_name_map.get(key)
-            if existing is None:
-                exact_name_map[key] = entity
-                result.append(entity)
-                continue
-            existing.aliases = list(
-                dict.fromkeys(
-                    [*existing.aliases, existing.canonical_name, *entity.aliases],
-                )
-            )
-            existing.evidence.extend(entity.evidence)
-            id_remap[entity.entity_id] = existing.entity_id
-        return result, id_remap
-
-    @staticmethod
-    def _registry_types_compatible(entity_type: str, match_type: str) -> bool:
-        if entity_type == match_type:
-            return True
-        return {entity_type, match_type} <= {
-            EntityType.ORGANIZATION.value,
-            EntityType.PUBLIC_INSTITUTION.value,
-        }
-
-    def _upsert_alias(self, registry_id: str, entity: Entity) -> None:
-        aliases = {
-            alias
-            for alias in {
-                entity.canonical_name,
-                entity.normalized_name,
-                *entity.aliases,
-            }
-            if "\n" not in alias and "\r" not in alias
-        }
-        for alias in aliases:
-            self._add_alias(registry_id, alias)
-
-    @staticmethod
-    def _fingerprint_from_name(normalized_name: str) -> EntityFingerprint:
-        tokens = normalized_name.split()
-        return {"normalized_name": normalized_name, "name_tokens": tokens}
-
-    @staticmethod
-    def _fingerprint(entity: Entity) -> EntityFingerprint:
-        tokens = entity.normalized_name.split()
-        return {
-            "normalized_name": entity.normalized_name,
-            "name_tokens": tokens,
-            "lemmas": entity.lemmas,
-        }
-
-    def _match_score(
-        self,
-        entity_type: EntityType,
-        current: EntityFingerprint,
-        stored: EntityFingerprint,
-        current_embedding: np.ndarray,
-        stored_embedding: list[float],
-    ) -> float:
-        current_tokens = current["name_tokens"]
-        stored_tokens = stored["name_tokens"]
-        if current_tokens == stored_tokens:
-            return 1.0
-
-        if entity_type == EntityType.PERSON:
-            if current_tokens[-1] != stored_tokens[-1]:
-                return 0.0
-            if len(current_tokens) != len(stored_tokens):
-                return 0.0
-            if current_tokens[:-1] != stored_tokens[:-1]:
-                return 0.0
-        else:
-            # For non-persons, if lemmas match significantly, it's a match
-            current_lemmas = set(current.get("lemmas", []))
-            stored_lemmas = set(stored.get("lemmas", []))
-            if current_lemmas and stored_lemmas and current_lemmas == stored_lemmas:
-                return 1.0
-            if entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
-                current_bases = self._token_bases(current_tokens)
-                stored_bases = self._token_bases(stored_tokens)
-                overlap = current_bases & stored_bases
-                shorter_length = min(len(current_bases), len(stored_bases))
-                if shorter_length <= 2 and current_bases != stored_bases:
-                    return 0.0
-                if shorter_length >= 3 and len(overlap) < 3:
-                    return 0.0
-
-        return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
-
-    @staticmethod
-    def _embedding_text(entity: Entity) -> str:
-        return entity.normalized_name.strip()
-
-    def _token_bases(self, tokens: list[str]) -> set[str]:
-        return {org_token_base(token.casefold()) for token in tokens if token}
-
-    def _is_specific_organization_alias(self, alias: str) -> bool:
-        tokens = [token for token in alias.split() if token]
-        if not tokens:
-            return False
-        if len(tokens) == 1:
-            token = tokens[0]
-            return token.isupper() or (
-                len(token) <= 4 and token[:1].isupper() and token[1:].islower()
-            )
-        bases = self._token_bases(tokens)
-        meaningful = {
-            base
-            for base in bases
-            if base
-            not in {
-                "biuro",
-                "fundacja",
-                "fundusz",
-                "instytut",
-                "ministerstwo",
-                "miasto",
-                "pogotowie",
-                "powiat",
-                "spółka",
-                "stowarzyszenie",
-                "urząd",
-                "województwo",
-            }
-        }
-        return len(meaningful) >= 2
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        result = super().run(document)
+        self._sqlite_kb.flush_from_in_memory(self._kb)
+        return result

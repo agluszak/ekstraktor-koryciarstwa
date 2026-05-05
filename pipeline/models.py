@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import Any, TypedDict
 
 from pipeline.domain_types import (
+    KBID,
     CandidateID,
     CandidateType,
     ClauseID,
@@ -474,3 +475,61 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         identity_hypotheses=document.identity_hypotheses,
         execution_times=document.execution_times,
     )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge-base data model
+# ---------------------------------------------------------------------------
+
+
+class EntityFingerprint(TypedDict, total=False):
+    """Lightweight cached fingerprint used for fast similarity matching."""
+
+    normalized_name: str
+    name_tokens: list[str]
+    lemmas: list[str]
+
+
+class KBExternalIDs(TypedDict, total=False):
+    """Namespace-aware external identifiers for a KB entity."""
+
+    wikidata: str
+    krs: str
+    regon: str
+    teryt: str
+    sejm_person: str
+    senat_person: str
+    pkw_committee: str
+
+
+@dataclass(slots=True)
+class KBEntityRecord:
+    """Canonical record for a real-world entity stored in the knowledge base."""
+
+    kb_id: KBID
+    entity_type: EntityType
+    canonical_name: str
+    normalized_name: str
+    aliases: list[str] = field(default_factory=list)
+    external_ids: KBExternalIDs = field(default_factory=KBExternalIDs)
+    description: str | None = None
+    locality: str | None = None
+    parent_org_id: str | None = None
+    party_id: str | None = None
+    active_from: str | None = None
+    active_to: str | None = None
+    embedding: list[float] = field(default_factory=list)
+    source_urls: list[str] = field(default_factory=list)
+    lemmas: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class KBAliasRecord:
+    """A single alias pointing to a KB entity."""
+
+    alias: str
+    normalized_alias: str
+    kb_id: KBID
+    prior: float
+    source: str
+    language: str = "pl"
