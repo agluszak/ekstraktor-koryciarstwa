@@ -59,6 +59,7 @@ class DocumentEntityCanonicalizer:
         self.organization_naming = OrganizationNamingPolicy(
             institution_lookup=self.institution_lookup,
             known_acronyms=self.known_acronyms,
+            morphology=morphology,
         )
         self.location_naming = LocationNamingPolicy()
 

@@ -13,6 +13,7 @@ from pipeline.domain_types import (
     TimeScope,
 )
 from pipeline.extraction_context import SentenceContext
+from pipeline.lemma_signals import has_lemma
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -22,7 +23,6 @@ from pipeline.models import (
     ParsedWord,
     SentenceFragment,
 )
-from pipeline.lemma_signals import has_lemma
 from pipeline.nlp_rules import (
     APPOINTMENT_TRIGGER_LEMMAS,
     DISMISSAL_TRIGGER_LEMMAS,

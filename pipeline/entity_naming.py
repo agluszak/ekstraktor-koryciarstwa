@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING
 
 from pipeline.models import Entity
 from pipeline.utils import compact_whitespace, normalize_entity_name, unique_preserve_order
+
+if TYPE_CHECKING:
+    from pipeline.nlp_services import MorphologyAnalyzer
 
 GENERIC_ORGANIZATION_TOKENS = frozenset(
     {
@@ -90,9 +94,13 @@ def is_acronym_like(token: str) -> bool:
     return any(char.isupper() for char in token[1:])
 
 
-def org_token_base(token: str) -> str:
+def org_token_base(token: str, morphology: MorphologyAnalyzer | None = None) -> str:
     if len(token) <= 3:
         return token
+    if morphology is not None:
+        analysis = morphology.analyze(token)
+        if analysis.word_analyses and analysis.word_analyses[0].pos == "NOUN":
+            return analysis.word_analyses[0].lemma.lower()
     if token.startswith(("urząd", "urzęd")):
         return "urząd"
     if token.startswith("fundacj"):
@@ -120,9 +128,11 @@ class OrganizationNamingPolicy:
         *,
         institution_lookup: Mapping[str, str],
         known_acronyms: Iterable[str],
+        morphology: MorphologyAnalyzer | None = None,
     ) -> None:
         self.institution_lookup = dict(institution_lookup)
         self.known_acronym_lookup = {alias.lower(): alias for alias in known_acronyms}
+        self.morphology = morphology
 
     def best_organization_name(self, entity: Entity, names: list[str]) -> str:
         normalized = [
@@ -281,27 +291,30 @@ class OrganizationNamingPolicy:
         )
         return score
 
-    @staticmethod
-    def _lemma_match_score(entity: Entity, name: str) -> int:
+    def _lemma_match_score(self, entity: Entity, name: str) -> int:
         lemmas = {str(lemma).lower() for lemma in entity.lemmas if isinstance(lemma, str) and lemma}
         if not lemmas:
             return 0
-        return sum(1 for token in name.split() if org_token_base(token.lower()) in lemmas)
+        return sum(
+            1 for token in name.split() if org_token_base(token.lower(), self.morphology) in lemmas
+        )
 
-    @staticmethod
-    def _organization_inflection_penalty(tokens: list[str]) -> int:
+    def _organization_inflection_penalty(self, tokens: list[str]) -> int:
         penalty = 0
         for token in tokens:
             lower = token.lower().strip(".,;:")
             if is_acronym_like(token) or len(lower) < 4:
                 continue
-            if org_token_base(lower) != lower:
+            if org_token_base(lower, self.morphology) != lower:
                 penalty += 1
         return penalty
 
-    @staticmethod
-    def _organization_shape_bonus(name: str) -> int:
-        bases = [org_token_base(token.lower().strip(".,;:")) for token in name.split() if token]
+    def _organization_shape_bonus(self, name: str) -> int:
+        bases = [
+            org_token_base(token.lower().strip(".,;:"), self.morphology)
+            for token in name.split()
+            if token
+        ]
         if not bases:
             return 0
         if bases[0] in PREFERRED_ORGANIZATION_HEADS:
@@ -310,15 +323,20 @@ class OrganizationNamingPolicy:
             return 2
         return 0
 
-    @staticmethod
-    def _organization_prefix_junk_penalty(name: str, candidates: list[str]) -> int:
-        bases = [org_token_base(token.lower().strip(".,;:")) for token in name.split() if token]
+    def _organization_prefix_junk_penalty(self, name: str, candidates: list[str]) -> int:
+        bases = [
+            org_token_base(token.lower().strip(".,;:"), self.morphology)
+            for token in name.split()
+            if token
+        ]
         penalty = 0
         for candidate in candidates:
             if candidate == name:
                 continue
             candidate_bases = [
-                org_token_base(token.lower().strip(".,;:")) for token in candidate.split() if token
+                org_token_base(token.lower().strip(".,;:"), self.morphology)
+                for token in candidate.split()
+                if token
             ]
             if len(candidate_bases) < 2 or len(candidate_bases) >= len(bases):
                 continue
@@ -326,11 +344,10 @@ class OrganizationNamingPolicy:
                 penalty = max(penalty, len(bases) - len(candidate_bases))
         return penalty
 
-    @staticmethod
-    def _foundation_public_body_penalty(tokens: list[str]) -> int:
+    def _foundation_public_body_penalty(self, tokens: list[str]) -> int:
         if len(tokens) < 2:
             return 0
-        head = org_token_base(tokens[0].lower().strip(".,;:"))
+        head = org_token_base(tokens[0].lower().strip(".,;:"), self.morphology)
         second = tokens[1].lower().strip(".,;:")
         if head not in {"fundacja", "stowarzyszenie"}:
             return 0
@@ -338,18 +355,17 @@ class OrganizationNamingPolicy:
             return 2
         return 0
 
-    @staticmethod
-    def _bare_organization_head_superseded(name: str, candidates: list[str]) -> bool:
+    def _bare_organization_head_superseded(self, name: str, candidates: list[str]) -> bool:
         tokens = [token for token in name.split() if token]
         if len(tokens) != 1:
             return False
-        head = org_token_base(tokens[0].lower())
+        head = org_token_base(tokens[0].lower(), self.morphology)
         if head not in PREFERRED_ORGANIZATION_HEADS:
             return False
         return any(
             other != name
             and len(other.split()) > 1
-            and org_token_base(other.split()[0].lower()) == head
+            and org_token_base(other.split()[0].lower(), self.morphology) == head
             for other in candidates
         )
 

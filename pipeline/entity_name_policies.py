@@ -62,8 +62,7 @@ class PartyNamingPolicy:
             if analysis.word_analyses:
                 return " ".join(wa.lemma.lower() for wa in analysis.word_analyses)
         tokens = [
-            _PARTY_TOKEN_VARIANTS.get(token.lower(), token.lower())
-            for token in normalized.split()
+            _PARTY_TOKEN_VARIANTS.get(token.lower(), token.lower()) for token in normalized.split()
         ]
         return " ".join(tokens)
 
