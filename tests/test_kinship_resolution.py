@@ -8,6 +8,7 @@ from pipeline.domain_types import (
     FactType,
     KinshipDetail,
 )
+from pipeline.domains.kinship import KinshipTieBuilder
 from pipeline.extraction_context import SentenceContext
 from pipeline.models import (
     ArticleDocument,
@@ -16,7 +17,6 @@ from pipeline.models import (
     ParsedWord,
     SentenceFragment,
 )
-from pipeline.relations.service import KinshipTieBuilder
 
 
 def test_kinship_proxy_skips_speaker() -> None:

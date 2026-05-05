@@ -1,7 +1,7 @@
 from pipeline.complaint_classifier import detect_patronage_complaint
 from pipeline.config import PipelineConfig
 from pipeline.entity_classifiers import is_media_like_name, is_party_like_name
-from pipeline.preprocessing.boilerplate import is_boilerplate_paragraph
+from pipeline.preprocessing import is_boilerplate_paragraph
 
 
 def test_party_classifier_uses_shared_aliases_without_overmatching() -> None:

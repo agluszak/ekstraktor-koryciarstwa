@@ -4,8 +4,8 @@ from collections.abc import Iterable, Mapping
 
 from pipeline.domain_types import (
     EntityID,
-    EntityType,
     FactType,
+    Json,
     TimeScope,
 )
 from pipeline.llm.dto import (
@@ -167,60 +167,11 @@ class LLMExtractionAdapter:
         )
 
 
-def candidates_from_payload(payload: object) -> LLMExtractionCandidateSet:
-    payload = _object_mapping(payload, "LLM response")
-    required_keys = {"is_relevant", "entities", "facts"}
-    extra_keys = set(payload) - required_keys
-    missing_keys = required_keys - set(payload)
-    if extra_keys or missing_keys:
-        raise ValueError("LLM response does not match the expected top-level schema")
-
-    entities_payload = payload["entities"]
-    facts_payload = payload["facts"]
-    if not isinstance(entities_payload, list):
-        raise ValueError("LLM response field 'entities' must be a list")
-    if not isinstance(facts_payload, list):
-        raise ValueError("LLM response field 'facts' must be a list")
-
-    return LLMExtractionCandidateSet(
-        is_relevant=_required_bool(payload, "is_relevant"),
-        entities=[_entity_candidate(item) for item in entities_payload],
-        facts=[_fact_candidate(item) for item in facts_payload],
-    )
-
-
-def _entity_candidate(payload: object) -> LLMEntityCandidate:
-    payload = _object_mapping(payload, "LLM entity item")
-    required_keys = {"key", "entity_type", "canonical_name"}
-    if set(payload) != required_keys:
-        raise ValueError("LLM entity item does not match the expected schema")
-    entity_type = _entity_type(_required_str(payload, "entity_type"))
-    return LLMEntityCandidate(
-        key=EntityKey(_required_str(payload, "key")),
-        entity_type=entity_type,
-        canonical_name=_required_str(payload, "canonical_name"),
-    )
-
-
-def _fact_candidate(payload: object) -> LLMFactCandidate:
-    payload = _object_mapping(payload, "LLM fact item")
-    allowed_keys = {
-        "fact_type",
-        "subject_key",
-        "object_key",
-        "value_text",
-        "evidence_quote",
-    }
-    required_keys = {"fact_type", "subject_key", "object_key", "evidence_quote"}
-    if not required_keys.issubset(payload) or set(payload) - allowed_keys:
-        raise ValueError("LLM fact item does not match the expected schema")
-    return LLMFactCandidate(
-        fact_type=_fact_type(_required_str(payload, "fact_type")),
-        subject_key=EntityKey(_required_str(payload, "subject_key")),
-        object_key=_optional_entity_key(payload.get("object_key")),
-        evidence_quote=_required_str(payload, "evidence_quote"),
-        value_text=_optional_str(payload.get("value_text")),
-    )
+def candidates_from_payload(payload: Json) -> LLMExtractionCandidateSet:
+    try:
+        return LLMExtractionCandidateSet.model_validate(payload)
+    except Exception as exc:
+        raise ValueError(f"LLM response does not match schema: {exc}") from exc
 
 
 def _first_span(document: ArticleDocument, quote: str) -> EvidenceSpan | None:
@@ -242,61 +193,6 @@ def _first_span(document: ArticleDocument, quote: str) -> EvidenceSpan | None:
         start_char=start,
         end_char=end,
     )
-
-
-def _entity_type(value: str) -> EntityType:
-    by_value = {item.value: item for item in EntityType}
-    if value not in by_value:
-        raise ValueError(f"Unknown LLM entity type: {value}")
-    return by_value[value]
-
-
-def _fact_type(value: str) -> FactType:
-    by_value = {item.value: item for item in FactType}
-    if value not in by_value:
-        raise ValueError(f"Unknown LLM fact type: {value}")
-    return by_value[value]
-
-
-def _optional_entity_key(value: object) -> EntityKey | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("object_key must be a string or null")
-    return EntityKey(value)
-
-
-def _required_str(payload: Mapping[str, object], key: str) -> str:
-    value = payload.get(key)
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"LLM field {key!r} must be a non-empty string")
-    return value
-
-
-def _object_mapping(payload: object, label: str) -> Mapping[str, object]:
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"{label} must be an object")
-    output: dict[str, object] = {}
-    for key, value in payload.items():
-        if not isinstance(key, str):
-            raise ValueError(f"{label} object keys must be strings")
-        output[key] = value
-    return output
-
-
-def _required_bool(payload: Mapping[str, object], key: str) -> bool:
-    value = payload.get(key)
-    if not isinstance(value, bool):
-        raise ValueError(f"LLM field {key!r} must be a boolean")
-    return value
-
-
-def _optional_str(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("Optional text fields must be strings or null")
-    return value or None
 
 
 def _unique_nonempty(values: Iterable[str]) -> list[str]:

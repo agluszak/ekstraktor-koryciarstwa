@@ -1,0 +1,42 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv and Python 3.13
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Cache ML models
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv/
+            models/
+            ~/stanza_resources
+          key: ml-models-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ hashFiles('scripts/setup_models.py') }}
+
+      - name: Set up ML models
+        run: uv run python scripts/setup_models.py

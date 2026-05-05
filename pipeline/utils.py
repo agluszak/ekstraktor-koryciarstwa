@@ -6,7 +6,6 @@ from collections.abc import Iterable
 from datetime import date
 
 from pipeline.domain_types import (
-    ClusterID,
     DocumentID,
     EntityID,
     FactID,
@@ -167,10 +166,6 @@ def generate_entity_id(prefix: str, *parts: str) -> EntityID:
 
 def generate_fact_id(prefix: str, *parts: str) -> FactID:
     return FactID(stable_id(prefix, *parts))
-
-
-def generate_cluster_id(prefix: str, *parts: str) -> ClusterID:
-    return ClusterID(stable_id(prefix, *parts))
 
 
 def generate_document_id(source_url: str | None, publication_date: str | None) -> DocumentID:

@@ -22,6 +22,7 @@ from pipeline.models import (
     EntityCandidate,
     Mention,
     ParsedWord,
+    SentenceFragment,
 )
 from pipeline.nlp_rules import TIE_WORDS
 from pipeline.relation_signals import supports_party_link, supports_person_role_link
@@ -95,7 +96,7 @@ class CandidateGraphBuilder:
     def _candidate_for_anchor(
         self,
         document: ArticleDocument,
-        sentence,
+        sentence: SentenceFragment,
         anchor: SentenceEntityAnchor,
         parsed_words: list[ParsedWord],
     ) -> EntityCandidate | None:
@@ -180,7 +181,7 @@ class CandidateGraphBuilder:
         self,
         *,
         document: ArticleDocument,
-        sentence,
+        sentence: SentenceFragment,
         existing_candidates: list[EntityCandidate],
     ) -> list[EntityCandidate]:
         occupied_candidates = [
@@ -253,7 +254,7 @@ class CandidateGraphBuilder:
     def _position_candidates(
         self,
         document: ArticleDocument,
-        sentence,
+        sentence: SentenceFragment,
         parsed_words: list[ParsedWord],
     ) -> list[EntityCandidate]:
         candidates: list[EntityCandidate] = []
@@ -267,7 +268,7 @@ class CandidateGraphBuilder:
     def _position_candidate_from_role_match(
         self,
         document: ArticleDocument,
-        sentence,
+        sentence: SentenceFragment,
         match: RoleMatch,
     ) -> EntityCandidate:
         alias = sentence.text[match.start : match.end]
@@ -307,7 +308,7 @@ class CandidateGraphBuilder:
         self,
         *,
         document: ArticleDocument,
-        sentence,
+        sentence: SentenceFragment,
         existing_candidates: list[EntityCandidate],
     ) -> list[EntityCandidate]:
         sentence_text = sentence.text
@@ -638,7 +639,11 @@ class CandidateGraphBuilder:
                 grouped[key] = anchor
         return list(grouped.values())
 
-    def _local_span_for_mention(self, sentence, mention: Mention) -> tuple[int, int] | None:
+    def _local_span_for_mention(
+        self,
+        sentence: SentenceFragment,
+        mention: Mention,
+    ) -> tuple[int, int] | None:
         if mention.end_char > mention.start_char:
             local_start = mention.start_char - sentence.start_char
             local_end = mention.end_char - sentence.start_char

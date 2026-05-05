@@ -190,7 +190,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 proxy_kind=ProxyKind.FAMILY,
                 kinship_detail=kinship_detail,
                 proxy_anchor_entity_id=EntityID(anchor_entity_id),
-                proxy_surface=surface,
                 lemmas=[kinship_detail.value],
                 evidence=[evidence],
             )

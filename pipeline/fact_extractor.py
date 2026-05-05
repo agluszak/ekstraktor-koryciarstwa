@@ -21,8 +21,7 @@ from pipeline.domains.secondary_facts import TieFactExtractor
 from pipeline.extraction_context import SentenceContext
 from pipeline.models import ArticleDocument, Fact
 from pipeline.normalization import DocumentEntityCanonicalizer
-
-from .candidate_graph import CandidateGraphBuilder
+from pipeline.relations.candidate_graph import CandidateGraphBuilder
 
 
 class PolishFactExtractor(FactExtractor):

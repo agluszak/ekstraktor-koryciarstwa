@@ -18,8 +18,6 @@ class PatternConfig:
     appointment_verbs: list[str]
     dismissal_verbs: list[str]
     board_terms: list[str]
-    party_markers: list[str]
-    kinship_terms: list[str]
     state_company_markers: list[str]
     qualification_markers: list[str]
 
@@ -45,10 +43,7 @@ class LLMConfig:
     base_url: str = "http://127.0.0.1:11434"
     model_path: str | None = None
     context_size: int = 16384
-    gpu_layers: int = -1
-    require_cuda: bool = True
     max_output_tokens: int = 4096
-    chat_format: str | None = None
     temperature: float = 0.0
     request_timeout_seconds: int = 300
 

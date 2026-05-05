@@ -9,7 +9,7 @@ from stanza.pipeline.coref_processor import extract_text
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityType
-from pipeline.models import ArticleDocument, CoreferenceResult, Entity, Mention
+from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
 
@@ -66,7 +66,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
     def name(self) -> str:
         return "stanza_coreference_resolver"
 
-    def run(self, document: ArticleDocument) -> CoreferenceResult:
+    def run(self, document: ArticleDocument) -> ArticleDocument:
         resolved_mentions: list[Mention] = []
         # Build lookup maps for person and organization entities so that Stanza coref
         # chains can be resolved for both entity types.
@@ -128,7 +128,29 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         finally:
             self.runtime.reset_stanza_coref_pipeline()
 
-        return CoreferenceResult(resolved_mentions=resolved_mentions)
+        if resolved_mentions:
+            existing_keys = {
+                (
+                    m.text,
+                    m.sentence_index,
+                    m.entity_id,
+                    m.start_char,
+                    m.end_char,
+                )
+                for m in document.mentions
+            }
+            for m in resolved_mentions:
+                key = (
+                    m.text,
+                    m.sentence_index,
+                    m.entity_id,
+                    m.start_char,
+                    m.end_char,
+                )
+                if key not in existing_keys:
+                    document.mentions.append(m)
+                    existing_keys.add(key)
+        return document
 
     @staticmethod
     def _match_person_entity(
