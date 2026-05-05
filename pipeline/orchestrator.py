@@ -55,7 +55,7 @@ class NepotismPipeline:
 
         t0 = time.perf_counter()
         document = self.preprocessor.run(data)
-        document.raw_html = ""
+        document.raw_html = ""  # free raw HTML memory — no stage after preprocessing needs it
         document.execution_times["preprocessor"] = time.perf_counter() - t0
 
         t0 = time.perf_counter()
