@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 
 from pipeline.attribution import resolve_public_employment_attribution
-from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClusterID,
@@ -30,7 +29,7 @@ from pipeline.temporal import extract_temporal_period, resolve_event_date
 from pipeline.utils import stable_id
 
 
-class PolishPublicEmploymentFrameExtractor(FrameExtractor):
+class PolishPublicEmploymentFrameExtractor:
     ENTRY_LEMMAS = frozenset({"zatrudnić", "dostać", "objąć", "zostać", "trafić"})
     STATUS_LEMMAS = frozenset({"pracować", "być"})
     ENTRY_TEXT_MARKERS = (
@@ -67,7 +66,7 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
     def name(self) -> str:
         return "polish_public_employment_frame_extractor"
 
-    def run(self, document: ArticleDocument) -> ArticleDocument:
+    def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.public_employment_frames = []
         for clause in document.clause_units:
             signal = self._signal(document, clause)
@@ -172,8 +171,7 @@ def _pe_deduplicate_facts(facts: list[Fact]) -> list[Fact]:
 
 
 class PublicEmploymentFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact

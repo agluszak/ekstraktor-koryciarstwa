@@ -9,7 +9,7 @@ from pipeline.domain_types import (
     KinshipDetail,
 )
 from pipeline.domains.kinship import KinshipTieBuilder
-from pipeline.extraction_context import SentenceContext
+from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -202,7 +202,11 @@ def test_kinship_apposition_emits_spouse_tie() -> None:
         ]
     )
 
-    facts = KinshipTieBuilder().build(doc, graph)
+    facts = KinshipTieBuilder().build(
+        doc,
+        ExtractionContext.build(doc),
+        FactExtractionContext.build(graph),
+    )
 
     assert len(facts) == 1
     assert facts[0].fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
@@ -276,4 +280,11 @@ def test_kinship_builder_does_not_pair_nearest_previous_people_without_evidence(
         ]
     )
 
-    assert KinshipTieBuilder().build(doc, graph) == []
+    assert (
+        KinshipTieBuilder().build(
+            doc,
+            ExtractionContext.build(doc),
+            FactExtractionContext.build(graph),
+        )
+        == []
+    )

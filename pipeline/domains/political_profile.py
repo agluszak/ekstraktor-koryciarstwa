@@ -12,10 +12,9 @@ from pipeline.domain_types import (
     FactType,
     TimeScope,
 )
-from pipeline.extraction_context import SentenceContext
+from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
 from pipeline.models import (
     ArticleDocument,
-    CandidateGraph,
     EntityCandidate,
     EvidenceSpan,
     Fact,
@@ -127,18 +126,15 @@ class PoliticalProfileFactExtractor:
 
 
 class CrossSentencePartyFactBuilder:
-    def build_cross_sentence_party_facts(
+    def build(
         self,
         document: ArticleDocument,
-        candidate_graph: CandidateGraph,
+        context: ExtractionContext,
+        fact_context: FactExtractionContext,
     ) -> list[Fact]:
-        candidates_by_sentence: dict[int, list[EntityCandidate]] = {}
-        for candidate in candidate_graph.candidates:
-            candidates_by_sentence.setdefault(candidate.sentence_index, []).append(candidate)
-
         facts: list[Fact] = []
         for sentence in document.sentences:
-            sentence_candidates = candidates_by_sentence.get(sentence.sentence_index, [])
+            sentence_candidates = fact_context.sentence_candidates(sentence.sentence_index)
             parties = [
                 candidate
                 for candidate in sentence_candidates
@@ -173,7 +169,7 @@ class CrossSentencePartyFactBuilder:
                 for previous_sentence in document.sentences
                 if previous_sentence.paragraph_index == sentence.paragraph_index
                 and previous_sentence.sentence_index < sentence.sentence_index
-                for candidate in candidates_by_sentence.get(previous_sentence.sentence_index, [])
+                for candidate in fact_context.sentence_candidates(previous_sentence.sentence_index)
                 if candidate.candidate_type == CandidateType.PERSON
                 and candidate.entity_id is not None
             ]
@@ -183,7 +179,7 @@ class CrossSentencePartyFactBuilder:
                 unique_previous_people.setdefault(person_candidate.entity_id, person_candidate)
             recent_persons = [
                 candidate
-                for candidate in candidates_by_sentence.get(sentence.sentence_index - 1, [])
+                for candidate in fact_context.sentence_candidates(sentence.sentence_index - 1)
                 if candidate.candidate_type == CandidateType.PERSON
                 and candidate.entity_id is not None
                 and candidate.paragraph_index == sentence.paragraph_index
@@ -221,7 +217,7 @@ class CrossSentencePartyFactBuilder:
                 continue
             persons = [
                 candidate
-                for candidate in candidates_by_sentence.get(next_sentence.sentence_index, [])
+                for candidate in fact_context.sentence_candidates(next_sentence.sentence_index)
                 if candidate.candidate_type == CandidateType.PERSON
                 and candidate.entity_id is not None
                 and candidate.start_char <= 20

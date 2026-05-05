@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 
-from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import ATTRIBUTION_SPEECH_LEMMAS, KINSHIP_LEMMAS
 from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
@@ -62,7 +61,7 @@ PARLIAMENTARY_CONTEXT_MARKERS = frozenset(
 )
 
 
-class PolishGovernanceFrameExtractor(FrameExtractor):
+class PolishGovernanceFrameExtractor:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
         self.target_resolver = GovernanceTargetResolver(config)
@@ -70,9 +69,8 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
     def name(self) -> str:
         return "polish_governance_frame_extractor"
 
-    def run(self, document: ArticleDocument) -> ArticleDocument:
+    def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.governance_frames = []
-        context = ExtractionContext.build(document)
         for clause in document.clause_units:
             parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
             signal = self._detect_signal(clause, parsed_words)
@@ -338,8 +336,8 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         clause: ClauseUnit,
         document: ArticleDocument,
         signal: GovernanceSignal,
+        context: ExtractionContext,
     ) -> GovernanceFrame | None:
-        context = ExtractionContext.build(document)
         person_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.PERSON},
@@ -646,9 +644,9 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
     def _find_cluster_for_mention(
         self,
         mention_ref: ClusterMention,
-        document: ArticleDocument,
+        context: ExtractionContext,
     ) -> EntityCluster | None:
-        return ExtractionContext.build(document).cluster_for_mention(mention_ref)
+        return context.cluster_for_mention(mention_ref)
 
     def _cluster_matches_mention(
         self,

@@ -485,8 +485,7 @@ class GovernanceTargetResolver:
 
 
 class GovernanceFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact

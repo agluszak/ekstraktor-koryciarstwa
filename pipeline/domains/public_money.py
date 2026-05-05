@@ -5,7 +5,6 @@ import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 
-from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClusterID,
@@ -115,7 +114,7 @@ class PublicMoneyFlowSignal:
     score_reason: str
 
 
-class PolishPublicContractFrameExtractor(FrameExtractor):
+class PolishPublicContractFrameExtractor:
     def __init__(
         self,
         config: PipelineConfig,
@@ -127,11 +126,11 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
     def name(self) -> str:
         return "polish_public_contract_frame_extractor"
 
-    def run(self, document: ArticleDocument) -> ArticleDocument:
+    def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.public_contract_frames = []
         for clause in document.clause_units:
             grounded_orgs = self.slot_grounder.ground_organization_mentions(document, clause)
-            signal = _public_money_flow_signal(document, clause, grounded_orgs)
+            signal = _public_money_flow_signal(document, clause, grounded_orgs, context)
             if (
                 signal is not None
                 and signal.kind == PublicMoneyFlowKind.PUBLIC_CONTRACT
@@ -165,6 +164,7 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
                 document,
                 clause,
                 amount_match,
+                context,
                 explicit_public_procurement=explicit_public_procurement,
             ):
                 document.public_contract_frames.append(frame)
@@ -175,10 +175,11 @@ class PolishPublicContractFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
         amount_match,
+        context: ExtractionContext,
         *,
         explicit_public_procurement: bool,
     ) -> list[PublicContractFrame]:
-        clusters = ExtractionContext.build(document).clusters_for_mentions(
+        clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION, EntityType.PERSON},
         )
@@ -406,6 +407,7 @@ def _public_money_flow_signal(
     document: ArticleDocument,
     clause: ClauseUnit,
     grounded_orgs: list[GroundedOrganizationMention],
+    context: ExtractionContext,
 ) -> PublicMoneyFlowSignal | None:
     amount_match = PUBLIC_MONEY_AMOUNT_PATTERN.search(clause.text) or COMPENSATION_PATTERN.search(
         clause.text
@@ -426,7 +428,7 @@ def _public_money_flow_signal(
     ) and not _has_explicit_public_money_noun(parsed_words, lowered):
         return None
 
-    org_clusters = _public_money_clusters(document, clause, grounded_orgs)
+    org_clusters = _public_money_clusters(document, clause, grounded_orgs, context)
     if len(org_clusters) < 2:
         return None
     payer = _public_money_payer(clause, org_clusters)
@@ -524,13 +526,14 @@ def _public_money_clusters(
     document: ArticleDocument,
     clause: ClauseUnit,
     grounded_orgs: list[GroundedOrganizationMention],
+    context: ExtractionContext,
 ) -> list[EntityCluster]:
     cluster_ids = [
         mention.cluster_id for mention in grounded_orgs if mention.cluster_id is not None
     ]
     if cluster_ids:
         return [cluster for cluster in document.clusters if cluster.cluster_id in cluster_ids]
-    return ExtractionContext.build(document).clusters_for_mentions(
+    return context.clusters_for_mentions(
         clause.cluster_mentions,
         {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
     )
@@ -597,8 +600,7 @@ def _deduplicate_public_facts(facts: list[Fact]) -> list[Fact]:
 
 
 class PublicContractFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact

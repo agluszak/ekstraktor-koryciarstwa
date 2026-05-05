@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 
-from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import (
     ACCOUNTABILITY_INSTITUTION_MARKERS,
@@ -41,19 +40,19 @@ from pipeline.temporal import resolve_event_date
 from pipeline.utils import normalize_entity_name, stable_id
 
 
-class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
+class PolishAntiCorruptionReferralFrameExtractor:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
 
     def name(self) -> str:
         return "polish_anti_corruption_referral_frame_extractor"
 
-    def run(self, document: ArticleDocument) -> ArticleDocument:
+    def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.anti_corruption_referral_frames = []
         for clause in document.clause_units:
             if not self._has_referral_context(document, clause):
                 continue
-            frame = self._extract_frame_from_clause(document, clause)
+            frame = self._extract_frame_from_clause(document, clause, context)
             if frame is not None:
                 document.anti_corruption_referral_frames.append(frame)
         return document
@@ -62,8 +61,9 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
+        context: ExtractionContext,
     ) -> AntiCorruptionReferralFrame | None:
-        clusters = ExtractionContext.build(document).clusters_for_mentions(
+        clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {
                 EntityType.PERSON,
@@ -215,19 +215,19 @@ class PolishAntiCorruptionReferralFrameExtractor(FrameExtractor):
         return False
 
 
-class PolishAntiCorruptionAbuseFrameExtractor(FrameExtractor):
+class PolishAntiCorruptionAbuseFrameExtractor:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
 
     def name(self) -> str:
         return "polish_anti_corruption_abuse_frame_extractor"
 
-    def run(self, document: ArticleDocument) -> ArticleDocument:
+    def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.anti_corruption_investigation_frames = []
         document.public_procurement_abuse_frames = []
         recent_public_actor: EntityCluster | None = None
         for clause in document.clause_units:
-            clusters = ExtractionContext.build(document).clusters_for_mentions(
+            clusters = context.clusters_for_mentions(
                 clause.cluster_mentions,
                 {
                     EntityType.PERSON,
@@ -443,8 +443,7 @@ def _ac_deduplicate_facts(facts: list[Fact]) -> list[Fact]:
 
 
 class AntiCorruptionReferralFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact
@@ -502,8 +501,7 @@ class AntiCorruptionReferralFactBuilder:
 
 
 class AntiCorruptionInvestigationFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact
@@ -561,8 +559,7 @@ class AntiCorruptionInvestigationFactBuilder:
 
 
 class PublicProcurementAbuseFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact
