@@ -158,6 +158,21 @@ def test_target_resolver_rejects_city_context_when_company_target_is_present() -
     assert result.target_org == target
 
 
+def test_target_resolver_rejects_ner_location_targets() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    resolver = GovernanceTargetResolver(config)
+    location = cluster("cluster-location", "Poznań", EntityType.LOCATION, start_char=30)
+
+    result = resolver.resolve(
+        document=document([location]),
+        clause=clause("Jan Kowalski z Poznania został dyrektorem."),
+        org_clusters=[location],
+        role_cluster=None,
+    )
+
+    assert result.target_org is None
+
+
 def test_governance_fact_builder_expands_list_appointments_with_exception() -> None:
     text = (
         "Do rady nadzorczej spółki Alfa powołano Annę Nowak, Piotra Lisa i Ewę "

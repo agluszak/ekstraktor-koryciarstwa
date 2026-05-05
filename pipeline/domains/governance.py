@@ -422,6 +422,8 @@ class GovernanceTargetResolver:
 
     @staticmethod
     def _is_place_context_cluster(cluster: EntityCluster) -> bool:
+        if cluster.entity_type == EntityType.LOCATION:
+            return True
         normalized = cluster.normalized_name.lower().strip(" .,:;")
         if normalized in PLACE_CONTEXT_TARGETS:
             return True
