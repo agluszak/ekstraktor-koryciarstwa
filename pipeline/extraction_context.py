@@ -14,7 +14,6 @@ from pipeline.domain_types import (
     TimeScope,
 )
 from pipeline.grammar_signals import (
-    infer_sentence_time_scope,
     infer_time_scope_with_temporal_context,
 )
 from pipeline.models import (

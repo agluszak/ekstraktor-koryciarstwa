@@ -49,10 +49,13 @@ def test_business_context_person_span_is_retyped_as_organization() -> None:
 
 
 def test_location_like_spacy_labels_map_to_location_entity_type() -> None:
-    assert SpacyPolishNERExtractor._map_label("geogName") == EntityType.LOCATION
     assert SpacyPolishNERExtractor._map_label("placeName") == EntityType.LOCATION
     assert SpacyPolishNERExtractor._map_label("GPE") == EntityType.LOCATION
     assert SpacyPolishNERExtractor._map_label("LOC") == EntityType.LOCATION
+
+
+def test_geographic_feature_labels_are_not_extracted_as_entities() -> None:
+    assert SpacyPolishNERExtractor._map_label("geogName") is None
 
 
 def test_spacy_raw_labels_are_preserved_as_typed_ner_labels() -> None:

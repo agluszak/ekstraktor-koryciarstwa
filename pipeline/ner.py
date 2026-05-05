@@ -148,7 +148,7 @@ class SpacyPolishNERExtractor(NERExtractor):
         ner_label = SpacyPolishNERExtractor._ner_label(label)
         if ner_label == NERLabel.PERSON:
             return EntityType.PERSON
-        if ner_label in {NERLabel.GEOGRAPHY, NERLabel.PLACE}:
+        if ner_label == NERLabel.PLACE:
             return EntityType.LOCATION
         if ner_label == NERLabel.ORGANIZATION:
             return EntityType.ORGANIZATION
