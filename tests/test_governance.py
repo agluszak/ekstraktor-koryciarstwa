@@ -11,14 +11,11 @@ from pipeline.domain_types import (
     NERLabel,
     OrganizationKind,
 )
-from pipeline.domains.compensation import CompensationFactBuilder
-from pipeline.domains.funding import FundingFactBuilder
+from pipeline.domains.compensation import CompensationFactBuilder, PolishCompensationFrameExtractor
+from pipeline.domains.funding import FundingFactBuilder, PolishFundingFrameExtractor
 from pipeline.domains.governance import GovernanceFactBuilder, GovernanceTargetResolver
-from pipeline.frames import (
-    PolishCompensationFrameExtractor,
-    PolishFundingFrameExtractor,
-    PolishGovernanceFrameExtractor,
-)
+from pipeline.domains.governance_frames import PolishGovernanceFrameExtractor
+from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -232,7 +229,7 @@ def test_governance_fact_builder_expands_list_appointments_with_exception() -> N
         clusters=[target, anna, piotr, ewa, marek],
     )
 
-    facts = GovernanceFactBuilder().build(doc)
+    facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert {fact.subject_entity_id for fact in facts} == {
         EntityID("entity-anna"),
@@ -700,7 +697,7 @@ def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
         )
     ]
 
-    extracted = PolishGovernanceFrameExtractor(config).run(doc)
+    extracted = PolishGovernanceFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(extracted.governance_frames) == 1
     frame = extracted.governance_frames[0]
@@ -778,7 +775,7 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
         )
     ]
 
-    extracted = PolishGovernanceFrameExtractor(config).run(doc)
+    extracted = PolishGovernanceFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(extracted.governance_frames) == 1
     frame = extracted.governance_frames[0]
@@ -890,7 +887,7 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
         ),
     ]
 
-    facts = GovernanceFactBuilder().build(doc)
+    facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
     assert facts[0].value_text == "Wiceprezes"
@@ -931,7 +928,7 @@ def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> Non
         )
     ]
 
-    facts = GovernanceFactBuilder().build(doc)
+    facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
     assert facts[0].event_date == "2019-02-25"
@@ -1028,7 +1025,7 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
         )
     ]
 
-    facts = GovernanceFactBuilder().build(doc)
+    facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
     assert facts[0].appointing_authority_entity_id == EntityID("person-2")
@@ -1066,7 +1063,7 @@ def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
         )
     ]
 
-    facts = CompensationFactBuilder().build(doc)
+    facts = CompensationFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
     assert facts[0].fact_type == "COMPENSATION"
@@ -1121,7 +1118,7 @@ def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> No
         )
     ]
 
-    facts = CompensationFactBuilder().build(doc)
+    facts = CompensationFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
     assert facts[0].event_date == "2019-02-25"
@@ -1146,7 +1143,7 @@ def test_compensation_frame_extractor_ignores_funding_amounts() -> None:
         )
     ]
 
-    extracted = PolishCompensationFrameExtractor(config).run(doc)
+    extracted = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert extracted.compensation_frames == []
 
@@ -1173,7 +1170,7 @@ def test_compensation_frame_extractor_emits_role_only_salary_frame() -> None:
         )
     ]
 
-    extracted = PolishCompensationFrameExtractor(config).run(doc)
+    extracted = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(extracted.compensation_frames) == 1
     assert extracted.compensation_frames[0].role_cluster_id == "cluster-role"
@@ -1208,8 +1205,8 @@ def test_funding_frame_extractor_emits_grant_frame_without_compensation_frame() 
         )
     ]
 
-    doc = PolishCompensationFrameExtractor(config).run(doc)
-    doc = PolishFundingFrameExtractor(config).run(doc)
+    doc = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
+    doc = PolishFundingFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert doc.compensation_frames == []
     assert len(doc.funding_frames) == 1
@@ -1252,7 +1249,7 @@ def test_funding_frame_extractor_rejects_reporting_przekazac_with_amount() -> No
         )
     ]
 
-    doc = PolishFundingFrameExtractor(config).run(doc)
+    doc = PolishFundingFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert doc.funding_frames == []
 
@@ -1310,7 +1307,7 @@ def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_of
         )
     ]
 
-    doc = PolishFundingFrameExtractor(config).run(doc)
+    doc = PolishFundingFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(doc.funding_frames) == 1
     assert doc.funding_frames[0].funder_cluster_id == "cluster-funder"
@@ -1348,7 +1345,7 @@ def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
         )
     ]
 
-    facts = FundingFactBuilder().build(doc)
+    facts = FundingFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
     assert facts[0].fact_type == "FUNDING"

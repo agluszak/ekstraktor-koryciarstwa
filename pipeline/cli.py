@@ -11,6 +11,7 @@ from pipeline.base import DocumentStage
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
+from pipeline.domain_registry import build_default_domain_registry
 from pipeline.enrichment import SharedEntityEnricher
 from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.filtering import KeywordRelevanceFilter
@@ -126,6 +127,7 @@ def build_pipeline(
     ]
 
     if engine == "rules":
+        domain_registry = build_default_domain_registry(config, runtime=shared_runtime)
         stages.extend(
             [
                 SpacyPolishNERExtractor(
@@ -138,8 +140,8 @@ def build_pipeline(
                 StanzaClauseParser(config, runtime=shared_runtime),
                 PolishFamilyIdentityResolver(config),
                 SharedEntityEnricher(config, runtime=shared_runtime),
-                PolishFrameExtractor(config, runtime=shared_runtime),
-                PolishFactExtractor(config),
+                PolishFrameExtractor(config, runtime=shared_runtime, registry=domain_registry),
+                PolishFactExtractor(config, registry=domain_registry),
                 InMemoryEntityLinker(config, runtime=shared_runtime),
             ]
         )

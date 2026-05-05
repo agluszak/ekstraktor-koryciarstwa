@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 
-from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     EntityType,
@@ -36,7 +35,7 @@ from pipeline.temporal import resolve_event_date
 from pipeline.utils import normalize_entity_name, stable_id
 
 
-class PolishFundingFrameExtractor(FrameExtractor):
+class PolishFundingFrameExtractor:
     def __init__(
         self,
         config: PipelineConfig,
@@ -48,11 +47,11 @@ class PolishFundingFrameExtractor(FrameExtractor):
     def name(self) -> str:
         return "polish_funding_frame_extractor"
 
-    def run(self, document: ArticleDocument) -> ArticleDocument:
+    def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.funding_frames = []
         for clause in document.clause_units:
             grounded_orgs = self.slot_grounder.ground_organization_mentions(document, clause)
-            signal = _public_money_flow_signal(document, clause, grounded_orgs)
+            signal = _public_money_flow_signal(document, clause, grounded_orgs, context)
             if signal is not None:
                 if signal.kind != PublicMoneyFlowKind.FUNDING:
                     continue
@@ -82,7 +81,7 @@ class PolishFundingFrameExtractor(FrameExtractor):
                 continue
             if is_reporting_przekazac_without_amount(document, clause, amount_match):
                 continue
-            frame = self._extract_frame_from_clause(document, clause, amount_match)
+            frame = self._extract_frame_from_clause(document, clause, amount_match, context)
             if frame is not None:
                 document.funding_frames.append(frame)
         return document
@@ -92,8 +91,8 @@ class PolishFundingFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
         amount_match,
+        context: ExtractionContext,
     ) -> FundingFrame | None:
-        context = ExtractionContext.build(document)
         org_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
@@ -314,8 +313,7 @@ class PolishFundingFrameExtractor(FrameExtractor):
 
 
 class FundingFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         facts = [
             fact
             for frame in document.funding_frames

@@ -25,7 +25,7 @@ from pipeline.domain_types import (
 )
 from pipeline.domains.political_profile import CrossSentencePartyFactBuilder
 from pipeline.enrichment import SharedEntityEnricher
-from pipeline.extraction_context import SentenceContext
+from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
 from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
@@ -2642,9 +2642,10 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
         parsed_sentences=document.parsed_sentences,
     )
 
-    facts = CrossSentencePartyFactBuilder().build_cross_sentence_party_facts(
+    facts = CrossSentencePartyFactBuilder().build(
         document,
-        candidate_graph,
+        ExtractionContext.build(document),
+        FactExtractionContext.build(candidate_graph),
     )
 
     assert facts

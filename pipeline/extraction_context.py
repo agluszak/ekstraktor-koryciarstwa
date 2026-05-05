@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pipeline.domain_types import CandidateType, ClusterID, EntityID, EntityType, TimeScope
 from pipeline.grammar_signals import infer_sentence_time_scope
@@ -24,10 +24,66 @@ from pipeline.temporal import resolve_event_date
 @dataclass(slots=True)
 class ExtractionContext:
     document: ArticleDocument
+    clusters_by_id: dict[ClusterID, EntityCluster] = field(init=False)
+    entities_by_id: dict[EntityID, Entity] = field(init=False)
+    cluster_by_entity_id_index: dict[EntityID, EntityCluster] = field(init=False)
+    exact_mention_index: dict[tuple[int, int, int, EntityType], EntityCluster] = field(init=False)
+    text_mention_index: dict[tuple[str, int, int, EntityType], list[EntityCluster]] = field(
+        init=False
+    )
+    clusters_by_sentence_type: dict[tuple[int, EntityType], list[EntityCluster]] = field(init=False)
+    clusters_by_paragraph_type: dict[tuple[int, EntityType], list[EntityCluster]] = field(
+        init=False
+    )
 
     @classmethod
     def build(cls, document: ArticleDocument) -> ExtractionContext:
         return cls(document=document)
+
+    def __post_init__(self) -> None:
+        self.clusters_by_id = {cluster.cluster_id: cluster for cluster in self.document.clusters}
+        self.entities_by_id = {entity.entity_id: entity for entity in self.document.entities}
+        self.cluster_by_entity_id_index = {}
+        self.exact_mention_index = {}
+        self.text_mention_index = {}
+        self.clusters_by_sentence_type = {}
+        self.clusters_by_paragraph_type = {}
+
+        for cluster in self.document.clusters:
+            for mention in cluster.mentions:
+                if (
+                    mention.entity_id is not None
+                    and mention.entity_id not in self.cluster_by_entity_id_index
+                ):
+                    self.cluster_by_entity_id_index[mention.entity_id] = cluster
+                if self._has_exact_span(mention):
+                    self.exact_mention_index[
+                        (
+                            mention.sentence_index,
+                            mention.start_char,
+                            mention.end_char,
+                            mention.entity_type,
+                        )
+                    ] = cluster
+                self.text_mention_index.setdefault(
+                    (
+                        mention.text,
+                        mention.sentence_index,
+                        mention.paragraph_index,
+                        mention.entity_type,
+                    ),
+                    [],
+                ).append(cluster)
+                self._append_unique_cluster(
+                    self.clusters_by_sentence_type,
+                    (mention.sentence_index, mention.entity_type),
+                    cluster,
+                )
+                self._append_unique_cluster(
+                    self.clusters_by_paragraph_type,
+                    (mention.paragraph_index, mention.entity_type),
+                    cluster,
+                )
 
     def clusters_for_clause(
         self,
@@ -54,26 +110,30 @@ class ExtractionContext:
         return clusters
 
     def cluster_for_mention(self, mention_ref: ClusterMention) -> EntityCluster | None:
-        exact_match = None
-        for cluster in self.document.clusters:
-            for mention in cluster.mentions:
-                if (
-                    mention.start_char == mention_ref.start_char
-                    and mention.end_char == mention_ref.end_char
-                    and mention.sentence_index == mention_ref.sentence_index
-                    and mention.entity_type == mention_ref.entity_type
-                ):
-                    exact_match = cluster
-                    break
-            if exact_match is not None:
-                break
+        exact_match = self.exact_mention_index.get(
+            (
+                mention_ref.sentence_index,
+                mention_ref.start_char,
+                mention_ref.end_char,
+                mention_ref.entity_type,
+            )
+        )
         if exact_match is not None:
             return exact_match
         if self._has_exact_span(mention_ref):
             return None
 
         fallback_matches: list[EntityCluster] = []
-        for cluster in self.document.clusters:
+        candidate_clusters = self.text_mention_index.get(
+            (
+                mention_ref.text,
+                mention_ref.sentence_index,
+                mention_ref.paragraph_index,
+                mention_ref.entity_type,
+            ),
+            [],
+        )
+        for cluster in candidate_clusters:
             for mention in cluster.mentions:
                 if (
                     mention.text != mention_ref.text
@@ -101,18 +161,12 @@ class ExtractionContext:
     def cluster_by_id(self, cluster_id: ClusterID | None) -> EntityCluster | None:
         if cluster_id is None:
             return None
-        return next(
-            (cluster for cluster in self.document.clusters if cluster.cluster_id == cluster_id),
-            None,
-        )
+        return self.clusters_by_id.get(cluster_id)
 
     def entity_by_id(self, entity_id: EntityID | None) -> Entity | None:
         if entity_id is None:
             return None
-        return next(
-            (entity for entity in self.document.entities if entity.entity_id == entity_id),
-            None,
-        )
+        return self.entities_by_id.get(entity_id)
 
     def entity_id_for_cluster_id(self, cluster_id: ClusterID | None) -> EntityID | None:
         cluster = self.cluster_by_id(cluster_id)
@@ -138,23 +192,17 @@ class ExtractionContext:
     def cluster_by_entity_id(self, entity_id: EntityID | None) -> EntityCluster | None:
         if entity_id is None:
             return None
-        return next(
-            (
-                cluster
-                for cluster in self.document.clusters
-                if any(mention.entity_id == entity_id for mention in cluster.mentions)
-            ),
-            None,
-        )
+        return self.cluster_by_entity_id_index.get(entity_id)
 
     def clusters_in_sentence(
         self,
         sentence_index: int,
         entity_types: set[EntityType],
     ) -> list[EntityCluster]:
-        return self._clusters_with_mentions(
+        return self._clusters_from_index(
+            self.clusters_by_sentence_type,
+            sentence_index,
             entity_types,
-            lambda mention: mention.sentence_index == sentence_index,
         )
 
     def clusters_in_sentence_window(
@@ -197,9 +245,10 @@ class ExtractionContext:
         entity_types: set[EntityType],
     ) -> list[EntityCluster]:
         return sorted(
-            self._clusters_with_mentions(
+            self._clusters_from_index(
+                self.clusters_by_paragraph_type,
+                clause.paragraph_index,
                 entity_types,
-                lambda mention: mention.paragraph_index == clause.paragraph_index,
             ),
             key=lambda cluster: self.cluster_clause_distance(cluster, clause),
         )
@@ -329,6 +378,68 @@ class ExtractionContext:
             seen.add(cluster.cluster_id)
             clusters.append(cluster)
         return clusters
+
+    @staticmethod
+    def _clusters_from_index(
+        index: dict[tuple[int, EntityType], list[EntityCluster]],
+        index_value: int,
+        entity_types: set[EntityType],
+    ) -> list[EntityCluster]:
+        seen: set[ClusterID] = set()
+        clusters: list[EntityCluster] = []
+        for entity_type in entity_types:
+            for cluster in index.get((index_value, entity_type), []):
+                if cluster.cluster_id in seen:
+                    continue
+                seen.add(cluster.cluster_id)
+                clusters.append(cluster)
+        return clusters
+
+    @staticmethod
+    def _append_unique_cluster(
+        index: dict[tuple[int, EntityType], list[EntityCluster]],
+        key: tuple[int, EntityType],
+        cluster: EntityCluster,
+    ) -> None:
+        bucket = index.setdefault(key, [])
+        if all(existing.cluster_id != cluster.cluster_id for existing in bucket):
+            bucket.append(cluster)
+
+
+@dataclass(slots=True)
+class FactExtractionContext:
+    graph: CandidateGraph
+    candidates_by_sentence: dict[int, list[EntityCandidate]] = field(init=False)
+    candidates_by_paragraph: dict[int, list[EntityCandidate]] = field(init=False)
+
+    @classmethod
+    def build(cls, graph: CandidateGraph) -> FactExtractionContext:
+        return cls(graph=graph)
+
+    def __post_init__(self) -> None:
+        self.candidates_by_sentence = {}
+        self.candidates_by_paragraph = {}
+        for candidate in self.graph.candidates:
+            self.candidates_by_sentence.setdefault(candidate.sentence_index, []).append(candidate)
+            self.candidates_by_paragraph.setdefault(candidate.paragraph_index, []).append(candidate)
+
+    def sentence_candidates(self, sentence_index: int) -> list[EntityCandidate]:
+        return self.candidates_by_sentence.get(sentence_index, [])
+
+    def paragraph_candidates(self, paragraph_index: int) -> list[EntityCandidate]:
+        return self.candidates_by_paragraph.get(paragraph_index, [])
+
+    def previous_sentence_candidates(
+        self,
+        *,
+        paragraph_index: int,
+        sentence_index: int,
+    ) -> list[EntityCandidate]:
+        return [
+            candidate
+            for candidate in self.sentence_candidates(sentence_index - 1)
+            if candidate.paragraph_index == paragraph_index
+        ]
 
 
 @dataclass(slots=True)

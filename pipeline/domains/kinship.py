@@ -13,6 +13,7 @@ from pipeline.domain_types import (
     RelationshipType,
     TimeScope,
 )
+from pipeline.extraction_context import ExtractionContext, FactExtractionContext
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -43,22 +44,19 @@ class KinshipTieBuilder:
     def build(
         self,
         document: ArticleDocument,
-        candidate_graph: CandidateGraph,
+        context: ExtractionContext,
+        fact_context: FactExtractionContext,
     ) -> list[Fact]:
-        candidates_by_sentence: dict[int, list[EntityCandidate]] = {}
-        for candidate in candidate_graph.candidates:
-            candidates_by_sentence.setdefault(candidate.sentence_index, []).append(candidate)
-
         evidence_items: list[KinshipTieEvidence] = []
         for sentence in document.sentences:
             evidence_items.extend(
                 self._direct_sentence_ties(
                     document=document,
                     sentence=sentence,
-                    sentence_candidates=candidates_by_sentence.get(sentence.sentence_index, []),
+                    sentence_candidates=fact_context.sentence_candidates(sentence.sentence_index),
                 )
             )
-        evidence_items.extend(self._identity_backed_proxy_ties(document, candidate_graph))
+        evidence_items.extend(self._identity_backed_proxy_ties(document, fact_context.graph))
         return [self._fact(document, evidence) for evidence in evidence_items]
 
     def _direct_sentence_ties(

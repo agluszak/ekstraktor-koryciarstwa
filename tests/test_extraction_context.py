@@ -1,12 +1,23 @@
 from unittest.mock import MagicMock
 
-from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType, NERLabel
-from pipeline.extraction_context import ExtractionContext, SentenceContext
+from pipeline.domain_types import (
+    CandidateID,
+    CandidateType,
+    ClauseID,
+    ClusterID,
+    DocumentID,
+    EntityID,
+    EntityType,
+    NERLabel,
+)
+from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
     ClauseUnit,
     ClusterMention,
+    Entity,
+    EntityCandidate,
     EntityCluster,
     ParsedWord,
     SentenceFragment,
@@ -176,6 +187,142 @@ def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
     )
 
     assert [cluster.cluster_id for cluster in clusters] == [ClusterID("near"), ClusterID("far")]
+
+
+def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_indexes() -> None:
+    person_mention = ClusterMention(
+        text="Jan Kowalski",
+        entity_type=EntityType.PERSON,
+        sentence_index=1,
+        paragraph_index=1,
+        start_char=20,
+        end_char=32,
+        entity_id=EntityID("entity-person"),
+    )
+    org_mention = ClusterMention(
+        text="Urząd Miasta",
+        entity_type=EntityType.PUBLIC_INSTITUTION,
+        sentence_index=2,
+        paragraph_index=1,
+        start_char=45,
+        end_char=57,
+        entity_id=EntityID("entity-org"),
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=[],
+        entities=[
+            Entity(
+                entity_id=EntityID("entity-person"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="jan kowalski",
+            )
+        ],
+        clusters=[
+            EntityCluster(
+                cluster_id=ClusterID("cluster-person"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="jan kowalski",
+                mentions=[person_mention],
+            ),
+            EntityCluster(
+                cluster_id=ClusterID("cluster-org"),
+                entity_type=EntityType.PUBLIC_INSTITUTION,
+                canonical_name="Urząd Miasta",
+                normalized_name="urząd miasta",
+                mentions=[org_mention],
+            ),
+        ],
+    )
+    context = ExtractionContext.build(document)
+
+    mention_cluster = context.cluster_for_mention(person_mention)
+    id_cluster = context.cluster_by_id(ClusterID("cluster-person"))
+    entity = context.entity_by_id(EntityID("entity-person"))
+    entity_cluster = context.cluster_by_entity_id(EntityID("entity-person"))
+
+    assert mention_cluster is not None
+    assert id_cluster is not None
+    assert entity is not None
+    assert entity_cluster is not None
+    assert mention_cluster.cluster_id == ClusterID("cluster-person")
+    assert id_cluster.canonical_name == "Jan Kowalski"
+    assert entity.canonical_name == "Jan Kowalski"
+    assert entity_cluster.cluster_id == ClusterID("cluster-person")
+    sentence_cluster_ids = [
+        cluster.cluster_id for cluster in context.clusters_in_sentence(1, {EntityType.PERSON})
+    ]
+    assert sentence_cluster_ids == [ClusterID("cluster-person")]
+    clause = ClauseUnit(
+        clause_id=ClauseID("clause"),
+        text="",
+        trigger_head_text="",
+        trigger_head_lemma="",
+        sentence_index=2,
+        paragraph_index=1,
+        start_char=42,
+        end_char=70,
+    )
+    assert [
+        cluster.cluster_id
+        for cluster in context.paragraph_context_clusters(
+            clause,
+            {EntityType.PERSON, EntityType.PUBLIC_INSTITUTION},
+        )
+    ] == [ClusterID("cluster-org"), ClusterID("cluster-person")]
+
+
+def test_fact_context_indexes_sentence_paragraph_and_previous_sentence_candidates() -> None:
+    first = EntityCandidate(
+        candidate_id=CandidateID("candidate-first"),
+        entity_id=EntityID("person-1"),
+        candidate_type=CandidateType.PERSON,
+        canonical_name="Jan Kowalski",
+        normalized_name="jan kowalski",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=12,
+        source="mention",
+    )
+    second = EntityCandidate(
+        candidate_id=CandidateID("candidate-second"),
+        entity_id=EntityID("org-1"),
+        candidate_type=CandidateType.PUBLIC_INSTITUTION,
+        canonical_name="Urząd",
+        normalized_name="urząd",
+        sentence_index=1,
+        paragraph_index=0,
+        start_char=20,
+        end_char=25,
+        source="mention",
+    )
+    other_paragraph = EntityCandidate(
+        candidate_id=CandidateID("candidate-other"),
+        entity_id=EntityID("person-2"),
+        candidate_type=CandidateType.PERSON,
+        canonical_name="Anna Nowak",
+        normalized_name="anna nowak",
+        sentence_index=0,
+        paragraph_index=1,
+        start_char=0,
+        end_char=10,
+        source="mention",
+    )
+    context = FactExtractionContext.build(
+        CandidateGraph(candidates=[first, second, other_paragraph])
+    )
+
+    assert context.sentence_candidates(0) == [first, other_paragraph]
+    assert context.paragraph_candidates(0) == [first, second]
+    assert context.previous_sentence_candidates(paragraph_index=0, sentence_index=1) == [first]
 
 
 def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:

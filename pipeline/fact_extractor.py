@@ -2,47 +2,23 @@ from __future__ import annotations
 
 from pipeline.base import FactExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domains.anti_corruption import (
-    AntiCorruptionInvestigationFactBuilder,
-    AntiCorruptionReferralFactBuilder,
-    PublicProcurementAbuseFactBuilder,
-)
-from pipeline.domains.compensation import CompensationFactBuilder
-from pipeline.domains.funding import FundingFactBuilder
-from pipeline.domains.governance import GovernanceFactBuilder
-from pipeline.domains.kinship import KinshipTieBuilder
-from pipeline.domains.political_profile import (
-    CrossSentencePartyFactBuilder,
-    PoliticalProfileFactExtractor,
-)
-from pipeline.domains.public_employment import PublicEmploymentFactBuilder
-from pipeline.domains.public_money import PublicContractFactBuilder
-from pipeline.domains.secondary_facts import TieFactExtractor
-from pipeline.extraction_context import SentenceContext
+from pipeline.domain_registry import DomainRegistry, build_default_domain_registry
+from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
 from pipeline.models import ArticleDocument, Fact
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.relations.candidate_graph import CandidateGraphBuilder
 
 
 class PolishFactExtractor(FactExtractor):
-    def __init__(self, config: PipelineConfig) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        registry: DomainRegistry | None = None,
+    ) -> None:
         self.config = config
         self.graph_builder = CandidateGraphBuilder(config)
         self.canonicalizer = DocumentEntityCanonicalizer(config)
-        self.governance_fact_builder = GovernanceFactBuilder()
-        self.compensation_fact_builder = CompensationFactBuilder()
-        self.funding_fact_builder = FundingFactBuilder()
-        self.public_contract_fact_builder = PublicContractFactBuilder()
-        self.public_employment_fact_builder = PublicEmploymentFactBuilder()
-        self.anti_corruption_referral_fact_builder = AntiCorruptionReferralFactBuilder()
-        self.anti_corruption_investigation_fact_builder = AntiCorruptionInvestigationFactBuilder()
-        self.public_procurement_abuse_fact_builder = PublicProcurementAbuseFactBuilder()
-        self.cross_sentence_party_fact_builder = CrossSentencePartyFactBuilder()
-        self.kinship_tie_builder = KinshipTieBuilder()
-        self.fact_extractors = [
-            PoliticalProfileFactExtractor(),
-            TieFactExtractor(),
-        ]
+        self.registry = registry or build_default_domain_registry(config)
 
     def name(self) -> str:
         return "polish_fact_extractor"
@@ -52,53 +28,32 @@ class PolishFactExtractor(FactExtractor):
             document=document,
             parsed_sentences=document.parsed_sentences,
         )
+        extraction_context = ExtractionContext.build(document)
+        fact_context = FactExtractionContext.build(candidate_graph)
         facts: list[Fact] = list(document.facts)
         for sentence in document.sentences:
-            sentence_candidates = [
-                candidate
-                for candidate in candidate_graph.candidates
-                if candidate.sentence_index == sentence.sentence_index
-            ]
+            sentence_candidates = fact_context.sentence_candidates(sentence.sentence_index)
             if not sentence_candidates:
                 continue
-            paragraph_candidates = [
-                candidate
-                for candidate in candidate_graph.candidates
-                if candidate.paragraph_index == sentence.paragraph_index
-            ]
-            previous_candidates = [
-                candidate
-                for candidate in candidate_graph.candidates
-                if candidate.paragraph_index == sentence.paragraph_index
-                and candidate.sentence_index == sentence.sentence_index - 1
-            ]
             context = SentenceContext(
                 document=document,
                 sentence=sentence,
                 parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
                 graph=candidate_graph,
                 candidates=sentence_candidates,
-                paragraph_candidates=paragraph_candidates,
-                previous_candidates=previous_candidates,
+                paragraph_candidates=fact_context.paragraph_candidates(sentence.paragraph_index),
+                previous_candidates=fact_context.previous_sentence_candidates(
+                    paragraph_index=sentence.paragraph_index,
+                    sentence_index=sentence.sentence_index,
+                ),
             )
-            for extractor in self.fact_extractors:
+            for extractor in self.registry.sentence_fact_extractors:
                 facts.extend(extractor.extract(context))
 
-        facts.extend(self.governance_fact_builder.build(document))
-        facts.extend(self.compensation_fact_builder.build(document))
-        facts.extend(self.funding_fact_builder.build(document))
-        facts.extend(self.public_contract_fact_builder.build(document))
-        facts.extend(self.public_employment_fact_builder.build(document))
-        facts.extend(self.anti_corruption_referral_fact_builder.build(document))
-        facts.extend(self.anti_corruption_investigation_fact_builder.build(document))
-        facts.extend(self.public_procurement_abuse_fact_builder.build(document))
-        facts.extend(
-            self.cross_sentence_party_fact_builder.build_cross_sentence_party_facts(
-                document,
-                candidate_graph,
-            )
-        )
-        facts.extend(self.kinship_tie_builder.build(document, candidate_graph))
+        for builder in self.registry.document_fact_builders:
+            facts.extend(builder.build(document, extraction_context))
+        for builder in self.registry.graph_fact_builders:
+            facts.extend(builder.build(document, extraction_context, fact_context))
 
         document.facts = self._deduplicate_facts(facts)
         return self.canonicalizer.run(document)

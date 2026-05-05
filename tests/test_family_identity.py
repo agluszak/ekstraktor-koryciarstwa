@@ -11,7 +11,8 @@ from pipeline.domain_types import (
     KinshipDetail,
     RelationshipType,
 )
-from pipeline.frames import PolishGovernanceFrameExtractor
+from pipeline.domains.governance_frames import PolishGovernanceFrameExtractor
+from pipeline.extraction_context import ExtractionContext
 from pipeline.identity import PolishFamilyIdentityResolver
 from pipeline.models import (
     ArticleDocument,
@@ -616,7 +617,7 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
 
     config = PipelineConfig.from_file("config.yaml")
     resolved = PolishFamilyIdentityResolver(config).run(doc)
-    framed = PolishGovernanceFrameExtractor(config).run(resolved)
+    framed = PolishGovernanceFrameExtractor(config).run(resolved, ExtractionContext.build(resolved))
 
     frame = framed.governance_frames[0]
     proxy_cluster_ids = {

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 
-from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClusterID,
@@ -75,14 +74,14 @@ PUBLIC_REMUNERATION_MARKERS = frozenset(
 )
 
 
-class PolishCompensationFrameExtractor(FrameExtractor):
+class PolishCompensationFrameExtractor:
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
 
     def name(self) -> str:
         return "polish_compensation_frame_extractor"
 
-    def run(self, document: ArticleDocument) -> ArticleDocument:
+    def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.compensation_frames = []
         for clause in document.clause_units:
             if self._looks_like_funding_clause(document, clause):
@@ -90,7 +89,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             for match in COMPENSATION_PATTERN.finditer(clause.text):
                 if not self._has_compensation_context(document, clause):
                     continue
-                frame = self._extract_frame_from_clause(document, clause, match)
+                frame = self._extract_frame_from_clause(document, clause, match, context)
                 if frame is not None:
                     document.compensation_frames.append(frame)
         return document
@@ -100,6 +99,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
         document: ArticleDocument,
         clause: ClauseUnit,
         match,
+        context: ExtractionContext,
     ) -> CompensationFrame | None:
         amount_text = match.group("amount")
         if not amount_text:
@@ -112,7 +112,6 @@ class PolishCompensationFrameExtractor(FrameExtractor):
             if earlier_match.start("amount") < match.start("amount")
         )
 
-        context = ExtractionContext.build(document)
         person_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
             {EntityType.PERSON},
@@ -198,9 +197,9 @@ class PolishCompensationFrameExtractor(FrameExtractor):
 
         governance_context = self._governance_context(document, clause, person_cluster)
         if role_cluster is None and governance_context is not None:
-            role_cluster = self._cluster_by_id(document, governance_context.role_cluster_id)
+            role_cluster = self._cluster_by_id(context, governance_context.role_cluster_id)
         if org_cluster is None and governance_context is not None:
-            org_cluster = self._cluster_by_id(document, governance_context.target_org_cluster_id)
+            org_cluster = self._cluster_by_id(context, governance_context.target_org_cluster_id)
             if org_cluster is not None and context_reason == "same_clause":
                 context_reason = "governance_context"
         if (
@@ -267,9 +266,9 @@ class PolishCompensationFrameExtractor(FrameExtractor):
     @staticmethod
     def _find_cluster_for_mention(
         mention_ref,
-        document: ArticleDocument,
+        context: ExtractionContext,
     ) -> EntityCluster | None:
-        return ExtractionContext.build(document).cluster_for_mention(mention_ref)
+        return context.cluster_for_mention(mention_ref)
 
     @classmethod
     def _paragraph_context_cluster(
@@ -348,10 +347,10 @@ class PolishCompensationFrameExtractor(FrameExtractor):
 
     @staticmethod
     def _cluster_by_id(
-        document: ArticleDocument,
+        context: ExtractionContext,
         cluster_id: ClusterID | None,
     ) -> EntityCluster | None:
-        return ExtractionContext.build(document).cluster_by_id(cluster_id)
+        return context.cluster_by_id(cluster_id)
 
     @staticmethod
     def _score_frame(
@@ -463,8 +462,7 @@ class PolishCompensationFrameExtractor(FrameExtractor):
 
 
 class CompensationFactBuilder:
-    def build(self, document: ArticleDocument) -> list[Fact]:
-        context = ExtractionContext.build(document)
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         facts = [
             fact
             for frame in document.compensation_frames

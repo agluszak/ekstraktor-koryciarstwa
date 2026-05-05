@@ -68,8 +68,14 @@ def test_domain_modules_import_shared_helpers_from_non_domain_modules() -> None:
             assert expected_module in imports, f"{relative_path}: missing {expected_module}"
 
 
-def test_fact_extractor_is_domain_facing_facade() -> None:
+def test_fact_extractor_uses_domain_registry_boundary() -> None:
     imports = _imports_for(REPO_ROOT / "pipeline/fact_extractor.py")
+    assert "pipeline.domain_registry" in imports
+    assert not any(module.startswith("pipeline.domains") for module in imports)
+
+
+def test_domain_registry_is_domain_facing_factory() -> None:
+    imports = _imports_for(REPO_ROOT / "pipeline/domain_registry.py")
     assert any(module.startswith("pipeline.domains") for module in imports)
 
 
