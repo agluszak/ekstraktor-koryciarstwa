@@ -4,7 +4,15 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
-from pipeline.domain_types import CandidateType, ClusterID, EntityID, EntityType, TimeScope
+from pipeline.dependency_frames import DependencyFrameBuilder, TriggerArgumentFrame
+from pipeline.domain_types import (
+    CandidateType,
+    ClauseID,
+    ClusterID,
+    EntityID,
+    EntityType,
+    TimeScope,
+)
 from pipeline.grammar_signals import infer_sentence_time_scope
 from pipeline.models import (
     ArticleDocument,
@@ -35,6 +43,7 @@ class ExtractionContext:
     clusters_by_paragraph_type: dict[tuple[int, EntityType], list[EntityCluster]] = field(
         init=False
     )
+    dependency_frames_by_clause_id: dict[ClauseID, TriggerArgumentFrame] = field(init=False)
 
     @classmethod
     def build(cls, document: ArticleDocument) -> ExtractionContext:
@@ -48,6 +57,7 @@ class ExtractionContext:
         self.text_mention_index = {}
         self.clusters_by_sentence_type = {}
         self.clusters_by_paragraph_type = {}
+        self.dependency_frames_by_clause_id = {}
 
         for cluster in self.document.clusters:
             for mention in cluster.mentions:
@@ -84,6 +94,10 @@ class ExtractionContext:
                     (mention.paragraph_index, mention.entity_type),
                     cluster,
                 )
+        self.dependency_frames_by_clause_id = DependencyFrameBuilder().build(self.document, self)
+
+    def dependency_frame_for_clause(self, clause: ClauseUnit) -> TriggerArgumentFrame | None:
+        return self.dependency_frames_by_clause_id.get(clause.clause_id)
 
     def clusters_for_clause(
         self,
@@ -315,6 +329,12 @@ class ExtractionContext:
             start_char=clause.start_char,
             end_char=clause.end_char,
         )
+
+    def fact_time_scope(self, evidence: EvidenceSpan) -> TimeScope:
+        if evidence.sentence_index is None:
+            return TimeScope.UNKNOWN
+        parsed_words = self.document.parsed_sentences.get(evidence.sentence_index, [])
+        return infer_sentence_time_scope(evidence.text, parsed_words)
 
     @staticmethod
     def cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> tuple[int, int]:

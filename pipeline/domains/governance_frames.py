@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from pipeline.config import PipelineConfig
+from pipeline.dependency_frames import DependencyArgumentRole, TriggerArgumentFrame
 from pipeline.domain_lexicons import ATTRIBUTION_SPEECH_LEMMAS, KINSHIP_LEMMAS
 from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
 from pipeline.domains.governance import GovernanceTargetResolver
@@ -167,6 +168,13 @@ class PolishGovernanceFrameExtractor:
             clause.cluster_mentions,
             {EntityType.PERSON},
         )
+        dependency_frame = context.dependency_frame_for_clause(clause)
+        person_clusters = self._prefer_dependency_people(
+            dependency_frame,
+            context,
+            person_clusters,
+            signal,
+        )
         if not person_clusters:
             person_clusters = ExtractionContext.sort_clusters_by_clause_distance(
                 context.previous_clusters(
@@ -213,6 +221,15 @@ class PolishGovernanceFrameExtractor:
             clause.cluster_mentions,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
+        dependency_orgs = self._dependency_orgs(dependency_frame, context)
+        if (
+            dependency_frame is not None
+            and dependency_frame.anaphoric_org_cluster_id is not None
+            and (anaphoric_org := context.cluster_by_id(dependency_frame.anaphoric_org_cluster_id))
+            is not None
+        ):
+            dependency_orgs = ExtractionContext.merge_clusters(dependency_orgs, [anaphoric_org])
+        clause_orgs = ExtractionContext.merge_clusters(dependency_orgs, clause_orgs)
         discourse_orgs = ExtractionContext.merge_clusters(
             clause_orgs,
             ExtractionContext.merge_clusters(
@@ -307,12 +324,82 @@ class PolishGovernanceFrameExtractor:
             appointing_authority_cluster_id=ClusterID(appointing_authority_id)
             if appointing_authority_id
             else None,
-            confidence=target_resolution.confidence,
+            confidence=self._dependency_adjusted_confidence(
+                target_resolution.confidence,
+                dependency_frame,
+                evidence_scope,
+            ),
             evidence=evidence,
             target_resolution=target_res_reason,
             found_role=found_role,
             evidence_scope=evidence_scope,
         )
+
+    @staticmethod
+    def _prefer_dependency_people(
+        dependency_frame: TriggerArgumentFrame | None,
+        context: ExtractionContext,
+        fallback: list[EntityCluster],
+        signal: GovernanceSignal,
+    ) -> list[EntityCluster]:
+        if dependency_frame is None:
+            return fallback
+        person_types = {EntityType.PERSON}
+        if signal == GovernanceSignal.APPOINTMENT:
+            preferred_roles = (
+                DependencyArgumentRole.OBJECT,
+                DependencyArgumentRole.PASSIVE_SUBJECT,
+                DependencyArgumentRole.SUBJECT,
+            )
+        else:
+            preferred_roles = (
+                DependencyArgumentRole.PASSIVE_SUBJECT,
+                DependencyArgumentRole.SUBJECT,
+                DependencyArgumentRole.OBJECT,
+            )
+        preferred: list[EntityCluster] = []
+        for role in preferred_roles:
+            preferred = ExtractionContext.merge_clusters(
+                preferred,
+                dependency_frame.clusters_for_role(context, role, person_types),
+            )
+        return ExtractionContext.merge_clusters(preferred, fallback)
+
+    @staticmethod
+    def _dependency_orgs(
+        dependency_frame: TriggerArgumentFrame | None,
+        context: ExtractionContext,
+    ) -> list[EntityCluster]:
+        if dependency_frame is None:
+            return []
+        org_types = {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+        orgs: list[EntityCluster] = []
+        for role in (
+            DependencyArgumentRole.OBJECT,
+            DependencyArgumentRole.INDIRECT_OBJECT,
+            DependencyArgumentRole.OBLIQUE,
+            DependencyArgumentRole.SUBJECT,
+        ):
+            orgs = ExtractionContext.merge_clusters(
+                orgs,
+                dependency_frame.clusters_for_role(context, role, org_types),
+            )
+        return orgs
+
+    @staticmethod
+    def _dependency_adjusted_confidence(
+        confidence: float,
+        dependency_frame: TriggerArgumentFrame | None,
+        evidence_scope: str | None,
+    ) -> float:
+        if dependency_frame is None:
+            return confidence
+        adjusted = confidence
+        if dependency_frame.trigger_aspect == "Imp":
+            adjusted -= 0.08
+        if evidence_scope == "discourse_window":
+            adjusted -= 0.03
+        return max(0.45, round(adjusted, 3))
 
     def _extract_frame_from_clause(
         self,
