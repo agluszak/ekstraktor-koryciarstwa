@@ -479,8 +479,17 @@ def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
         ],
     )
 
+    from pipeline.roles import PolishPositionExtractor
+    from pipeline.clustering import PolishEntityClusterer
+    
+    extractor = PolishPositionExtractor(config)
+    clusterer = PolishEntityClusterer(config)
+    
+    extractor.run(document)
+    clusterer.run(document)
+    
+    # Enrichment is still needed for grounding refreshes
     enricher = SharedEntityEnricher(config)
-    enricher.run(document)
     enricher.run(document)
 
     position_clusters = [

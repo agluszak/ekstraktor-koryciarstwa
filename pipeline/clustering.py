@@ -263,6 +263,11 @@ class PolishEntityClusterer(EntityClusterer):
         cluster.normalized_name = cluster.canonical_name
         cluster.lemmas = representative_entity.lemmas
 
+        if cluster.role_kind is None:
+            cluster.role_kind = entity.role_kind
+        if cluster.role_modifier is None:
+            cluster.role_modifier = entity.role_modifier
+
     @staticmethod
     def _mention_location(document: ArticleDocument, mention: Mention) -> tuple[int, int, int]:
         if (

@@ -24,6 +24,7 @@ from pipeline.ner import SpacyPolishNERExtractor
 from pipeline.nlp_services import StanzaPolishMorphologyAnalyzer
 from pipeline.orchestrator import NepotismPipeline
 from pipeline.preprocessing import TrafilaturaPreprocessor
+from pipeline.roles import PolishPositionExtractor
 from pipeline.runtime import PipelineRuntime
 from pipeline.scoring import RuleBasedNepotismScorer
 from pipeline.segmentation import ParagraphSentenceSegmenter
@@ -135,9 +136,10 @@ def build_pipeline(
                     runtime=shared_runtime,
                     morphology=morphology,
                 ),
+                StanzaClauseParser(config, runtime=shared_runtime),
+                PolishPositionExtractor(config),
                 StanzaCoreferenceResolver(config, runtime=shared_runtime),
                 PolishEntityClusterer(config, runtime=shared_runtime),
-                StanzaClauseParser(config, runtime=shared_runtime),
                 PolishFamilyIdentityResolver(config),
                 SharedEntityEnricher(config, runtime=shared_runtime),
                 PolishFrameExtractor(config, runtime=shared_runtime, registry=domain_registry),

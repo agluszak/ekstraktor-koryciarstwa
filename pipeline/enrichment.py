@@ -55,7 +55,6 @@ class SharedEntityEnricher(EntityEnricher):
     def run(self, document: ArticleDocument) -> ArticleDocument:
         self._derive_missing_organizations(document)
         self._enrich_public_institutions(document)
-        self._ensure_public_office_positions(document)
         self._refresh_clause_mentions(document)
         return document
 
@@ -285,107 +284,6 @@ class SharedEntityEnricher(EntityEnricher):
                         entity.canonical_name = typing_result.canonical_name
                         entity.normalized_name = typing_result.canonical_name
                     mention.entity_type = EntityType.PUBLIC_INSTITUTION
-
-    def _ensure_public_office_positions(self, document: ArticleDocument) -> None:
-        existing_keys = {
-            (
-                mention.sentence_index,
-                mention.start_char,
-                mention.end_char,
-                cluster.role_kind,
-                cluster.role_modifier,
-            )
-            for cluster in document.clusters
-            if cluster.entity_type == EntityType.POSITION
-            for mention in cluster.mentions
-        }
-        for sentence in document.sentences:
-            parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
-            for match in match_role_mentions(parsed_words):
-                if match.role_kind not in PUBLIC_OFFICE_ROLE_KINDS:
-                    continue
-                start_char = sentence.start_char + match.start
-                end_char = sentence.start_char + match.end
-                key = (
-                    sentence.sentence_index,
-                    start_char,
-                    end_char,
-                    match.role_kind,
-                    match.role_modifier,
-                )
-                if key in existing_keys:
-                    continue
-                self._add_position(document, sentence, match, start_char, end_char)
-                existing_keys.add(key)
-
-    @staticmethod
-    def _add_position(
-        document: ArticleDocument,
-        sentence: SentenceFragment,
-        match: RoleMatch,
-        start_char: int,
-        end_char: int,
-    ) -> None:
-        surface = sentence.text[match.start : match.end]
-        entity_id = EntityID(
-            stable_id(
-                "position",
-                document.document_id,
-                match.canonical_name,
-                str(sentence.sentence_index),
-                str(start_char),
-                str(end_char),
-            )
-        )
-        evidence = EvidenceSpan(
-            text=surface,
-            sentence_index=sentence.sentence_index,
-            paragraph_index=sentence.paragraph_index,
-            start_char=start_char,
-            end_char=end_char,
-        )
-        entity = Entity(
-            entity_id=entity_id,
-            entity_type=EntityType.POSITION,
-            canonical_name=match.canonical_name,
-            normalized_name=match.canonical_name,
-            aliases=[surface],
-            evidence=[evidence],
-            role_kind=match.role_kind,
-            role_modifier=match.role_modifier,
-        )
-        mention = Mention(
-            text=surface,
-            normalized_text=match.canonical_name,
-            mention_type=EntityType.POSITION,
-            sentence_index=sentence.sentence_index,
-            paragraph_index=sentence.paragraph_index,
-            start_char=start_char,
-            end_char=end_char,
-            entity_id=entity_id,
-        )
-        cluster_mention = ClusterMention(
-            text=surface,
-            entity_type=EntityType.POSITION,
-            sentence_index=sentence.sentence_index,
-            paragraph_index=sentence.paragraph_index,
-            start_char=start_char,
-            end_char=end_char,
-            entity_id=entity_id,
-        )
-        cluster = EntityCluster(
-            cluster_id=ClusterID(stable_id("cluster", document.document_id, entity_id)),
-            entity_type=EntityType.POSITION,
-            canonical_name=match.canonical_name,
-            normalized_name=match.canonical_name,
-            mentions=[cluster_mention],
-            aliases=[surface],
-            role_kind=match.role_kind,
-            role_modifier=match.role_modifier,
-        )
-        document.entities.append(entity)
-        document.mentions.append(mention)
-        document.clusters.append(cluster)
 
     @staticmethod
     def _refresh_clause_mentions(document: ArticleDocument) -> None:
