@@ -310,7 +310,6 @@ class PolishFundingFrameExtractor(FrameExtractor):
 
 class FundingFactBuilder:
     def build(self, document: ArticleDocument) -> list[Fact]:
-
         cluster_to_entity_id: dict[str, str] = {
             str(cluster.cluster_id): str(self._get_best_entity_id(cluster))
             for cluster in document.clusters
