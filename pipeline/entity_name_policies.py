@@ -6,7 +6,8 @@ from pipeline.models import Entity
 from pipeline.nlp_services import MorphologicalAnalysis, MorphologyAnalyzer
 from pipeline.utils import compact_whitespace, normalize_entity_name, normalize_party_name
 
-PARTY_TOKEN_VARIANTS = {
+# Kept as a deterministic fallback for when no morphology analyzer is available.
+_PARTY_TOKEN_VARIANTS: dict[str, str] = {
     "prawa": "prawo",
     "sprawiedliwości": "sprawiedliwość",
     "platformy": "platforma",
@@ -24,7 +25,12 @@ def canonical_noise_score(name: str) -> int:
 
 
 class PartyNamingPolicy:
-    def __init__(self, party_aliases: dict[str, str]) -> None:
+    def __init__(
+        self,
+        party_aliases: dict[str, str],
+        morphology: MorphologyAnalyzer | None = None,
+    ) -> None:
+        self.morphology = morphology
         self.party_lookup = {
             normalize_party_name(alias).lower(): compact_whitespace(canonical)
             for alias, canonical in party_aliases.items()
@@ -49,26 +55,31 @@ class PartyNamingPolicy:
             return ""
         return max(normalized_candidates, key=self.name_score)
 
-    @classmethod
-    def lookup_key(cls, name: str) -> str:
+    def lookup_key(self, name: str) -> str:
+        normalized = normalize_party_name(name)
+        if self.morphology is not None:
+            analysis = self.morphology.analyze(normalized)
+            if analysis.word_analyses:
+                return " ".join(wa.lemma.lower() for wa in analysis.word_analyses)
         tokens = [
-            PARTY_TOKEN_VARIANTS.get(token.lower(), token.lower())
-            for token in normalize_party_name(name).split()
+            _PARTY_TOKEN_VARIANTS.get(token.lower(), token.lower()) for token in normalized.split()
         ]
         return " ".join(tokens)
 
-    @classmethod
-    def name_score(cls, name: str) -> tuple[int, int, int]:
+    def name_score(self, name: str) -> tuple[int, int, int]:
         tokens = [token for token in name.split() if token]
         return (
             -canonical_noise_score(name),
-            sum(1 for token in tokens if token.lower() == cls.token_base(token.lower())),
+            sum(1 for token in tokens if token.lower() == self.token_base(token.lower())),
             len(name),
         )
 
-    @classmethod
-    def token_base(cls, token: str) -> str:
-        mapped = PARTY_TOKEN_VARIANTS.get(token)
+    def token_base(self, token: str) -> str:
+        if self.morphology is not None:
+            analysis = self.morphology.analyze(token)
+            if analysis.word_analyses:
+                return analysis.word_analyses[0].lemma.lower()
+        mapped = _PARTY_TOKEN_VARIANTS.get(token)
         if mapped is not None:
             return mapped
         return org_token_base(token)

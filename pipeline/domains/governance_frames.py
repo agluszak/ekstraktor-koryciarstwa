@@ -17,7 +17,13 @@ from pipeline.domain_lexicons import KINSHIP_LEMMAS
 from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
 from pipeline.extraction_context import ExtractionContext
 from pipeline.governance import GovernanceTargetResolver
-from pipeline.lemma_signals import has_lemma, has_lemma_pair, lemma_set
+from pipeline.lemma_signals import (
+    child_words,
+    has_lemma,
+    has_lemma_pair,
+    lemma_set,
+    words_with_lemmas,
+)
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -30,10 +36,8 @@ from pipeline.models import (
 from pipeline.nlp_rules import (
     APPOINTMENT_NOUN_LEMMAS,
     APPOINTMENT_TRIGGER_LEMMAS,
-    APPOINTMENT_TRIGGER_TEXTS,
     DISMISSAL_NOUN_LEMMAS,
     DISMISSAL_TRIGGER_LEMMAS,
-    DISMISSAL_TRIGGER_TEXTS,
 )
 from pipeline.role_matching import (
     has_copular_role_appointment,
@@ -42,7 +46,7 @@ from pipeline.role_matching import (
 from pipeline.role_text import find_role_text, find_role_text_from_text
 
 WEAK_APPOINTMENT_TRIGGER_LEMMAS = frozenset(
-    {"objąć", "zająć", "pracować", "zatrudnić", "zatrudnienie", "trafić"}
+    {"objąć", "zająć", "pracować", "zatrudnić", "zatrudnienie", "zatrudniony", "trafić", "zasiąść"}
 )
 PARLIAMENTARY_REMUNERATION_MARKERS = frozenset(
     {
@@ -108,7 +112,6 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         if (
             self._has_trigger_head_appointment_signal(lemma, parsed_words or [])
             or self._has_appointment_lemma_signal(parsed_words or [])
-            or any(trigger in lowered_text for trigger in APPOINTMENT_TRIGGER_TEXTS)
             or has_copular_role_appointment(parsed_words or [])
             or has_governance_verb_with_role(parsed_words or [], APPOINTMENT_TRIGGER_LEMMAS)
         ):
@@ -116,7 +119,7 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
         if (
             lemma in DISMISSAL_TRIGGER_LEMMAS
             or self._has_dismissal_lemma_signal(parsed_words or [])
-            or any(trigger in lowered_text for trigger in DISMISSAL_TRIGGER_TEXTS)
+            or self._has_dismissal_negation_signal(parsed_words or [])
             or has_governance_verb_with_role(parsed_words or [], DISMISSAL_TRIGGER_LEMMAS)
         ):
             return GovernanceSignal.DISMISSAL
@@ -170,6 +173,18 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             frozenset({"złożyć", "przyjąć"}),
             DISMISSAL_NOUN_LEMMAS,
         )
+
+    @staticmethod
+    def _has_dismissal_negation_signal(parsed_words: list[ParsedWord]) -> bool:
+        """Detect negated-verb dismissal patterns ('nie jest już', 'nie zasiada już')."""
+        _negated_verb_lemmas = frozenset({"być", "zasiadać"})
+        for word in words_with_lemmas(parsed_words, _negated_verb_lemmas):
+            if any(
+                c.deprel in {"advmod", "neg"}
+                for c in words_with_lemmas(child_words(parsed_words, word), {"nie"})
+            ):
+                return True
+        return False
 
     def _extract_discourse_frame(
         self,

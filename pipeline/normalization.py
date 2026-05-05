@@ -42,7 +42,7 @@ class DocumentEntityCanonicalizer:
         self.config = config
         self.ambiguous_person_singletons: set[str] = set()
         self.person_naming = PersonNamePolicy(morphology)
-        self.party_naming = PartyNamingPolicy(config.party_aliases)
+        self.party_naming = PartyNamingPolicy(config.party_aliases, morphology)
         self.institution_lookup = {
             normalize_entity_name(alias).lower(): compact_whitespace(canonical)
             for alias, canonical in config.institution_aliases.items()
@@ -59,6 +59,7 @@ class DocumentEntityCanonicalizer:
         self.organization_naming = OrganizationNamingPolicy(
             institution_lookup=self.institution_lookup,
             known_acronyms=self.known_acronyms,
+            morphology=morphology,
         )
         self.location_naming = LocationNamingPolicy()
 
