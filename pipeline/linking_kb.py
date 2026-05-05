@@ -157,6 +157,16 @@ class InMemoryKnowledgeBase(EntityKnowledgeBase):
     def get_entry(self, kb_id: str) -> _RegistryEntry | None:
         return self._registry.get(kb_id)
 
+    def iter_entities(self) -> list[tuple[str, _RegistryEntry]]:
+        """Return all (kb_id, entry) pairs for persistence/export."""
+        return list(self._registry.items())
+
+    def iter_aliases(self) -> list[tuple[str, str]]:
+        """Return all (alias, kb_id) pairs for persistence/export."""
+        return [
+            (alias, kb_id) for alias, kb_ids in self._alias_to_registry.items() for kb_id in kb_ids
+        ]
+
     # ------------------------------------------------------------------
     # Lookup helpers used by the orchestrator
     # ------------------------------------------------------------------

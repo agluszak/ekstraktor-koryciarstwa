@@ -57,14 +57,14 @@ class SQLiteKnowledgeBase(EntityKnowledgeBase):
     """Entity knowledge base backed by a SQLite database.
 
     The database is created (with the required schema) on first access if it
-    does not exist yet.  Thread-safety is *not* guaranteed; use one instance
-    per process/thread.
+    does not exist yet.  **Not thread-safe**: create one instance per process
+    or protect concurrent access with an external lock.
     """
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self._conn = sqlite3.connect(str(self.db_path))
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -192,15 +192,24 @@ class SQLiteKnowledgeBase(EntityKnowledgeBase):
     ) -> "InMemoryKnowledgeBase":
         """Create and warm an ``InMemoryKnowledgeBase`` from this SQLite store."""
         from pipeline.linking_kb import InMemoryKnowledgeBase
+        from pipeline.models import KBAliasRecord
 
         kb = InMemoryKnowledgeBase(config, runtime)
-        # Load all entities
+        # Load all entities via the public interface
         for row in self._conn.execute("SELECT * FROM kb_entity").fetchall():
             record = self._row_to_record(row)
             kb.upsert_entity(record)
-        # Load all aliases
+        # Load all aliases via the public interface
         for row in self._conn.execute("SELECT * FROM kb_alias").fetchall():
-            kb._add_alias(row["kb_id"], row["alias"])
+            kb.add_alias(
+                KBAliasRecord(
+                    alias=row["alias"],
+                    normalized_alias=row["normalized_alias"],
+                    kb_id=KBID(row["kb_id"]),
+                    prior=row["prior"],
+                    source=row["source"],
+                )
+            )
         return kb
 
     def flush_from_in_memory(
@@ -211,7 +220,7 @@ class SQLiteKnowledgeBase(EntityKnowledgeBase):
         existing_ids = {
             row[0] for row in self._conn.execute("SELECT kb_id FROM kb_entity").fetchall()
         }
-        for kb_id, entry in kb._registry.items():
+        for kb_id, entry in kb.iter_entities():
             if kb_id in existing_ids:
                 continue
             fp = entry.fingerprint
@@ -229,16 +238,19 @@ class SQLiteKnowledgeBase(EntityKnowledgeBase):
             (row[0], row[1])
             for row in self._conn.execute("SELECT normalized_alias, kb_id FROM kb_alias").fetchall()
         }
-        for alias_str, kb_ids in kb._alias_to_registry.items():
-            for kb_id in kb_ids:
-                if (alias_str.lower(), kb_id) not in existing_aliases:
-                    self._conn.execute(
-                        """
-                        INSERT OR IGNORE INTO kb_alias (alias, normalized_alias, kb_id, source)
-                        VALUES (?, ?, ?, 'in_memory')
-                        """,
-                        (alias_str, alias_str.lower(), kb_id),
+        from pipeline.models import KBAliasRecord
+
+        for alias_str, kb_id in kb.iter_aliases():
+            if (alias_str.lower(), kb_id) not in existing_aliases:
+                self.add_alias(
+                    KBAliasRecord(
+                        alias=alias_str,
+                        normalized_alias=alias_str.lower(),
+                        kb_id=KBID(kb_id),
+                        prior=1.0,
+                        source="in_memory",
                     )
+                )
         self._conn.commit()
 
     # ------------------------------------------------------------------

@@ -19,14 +19,20 @@ from __future__ import annotations
 
 from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityID, EntityType
+from pipeline.domain_types import KBID, EntityID, EntityType
 from pipeline.linking_candidates import AliasCandidateGenerator
 from pipeline.linking_dedup import RegistryDeduplicator
 from pipeline.linking_disambiguator import RuleBasedEntityDisambiguator
 from pipeline.linking_kb import (
     InMemoryKnowledgeBase,
 )
-from pipeline.models import ArticleDocument, Entity, EntityCluster, EntityFingerprint
+from pipeline.models import (
+    ArticleDocument,
+    Entity,
+    EntityCluster,
+    EntityFingerprint,
+    KBEntityRecord,
+)
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import stable_id
@@ -215,17 +221,13 @@ class InMemoryEntityLinker(EntityLinker):
 
         candidates = self._kb.type_candidates(entity.entity_type.value, search_term)
         for registry_id, entry in candidates:
-            stored_fp: EntityFingerprint = {
-                "normalized_name": entry.fingerprint.get("normalized_name", ""),
-                "name_tokens": entry.fingerprint.get("name_tokens", []),
-                "lemmas": entry.fingerprint.get("lemmas", []),
-            }
-            score = self._disambiguator._match_score(
+            score = self._disambiguator.match_score(
                 entity.entity_type,
                 fingerprint,
-                stored_fp,
-                entity_embedding,
-                entry.embedding,
+                stored_tokens=entry.fingerprint.get("name_tokens", []),
+                stored_lemmas=entry.fingerprint.get("lemmas", []),
+                current_embedding=entity_embedding,
+                stored_embedding=entry.embedding,
             )
             if score >= self.config.registry.similarity_threshold:
                 self._kb.upsert_aliases_from_entity(registry_id, entity)
@@ -236,12 +238,15 @@ class InMemoryEntityLinker(EntityLinker):
             entity.normalized_name,
             entity.entity_id,
         )
-        self._kb._upsert_registry(
-            registry_id,
-            entity.entity_type.value,
-            entity.normalized_name,
-            fingerprint,
-            entity_embedding.tolist(),
+        self._kb.upsert_entity(
+            KBEntityRecord(
+                kb_id=KBID(registry_id),
+                entity_type=entity.entity_type,
+                canonical_name=entity.normalized_name,
+                normalized_name=entity.normalized_name,
+                embedding=entity_embedding.tolist(),
+                lemmas=fingerprint.get("lemmas", []),
+            )
         )
         self._kb.upsert_aliases_from_entity(registry_id, entity)
         return registry_id
@@ -270,17 +275,13 @@ class InMemoryEntityLinker(EntityLinker):
 
         candidates = self._kb.type_candidates(cluster.entity_type.value, search_term)
         for kb_id, entry in candidates:
-            stored_fp: EntityFingerprint = {
-                "normalized_name": entry.fingerprint.get("normalized_name", ""),
-                "name_tokens": entry.fingerprint.get("name_tokens", []),
-                "lemmas": entry.fingerprint.get("lemmas", []),
-            }
-            score = self._disambiguator._match_score(
+            score = self._disambiguator.match_score(
                 cluster.entity_type,
                 cluster_fp,
-                stored_fp,
-                cluster_embedding,
-                entry.embedding,
+                stored_tokens=entry.fingerprint.get("name_tokens", []),
+                stored_lemmas=entry.fingerprint.get("lemmas", []),
+                current_embedding=cluster_embedding,
+                stored_embedding=entry.embedding,
             )
             if score >= self.config.registry.similarity_threshold:
                 self._kb.upsert_aliases_from_cluster(kb_id, cluster)
@@ -291,12 +292,15 @@ class InMemoryEntityLinker(EntityLinker):
             cluster.normalized_name,
             cluster.cluster_id,
         )
-        self._kb._upsert_registry(
-            kb_id,
-            cluster.entity_type.value,
-            cluster.normalized_name,
-            cluster_fp,
-            cluster_embedding.tolist(),
+        self._kb.upsert_entity(
+            KBEntityRecord(
+                kb_id=KBID(kb_id),
+                entity_type=cluster.entity_type,
+                canonical_name=cluster.normalized_name,
+                normalized_name=cluster.normalized_name,
+                embedding=cluster_embedding.tolist(),
+                lemmas=cluster_fp.get("lemmas", []),
+            )
         )
         self._kb.upsert_aliases_from_cluster(kb_id, cluster)
         return kb_id
