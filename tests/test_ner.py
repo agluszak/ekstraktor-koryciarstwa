@@ -48,7 +48,7 @@ def test_business_context_person_span_is_retyped_as_organization() -> None:
     )
 
 
-def test_location_like_spacy_labels_map_to_location_entity_type() -> None:
+def test_place_and_geopolitical_labels_map_to_location_entity_type() -> None:
     assert SpacyPolishNERExtractor._map_label("placeName") == EntityType.LOCATION
     assert SpacyPolishNERExtractor._map_label("GPE") == EntityType.LOCATION
     assert SpacyPolishNERExtractor._map_label("LOC") == EntityType.LOCATION
