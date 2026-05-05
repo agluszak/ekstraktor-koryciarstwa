@@ -22,6 +22,7 @@ from pipeline.entity_classifiers import (
     is_target_organization_name,
 )
 from pipeline.extraction_context import ExtractionContext, resolve_event_date
+from pipeline.grammar_signals import infer_sentence_time_scope
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -78,6 +79,14 @@ PLACE_CONTEXT_TARGETS = frozenset(
         "kraj",
     }
 )
+
+
+def infer_list_event_time_scope(
+    document: ArticleDocument,
+    sentence: SentenceFragment,
+) -> TimeScope:
+    parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+    return infer_sentence_time_scope(sentence.text, parsed_words)
 
 
 @dataclass(slots=True)
@@ -660,7 +669,7 @@ class GovernanceFactBuilder:
             object_entity_id=target_id,
             value_text=role_text,
             value_normalized=role_text.casefold() if role_text else None,
-            time_scope=TimeScope.CURRENT,
+            time_scope=infer_list_event_time_scope(document, sentence),
             event_date=resolve_event_date(
                 document,
                 sentence_index=sentence.sentence_index,
@@ -746,7 +755,7 @@ class GovernanceFactBuilder:
             object_entity_id=target_id,
             value_text=role_text,
             value_normalized=role_text.lower() if role_text else None,
-            time_scope=TimeScope.CURRENT,
+            time_scope=context.fact_time_scope(evidence),
             event_date=resolve_event_date(
                 document,
                 sentence_index=evidence.sentence_index,

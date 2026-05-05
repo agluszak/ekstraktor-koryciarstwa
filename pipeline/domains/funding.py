@@ -3,12 +3,12 @@ from __future__ import annotations
 import uuid
 
 from pipeline.config import PipelineConfig
+from pipeline.dependency_frames import DependencyArgumentRole, TriggerArgumentFrame
 from pipeline.domain_types import (
     EntityType,
     FactID,
     FactType,
     FrameID,
-    TimeScope,
 )
 from pipeline.domains.public_money import (
     FUNDING_SURFACE_FALLBACKS,
@@ -77,11 +77,26 @@ class PolishFundingFrameExtractor:
             if not self._has_funding_context(document, clause):
                 continue
             amount_match = COMPENSATION_PATTERN.search(clause.text)
+            dependency_frame = context.dependency_frame_for_clause(clause)
+            if dependency_frame is not None and dependency_frame.reporting_transfer:
+                continue
             if is_reporting_przekazac_context(document, clause):
+                continue
+            if (
+                dependency_frame is not None
+                and clause.trigger_head_lemma.casefold() == "przekazać"
+                and not dependency_frame.money_transfer_evidence
+            ):
                 continue
             if is_reporting_przekazac_without_amount(document, clause, amount_match):
                 continue
-            frame = self._extract_frame_from_clause(document, clause, amount_match, context)
+            frame = self._extract_frame_from_clause(
+                document,
+                clause,
+                amount_match,
+                context,
+                dependency_frame,
+            )
             if frame is not None:
                 document.funding_frames.append(frame)
         return document
@@ -92,6 +107,7 @@ class PolishFundingFrameExtractor:
         clause: ClauseUnit,
         amount_match,
         context: ExtractionContext,
+        dependency_frame: TriggerArgumentFrame | None,
     ) -> FundingFrame | None:
         org_clusters = context.clusters_for_mentions(
             clause.cluster_mentions,
@@ -105,8 +121,19 @@ class PolishFundingFrameExtractor:
         if not org_clusters:
             return None
 
-        funder = self._best_funder(document, clause, org_clusters)
-        recipient = self._best_recipient(document, clause, org_clusters, funder)
+        dependency_funder = self._dependency_funder(dependency_frame, context)
+        dependency_recipient = self._dependency_recipient(
+            dependency_frame,
+            context,
+            dependency_funder,
+        )
+        funder = dependency_funder or self._best_funder(document, clause, org_clusters)
+        recipient = dependency_recipient or self._best_recipient(
+            document,
+            clause,
+            org_clusters,
+            funder,
+        )
         project = self._best_project(document, clause, org_clusters, funder, recipient)
         if recipient is None and project is not None:
             recipient = project
@@ -114,7 +141,13 @@ class PolishFundingFrameExtractor:
         if funder is None and recipient is None:
             return None
 
-        amount_text = amount_match.group("amount") if amount_match else None
+        amount_text = (
+            dependency_frame.money_spans[0].text
+            if dependency_frame is not None and dependency_frame.money_spans
+            else amount_match.group("amount")
+            if amount_match
+            else None
+        )
         confidence, score_reason = self._score_frame(
             funder=funder,
             recipient=recipient,
@@ -131,9 +164,48 @@ class PolishFundingFrameExtractor:
             confidence=confidence,
             evidence=[ExtractionContext.evidence_for_clause(clause)],
             extraction_signal=self._extraction_signal(score_reason),
-            evidence_scope="same_clause" if len(org_clusters) >= 2 else "same_paragraph",
+            evidence_scope="dependency_arguments"
+            if dependency_funder is not None or dependency_recipient is not None
+            else "same_clause"
+            if len(org_clusters) >= 2
+            else "same_paragraph",
             score_reason=score_reason,
         )
+
+    @staticmethod
+    def _dependency_funder(
+        dependency_frame: TriggerArgumentFrame | None,
+        context: ExtractionContext,
+    ) -> EntityCluster | None:
+        if dependency_frame is None:
+            return None
+        return dependency_frame.first_cluster(
+            context,
+            (DependencyArgumentRole.SUBJECT,),
+            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+        )
+
+    @staticmethod
+    def _dependency_recipient(
+        dependency_frame: TriggerArgumentFrame | None,
+        context: ExtractionContext,
+        funder: EntityCluster | None,
+    ) -> EntityCluster | None:
+        if dependency_frame is None:
+            return None
+        for role in (
+            DependencyArgumentRole.INDIRECT_OBJECT,
+            DependencyArgumentRole.OBJECT,
+            DependencyArgumentRole.OBLIQUE,
+        ):
+            for cluster in dependency_frame.clusters_for_role(
+                context,
+                role,
+                {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
+            ):
+                if funder is None or cluster.cluster_id != funder.cluster_id:
+                    return cluster
+        return None
 
     @staticmethod
     def _has_funding_context(document: ArticleDocument, clause: ClauseUnit) -> bool:
@@ -361,7 +433,7 @@ class FundingFactBuilder:
             object_entity_id=funder_id,
             value_text=frame.amount_text,
             value_normalized=frame.amount_normalized,
-            time_scope=TimeScope.UNKNOWN,
+            time_scope=context.fact_time_scope(evidence),
             event_date=resolve_event_date(
                 document,
                 sentence_index=evidence.sentence_index,
