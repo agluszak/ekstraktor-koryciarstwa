@@ -136,7 +136,7 @@ def build_pipeline(
                     morphology=morphology,
                 ),
                 StanzaCoreferenceResolver(config, runtime=shared_runtime),
-                PolishEntityClusterer(config),
+                PolishEntityClusterer(config, runtime=shared_runtime),
                 StanzaClauseParser(config, runtime=shared_runtime),
                 PolishFamilyIdentityResolver(config),
                 SharedEntityEnricher(config, runtime=shared_runtime),
