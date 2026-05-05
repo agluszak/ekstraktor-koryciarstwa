@@ -93,6 +93,8 @@ def _parse_iso_date(value: str | None) -> date | None:
         return None
     # Try year-month-day, year-month, year — accept any ISO-like prefix
     for length in (10, 7, 4):
+        if len(value) < length:
+            continue
         fragment = value[:length]
         try:
             if length == 10:

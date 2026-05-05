@@ -464,11 +464,10 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
             if cluster is None or cluster.cluster_id not in person_cluster_ids:
                 continue
             role = clause.mention_roles.get(mention.text)
-            if role and role.startswith("obj"):
-                appointees.append(cluster.cluster_id)
-            elif role == "nsubj:pass":
-                # In passive constructions ("został powołany"), the passive subject
-                # is the recipient of the appointment, not the appointing authority.
+            if role and (role.startswith("obj") or role == "nsubj:pass"):
+                # obj* = direct/indirect object (active appointee);
+                # nsubj:pass = passive subject — the recipient of the appointment, not
+                # the appointing authority (e.g. "Jan Kowalski został powołany").
                 appointees.append(cluster.cluster_id)
             elif role and role.startswith("nsubj"):
                 authorities.append(cluster.cluster_id)

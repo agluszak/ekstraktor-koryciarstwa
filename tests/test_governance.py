@@ -1417,8 +1417,14 @@ def test_imperfective_strong_trigger_requires_noun_support() -> None:
     # 'powoływać' is a strong trigger lemma but with Aspect=Imp
     parsed_words_no_noun = [
         ParsedWord(
-            index=1, text="powoływać", lemma="powołać", upos="VERB",
-            head=0, deprel="root", start=0, end=9,
+            index=1,
+            text="powoływać",
+            lemma="powołać",
+            upos="VERB",
+            head=0,
+            deprel="root",
+            start=0,
+            end=9,
             feats={"Aspect": "Imp"},
         ),
     ]
@@ -1439,13 +1445,25 @@ def test_imperfective_strong_trigger_requires_noun_support() -> None:
     # With an appointment noun ('prezes') the imperfective trigger should still fire
     parsed_words_with_noun = [
         ParsedWord(
-            index=1, text="powoływać", lemma="powołać", upos="VERB",
-            head=0, deprel="root", start=0, end=9,
+            index=1,
+            text="powoływać",
+            lemma="powołać",
+            upos="VERB",
+            head=0,
+            deprel="root",
+            start=0,
+            end=9,
             feats={"Aspect": "Imp"},
         ),
         ParsedWord(
-            index=2, text="prezesów", lemma="prezes", upos="NOUN",
-            head=1, deprel="obj", start=10, end=18,
+            index=2,
+            text="prezesów",
+            lemma="prezes",
+            upos="NOUN",
+            head=1,
+            deprel="obj",
+            start=10,
+            end=18,
         ),
     ]
     clause_with_noun = ClauseUnit(
@@ -1473,8 +1491,9 @@ def test_przekazac_numeric_dep_object_detects_money_transfer() -> None:
     # 'przekazał 300 tys. zł' – NUM directly attached to przekazać
     transfer_words = [
         parsed_word(1, "przekazał", "przekazać", 0, upos="VERB"),
-        ParsedWord(index=2, text="300", lemma="300", upos="NUM",
-                   head=1, deprel="obj", start=10, end=13),
+        ParsedWord(
+            index=2, text="300", lemma="300", upos="NUM", head=1, deprel="obj", start=10, end=13
+        ),
         parsed_word(3, "tys", "tysiąc", 14, head=2, deprel="nummod"),
     ]
     assert _przekazac_has_numeric_dep_object(transfer_words) is True
@@ -1491,7 +1510,8 @@ def test_przekazac_numeric_dep_object_detects_money_transfer() -> None:
     grant_words = [
         parsed_word(1, "przekazał", "przekazać", 0, upos="VERB"),
         parsed_word(2, "fundacji", "fundacja", 10, head=1, deprel="iobj"),
-        ParsedWord(index=3, text="300", lemma="300", upos="NUM",
-                   head=2, deprel="nummod", start=19, end=22),
+        ParsedWord(
+            index=3, text="300", lemma="300", upos="NUM", head=2, deprel="nummod", start=19, end=22
+        ),
     ]
     assert _przekazac_has_numeric_dep_object(grant_words) is True

@@ -158,7 +158,11 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
         representative (≥2 words) whose suffix matches a known org name, to avoid
         binding generic demonstratives like 'ta spółka' to a randomly chosen org.
         """
-        if not representative_text or representative_text in _GENERIC_ORG_NOUNS:
+        if not representative_text:
+            return None
+        # Reject if any token of the representative text is a generic bare noun.
+        # Multi-word representatives like "ta spółka" are caught by the per-token check.
+        if any(token in _GENERIC_ORG_NOUNS for token in representative_text.split()):
             return None
         if representative_text in org_by_name:
             return org_by_name[representative_text]
