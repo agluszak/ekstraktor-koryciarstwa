@@ -163,21 +163,6 @@ class EntityCandidate:
 
 
 @dataclass(slots=True)
-class CandidateEdge:
-    edge_type: str
-    source_candidate_id: CandidateID
-    target_candidate_id: CandidateID
-    confidence: float
-    sentence_index: int
-
-
-@dataclass(slots=True)
-class CandidateGraph:
-    candidates: list[EntityCandidate] = field(default_factory=list)
-    edges: list[CandidateEdge] = field(default_factory=list)
-
-
-@dataclass(slots=True)
 class SentenceFragment:
     text: str
     paragraph_index: int

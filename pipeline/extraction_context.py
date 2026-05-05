@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from pipeline.dependency_frames import DependencyFrameBuilder, TriggerArgumentFrame
 from pipeline.domain_types import (
+    CandidateID,
     CandidateType,
     ClauseID,
     ClusterID,
@@ -18,7 +19,6 @@ from pipeline.grammar_signals import (
 )
 from pipeline.models import (
     ArticleDocument,
-    CandidateGraph,
     ClauseUnit,
     ClusterMention,
     Entity,
@@ -434,40 +434,48 @@ class ExtractionContext:
             bucket.append(cluster)
 
 
-@dataclass(slots=True)
-class FactExtractionContext:
-    graph: CandidateGraph
-    candidates_by_sentence: dict[int, list[EntityCandidate]] = field(init=False)
-    candidates_by_paragraph: dict[int, list[EntityCandidate]] = field(init=False)
+def clusters_to_sentence_candidates(
+    clusters: list[EntityCluster],
+    sentence_index: int,
+    paragraph_index: int,
+) -> list[EntityCandidate]:
+    """Build EntityCandidate objects from EntityClusters for a given sentence.
 
-    @classmethod
-    def build(cls, graph: CandidateGraph) -> FactExtractionContext:
-        return cls(graph=graph)
-
-    def __post_init__(self) -> None:
-        self.candidates_by_sentence = {}
-        self.candidates_by_paragraph = {}
-        for candidate in self.graph.candidates:
-            self.candidates_by_sentence.setdefault(candidate.sentence_index, []).append(candidate)
-            self.candidates_by_paragraph.setdefault(candidate.paragraph_index, []).append(candidate)
-
-    def sentence_candidates(self, sentence_index: int) -> list[EntityCandidate]:
-        return self.candidates_by_sentence.get(sentence_index, [])
-
-    def paragraph_candidates(self, paragraph_index: int) -> list[EntityCandidate]:
-        return self.candidates_by_paragraph.get(paragraph_index, [])
-
-    def previous_sentence_candidates(
-        self,
-        *,
-        paragraph_index: int,
-        sentence_index: int,
-    ) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.sentence_candidates(sentence_index - 1)
-            if candidate.paragraph_index == paragraph_index
-        ]
+    For each cluster that has a mention in the target sentence, one representative
+    EntityCandidate is produced using the earliest mention in that sentence.
+    """
+    candidates: list[EntityCandidate] = []
+    seen_cluster_ids: set[ClusterID] = set()
+    for cluster in clusters:
+        if cluster.cluster_id in seen_cluster_ids:
+            continue
+        sentence_mentions = [m for m in cluster.mentions if m.sentence_index == sentence_index]
+        if not sentence_mentions:
+            continue
+        seen_cluster_ids.add(cluster.cluster_id)
+        mention = min(sentence_mentions, key=lambda m: m.start_char)
+        entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id is not None), None)
+        candidates.append(
+            EntityCandidate(
+                candidate_id=CandidateID(str(cluster.cluster_id)),
+                entity_id=entity_id,
+                candidate_type=CandidateType(cluster.entity_type),
+                canonical_name=cluster.canonical_name,
+                normalized_name=cluster.normalized_name,
+                sentence_index=mention.sentence_index,
+                paragraph_index=mention.paragraph_index,
+                start_char=mention.start_char,
+                end_char=mention.end_char,
+                source="cluster",
+                organization_kind=cluster.organization_kind,
+                role_kind=cluster.role_kind,
+                role_modifier=cluster.role_modifier,
+                is_proxy_person=cluster.is_proxy_person,
+                kinship_detail=cluster.kinship_detail,
+                ner_label=mention.ner_label,
+            )
+        )
+    return candidates
 
 
 @dataclass(slots=True)
@@ -475,7 +483,6 @@ class SentenceContext:
     document: ArticleDocument
     sentence: SentenceFragment
     parsed_words: list[ParsedWord]
-    graph: CandidateGraph
     candidates: list[EntityCandidate]
     paragraph_candidates: list[EntityCandidate]
     previous_candidates: list[EntityCandidate]
@@ -577,32 +584,6 @@ class SentenceContext:
             start_char=self.sentence.start_char,
             end_char=self.sentence.end_char,
         )
-
-    def edge_confidence(
-        self,
-        edge_type: str,
-        source_id: str,
-        target_id: str,
-    ) -> float | None:
-        candidates = [
-            edge.confidence
-            for edge in self.graph.edges
-            if edge.edge_type == edge_type
-            and edge.sentence_index == self.sentence.sentence_index
-            and edge.source_candidate_id == source_id
-            and edge.target_candidate_id == target_id
-        ]
-        return max(candidates) if candidates else None
-
-    def outgoing(self, edge_type: str, source_id: str) -> list[EntityCandidate]:
-        target_ids = [
-            edge.target_candidate_id
-            for edge in self.graph.edges
-            if edge.edge_type == edge_type
-            and edge.sentence_index == self.sentence.sentence_index
-            and edge.source_candidate_id == source_id
-        ]
-        return [candidate for candidate in self.candidates if candidate.candidate_id in target_ids]
 
     @property
     def overlaps_governance(self) -> bool:

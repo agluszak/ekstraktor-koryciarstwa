@@ -8,11 +8,16 @@ from pipeline.attribution import (
 from pipeline.domain_types import (
     CandidateType,
     EntityID,
+    EntityType,
     FactID,
     FactType,
     TimeScope,
 )
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
+from pipeline.extraction_context import (
+    ExtractionContext,
+    SentenceContext,
+    clusters_to_sentence_candidates,
+)
 from pipeline.models import (
     ArticleDocument,
     EntityCandidate,
@@ -45,9 +50,83 @@ OMITTED_SUBJECT_PARTY_MARKERS = (
     "startowała",
 )
 
+_PERSON_TYPES = {EntityType.PERSON}
+_PARTY_TYPES = {EntityType.POLITICAL_PARTY}
+_POSITION_TYPES = {EntityType.POSITION}
+_ORG_TYPES = {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+_LOCATION_TYPES = {EntityType.LOCATION}
+_ALL_TYPES = {
+    EntityType.PERSON,
+    EntityType.POLITICAL_PARTY,
+    EntityType.POSITION,
+    EntityType.ORGANIZATION,
+    EntityType.PUBLIC_INSTITUTION,
+    EntityType.LOCATION,
+}
+
+
+def _sentence_context_from_extraction(
+    document: ArticleDocument,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+) -> SentenceContext:
+    """Build a SentenceContext from ExtractionContext for a single sentence."""
+    sentence_clusters = context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES)
+    paragraph_clusters = sum(
+        (
+            context.clusters_in_sentence(s.sentence_index, _ALL_TYPES)
+            for s in document.sentences
+            if s.paragraph_index == sentence.paragraph_index
+        ),
+        [],
+    )
+    # Deduplicate paragraph_clusters by cluster_id
+    seen: set[str] = set()
+    unique_paragraph: list = []
+    for c in paragraph_clusters:
+        key = str(c.cluster_id)
+        if key not in seen:
+            seen.add(key)
+            unique_paragraph.append(c)
+
+    prev_sentence_clusters = context.clusters_in_sentence(sentence.sentence_index - 1, _ALL_TYPES)
+    paragraph_candidates = clusters_to_sentence_candidates(
+        unique_paragraph, sentence.sentence_index, sentence.paragraph_index
+    )
+    previous_candidates = [
+        c
+        for c in clusters_to_sentence_candidates(
+            prev_sentence_clusters, sentence.sentence_index - 1, sentence.paragraph_index
+        )
+        if c.paragraph_index == sentence.paragraph_index
+    ]
+    return SentenceContext(
+        document=document,
+        sentence=sentence,
+        parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
+        candidates=clusters_to_sentence_candidates(
+            sentence_clusters, sentence.sentence_index, sentence.paragraph_index
+        ),
+        paragraph_candidates=paragraph_candidates,
+        previous_candidates=previous_candidates,
+    )
+
 
 class PoliticalProfileFactExtractor:
-    def extract(self, context: SentenceContext) -> list[Fact]:
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
+        facts: list[Fact] = []
+        for sentence in document.sentences:
+            sentence_clusters = context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES)
+            sentence_candidates = clusters_to_sentence_candidates(
+                sentence_clusters, sentence.sentence_index, sentence.paragraph_index
+            )
+            if not any(c.candidate_type == CandidateType.PERSON for c in sentence_candidates):
+                continue
+            sentence_context = _sentence_context_from_extraction(document, context, sentence)
+            facts.extend(self._extract_sentence(sentence_context))
+        return facts
+
+    def _extract_sentence(self, context: SentenceContext) -> list[Fact]:
         facts: list[Fact] = []
         governance_signal = _has_signal(
             context.parsed_words,
@@ -126,15 +205,14 @@ class PoliticalProfileFactExtractor:
 
 
 class CrossSentencePartyFactBuilder:
-    def build(
-        self,
-        document: ArticleDocument,
-        context: ExtractionContext,
-        fact_context: FactExtractionContext,
-    ) -> list[Fact]:
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         facts: list[Fact] = []
         for sentence in document.sentences:
-            sentence_candidates = fact_context.sentence_candidates(sentence.sentence_index)
+            sentence_candidates = clusters_to_sentence_candidates(
+                context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES),
+                sentence.sentence_index,
+                sentence.paragraph_index,
+            )
             parties = [
                 candidate
                 for candidate in sentence_candidates
@@ -169,7 +247,11 @@ class CrossSentencePartyFactBuilder:
                 for previous_sentence in document.sentences
                 if previous_sentence.paragraph_index == sentence.paragraph_index
                 and previous_sentence.sentence_index < sentence.sentence_index
-                for candidate in fact_context.sentence_candidates(previous_sentence.sentence_index)
+                for candidate in clusters_to_sentence_candidates(
+                    context.clusters_in_sentence(previous_sentence.sentence_index, _ALL_TYPES),
+                    previous_sentence.sentence_index,
+                    previous_sentence.paragraph_index,
+                )
                 if candidate.candidate_type == CandidateType.PERSON
                 and candidate.entity_id is not None
             ]
@@ -179,7 +261,11 @@ class CrossSentencePartyFactBuilder:
                 unique_previous_people.setdefault(person_candidate.entity_id, person_candidate)
             recent_persons = [
                 candidate
-                for candidate in fact_context.sentence_candidates(sentence.sentence_index - 1)
+                for candidate in clusters_to_sentence_candidates(
+                    context.clusters_in_sentence(sentence.sentence_index - 1, _ALL_TYPES),
+                    sentence.sentence_index - 1,
+                    sentence.paragraph_index,
+                )
                 if candidate.candidate_type == CandidateType.PERSON
                 and candidate.entity_id is not None
                 and candidate.paragraph_index == sentence.paragraph_index
@@ -217,7 +303,11 @@ class CrossSentencePartyFactBuilder:
                 continue
             persons = [
                 candidate
-                for candidate in fact_context.sentence_candidates(next_sentence.sentence_index)
+                for candidate in clusters_to_sentence_candidates(
+                    context.clusters_in_sentence(next_sentence.sentence_index, _ALL_TYPES),
+                    next_sentence.sentence_index,
+                    next_sentence.paragraph_index,
+                )
                 if candidate.candidate_type == CandidateType.PERSON
                 and candidate.entity_id is not None
                 and candidate.start_char <= 20

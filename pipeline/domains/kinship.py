@@ -4,8 +4,10 @@ from dataclasses import dataclass
 
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
+    CandidateID,
     CandidateType,
     EntityID,
+    EntityType,
     FactID,
     FactType,
     IdentityHypothesisStatus,
@@ -13,11 +15,11 @@ from pipeline.domain_types import (
     RelationshipType,
     TimeScope,
 )
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext
+from pipeline.extraction_context import ExtractionContext, clusters_to_sentence_candidates
 from pipeline.models import (
     ArticleDocument,
-    CandidateGraph,
     EntityCandidate,
+    EntityCluster,
     EvidenceSpan,
     Fact,
     IdentityResolutionMetadata,
@@ -25,6 +27,15 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.utils import stable_id
+
+_ALL_TYPES = {
+    EntityType.PERSON,
+    EntityType.POLITICAL_PARTY,
+    EntityType.POSITION,
+    EntityType.ORGANIZATION,
+    EntityType.PUBLIC_INSTITUTION,
+    EntityType.LOCATION,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,18 +56,23 @@ class KinshipTieBuilder:
         self,
         document: ArticleDocument,
         context: ExtractionContext,
-        fact_context: FactExtractionContext,
     ) -> list[Fact]:
         evidence_items: list[KinshipTieEvidence] = []
         for sentence in document.sentences:
+            sentence_candidates = clusters_to_sentence_candidates(
+                context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES),
+                sentence.sentence_index,
+                sentence.paragraph_index,
+            )
             evidence_items.extend(
                 self._direct_sentence_ties(
                     document=document,
                     sentence=sentence,
-                    sentence_candidates=fact_context.sentence_candidates(sentence.sentence_index),
+                    sentence_candidates=sentence_candidates,
                 )
             )
-        evidence_items.extend(self._identity_backed_proxy_ties(document, fact_context.graph))
+        candidates_by_entity_id = _build_candidates_by_entity_id(document.clusters)
+        evidence_items.extend(self._identity_backed_proxy_ties(document, candidates_by_entity_id))
         return [self._fact(document, evidence) for evidence in evidence_items]
 
     def _direct_sentence_ties(
@@ -207,13 +223,8 @@ class KinshipTieBuilder:
     def _identity_backed_proxy_ties(
         self,
         document: ArticleDocument,
-        candidate_graph: CandidateGraph,
+        candidates_by_entity_id: dict[EntityID, EntityCandidate],
     ) -> list[KinshipTieEvidence]:
-        candidates_by_entity_id = {
-            candidate.entity_id: candidate
-            for candidate in candidate_graph.candidates
-            if candidate.entity_id is not None
-        }
         facts_by_proxy = {
             fact.subject_entity_id: fact
             for fact in document.facts
@@ -361,3 +372,37 @@ class KinshipTieBuilder:
             extraction_signal=evidence.extraction_signal,
             evidence_scope=evidence.evidence_scope,
         )
+
+
+def _cluster_to_candidate(cluster: EntityCluster) -> EntityCandidate:
+    mention = cluster.mentions[0] if cluster.mentions else None
+    entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id), None)
+    return EntityCandidate(
+        candidate_id=CandidateID(str(cluster.cluster_id)),
+        entity_id=entity_id,
+        candidate_type=CandidateType(cluster.entity_type),
+        canonical_name=cluster.canonical_name,
+        normalized_name=cluster.normalized_name,
+        sentence_index=mention.sentence_index if mention else 0,
+        paragraph_index=mention.paragraph_index if mention else 0,
+        start_char=mention.start_char if mention else 0,
+        end_char=mention.end_char if mention else 0,
+        source="cluster",
+        organization_kind=cluster.organization_kind,
+        role_kind=cluster.role_kind,
+        role_modifier=cluster.role_modifier,
+        is_proxy_person=cluster.is_proxy_person,
+        kinship_detail=cluster.kinship_detail,
+        ner_label=mention.ner_label if mention else None,
+    )
+
+
+def _build_candidates_by_entity_id(
+    clusters: list[EntityCluster],
+) -> dict[EntityID, EntityCandidate]:
+    result: dict[EntityID, EntityCandidate] = {}
+    for cluster in clusters:
+        entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id), None)
+        if entity_id is not None and entity_id not in result:
+            result[entity_id] = _cluster_to_candidate(cluster)
+    return result

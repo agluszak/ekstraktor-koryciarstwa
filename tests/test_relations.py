@@ -8,7 +8,6 @@ from pipeline.attribution import (
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
-    CandidateType,
     ClauseID,
     ClusterID,
     DocumentID,
@@ -16,7 +15,6 @@ from pipeline.domain_types import (
     EntityType,
     FactType,
     KinshipDetail,
-    NERLabel,
     OrganizationKind,
     RelationshipType,
     RoleKind,
@@ -25,7 +23,11 @@ from pipeline.domain_types import (
 )
 from pipeline.domains.political_profile import CrossSentencePartyFactBuilder
 from pipeline.enrichment import SharedEntityEnricher
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
+from pipeline.extraction_context import (
+    ExtractionContext,
+    SentenceContext,
+    clusters_to_sentence_candidates,
+)
 from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
@@ -38,7 +40,6 @@ from pipeline.models import (
     ParsedWord,
     SentenceFragment,
 )
-from pipeline.relations.candidate_graph import CandidateGraphBuilder
 from pipeline.role_matching import match_role_mentions
 from pipeline.runtime import PipelineRuntime
 from pipeline.segmentation import ParagraphSentenceSegmenter
@@ -203,130 +204,29 @@ def prepared_single_clause_document(
 
 def build_sentence_context(document: ArticleDocument) -> SentenceContext:
     config = PipelineConfig.from_file("config.yaml")
-    candidate_graph = CandidateGraphBuilder(config).build(
-        document=document,
-        parsed_sentences=document.parsed_sentences,
-    )
+    SharedEntityEnricher(config).run(document)
+    context = ExtractionContext.build(document)
     sentence = document.sentences[0]
-    sentence_candidates = [
-        candidate
-        for candidate in candidate_graph.candidates
-        if candidate.sentence_index == sentence.sentence_index
-    ]
+    _ALL_TYPES = {
+        EntityType.PERSON,
+        EntityType.POLITICAL_PARTY,
+        EntityType.POSITION,
+        EntityType.ORGANIZATION,
+        EntityType.PUBLIC_INSTITUTION,
+        EntityType.LOCATION,
+    }
+    sentence_clusters = context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES)
+    sentence_candidates = clusters_to_sentence_candidates(
+        sentence_clusters, sentence.sentence_index, sentence.paragraph_index
+    )
     return SentenceContext(
         document=document,
         sentence=sentence,
-        parsed_words=document.parsed_sentences[sentence.sentence_index],
-        graph=candidate_graph,
+        parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
         candidates=sentence_candidates,
         paragraph_candidates=sentence_candidates,
         previous_candidates=[],
     )
-
-
-def test_candidate_graph_prefers_exact_mention_offsets_and_keeps_ner_provenance() -> None:
-    config = PipelineConfig.from_file("config.yaml")
-    text = "Acme i Acme podpisaly umowe."
-    document = prepared_single_clause_document(
-        document_id="exact-mention-offsets",
-        text=text,
-        entities=[("Acme", EntityType.ORGANIZATION, "Acme")],
-        parsed_words=[
-            word(1, "Acme", "acme", 0, upos="PROPN"),
-            word(2, "i", "i", 5, upos="CCONJ"),
-            word(3, "Acme", "acme", 7, upos="PROPN"),
-            word(4, "podpisaly", "podpisac", 12, upos="VERB"),
-            word(5, "umowe", "umowa", 22, upos="NOUN"),
-        ],
-    )
-    entity_id = document.entities[0].entity_id
-    document.mentions.append(
-        Mention(
-            text="Acme",
-            normalized_text="Acme",
-            mention_type=EntityType.ORGANIZATION,
-            sentence_index=0,
-            paragraph_index=0,
-            start_char=7,
-            end_char=11,
-            entity_id=entity_id,
-            ner_label=NERLabel.ORGANIZATION,
-        )
-    )
-
-    graph = CandidateGraphBuilder(config).build(
-        document=document,
-        parsed_sentences=document.parsed_sentences,
-    )
-
-    mention_candidates = [
-        candidate
-        for candidate in graph.candidates
-        if candidate.entity_id == entity_id and candidate.source == "mention"
-    ]
-    assert {(candidate.start_char, candidate.end_char) for candidate in mention_candidates} == {
-        (0, 4),
-        (7, 11),
-    }
-    exact_candidate = next(
-        candidate for candidate in mention_candidates if candidate.start_char == 7
-    )
-    assert exact_candidate.mention_type == EntityType.ORGANIZATION
-    assert exact_candidate.ner_label == NERLabel.ORGANIZATION
-
-
-def test_candidate_graph_skips_ambiguous_anchorless_mention_fallback() -> None:
-    config = PipelineConfig.from_file("config.yaml")
-    text = "Acme i Acme podpisaly umowe."
-    sentence = SentenceFragment(
-        text=text,
-        paragraph_index=0,
-        sentence_index=0,
-        start_char=0,
-        end_char=len(text),
-    )
-    entity_id = EntityID("entity-0")
-    document = ArticleDocument(
-        document_id=DocumentID("anchorless-mention"),
-        source_url=None,
-        raw_html="",
-        title="Test",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=[text],
-        sentences=[sentence],
-        entities=[
-            Entity(
-                entity_id=entity_id,
-                entity_type=EntityType.ORGANIZATION,
-                canonical_name="Acme",
-                normalized_name="Acme",
-            )
-        ],
-        mentions=[
-            Mention(
-                text="Acme",
-                normalized_text="Acme",
-                mention_type=EntityType.ORGANIZATION,
-                sentence_index=0,
-                paragraph_index=0,
-                start_char=0,
-                end_char=0,
-                entity_id=entity_id,
-            )
-        ],
-        parsed_sentences={0: []},
-    )
-
-    graph = CandidateGraphBuilder(config).build(
-        document=document,
-        parsed_sentences=document.parsed_sentences,
-    )
-
-    mention_candidates = [
-        candidate for candidate in graph.candidates if candidate.source == "mention"
-    ]
-    assert mention_candidates == []
 
 
 def test_role_matcher_uses_wojewoda_lemma_for_inflected_surface() -> None:
@@ -369,98 +269,6 @@ def test_role_matcher_handles_public_office_roles() -> None:
         assert len(matches) == 1
         assert matches[0].role_kind == role_kind
         assert matches[0].canonical_name == canonical_name
-
-
-def test_candidate_graph_uses_wicewojewoda_lemma_for_deputy_role() -> None:
-    config = PipelineConfig.from_file("config.yaml")
-    text = "Anna Nowak została wicewojewodą."
-    role_start = text.index("wicewojewodą")
-    document = ArticleDocument(
-        document_id=DocumentID("doc-role-wicewojewoda"),
-        source_url=None,
-        raw_html="",
-        title="Test",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=[text],
-        sentences=[
-            SentenceFragment(
-                text=text,
-                paragraph_index=0,
-                sentence_index=0,
-                start_char=0,
-                end_char=len(text),
-            )
-        ],
-    )
-    parsed_words = [
-        word(1, "Anna", "Anna", 0, head=3, deprel="nsubj", upos="PROPN"),
-        word(2, "została", "zostać", text.index("została"), head=3, deprel="aux", upos="AUX"),
-        word(3, "wicewojewodą", "wicewojewoda", role_start),
-    ]
-
-    candidate_graph = CandidateGraphBuilder(config).build(
-        document=document,
-        parsed_sentences={0: parsed_words},
-    )
-    positions = [
-        candidate
-        for candidate in candidate_graph.candidates
-        if candidate.candidate_type == CandidateType.POSITION
-    ]
-
-    assert len(positions) == 1
-    assert positions[0].canonical_name == "wice/zastępca Wojewoda"
-    assert positions[0].role_kind == RoleKind.WOJEWODA
-    assert positions[0].role_modifier == RoleModifier.DEPUTY
-    assert positions[0].start_char == role_start
-    assert positions[0].end_char == role_start + len("wicewojewodą")
-
-
-def test_role_title_surface_is_not_derived_as_person() -> None:
-    config = PipelineConfig.from_file("config.yaml")
-    text = "Sekretarz Powiatu podpisała dokumenty."
-    document = ArticleDocument(
-        document_id=DocumentID("doc-role-not-person"),
-        source_url=None,
-        raw_html="",
-        title="Test",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=[text],
-        sentences=[
-            SentenceFragment(
-                text=text,
-                paragraph_index=0,
-                sentence_index=0,
-                start_char=0,
-                end_char=len(text),
-            )
-        ],
-    )
-    document.parsed_sentences = {
-        0: [
-            word(1, "Sekretarz", "sekretarz", 0),
-            word(2, "Powiatu", "powiat", 10),
-            word(3, "podpisała", "podpisać", 18, upos="VERB"),
-        ]
-    }
-
-    candidate_graph = CandidateGraphBuilder(config).build(
-        document=document,
-        parsed_sentences=document.parsed_sentences,
-    )
-
-    assert not any(
-        candidate.candidate_type == CandidateType.PERSON
-        and candidate.canonical_name == "Sekretarz Powiatu"
-        for candidate in candidate_graph.candidates
-    )
-    assert any(
-        candidate.candidate_type == CandidateType.POSITION
-        and candidate.role_kind == RoleKind.SEKRETARZ_POWIATU
-        for candidate in candidate_graph.candidates
-    )
 
 
 def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
@@ -1562,13 +1370,8 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
         document,
     )
 
-    candidate_graph = CandidateGraphBuilder(config).build(
-        document=extracted,
-        parsed_sentences=extracted.parsed_sentences,
-    )
     assert any(
-        candidate.candidate_type == CandidateType.PUBLIC_INSTITUTION
-        for candidate in candidate_graph.candidates
+        cluster.entity_type == EntityType.PUBLIC_INSTITUTION for cluster in extracted.clusters
     )
 
 
@@ -1630,14 +1433,9 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
         document,
     )
 
-    candidate_graph = CandidateGraphBuilder(config).build(
-        document=extracted,
-        parsed_sentences=extracted.parsed_sentences,
-    )
     assert any(
-        candidate.candidate_type == CandidateType.POLITICAL_PARTY
-        and "Koalicja" in candidate.canonical_name
-        for candidate in candidate_graph.candidates
+        cluster.entity_type == EntityType.POLITICAL_PARTY and "Koalicja" in cluster.canonical_name
+        for cluster in extracted.clusters
     )
 
 
@@ -1784,14 +1582,10 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
         document,
     )
 
-    candidate_graph = CandidateGraphBuilder(config).build(
-        document=extracted,
-        parsed_sentences=extracted.parsed_sentences,
-    )
     public_institutions = {
-        candidate.canonical_name
-        for candidate in candidate_graph.candidates
-        if candidate.candidate_type == CandidateType.PUBLIC_INSTITUTION
+        cluster.canonical_name
+        for cluster in extracted.clusters
+        if cluster.entity_type == EntityType.PUBLIC_INSTITUTION
     }
     assert "Agencja Mienia Wojskowego" in public_institutions
     assert "Ministerstwo Obrony Narodowej" in public_institutions
@@ -2579,7 +2373,6 @@ def test_cba_investigation_and_procurement_abuse_emit_public_abuse_facts() -> No
 
 
 def test_cross_sentence_party_context_uses_profile_lemma() -> None:
-    config = PipelineConfig.from_file("config.yaml")
     text_1 = "Kandydatka PSL pracowała wcześniej w urzędzie."
     text_2 = "Anna Nowak została dyrektorem spółki."
     document = ArticleDocument(
@@ -2646,15 +2439,10 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
         ],
         1: [word(1, "Anna", "Anna", 0, upos="PROPN")],
     }
-    candidate_graph = CandidateGraphBuilder(config).build(
-        document=document,
-        parsed_sentences=document.parsed_sentences,
-    )
 
     facts = CrossSentencePartyFactBuilder().build(
         document,
         ExtractionContext.build(document),
-        FactExtractionContext.build(candidate_graph),
     )
 
     assert facts

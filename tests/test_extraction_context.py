@@ -1,8 +1,4 @@
-from unittest.mock import MagicMock
-
 from pipeline.domain_types import (
-    CandidateID,
-    CandidateType,
     ClauseID,
     ClusterID,
     DocumentID,
@@ -10,14 +6,12 @@ from pipeline.domain_types import (
     EntityType,
     NERLabel,
 )
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
+from pipeline.extraction_context import ExtractionContext, SentenceContext
 from pipeline.models import (
     ArticleDocument,
-    CandidateGraph,
     ClauseUnit,
     ClusterMention,
     Entity,
-    EntityCandidate,
     EntityCluster,
     ParsedWord,
     SentenceFragment,
@@ -279,52 +273,6 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
     ] == [ClusterID("cluster-org"), ClusterID("cluster-person")]
 
 
-def test_fact_context_indexes_sentence_paragraph_and_previous_sentence_candidates() -> None:
-    first = EntityCandidate(
-        candidate_id=CandidateID("candidate-first"),
-        entity_id=EntityID("person-1"),
-        candidate_type=CandidateType.PERSON,
-        canonical_name="Jan Kowalski",
-        normalized_name="jan kowalski",
-        sentence_index=0,
-        paragraph_index=0,
-        start_char=0,
-        end_char=12,
-        source="mention",
-    )
-    second = EntityCandidate(
-        candidate_id=CandidateID("candidate-second"),
-        entity_id=EntityID("org-1"),
-        candidate_type=CandidateType.PUBLIC_INSTITUTION,
-        canonical_name="Urząd",
-        normalized_name="urząd",
-        sentence_index=1,
-        paragraph_index=0,
-        start_char=20,
-        end_char=25,
-        source="mention",
-    )
-    other_paragraph = EntityCandidate(
-        candidate_id=CandidateID("candidate-other"),
-        entity_id=EntityID("person-2"),
-        candidate_type=CandidateType.PERSON,
-        canonical_name="Anna Nowak",
-        normalized_name="anna nowak",
-        sentence_index=0,
-        paragraph_index=1,
-        start_char=0,
-        end_char=10,
-        source="mention",
-    )
-    context = FactExtractionContext.build(
-        CandidateGraph(candidates=[first, second, other_paragraph])
-    )
-
-    assert context.sentence_candidates(0) == [first, other_paragraph]
-    assert context.paragraph_candidates(0) == [first, second]
-    assert context.previous_sentence_candidates(paragraph_index=0, sentence_index=1) == [first]
-
-
 def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
     document = ArticleDocument(
         document_id=DocumentID("doc"),
@@ -349,7 +297,6 @@ def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
         document=document,
         sentence=sentence,
         parsed_words=[],
-        graph=MagicMock(spec=CandidateGraph),
         candidates=[],
         paragraph_candidates=[],
         previous_candidates=[],
@@ -396,7 +343,6 @@ def test_sentence_context_time_scope_detects_future_from_morphology() -> None:
             ),
             ParsedWord(3, "pełnić", "pełnić", "VERB", 2, "xcomp", 12, 18),
         ],
-        graph=MagicMock(spec=CandidateGraph),
         candidates=[],
         paragraph_candidates=[],
         previous_candidates=[],
@@ -440,7 +386,6 @@ def test_sentence_context_event_date_prefers_preserved_ner_date_span() -> None:
         document=document,
         sentence=sentence,
         parsed_words=[],
-        graph=MagicMock(spec=CandidateGraph),
         candidates=[],
         paragraph_candidates=[],
         previous_candidates=[],
@@ -473,7 +418,6 @@ def test_sentence_context_event_date_falls_back_to_publication_date() -> None:
         document=document,
         sentence=sentence,
         parsed_words=[],
-        graph=MagicMock(spec=CandidateGraph),
         candidates=[],
         paragraph_candidates=[],
         previous_candidates=[],
@@ -519,7 +463,6 @@ def test_sentence_context_time_scope_anchors_former_from_past_temporal_expressio
         document=document,
         sentence=sentence,
         parsed_words=[],
-        graph=MagicMock(spec=CandidateGraph),
         candidates=[],
         paragraph_candidates=[],
         previous_candidates=[],
@@ -565,7 +508,6 @@ def test_sentence_context_time_scope_anchors_future_from_future_temporal_express
         document=document,
         sentence=sentence,
         parsed_words=[],
-        graph=MagicMock(spec=CandidateGraph),
         candidates=[],
         paragraph_candidates=[],
         previous_candidates=[],

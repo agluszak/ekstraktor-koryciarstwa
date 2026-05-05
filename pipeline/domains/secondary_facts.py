@@ -9,7 +9,6 @@ from pipeline.complaint_classifier import (
     has_speaker_markers,
     has_whistleblower_markers,
 )
-from pipeline.domain_lexicons import KINSHIP_LEMMAS
 from pipeline.domain_types import (
     CandidateID,
     CandidateType,
@@ -17,8 +16,12 @@ from pipeline.domain_types import (
     FactType,
     RelationshipType,
 )
-from pipeline.extraction_context import SentenceContext
-from pipeline.models import EntityCandidate, Fact
+from pipeline.extraction_context import (
+    ExtractionContext,
+    SentenceContext,
+    clusters_to_sentence_candidates,
+)
+from pipeline.models import ArticleDocument, EntityCandidate, Fact
 from pipeline.nlp_rules import TIE_WORDS
 from pipeline.secondary_fact_helpers import (
     SecondaryFactScore,
@@ -28,57 +31,111 @@ from pipeline.secondary_fact_helpers import (
 )
 from pipeline.utils import stable_id
 
+_ALL_TYPES = {
+    EntityType.PERSON,
+    EntityType.POLITICAL_PARTY,
+    EntityType.POSITION,
+    EntityType.ORGANIZATION,
+    EntityType.PUBLIC_INSTITUTION,
+    EntityType.LOCATION,
+}
+
 
 class TieFactExtractor:
-    def extract(self, context: SentenceContext) -> list[Fact]:
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
+        facts: list[Fact] = []
+        for sentence in document.sentences:
+            sentence_clusters = context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES)
+            sentence_candidates = clusters_to_sentence_candidates(
+                sentence_clusters, sentence.sentence_index, sentence.paragraph_index
+            )
+            if not sentence_candidates:
+                continue
+
+            paragraph_clusters = sum(
+                (
+                    context.clusters_in_sentence(s.sentence_index, _ALL_TYPES)
+                    for s in document.sentences
+                    if s.paragraph_index == sentence.paragraph_index
+                ),
+                [],
+            )
+            seen: set[str] = set()
+            unique_paragraph = []
+            for c in paragraph_clusters:
+                key = str(c.cluster_id)
+                if key not in seen:
+                    seen.add(key)
+                    unique_paragraph.append(c)
+
+            prev_sentence_clusters = context.clusters_in_sentence(
+                sentence.sentence_index - 1, _ALL_TYPES
+            )
+            previous_candidates = [
+                c
+                for c in clusters_to_sentence_candidates(
+                    prev_sentence_clusters, sentence.sentence_index - 1, sentence.paragraph_index
+                )
+                if c.paragraph_index == sentence.paragraph_index
+            ]
+
+            sentence_context = SentenceContext(
+                document=document,
+                sentence=sentence,
+                parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
+                candidates=sentence_candidates,
+                paragraph_candidates=clusters_to_sentence_candidates(
+                    unique_paragraph, sentence.sentence_index, sentence.paragraph_index
+                ),
+                previous_candidates=previous_candidates,
+            )
+            facts.extend(self._process_sentence(sentence_context))
+        return facts
+
+    def _process_sentence(self, context: SentenceContext) -> list[Fact]:
         trigger = self._tie_trigger(context)
         if trigger is None:
             return self._complaint_context_ties(context)
-        person_edges = [
-            edge
-            for edge in context.graph.edges
-            if edge.edge_type == "person-related-to-person"
-            and edge.sentence_index == context.sentence.sentence_index
-        ]
         facts: list[Fact] = []
-        for edge in person_edges:
-            source = next(
-                candidate
-                for candidate in context.candidates
-                if candidate.candidate_id == edge.source_candidate_id
-            )
-            target = next(
-                candidate
-                for candidate in context.candidates
-                if candidate.candidate_id == edge.target_candidate_id
-            )
-            score = SecondaryFactScorer.tie(
-                context,
-                source,
-                target,
-                trigger,
-                edge.confidence,
-            )
-            facts.append(
-                build_secondary_fact(
-                    document=context.document,
-                    sentence_context=context,
-                    fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
-                    subject=source,
-                    object_candidate=target,
-                    value_text=TIE_WORDS[trigger].value,
-                    value_normalized=TIE_WORDS[trigger].value,
-                    confidence=score.confidence,
-                    score=score,
-                    source_extractor="tie",
-                    relationship_type=TIE_WORDS[trigger],
-                )
-            )
+        facts.extend(self._nearby_person_pairs(context, trigger))
         if not facts:
             facts.extend(self._owner_context_ties(context, trigger))
         if not facts:
             facts.extend(self._complaint_context_ties(context))
         return facts
+
+    def _nearby_person_pairs(self, context: SentenceContext, trigger: str) -> list[Fact]:
+        """Find exactly 2 nearby persons around a tie word and emit a tie fact."""
+        lowered = context.lowered_text
+        anchor = lowered.find(trigger)
+        if anchor < 0:
+            return []
+        persons = context.persons
+        nearby = [
+            person
+            for person in persons
+            if abs(person.start_char - anchor) <= 80 or abs(person.end_char - anchor) <= 80
+        ]
+        if len(nearby) != 2 or nearby[0].entity_id == nearby[1].entity_id:
+            return []
+        source, target = nearby[0], nearby[1]
+        confidence = 0.72
+        score = SecondaryFactScorer.tie(context, source, target, trigger, confidence)
+        return [
+            build_secondary_fact(
+                document=context.document,
+                sentence_context=context,
+                fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+                subject=source,
+                object_candidate=target,
+                value_text=TIE_WORDS[trigger].value,
+                value_normalized=TIE_WORDS[trigger].value,
+                confidence=score.confidence,
+                score=score,
+                source_extractor="tie",
+                relationship_type=TIE_WORDS[trigger],
+            )
+        ]
 
     @staticmethod
     def _tie_trigger(context: SentenceContext) -> str | None:
@@ -382,148 +439,3 @@ def _document_owner_person_candidates(
 def _person_name_looks_like_company(name: str) -> bool:
     lowered = name.lower()
     return any(marker in lowered for marker in ("consulting", "group", "spół", "firma"))
-
-
-def _subject_candidate(context: SentenceContext) -> EntityCandidate | None:
-    """Resolve the subject of a governance event using POS tags and dependency
-    structure from the NLP parse, rather than hardcoded word lists.
-
-    Strategy:
-    1. Partition nsubj words into governance-attached vs quote-attribution.
-       Quote-verb subjects (nsubj of root speech verbs like ``mówi``) are
-       deprioritized because they identify the speaker, not the actor.
-    2. If a subject word directly overlaps a PERSON candidate, return it.
-    3. Traverse the syntactic subtree of each subject word looking for PERSON
-       candidates attached via nmod/appos/flat etc.
-    4. If the subject word is a **common noun** (UPOS=NOUN) — indicating a
-       referential proxy like "żona", "szwagierka" — and no person was found
-       in the subtree, look backward in the paragraph for the most recent person.
-    5. Fall back to proximity and paragraph-level heuristics.
-    """
-    speaker_names: set[str] = set()
-
-    all_nsubj = [word for word in context.parsed_words if word.deprel.startswith("nsubj")]
-    if not all_nsubj:
-        all_nsubj = [word for word in context.parsed_words if word.deprel == "root"]
-
-    # Speech/quote verbs are recognized by deprel: the governance clause is
-    # usually attached as ``parataxis`` to the speech verb which is the root.
-    # So an nsubj whose head verb has deprel == "root" AND whose head verb has
-    # a parataxis child with its own nsubj is likely a quote attribution.
-    # a parataxis child with its own nsubj is likely a quote attribution.
-    speech_verb_indices: set[int] = set()
-    for w in context.parsed_words:
-        if w.deprel == "root":
-            # Check if this root verb has a parataxis child with its own nsubj
-            has_parataxis_with_nsubj = any(
-                child.deprel.startswith("parataxis")
-                and any(
-                    gc.head == child.index and gc.deprel.startswith("nsubj")
-                    for gc in context.parsed_words
-                )
-                for child in context.parsed_words
-                if child.head == w.index
-            )
-            if has_parataxis_with_nsubj:
-                speech_verb_indices.add(w.index)
-
-    # Partition: governance subjects first, then quote-attribution subjects
-    governance_subjects = [w for w in all_nsubj if w.head not in speech_verb_indices]
-    attribution_subjects = [w for w in all_nsubj if w.head in speech_verb_indices]
-    ordered_subjects = governance_subjects + attribution_subjects
-
-    # --- Steps 1-3: Resolution per subject word (Prioritizing early subjects) ---
-    def _find_entity_in_subtree(head_index: int, depth: int = 0) -> EntityCandidate | None:
-        if depth > 4:
-            return None
-        children = [w for w in context.parsed_words if w.head == head_index]
-        for child in children:
-            for candidate in context.persons:
-                if candidate.start_char <= child.start < candidate.end_char:
-                    return candidate
-            found = _find_entity_in_subtree(child.index, depth + 1)
-            if found:
-                return found
-        return None
-
-    for word in ordered_subjects:
-        # A: Direct overlap (Named Entity)
-        for candidate in context.persons:
-            if candidate.start_char <= word.start < candidate.end_char:
-                # If it's a PROPN or the word matches a Person, we accept it as a direct mention
-                if word.upos == "PROPN" or any(
-                    t.upos == "PROPN"
-                    for t in context.parsed_words
-                    if word.start <= t.start < word.end
-                ):
-                    return candidate
-
-        # B: Subtree resolution (Nested Name)
-        subtree_found = _find_entity_in_subtree(word.index)
-        if subtree_found:
-            return subtree_found
-
-        # C: Referential proxy (Noun looking backwards)
-        # We also check the word text for kinship markers in case POS is noisy.
-        if word.upos == "NOUN" or word.text.lower() in KINSHIP_LEMMAS:
-            # Identify the speaker(s) in this sentence by name to avoid self-attribution
-            speaker_names = {
-                c.canonical_name
-                for c in context.persons
-                if any(aw.start <= c.start_char < aw.end for aw in attribution_subjects)
-            }
-
-            # Look backward: previous sentence, then paragraph
-            # We prefer candidates NOT in the speaker list.
-            previous_persons = [
-                c
-                for c in context.previous_candidates
-                if c.candidate_type == CandidateType.PERSON
-                and c.canonical_name not in speaker_names
-            ]
-            if previous_persons:
-                return previous_persons[-1]
-
-            # Fallback to paragraph persons, skipping current speaker and their identity
-            for p in context.paragraph_persons:
-                if p.canonical_name not in speaker_names:
-                    return p
-
-    # --- Step 4: Proximity fallback (bounded) ---------------------------------
-    for word in ordered_subjects:
-        candidate = _nearest_candidate(context.persons, word.start)
-        if (
-            candidate is not None
-            and abs(candidate.start_char - word.start) <= 45
-            and candidate.canonical_name not in speaker_names
-        ):
-            return candidate
-
-    # --- Step 5: Paragraph and Context fallbacks ------------------------------
-    filtered_persons = [p for p in context.persons if p.canonical_name not in speaker_names]
-    if filtered_persons:
-        return filtered_persons[0]
-
-    previous_persons = [
-        candidate
-        for candidate in context.previous_candidates
-        if candidate.candidate_type == CandidateType.PERSON
-        and candidate.canonical_name not in speaker_names
-    ]
-    if previous_persons:
-        return previous_persons[-1]
-
-    for p in context.paragraph_persons:
-        if p.canonical_name not in speaker_names:
-            return p
-
-    return None
-
-
-def _nearest_candidate(
-    candidates: list[EntityCandidate],
-    index: int,
-) -> EntityCandidate | None:
-    if not candidates:
-        return None
-    return min(candidates, key=lambda candidate: abs(candidate.start_char - index))
