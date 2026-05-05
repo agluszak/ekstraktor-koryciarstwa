@@ -23,14 +23,10 @@ from pipeline.models import (
     Mention,
     ParsedWord,
 )
-from pipeline.nlp_rules import (
-    ROLE_PATTERNS,
-    TIE_WORDS,
-)
+from pipeline.nlp_rules import TIE_WORDS
 from pipeline.relation_signals import supports_party_link, supports_person_role_link
 from pipeline.role_matching import RoleMatch, match_role_mentions
 from pipeline.utils import (
-    extract_role_from_text,
     normalize_entity_name,
     stable_id,
     unique_preserve_order,
@@ -266,62 +262,6 @@ class CandidateGraphBuilder:
                 candidates.append(
                     self._position_candidate_from_role_match(document, sentence, match)
                 )
-            return candidates
-
-        text = sentence.text
-        occupied_spans: list[tuple[int, int]] = []
-        for role, modifier, pattern in sorted(
-            ROLE_PATTERNS,
-            key=lambda item: len(item[0].value) + (len(item[1].value) if item[1] else 0),
-            reverse=True,
-        ):
-            for match in pattern.finditer(text):
-                if any(
-                    start <= match.start() < end or start < match.end() <= end
-                    for start, end in occupied_spans
-                ):
-                    continue
-                base_name = normalize_entity_name(role.value)
-                full_name = f"{modifier.value} {base_name}" if modifier else base_name
-
-                position = self._get_or_create_entity(
-                    document=document,
-                    entity_type=EntityType.POSITION,
-                    canonical_name=full_name,
-                    alias=match.group(0),
-                    role_kind=role,
-                    role_modifier=modifier,
-                )
-                role_kind, role_modifier = extract_role_from_text(position.normalized_name)
-                if role_kind is None:
-                    role_kind = role
-                    role_modifier = modifier
-                candidates.append(
-                    EntityCandidate(
-                        candidate_id=CandidateID(
-                            stable_id(
-                                "candidate",
-                                document.document_id,
-                                position.entity_id,
-                                str(sentence.sentence_index),
-                                str(match.start()),
-                                str(match.end()),
-                            )
-                        ),
-                        entity_id=position.entity_id,
-                        candidate_type=CandidateType.POSITION,
-                        canonical_name=position.canonical_name,
-                        normalized_name=position.normalized_name,
-                        sentence_index=sentence.sentence_index,
-                        paragraph_index=sentence.paragraph_index,
-                        start_char=match.start(),
-                        end_char=match.end(),
-                        source="derived_position",
-                        role_kind=role_kind,
-                        role_modifier=role_modifier,
-                    )
-                )
-                occupied_spans.append((match.start(), match.end()))
         return candidates
 
     def _position_candidate_from_role_match(

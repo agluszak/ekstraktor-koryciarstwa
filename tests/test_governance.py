@@ -671,6 +671,21 @@ def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
         )
         for sentence_index, sentence_text in enumerate(sentence_texts)
     ]
+    role_start = doc.sentences[1].text.index("prezesa")
+    doc.parsed_sentences = {
+        1: [
+            ParsedWord(
+                1,
+                "prezesa",
+                "prezes",
+                "NOUN",
+                0,
+                "root",
+                role_start,
+                role_start + len("prezesa"),
+            )
+        ]
+    }
     doc.clause_units = [
         ClauseUnit(
             clause_id=ClauseID("clause-appointment"),
@@ -734,6 +749,21 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
         )
         for sentence_index, sentence_text in enumerate(sentence_texts)
     ]
+    role_start = doc.sentences[0].text.index("prezesa")
+    doc.parsed_sentences = {
+        0: [
+            ParsedWord(
+                1,
+                "prezesa",
+                "prezes",
+                "NOUN",
+                0,
+                "root",
+                role_start,
+                role_start + len("prezesa"),
+            )
+        ]
+    }
     doc.clause_units = [
         ClauseUnit(
             clause_id=ClauseID("clause-dismissal"),

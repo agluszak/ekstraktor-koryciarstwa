@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from pipeline.domain_types import CandidateType, ClusterID, EntityType, TimeScope
+from pipeline.domain_types import CandidateType, ClusterID, EntityID, EntityType, TimeScope
 from pipeline.grammar_signals import infer_sentence_time_scope
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
     ClauseUnit,
     ClusterMention,
+    Entity,
     EntityCandidate,
     EntityCluster,
     EvidenceSpan,
@@ -101,6 +103,47 @@ class ExtractionContext:
             return None
         return next(
             (cluster for cluster in self.document.clusters if cluster.cluster_id == cluster_id),
+            None,
+        )
+
+    def entity_by_id(self, entity_id: EntityID | None) -> Entity | None:
+        if entity_id is None:
+            return None
+        return next(
+            (entity for entity in self.document.entities if entity.entity_id == entity_id),
+            None,
+        )
+
+    def entity_id_for_cluster_id(self, cluster_id: ClusterID | None) -> EntityID | None:
+        cluster = self.cluster_by_id(cluster_id)
+        return self.entity_id_for_cluster(cluster) if cluster is not None else None
+
+    @staticmethod
+    def entity_id_for_cluster(cluster: EntityCluster) -> EntityID:
+        entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
+        if entity_ids:
+            return Counter(entity_ids).most_common(1)[0][0]
+        return EntityID(str(cluster.cluster_id))
+
+    def cluster_entity_id_map(self) -> dict[ClusterID, EntityID]:
+        return {
+            cluster.cluster_id: self.entity_id_for_cluster(cluster)
+            for cluster in self.document.clusters
+        }
+
+    def cluster_name(self, cluster_id: ClusterID | None) -> str | None:
+        cluster = self.cluster_by_id(cluster_id)
+        return cluster.canonical_name if cluster is not None else None
+
+    def cluster_by_entity_id(self, entity_id: EntityID | None) -> EntityCluster | None:
+        if entity_id is None:
+            return None
+        return next(
+            (
+                cluster
+                for cluster in self.document.clusters
+                if any(mention.entity_id == entity_id for mention in cluster.mentions)
+            ),
             None,
         )
 

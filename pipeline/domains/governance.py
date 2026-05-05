@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -22,7 +21,7 @@ from pipeline.entity_classifiers import (
     is_party_like_name,
     is_target_organization_name,
 )
-from pipeline.extraction_context import resolve_event_date
+from pipeline.extraction_context import ExtractionContext, resolve_event_date
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -41,12 +40,13 @@ from pipeline.nlp_rules import (
     BODY_CONTEXT_TERMS,
     OWNER_CONTEXT_TERMS,
 )
+from pipeline.role_matching import role_kind_from_canonical_text
 from pipeline.semantic_signals import (
     GOVERNANCE_ROLE_SURFACES,
     GOVERNANCE_TARGET_HEAD_MARKERS,
     OWNER_CONTEXT_EXTRA_TERMS,
 )
-from pipeline.utils import extract_role_from_text, stable_id
+from pipeline.utils import stable_id
 
 PARLIAMENTARY_REMUNERATION_FACT_MARKERS = frozenset(
     {
@@ -486,14 +486,13 @@ class GovernanceTargetResolver:
 
 class GovernanceFactBuilder:
     def build(self, document: ArticleDocument) -> list[Fact]:
-        cluster_to_entity_id: dict[str, str] = {
-            str(cluster.cluster_id): str(self._get_best_entity_id(cluster))
-            for cluster in document.clusters
-        }
+        context = ExtractionContext.build(document)
+        cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact
             for frame in document.governance_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
+            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
+            is not None
         ]
         facts.extend(self._list_governance_facts(document, cluster_to_entity_id))
         return self._deduplicate_governance_facts(facts)
@@ -501,7 +500,7 @@ class GovernanceFactBuilder:
     def _list_governance_facts(
         self,
         document: ArticleDocument,
-        cluster_to_entity_id: dict[str, str],
+        cluster_to_entity_id: dict[ClusterID, EntityID],
     ) -> list[Fact]:
         output: list[Fact] = []
         for sentence in document.sentences:
@@ -629,10 +628,10 @@ class GovernanceFactBuilder:
         person: EntityCluster,
         target: EntityCluster,
         role_text: str | None,
-        cluster_to_entity_id: dict[str, str],
+        cluster_to_entity_id: dict[ClusterID, EntityID],
     ) -> Fact | None:
-        subject_id = cluster_to_entity_id.get(str(person.cluster_id))
-        target_id = cluster_to_entity_id.get(str(target.cluster_id))
+        subject_id = cluster_to_entity_id.get(person.cluster_id)
+        target_id = cluster_to_entity_id.get(target.cluster_id)
         if not subject_id or not target_id:
             return None
         fact_type = (
@@ -649,17 +648,17 @@ class GovernanceFactBuilder:
             fact_id=FactID(
                 stable_id(
                     "fact",
-                    document.document_id,
-                    fact_type,
-                    subject_id,
-                    target_id,
+                    str(document.document_id),
+                    fact_type.value,
+                    str(subject_id),
+                    str(target_id),
                     role_text or "",
                     str(sentence.start_char),
                 )
             ),
             fact_type=fact_type,
-            subject_entity_id=EntityID(subject_id),
-            object_entity_id=EntityID(target_id),
+            subject_entity_id=subject_id,
+            object_entity_id=target_id,
             value_text=role_text,
             value_normalized=role_text.casefold() if role_text else None,
             time_scope=TimeScope.CURRENT,
@@ -677,7 +676,7 @@ class GovernanceFactBuilder:
         )
         if role_text:
             fact.role = role_text
-            role_kind, role_modifier = extract_role_from_text(role_text)
+            role_kind, role_modifier = role_kind_from_canonical_text(role_text)
             fact.role_kind = role_kind
             fact.role_modifier = role_modifier
             fact.board_role = role_kind in BOARD_ROLE_KINDS if role_kind else False
@@ -687,10 +686,11 @@ class GovernanceFactBuilder:
         self,
         document: ArticleDocument,
         frame: GovernanceFrame,
-        cluster_to_entity_id: dict[str, str],
+        cluster_to_entity_id: dict[ClusterID, EntityID],
+        context: ExtractionContext,
     ) -> Fact | None:
-        subject_id = cluster_to_entity_id.get(frame.person_cluster_id or "")
-        target_id = cluster_to_entity_id.get(frame.target_org_cluster_id or "")
+        subject_id = context.entity_id_for_cluster_id(frame.person_cluster_id)
+        target_id = context.entity_id_for_cluster_id(frame.target_org_cluster_id)
         if not subject_id or not target_id:
             return None
         evidence = self._combined_evidence(frame.evidence)
@@ -705,7 +705,7 @@ class GovernanceFactBuilder:
         if self._looks_like_parliamentary_remuneration_fact(target_cluster, evidence.text):
             return None
 
-        role_id = cluster_to_entity_id.get(frame.role_cluster_id or "")
+        role_id = context.entity_id_for_cluster_id(frame.role_cluster_id)
         role_name = next(
             (
                 cluster.canonical_name
@@ -716,7 +716,7 @@ class GovernanceFactBuilder:
         )
         role_text = role_name or frame.found_role
         if role_text:
-            role_kind, _ = extract_role_from_text(role_text)
+            role_kind, _ = role_kind_from_canonical_text(role_text)
             if role_kind in PUBLIC_OFFICE_ROLE_KINDS:
                 return None
         fact_type = (
@@ -725,7 +725,7 @@ class GovernanceFactBuilder:
             else FactType.APPOINTMENT
         )
         appointing_authority_entity_id = (
-            EntityID(cluster_to_entity_id.get(frame.appointing_authority_cluster_id or "") or "")
+            context.entity_id_for_cluster_id(frame.appointing_authority_cluster_id)
             if frame.appointing_authority_cluster_id
             else self._recover_appointing_authority_entity_id(document, frame, cluster_to_entity_id)
         )
@@ -734,17 +734,17 @@ class GovernanceFactBuilder:
             fact_id=FactID(
                 stable_id(
                     "fact",
-                    document.document_id,
-                    fact_type,
-                    subject_id,
-                    target_id,
+                    str(document.document_id),
+                    fact_type.value,
+                    str(subject_id),
+                    str(target_id),
                     role_text or "",
-                    frame.frame_id,
+                    str(frame.frame_id),
                 )
             ),
             fact_type=fact_type,
-            subject_entity_id=EntityID(subject_id),
-            object_entity_id=EntityID(target_id),
+            subject_entity_id=subject_id,
+            object_entity_id=target_id,
             value_text=role_text,
             value_normalized=role_text.lower() if role_text else None,
             time_scope=TimeScope.CURRENT,
@@ -755,14 +755,12 @@ class GovernanceFactBuilder:
             ),
             confidence=frame.confidence,
             evidence=evidence,
-            position_entity_id=EntityID(role_id) if role_id else None,
-            owner_context_entity_id=EntityID(
-                cluster_to_entity_id.get(frame.owner_context_cluster_id or "") or ""
-            )
+            position_entity_id=role_id,
+            owner_context_entity_id=context.entity_id_for_cluster_id(frame.owner_context_cluster_id)
             if frame.owner_context_cluster_id
             else None,
-            governing_body_entity_id=EntityID(
-                cluster_to_entity_id.get(frame.governing_body_cluster_id or "") or ""
+            governing_body_entity_id=context.entity_id_for_cluster_id(
+                frame.governing_body_cluster_id
             )
             if frame.governing_body_cluster_id
             else None,
@@ -771,7 +769,7 @@ class GovernanceFactBuilder:
         )
         if role_text:
             fact.role = role_text
-            role_kind, role_modifier = extract_role_from_text(role_text)
+            role_kind, role_modifier = role_kind_from_canonical_text(role_text)
             fact.role_kind = role_kind
             fact.role_modifier = role_modifier
             fact.board_role = role_kind in BOARD_ROLE_KINDS if role_kind else False
@@ -791,13 +789,6 @@ class GovernanceFactBuilder:
         return any(marker in lowered_evidence for marker in PARLIAMENTARY_REMUNERATION_FACT_MARKERS)
 
     @staticmethod
-    def _get_best_entity_id(cluster: EntityCluster) -> str:
-        entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
-        if entity_ids:
-            return Counter(entity_ids).most_common(1)[0][0]
-        return cluster.cluster_id
-
-    @staticmethod
     def _combined_evidence(evidence: list[EvidenceSpan]) -> EvidenceSpan:
         if not evidence:
             return EvidenceSpan(text="")
@@ -815,12 +806,12 @@ class GovernanceFactBuilder:
         self,
         document: ArticleDocument,
         frame: GovernanceFrame,
-        cluster_to_entity_id: dict[str, str],
+        cluster_to_entity_id: dict[ClusterID, EntityID],
     ) -> EntityID | None:
         if frame.signal != GovernanceSignal.APPOINTMENT:
             return None
         sentence_lookup = {sentence.sentence_index: sentence for sentence in document.sentences}
-        candidate_matches: list[tuple[float, int, int, str]] = []
+        candidate_matches: list[tuple[float, int, int, EntityID]] = []
         for span in frame.evidence:
             if span.sentence_index is None:
                 continue
@@ -860,13 +851,12 @@ class GovernanceFactBuilder:
                                 -score,
                                 span.sentence_index,
                                 abs(mention.start_char - title_start),
-                                cluster_to_entity_id.get(cluster.cluster_id, ""),
+                                cluster_to_entity_id[cluster.cluster_id],
                             )
                         )
         if not candidate_matches:
             return None
-        entity_id = min(candidate_matches)[3]
-        return EntityID(entity_id) if entity_id else None
+        return min(candidate_matches)[3]
 
     @classmethod
     def _deduplicate_governance_facts(cls, facts: list[Fact]) -> list[Fact]:

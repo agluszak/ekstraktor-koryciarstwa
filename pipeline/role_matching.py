@@ -45,6 +45,7 @@ ROLE_LEMMA_PATTERNS: tuple[LemmaRolePattern, ...] = (
     LemmaRolePattern(("członek", "zarząd"), RoleKind.CZLONEK_ZARZADU),
     LemmaRolePattern(("rada", "nadzorczy"), RoleKind.RADA_NADZORCZA),
     LemmaRolePattern(("prezydent", "miasto"), RoleKind.PREZYDENT_MIASTA),
+    LemmaRolePattern(("wiceprezydent",), RoleKind.PREZYDENT_MIASTA, RoleModifier.DEPUTY),
     LemmaRolePattern(("sekretarz", "powiat"), RoleKind.SEKRETARZ_POWIATU),
     LemmaRolePattern(("marszałek", "województwo"), RoleKind.MARSZALEK_WOJEWODZTWA),
     LemmaRolePattern(("wiceprezes",), RoleKind.PREZES, RoleModifier.DEPUTY),
@@ -67,6 +68,19 @@ ROLE_LEMMA_PATTERNS: tuple[LemmaRolePattern, ...] = (
     LemmaRolePattern(("wojt",), RoleKind.WOJT),
     LemmaRolePattern(("starosta",), RoleKind.STAROSTA),
 )
+
+
+def role_kind_from_canonical_text(text: str) -> tuple[RoleKind | None, RoleModifier | None]:
+    normalized = normalize_entity_name(text).casefold()
+    for role_kind in sorted(RoleKind, key=lambda item: len(item.value), reverse=True):
+        role_name = normalize_entity_name(role_kind.value).casefold()
+        if normalized == role_name:
+            return role_kind, None
+        if normalized == f"{RoleModifier.DEPUTY.value} {role_name}".casefold():
+            return role_kind, RoleModifier.DEPUTY
+        if normalized == f"{RoleModifier.ACTING.value} {role_name}".casefold():
+            return role_kind, RoleModifier.ACTING
+    return None, None
 
 
 def match_role_mentions(parsed_words: list[ParsedWord]) -> list[RoleMatch]:

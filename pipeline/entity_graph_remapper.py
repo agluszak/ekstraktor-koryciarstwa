@@ -16,12 +16,12 @@ class EntityGraphRemapper:
             target.lemmas = source.lemmas if source.lemmas else target.lemmas
 
     @staticmethod
-    def remap_mentions(document: ArticleDocument, remap: dict[str, str]) -> None:
+    def remap_mentions(document: ArticleDocument, remap: dict[EntityID, EntityID]) -> None:
         entity_by_id = {entity.entity_id: entity for entity in document.entities}
-        deduplicated_mentions: dict[tuple[str | None, int, str], Mention] = {}
+        deduplicated_mentions: dict[tuple[EntityID | None, int, str], Mention] = {}
         for mention in document.mentions:
             if mention.entity_id:
-                mention.entity_id = EntityID(remap.get(mention.entity_id, mention.entity_id))
+                mention.entity_id = remap.get(mention.entity_id, mention.entity_id)
             if mention.entity_id and mention.entity_id in entity_by_id:
                 mention.normalized_text = entity_by_id[mention.entity_id].canonical_name
             key = (mention.entity_id, mention.sentence_index, mention.text)
@@ -29,17 +29,13 @@ class EntityGraphRemapper:
         document.mentions = list(deduplicated_mentions.values())
 
     @staticmethod
-    def remap_fact_graph(document: ArticleDocument, remap: dict[str, str]) -> None:
+    def remap_fact_graph(document: ArticleDocument, remap: dict[EntityID, EntityID]) -> None:
         if not remap:
             return
         for fact in document.facts:
-            fact.subject_entity_id = EntityID(
-                remap.get(fact.subject_entity_id, fact.subject_entity_id)
-            )
+            fact.subject_entity_id = remap.get(fact.subject_entity_id, fact.subject_entity_id)
             if fact.object_entity_id:
-                fact.object_entity_id = EntityID(
-                    remap.get(fact.object_entity_id, fact.object_entity_id)
-                )
+                fact.object_entity_id = remap.get(fact.object_entity_id, fact.object_entity_id)
             for field_name in (
                 "position_entity_id",
                 "owner_context_entity_id",
@@ -48,4 +44,5 @@ class EntityGraphRemapper:
             ):
                 value = getattr(fact, field_name)
                 if isinstance(value, str):
-                    setattr(fact, field_name, EntityID(remap.get(value, value)))
+                    entity_id = EntityID(value)
+                    setattr(fact, field_name, remap.get(entity_id, entity_id))

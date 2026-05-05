@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import uuid
-from collections import Counter
 
 from pipeline.base import FrameExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityID, EntityType, FactID, FactType, FrameID, TimeScope
+from pipeline.domain_types import (
+    EntityType,
+    FactID,
+    FactType,
+    FrameID,
+    TimeScope,
+)
 from pipeline.domains.public_money import (
     FUNDING_SURFACE_FALLBACKS,
     PublicMoneyFlowKind,
@@ -310,14 +315,11 @@ class PolishFundingFrameExtractor(FrameExtractor):
 
 class FundingFactBuilder:
     def build(self, document: ArticleDocument) -> list[Fact]:
-        cluster_to_entity_id: dict[str, str] = {
-            str(cluster.cluster_id): str(self._get_best_entity_id(cluster))
-            for cluster in document.clusters
-        }
+        context = ExtractionContext.build(document)
         facts = [
             fact
             for frame in document.funding_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
+            if (fact := self._fact_for_frame(document, frame, context)) is not None
         ]
         return self._deduplicate_funding_facts(facts)
 
@@ -325,11 +327,11 @@ class FundingFactBuilder:
         self,
         document: ArticleDocument,
         frame: FundingFrame,
-        cluster_to_entity_id: dict[str, str],
+        context: ExtractionContext,
     ) -> Fact | None:
-        recipient_id = cluster_to_entity_id.get(frame.recipient_cluster_id or "")
-        funder_id = cluster_to_entity_id.get(frame.funder_cluster_id or "")
-        project_id = cluster_to_entity_id.get(frame.project_cluster_id or "")
+        recipient_id = context.entity_id_for_cluster_id(frame.recipient_cluster_id)
+        funder_id = context.entity_id_for_cluster_id(frame.funder_cluster_id)
+        project_id = context.entity_id_for_cluster_id(frame.project_cluster_id)
         subject_id = recipient_id or project_id
         if subject_id is None:
             return None
@@ -348,17 +350,17 @@ class FundingFactBuilder:
             fact_id=FactID(
                 stable_id(
                     "fact",
-                    document.document_id,
-                    FactType.FUNDING,
-                    subject_id,
-                    funder_id or "",
+                    str(document.document_id),
+                    FactType.FUNDING.value,
+                    str(subject_id),
+                    str(funder_id) if funder_id else "",
                     frame.amount_normalized or "",
                     str(evidence.start_char or ""),
                 )
             ),
             fact_type=FactType.FUNDING,
-            subject_entity_id=EntityID(subject_id),
-            object_entity_id=EntityID(funder_id) if funder_id else None,
+            subject_entity_id=subject_id,
+            object_entity_id=funder_id,
             value_text=frame.amount_text,
             value_normalized=frame.amount_normalized,
             time_scope=TimeScope.UNKNOWN,
@@ -378,15 +380,8 @@ class FundingFactBuilder:
             overlaps_governance=False,
             source_extractor="funding_frame",
             score_reason=frame.score_reason,
-            owner_context_entity_id=EntityID(project_id) if project_id else None,
+            owner_context_entity_id=project_id,
         )
-
-    @staticmethod
-    def _get_best_entity_id(cluster: EntityCluster) -> str:
-        entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
-        if entity_ids:
-            return Counter(entity_ids).most_common(1)[0][0]
-        return cluster.cluster_id
 
     @staticmethod
     def _deduplicate_funding_facts(facts: list[Fact]) -> list[Fact]:

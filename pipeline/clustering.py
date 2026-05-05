@@ -23,14 +23,14 @@ class PolishEntityClusterer(EntityClusterer):
             return document
 
         for entity in document.entities:
-            self.canonicalizer._normalize_entity(entity)
+            self.canonicalizer.normalize_entity(entity)
 
-        self.canonicalizer.ambiguous_person_singletons = (
-            self.canonicalizer._ambiguous_person_singletons(document.entities)
+        self.canonicalizer.ambiguous_person_singletons = self.canonicalizer.ambiguous_person_names(
+            document.entities
         )
 
         clusters: list[EntityCluster] = []
-        entity_to_cluster_id: dict[str, str] = {}
+        entity_to_cluster_id: dict[EntityID, ClusterID] = {}
 
         for entity in document.entities:
             match = next(
@@ -106,7 +106,7 @@ class PolishEntityClusterer(EntityClusterer):
             lemmas=cluster.lemmas,
             organization_kind=cluster.organization_kind,
         )
-        return self.canonicalizer._entities_compatible(entity, temp_entity)
+        return self.canonicalizer.entities_compatible(entity, temp_entity)
 
     def _create_cluster(self, cluster_id: ClusterID, entity: Entity) -> EntityCluster:
         mentions = []
@@ -156,13 +156,13 @@ class PolishEntityClusterer(EntityClusterer):
         )
 
         if cluster.entity_type == EntityType.PERSON:
-            cluster.canonical_name = self.canonicalizer._best_person_name(all_names)
+            cluster.canonical_name = self.canonicalizer.best_person_name(all_names)
         elif cluster.entity_type == EntityType.LOCATION:
             cluster.canonical_name = self.canonicalizer.location_naming.best_location_name(
                 all_names
             )
         elif cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
-            cluster.canonical_name = self.canonicalizer._best_organization_name(entity, all_names)
+            cluster.canonical_name = self.canonicalizer.best_organization_name(entity, all_names)
 
         cluster.normalized_name = cluster.canonical_name
         cluster.aliases = all_names

@@ -8,6 +8,7 @@ from pipeline.domain_types import (
     FactType,
     KinshipDetail,
 )
+from pipeline.extraction_context import SentenceContext
 from pipeline.models import (
     ArticleDocument,
     CandidateGraph,
@@ -15,7 +16,6 @@ from pipeline.models import (
     ParsedWord,
     SentenceFragment,
 )
-from pipeline.relations.fact_extractors import SentenceContext
 from pipeline.relations.service import KinshipTieBuilder
 
 
@@ -79,7 +79,7 @@ def test_kinship_proxy_skips_speaker() -> None:
         previous_candidates=[],
     )
 
-    from pipeline.relations.fact_extractors import _subject_candidate
+    from pipeline.domains.secondary_facts import _subject_candidate
 
     res = _subject_candidate(context)
 

@@ -32,7 +32,7 @@ from pipeline.role_matching import (
     has_copular_role_appointment,
     has_governance_verb_with_role,
 )
-from pipeline.role_text import find_role_text, find_role_text_from_text
+from pipeline.role_text import find_role_text
 
 WEAK_APPOINTMENT_TRIGGER_LEMMAS = frozenset(
     {"objąć", "zająć", "pracować", "zatrudnić", "zatrudnienie", "trafić"}
@@ -622,10 +622,6 @@ class PolishGovernanceFrameExtractor(FrameExtractor):
     @staticmethod
     def _find_role_text(document: ArticleDocument, clause: ClauseUnit) -> str | None:
         return find_role_text(document, clause)
-
-    @staticmethod
-    def _find_role_text_from_text(clause: ClauseUnit) -> str | None:
-        return find_role_text_from_text(clause)
 
     def _find_cluster_for_mention(
         self,

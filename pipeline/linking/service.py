@@ -6,7 +6,7 @@ import numpy as np
 
 from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import EntityID, EntityType
 from pipeline.entity_naming import org_token_base
 from pipeline.models import ArticleDocument, Entity
 from pipeline.normalization import DocumentEntityCanonicalizer
@@ -83,21 +83,19 @@ class InMemoryEntityLinker(EntityLinker):
 
         # Remap entity references in extracted facts
         if id_remap:
-            from pipeline.domain_types import EntityID
-
             for fact in document.facts:
-                fact.subject_entity_id = EntityID(
-                    id_remap.get(fact.subject_entity_id, fact.subject_entity_id)
+                fact.subject_entity_id = id_remap.get(
+                    fact.subject_entity_id,
+                    fact.subject_entity_id,
                 )
                 if fact.object_entity_id:
-                    fact.object_entity_id = EntityID(
-                        id_remap.get(fact.object_entity_id, fact.object_entity_id)
+                    fact.object_entity_id = id_remap.get(
+                        fact.object_entity_id,
+                        fact.object_entity_id,
                     )
             for mention in document.mentions:
                 if mention.entity_id:
-                    mention.entity_id = EntityID(
-                        id_remap.get(mention.entity_id, mention.entity_id),
-                    )
+                    mention.entity_id = id_remap.get(mention.entity_id, mention.entity_id)
 
         return self.canonicalizer.run(document)
 
@@ -343,14 +341,14 @@ class InMemoryEntityLinker(EntityLinker):
     @staticmethod
     def _deduplicate_by_registry(
         entities: list[Entity],
-    ) -> tuple[list[Entity], dict[str, str]]:
+    ) -> tuple[list[Entity], dict[EntityID, EntityID]]:
         """Merge entities that resolved to the same registry_id.
 
         Returns the deduplicated list and a mapping from removed entity_ids
         to the primary entity_id they were merged into.
         """
         registry_map: dict[str, Entity] = {}
-        id_remap: dict[str, str] = {}
+        id_remap: dict[EntityID, EntityID] = {}
         result: list[Entity] = []
         for entity in entities:
             if entity.is_proxy_person or entity.is_honorific_person_ref:
@@ -376,9 +374,9 @@ class InMemoryEntityLinker(EntityLinker):
     @staticmethod
     def _deduplicate_exact_names(
         entities: list[Entity],
-    ) -> tuple[list[Entity], dict[str, str]]:
+    ) -> tuple[list[Entity], dict[EntityID, EntityID]]:
         exact_name_map: dict[tuple[str, str], Entity] = {}
-        id_remap: dict[str, str] = {}
+        id_remap: dict[EntityID, EntityID] = {}
         result: list[Entity] = []
         for entity in entities:
             if entity.is_proxy_person or entity.is_honorific_person_ref:

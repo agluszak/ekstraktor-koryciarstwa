@@ -76,20 +76,20 @@ class DocumentEntityCanonicalizer:
         self.person_naming.preload(all_person_names)
 
         for entity in document.entities:
-            self._normalize_entity(entity)
+            self.normalize_entity(entity)
 
         self.ambiguous_person_singletons = self.person_naming.ambiguous_person_singletons(
             document.entities
         )
 
-        remap: dict[str, str] = {}
+        remap: dict[EntityID, EntityID] = {}
         deduplicated: list[Entity] = []
         for entity in document.entities:
             match = next(
                 (
                     candidate
                     for candidate in deduplicated
-                    if self._entities_compatible(candidate, entity)
+                    if self.entities_compatible(candidate, entity)
                 ),
                 None,
             )
@@ -106,7 +106,7 @@ class DocumentEntityCanonicalizer:
         self._validate_party_membership_objects(document)
         return document
 
-    def _normalize_entity(self, entity: Entity) -> None:
+    def normalize_entity(self, entity: Entity) -> None:
         alias_pool = unique_preserve_order(
             [
                 entity.canonical_name,
@@ -184,10 +184,10 @@ class DocumentEntityCanonicalizer:
         entity.normalized_name = canonical
         entity.aliases = self.organization_naming.organization_aliases(alias_pool, canonical)
 
-    def _best_person_name(self, names: list[str]) -> str:
+    def best_person_name(self, names: list[str]) -> str:
         return self.person_naming.best_person_name(names)
 
-    def _best_organization_name(self, entity: Entity, names: list[str]) -> str:
+    def best_organization_name(self, entity: Entity, names: list[str]) -> str:
         return self.organization_naming.best_organization_name(entity, names)
 
     def _morphology_lemma_candidates(self, names: list[str]) -> list[str]:
@@ -200,7 +200,7 @@ class DocumentEntityCanonicalizer:
             return []
         return self.person_naming.nominative_candidates(names)
 
-    def _entities_compatible(self, left: Entity, right: Entity) -> bool:
+    def entities_compatible(self, left: Entity, right: Entity) -> bool:
         if (
             left.is_proxy_person
             or right.is_proxy_person
@@ -237,7 +237,7 @@ class DocumentEntityCanonicalizer:
 
     def _refresh_entity_names(self, entities: list[Entity]) -> None:
         for entity in entities:
-            self._normalize_entity(entity)
+            self.normalize_entity(entity)
 
     def _persons_compatible(self, left: Entity, right: Entity) -> bool:
         return self.person_naming.persons_compatible(
@@ -246,7 +246,7 @@ class DocumentEntityCanonicalizer:
             self.ambiguous_person_singletons,
         )
 
-    def _ambiguous_person_singletons(self, entities: list[Entity]) -> set[str]:
+    def ambiguous_person_names(self, entities: list[Entity]) -> set[str]:
         return self.person_naming.ambiguous_person_singletons(entities)
 
     def _organizations_compatible(self, left: Entity, right: Entity) -> bool:

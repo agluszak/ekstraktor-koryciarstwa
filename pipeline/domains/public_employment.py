@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from collections import Counter
 
 from pipeline.attribution import resolve_public_employment_attribution
 from pipeline.base import FrameExtractor
@@ -15,12 +14,12 @@ from pipeline.domain_types import (
     PublicEmploymentSignal,
     TimeScope,
 )
+from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.grammar_signals import infer_status_time_scope
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
-    EntityCluster,
     EvidenceSpan,
     Fact,
     PublicEmploymentFrame,
@@ -157,23 +156,6 @@ class PolishPublicEmploymentFrameExtractor(FrameExtractor):
         )
 
 
-def _pe_cluster_to_entity_id(document: ArticleDocument) -> dict[ClusterID, EntityID]:
-    return {cluster.cluster_id: _pe_get_best_entity_id(cluster) for cluster in document.clusters}
-
-
-def _pe_get_best_entity_id(cluster: EntityCluster) -> EntityID:
-    entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
-    if entity_ids:
-        return EntityID(Counter(entity_ids).most_common(1)[0][0])
-    return EntityID(cluster.cluster_id)
-
-
-def _pe_cluster_by_id(document: ArticleDocument, cluster_id: ClusterID) -> EntityCluster | None:
-    return next(
-        (cluster for cluster in document.clusters if cluster.cluster_id == cluster_id), None
-    )
-
-
 def _pe_deduplicate_facts(facts: list[Fact]) -> list[Fact]:
     deduplicated: dict[tuple[FactType, EntityID, EntityID | None, str | None, str], Fact] = {}
     for fact in facts:
@@ -191,11 +173,13 @@ def _pe_deduplicate_facts(facts: list[Fact]) -> list[Fact]:
 
 class PublicEmploymentFactBuilder:
     def build(self, document: ArticleDocument) -> list[Fact]:
-        cluster_to_entity_id = _pe_cluster_to_entity_id(document)
+        context = ExtractionContext.build(document)
+        cluster_to_entity_id = context.cluster_entity_id_map()
         facts = [
             fact
             for frame in document.public_employment_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id)) is not None
+            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
+            is not None
         ]
         return _pe_deduplicate_facts(facts)
 
@@ -204,15 +188,16 @@ class PublicEmploymentFactBuilder:
         document: ArticleDocument,
         frame: PublicEmploymentFrame,
         cluster_to_entity_id: dict[ClusterID, EntityID],
+        context: ExtractionContext,
     ) -> Fact | None:
         employee_id = cluster_to_entity_id.get(frame.employee_cluster_id)
         employer_id = cluster_to_entity_id.get(frame.employer_cluster_id)
         if employee_id is None or employer_id is None:
             return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-        employer = _pe_cluster_by_id(document, frame.employer_cluster_id)
+        employer = context.cluster_by_id(frame.employer_cluster_id)
         role_cluster = (
-            _pe_cluster_by_id(document, frame.role_cluster_id)
+            context.cluster_by_id(frame.role_cluster_id)
             if frame.role_cluster_id is not None
             else None
         )
@@ -236,17 +221,17 @@ class PublicEmploymentFactBuilder:
             fact_id=FactID(
                 stable_id(
                     "fact",
-                    document.document_id,
-                    fact_type,
-                    employee_id,
-                    employer_id,
+                    str(document.document_id),
+                    fact_type.value,
+                    str(employee_id),
+                    str(employer_id),
                     frame.role_label or "",
                     str(evidence.start_char or ""),
                 )
             ),
             fact_type=fact_type,
-            subject_entity_id=EntityID(employee_id),
-            object_entity_id=EntityID(employer_id),
+            subject_entity_id=employee_id,
+            object_entity_id=employer_id,
             value_text=frame.role_label,
             value_normalized=frame.role_label,
             time_scope=time_scope,
@@ -270,7 +255,9 @@ class PublicEmploymentFactBuilder:
                 if fact_type == FactType.ROLE_HELD
                 else None
             ),
-            position_entity_id=_pe_get_best_entity_id(role_cluster) if role_cluster else None,
+            position_entity_id=ExtractionContext.entity_id_for_cluster(role_cluster)
+            if role_cluster
+            else None,
             role=frame.role_label,
             role_kind=role_cluster.role_kind if role_cluster is not None else None,
             role_modifier=role_cluster.role_modifier if role_cluster is not None else None,

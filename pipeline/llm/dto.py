@@ -1,31 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import NewType, TypedDict
+from typing import NewType
 
 from pipeline.domain_types import EntityType, FactType
 
 EntityKey = NewType("EntityKey", str)
-
-
-class LLMEntityPayload(TypedDict):
-    key: str
-    entity_type: str
-    canonical_name: str
-
-
-class LLMFactPayload(TypedDict, total=False):
-    fact_type: str
-    subject_key: str
-    object_key: str | None
-    value_text: str | None
-    evidence_quote: str
-
-
-class LLMExtractionPayload(TypedDict):
-    is_relevant: bool
-    entities: list[LLMEntityPayload]
-    facts: list[LLMFactPayload]
 
 
 @dataclass(slots=True)
