@@ -364,7 +364,9 @@ class KinshipTieBuilder:
 def _cluster_to_view(cluster: EntityCluster) -> ClusterMentionView:
     """Build a ClusterMentionView for identity-resolution lookups where positional info is
     not required (only canonical_name, entity_id, and entity_type are accessed downstream).
-    Uses the first real mention when available, or a zero-position sentinel otherwise."""
+    Uses the first real mention when available, or a zero-position sentinel when
+    ``cluster.mentions`` is empty. Callers must not rely on start/end offsets from the
+    sentinel view."""
     from pipeline.models import ClusterMention
 
     mention = (
