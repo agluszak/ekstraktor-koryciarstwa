@@ -145,7 +145,9 @@ class OrganizationNamingPolicy:
             key=lambda name: self._organization_name_score(entity, name, normalized),
         )
 
-    def canonical_institution_name(self, entity: Entity | ResolvedEntity, names: list[str]) -> str | None:
+    def canonical_institution_name(
+        self, entity: Entity | ResolvedEntity, names: list[str]
+    ) -> str | None:
         if marshal_office := self._canonical_marshal_office_name(names):
             return marshal_office
         primary_tokens = {
