@@ -1,7 +1,6 @@
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClauseID,
-    ClusterID,
     DocumentID,
     EntityID,
     EntityType,
@@ -22,12 +21,12 @@ from pipeline.models import (
     ClusterMention,
     CompensationFrame,
     Entity,
-    EntityCluster,
     EvidenceSpan,
     FundingFrame,
     GovernanceFrame,
     Mention,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
     TemporalExpression,
 )
@@ -43,9 +42,9 @@ def cluster(
     end_char: int | None = None,
     entity_id: str | None = None,
     organization_kind: OrganizationKind | None = None,
-) -> EntityCluster:
-    return EntityCluster(
-        cluster_id=ClusterID(cluster_id),
+) -> ResolvedEntity:
+    return ResolvedEntity(
+        entity_id=EntityID(cluster_id),
         entity_type=entity_type,
         canonical_name=name,
         normalized_name=name,
@@ -57,9 +56,7 @@ def cluster(
                 paragraph_index=0,
                 start_char=start_char,
                 end_char=end_char if end_char is not None else start_char + len(name),
-                entity_id=EntityID(entity_id)
-                if entity_id
-                else EntityID(cluster_id.replace("cluster-", "entity-")),
+                entity_id=EntityID(entity_id) if entity_id else EntityID(cluster_id),
             )
         ],
         aliases=[name],
@@ -102,7 +99,7 @@ def parsed_word(
     )
 
 
-def document(clusters: list[EntityCluster]) -> ArticleDocument:
+def document(clusters: list[ResolvedEntity]) -> ArticleDocument:
     return ArticleDocument(
         document_id=DocumentID("doc-1"),
         source_url=None,
@@ -111,15 +108,15 @@ def document(clusters: list[EntityCluster]) -> ArticleDocument:
         publication_date="2026-04-15",
         cleaned_text="",
         paragraphs=[],
-        clusters=clusters,
+        resolved_entities=clusters,
     )
 
 
 def test_target_resolver_prefers_stadnina_over_skarb_panstwa() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
-    target = cluster("cluster-target", "Stadnina Koni Iwno", start_char=20)
-    owner = cluster("cluster-owner", "Skarbu Państwa", start_char=50)
+    target = cluster("entity-target", "Stadnina Koni Iwno", start_char=20)
+    owner = cluster("entity-owner", "Skarbu Państwa", start_char=50)
 
     result = resolver.resolve(
         document=document([target, owner]),
@@ -136,12 +133,12 @@ def test_target_resolver_rejects_city_context_when_company_target_is_present() -
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
     target = cluster(
-        "cluster-target",
+        "entity-target",
         "Polski Holding Nieruchomości",
         start_char=42,
         organization_kind=OrganizationKind.COMPANY,
     )
-    city = cluster("cluster-city", "Warszawy", start_char=18)
+    city = cluster("entity-city", "Warszawy", start_char=18)
 
     result = resolver.resolve(
         document=document([target, city]),
@@ -158,7 +155,7 @@ def test_target_resolver_rejects_city_context_when_company_target_is_present() -
 def test_target_resolver_rejects_ner_location_targets() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
-    location = cluster("cluster-location", "Poznań", EntityType.LOCATION, start_char=30)
+    location = cluster("entity-location", "Poznań", EntityType.LOCATION, start_char=30)
 
     result = resolver.resolve(
         document=document([location]),
@@ -176,34 +173,34 @@ def test_governance_fact_builder_expands_list_appointments_with_exception() -> N
         "Zielińską. Z wyjątkiem Marka Kota wszyscy kandydaci zostali powołani."
     )
     target = cluster(
-        "cluster-target",
+        "entity-target",
         "Spółka Alfa",
         start_char=text.index("spółki Alfa"),
         organization_kind=OrganizationKind.COMPANY,
     )
     anna = cluster(
-        "cluster-anna",
+        "entity-anna",
         "Anna Nowak",
         EntityType.PERSON,
         start_char=text.index("Annę Nowak"),
         entity_id="entity-anna",
     )
     piotr = cluster(
-        "cluster-piotr",
+        "entity-piotr",
         "Piotr Lis",
         EntityType.PERSON,
         start_char=text.index("Piotra Lisa"),
         entity_id="entity-piotr",
     )
     ewa = cluster(
-        "cluster-ewa",
+        "entity-ewa",
         "Ewa Zielińska",
         EntityType.PERSON,
         start_char=text.index("Ewę Zielińską"),
         entity_id="entity-ewa",
     )
     marek = cluster(
-        "cluster-marek",
+        "entity-marek",
         "Marek Kot",
         EntityType.PERSON,
         start_char=text.index("Marka Kota"),
@@ -226,7 +223,7 @@ def test_governance_fact_builder_expands_list_appointments_with_exception() -> N
                 end_char=len(text),
             )
         ],
-        clusters=[target, anna, piotr, ewa, marek],
+        resolved_entities=[target, anna, piotr, ewa, marek],
     )
 
     facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
@@ -354,7 +351,7 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
     clause_text = "To Jarosław Słoma."
     sentence_break = len(previous_text) + 1
     authority = cluster(
-        "cluster-authority",
+        "entity-authority",
         "Piotr Grzymowicz",
         EntityType.PERSON,
         sentence_index=0,
@@ -362,7 +359,7 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
         end_char=16,
     )
     appointee = cluster(
-        "cluster-appointee",
+        "entity-appointee",
         "Jarosław Słoma",
         EntityType.PERSON,
         sentence_index=1,
@@ -393,7 +390,7 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
                 end_char=sentence_break + len(clause_text),
             ),
         ],
-        clusters=[authority, appointee],
+        resolved_entities=[authority, appointee],
         parsed_sentences={
             0: [
                 parsed_word(1, "Piotr", "Piotr", 0, head=3, deprel="nsubj", upos="PROPN"),
@@ -427,8 +424,8 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
         GovernanceSignal.APPOINTMENT,
     )
 
-    assert person_cluster_id == appointee.cluster_id
-    assert appointing_authority_id == authority.cluster_id
+    assert person_cluster_id == appointee.entity_id
+    assert appointing_authority_id == authority.entity_id
 
 
 def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> None:
@@ -440,7 +437,7 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
     first_break = len(previous_text) + 1
     second_break = first_break + len(chooser_text) + 1
     authority = cluster(
-        "cluster-authority",
+        "entity-authority",
         "Piotr Grzymowicz",
         EntityType.PERSON,
         sentence_index=0,
@@ -448,7 +445,7 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
         end_char=26,
     )
     appointee = cluster(
-        "cluster-appointee",
+        "entity-appointee",
         "Jarosław Słoma",
         EntityType.PERSON,
         sentence_index=2,
@@ -486,7 +483,7 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
                 end_char=second_break + len(clause_text),
             ),
         ],
-        clusters=[authority, appointee],
+        resolved_entities=[authority, appointee],
         parsed_sentences={
             0: [
                 parsed_word(1, "Prezydent", "prezydent", 0, head=4, deprel="nsubj"),
@@ -528,15 +525,15 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
         GovernanceSignal.APPOINTMENT,
     )
 
-    assert person_cluster_id == appointee.cluster_id
-    assert appointing_authority_id == authority.cluster_id
+    assert person_cluster_id == appointee.entity_id
+    assert appointing_authority_id == authority.entity_id
 
 
 def test_target_resolver_prefers_company_over_ministry_owner() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
-    target = cluster("cluster-target", "Rewita Hoteli", start_char=30)
-    owner = cluster("cluster-owner", "Ministerstwo Obrony Narodowej", start_char=60)
+    target = cluster("entity-target", "Rewita Hoteli", start_char=30)
+    owner = cluster("entity-owner", "Ministerstwo Obrony Narodowej", start_char=60)
 
     result = resolver.resolve(
         document=document([target, owner]),
@@ -552,8 +549,8 @@ def test_target_resolver_prefers_company_over_ministry_owner() -> None:
 def test_target_resolver_rejects_generic_polska_for_totalizator() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
-    totalizator = cluster("cluster-target", "Totalizator Sportowy", start_char=20)
-    polska = cluster("cluster-polska", "Polska", start_char=45)
+    totalizator = cluster("entity-target", "Totalizator Sportowy", start_char=20)
+    polska = cluster("entity-polska", "Polska", start_char=45)
 
     result = resolver.resolve(
         document=document([totalizator, polska]),
@@ -568,7 +565,7 @@ def test_target_resolver_rejects_generic_polska_for_totalizator() -> None:
 def test_target_resolver_does_not_use_party_as_target() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
-    party = cluster("cluster-party", "Polskie Stronnictwo Ludowe", start_char=20)
+    party = cluster("entity-party", "Polskie Stronnictwo Ludowe", start_char=20)
 
     result = resolver.resolve(
         document=document([party]),
@@ -589,7 +586,7 @@ def test_target_resolver_prefers_lubelskie_koleje_over_wojewodztwo_context() -> 
     )
     owner_start = text.index("województwa lubelskiego")
     owner = cluster(
-        "cluster-owner",
+        "entity-owner",
         "Województwo Lubelskie",
         EntityType.PUBLIC_INSTITUTION,
         start_char=owner_start,
@@ -598,7 +595,7 @@ def test_target_resolver_prefers_lubelskie_koleje_over_wojewodztwo_context() -> 
     )
     target_start = text.index("Lubelskie Koleje")
     target = cluster(
-        "cluster-target",
+        "entity-target",
         "Lubelskie Koleje",
         start_char=target_start,
         end_char=target_start + len("Lubelskie Koleje"),
@@ -606,7 +603,7 @@ def test_target_resolver_prefers_lubelskie_koleje_over_wojewodztwo_context() -> 
     )
     body_start = text.index("rady nadzorczej")
     body = cluster(
-        "cluster-body",
+        "entity-body",
         "Rada Nadzorcza",
         start_char=body_start,
         end_char=body_start + len("rady nadzorczej"),
@@ -634,10 +631,10 @@ def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
         "Teraz awansowała na stanowisko prezesa zarządu. "
         "Chodzi o Stadninę Koni Iwno, spółkę Skarbu Państwa."
     )
-    person = cluster("cluster-person", "A. Góralczyk", EntityType.PERSON, sentence_index=0)
+    person = cluster("entity-person", "A. Góralczyk", EntityType.PERSON, sentence_index=0)
     target_start = text.index("Stadninę Koni Iwno")
     target = cluster(
-        "cluster-target",
+        "entity-target",
         "Stadnina Koni Iwno",
         sentence_index=2,
         start_char=target_start,
@@ -645,7 +642,7 @@ def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
     )
     owner_start = text.index("Skarbu Państwa")
     owner = cluster(
-        "cluster-owner",
+        "entity-owner",
         "Skarbu Państwa",
         sentence_index=2,
         start_char=owner_start,
@@ -701,9 +698,9 @@ def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
 
     assert len(extracted.governance_frames) == 1
     frame = extracted.governance_frames[0]
-    assert frame.person_cluster_id == "cluster-person"
-    assert frame.target_org_cluster_id == "cluster-target"
-    assert frame.owner_context_cluster_id == "cluster-owner"
+    assert frame.person_cluster_id == "entity-person"
+    assert frame.target_org_cluster_id == "entity-target"
+    assert frame.owner_context_cluster_id == "entity-owner"
     assert frame.found_role == "Prezes"
     assert frame.evidence_scope == "discourse_window"
     assert {evidence.sentence_index for evidence in frame.evidence} == {0, 1, 2}
@@ -714,7 +711,7 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
     text = "Odwołano poprzedniego prezesa. Był nim Przemysław Pacia. Chodzi o Stadninę Koni Iwno."
     person_start = text.index("Przemysław Pacia")
     person = cluster(
-        "cluster-person",
+        "entity-person",
         "Przemysław Pacia",
         EntityType.PERSON,
         sentence_index=1,
@@ -722,7 +719,7 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
     )
     target_start = text.index("Stadninę Koni Iwno")
     target = cluster(
-        "cluster-target",
+        "entity-target",
         "Stadnina Koni Iwno",
         sentence_index=2,
         start_char=target_start,
@@ -780,8 +777,8 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
     assert len(extracted.governance_frames) == 1
     frame = extracted.governance_frames[0]
     assert frame.signal == GovernanceSignal.DISMISSAL
-    assert frame.person_cluster_id == "cluster-person"
-    assert frame.target_org_cluster_id == "cluster-target"
+    assert frame.person_cluster_id == "entity-person"
+    assert frame.target_org_cluster_id == "entity-target"
     assert frame.found_role == "Prezes"
 
 
@@ -840,7 +837,7 @@ def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
 
     clustered = PolishEntityClusterer(config).run(doc)
 
-    mention = clustered.clusters[0].mentions[0]
+    mention = clustered.resolved_entities[0].mentions[0]
     assert mention.paragraph_index == 1
     assert mention.start_char == start
     assert mention.end_char == start + len("Stadninę Koni Iwno")
@@ -849,14 +846,14 @@ def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
 
 def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
     person = cluster(
-        "cluster-person",
+        "entity-person",
         "Jan Kowalski",
         EntityType.PERSON,
         entity_id=EntityID("person-1"),
     )
-    organization = cluster("cluster-org", "AMW Rewita", entity_id=EntityID("org-1"))
+    organization = cluster("entity-org", "AMW Rewita", entity_id=EntityID("org-1"))
     role = cluster(
-        "cluster-role",
+        "entity-role",
         "Wiceprezes",
         EntityType.POSITION,
         entity_id=EntityID("position-1"),
@@ -866,17 +863,17 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
         GovernanceFrame(
             frame_id=FrameID("frame-roleless"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.7,
             evidence=[EvidenceSpan(text="Jan trafił do AMW Rewita.", paragraph_index=0)],
         ),
         GovernanceFrame(
             frame_id=FrameID("frame-role"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.8,
             evidence=[
                 EvidenceSpan(
@@ -891,20 +888,20 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
 
     assert len(facts) == 1
     assert facts[0].value_text == "Wiceprezes"
-    assert facts[0].position_entity_id == "position-1"
+    assert facts[0].position_entity_id == "entity-role"
     assert facts[0].confidence == 0.8
 
 
 def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> None:
     person = cluster(
-        "cluster-person",
+        "entity-person",
         "Jarosław Słoma",
         EntityType.PERSON,
         entity_id=EntityID("person-1"),
     )
-    organization = cluster("cluster-org", "PWiK Olsztyn", entity_id=EntityID("org-1"))
+    organization = cluster("entity-org", "PWiK Olsztyn", entity_id=EntityID("org-1"))
     role = cluster(
-        "cluster-role",
+        "entity-role",
         "Wiceprezes",
         EntityType.POSITION,
         entity_id=EntityID("position-1"),
@@ -915,9 +912,9 @@ def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> Non
         GovernanceFrame(
             frame_id=FrameID("frame-date"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.9,
             evidence=[
                 EvidenceSpan(
@@ -936,14 +933,14 @@ def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> Non
 
 def test_governance_fact_builder_recovers_titled_appointing_authority_from_evidence() -> None:
     person = cluster(
-        "cluster-person",
+        "entity-person",
         "Jarosław Słoma",
         EntityType.PERSON,
         sentence_index=0,
         entity_id=EntityID("person-1"),
     )
     authority = cluster(
-        "cluster-authority",
+        "entity-authority",
         "Piotr Grzymowicz",
         EntityType.PERSON,
         sentence_index=1,
@@ -952,14 +949,14 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
         entity_id=EntityID("person-2"),
     )
     organization = cluster(
-        "cluster-org",
+        "entity-org",
         "PWiK Olsztyn",
         sentence_index=0,
         start_char=90,
         entity_id=EntityID("org-1"),
     )
     role = cluster(
-        "cluster-role",
+        "entity-role",
         "Wiceprezes",
         EntityType.POSITION,
         sentence_index=0,
@@ -999,9 +996,9 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
         GovernanceFrame(
             frame_id=FrameID("frame-authority"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.9,
             evidence=[
                 EvidenceSpan(
@@ -1028,18 +1025,18 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
     facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
-    assert facts[0].appointing_authority_entity_id == EntityID("person-2")
+    assert facts[0].appointing_authority_entity_id == EntityID("entity-authority")
 
 
 def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
     person = cluster(
-        "cluster-person",
+        "entity-person",
         "Łukasz Bałajewicz",
         EntityType.PERSON,
         entity_id=EntityID("person-1"),
     )
-    organization = cluster("cluster-org", "KZN", entity_id=EntityID("org-1"))
-    role = cluster("cluster-role", "Prezes", EntityType.POSITION, entity_id=EntityID("position-1"))
+    organization = cluster("entity-org", "KZN", entity_id=EntityID("org-1"))
+    role = cluster("entity-role", "Prezes", EntityType.POSITION, entity_id=EntityID("position-1"))
     doc = document([person, organization, role])
     doc.compensation_frames = [
         CompensationFrame(
@@ -1047,9 +1044,9 @@ def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
             amount_text="31 tys. zł brutto",
             amount_normalized="31 Tys. Zł Brutto",
             period="Miesięcznie",
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            organization_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            organization_cluster_id=organization.entity_id,
             confidence=0.85,
             evidence=[
                 EvidenceSpan(
@@ -1067,20 +1064,20 @@ def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
 
     assert len(facts) == 1
     assert facts[0].fact_type == "COMPENSATION"
-    assert facts[0].subject_entity_id == "person-1"
-    assert facts[0].object_entity_id == "org-1"
-    assert facts[0].position_entity_id == "position-1"
+    assert facts[0].subject_entity_id == "entity-person"
+    assert facts[0].object_entity_id == "entity-org"
+    assert facts[0].position_entity_id == "entity-role"
     assert facts[0].source_extractor == "compensation_frame"
 
 
 def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> None:
     person = cluster(
-        "cluster-person",
+        "entity-person",
         "Łukasz Bałajewicz",
         EntityType.PERSON,
         entity_id=EntityID("person-1"),
     )
-    organization = cluster("cluster-org", "KZN", entity_id=EntityID("org-1"))
+    organization = cluster("entity-org", "KZN", entity_id=EntityID("org-1"))
     doc = document([person, organization])
     doc.publication_date = "2019-03-22"
     doc.temporal_expressions = [
@@ -1100,8 +1097,8 @@ def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> No
             amount_text="31 tys. zł brutto",
             amount_normalized="31 Tys. Zł Brutto",
             period="Miesięcznie",
-            person_cluster_id=person.cluster_id,
-            organization_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            organization_cluster_id=organization.entity_id,
             confidence=0.85,
             evidence=[
                 EvidenceSpan(
@@ -1126,7 +1123,7 @@ def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> No
 
 def test_compensation_frame_extractor_ignores_funding_amounts() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    fundacja = cluster("cluster-org", "Fundacja Lux Veritatis", entity_id=EntityID("org-1"))
+    fundacja = cluster("entity-org", "Fundacja Lux Veritatis", entity_id=EntityID("org-1"))
     doc = document([fundacja])
     text = "Fundacja dostała 300 tys. zł dotacji na projekt."
     doc.clause_units = [
@@ -1150,10 +1147,8 @@ def test_compensation_frame_extractor_ignores_funding_amounts() -> None:
 
 def test_compensation_frame_extractor_emits_role_only_salary_frame() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    role = cluster(
-        "cluster-role", "Dyrektor", EntityType.POSITION, entity_id=EntityID("position-1")
-    )
-    org = cluster("cluster-org", "Totalizator Sportowy", entity_id=EntityID("org-1"), start_char=40)
+    role = cluster("entity-role", "Dyrektor", EntityType.POSITION, entity_id=EntityID("position-1"))
+    org = cluster("entity-org", "Totalizator Sportowy", entity_id=EntityID("org-1"), start_char=40)
     doc = document([role, org])
     text = "Dyrektorzy Totalizatora Sportowego mogą zarobić ponad 20 tys. zł miesięcznie."
     doc.clause_units = [
@@ -1173,21 +1168,21 @@ def test_compensation_frame_extractor_emits_role_only_salary_frame() -> None:
     extracted = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(extracted.compensation_frames) == 1
-    assert extracted.compensation_frames[0].role_cluster_id == "cluster-role"
-    assert extracted.compensation_frames[0].organization_cluster_id == "cluster-org"
+    assert extracted.compensation_frames[0].role_cluster_id == "entity-role"
+    assert extracted.compensation_frames[0].organization_cluster_id == "entity-org"
     assert extracted.compensation_frames[0].confidence == 0.66
 
 
 def test_funding_frame_extractor_emits_grant_frame_without_compensation_frame() -> None:
     config = PipelineConfig.from_file("config.yaml")
     funder = cluster(
-        "cluster-funder",
+        "entity-funder",
         "WFOŚiGW",
         EntityType.PUBLIC_INSTITUTION,
         entity_id=EntityID("org-funder"),
     )
     recipient = cluster(
-        "cluster-recipient", "Fundacja Lux Veritatis", entity_id=EntityID("org-recipient")
+        "entity-recipient", "Fundacja Lux Veritatis", entity_id=EntityID("org-recipient")
     )
     text = "WFOŚiGW przekazał Fundacji Lux Veritatis 300 tys. zł dotacji."
     doc = document([funder, recipient])
@@ -1210,20 +1205,20 @@ def test_funding_frame_extractor_emits_grant_frame_without_compensation_frame() 
 
     assert doc.compensation_frames == []
     assert len(doc.funding_frames) == 1
-    assert doc.funding_frames[0].funder_cluster_id == "cluster-funder"
-    assert doc.funding_frames[0].recipient_cluster_id == "cluster-recipient"
+    assert doc.funding_frames[0].funder_cluster_id == "entity-funder"
+    assert doc.funding_frames[0].recipient_cluster_id == "entity-recipient"
     assert doc.funding_frames[0].amount_normalized == "300 Tys. Zł"
 
 
 def test_funding_frame_extractor_rejects_reporting_przekazac_with_amount() -> None:
     config = PipelineConfig.from_file("config.yaml")
     source = cluster(
-        "cluster-source",
+        "entity-source",
         "Biuro Prasowe",
         EntityType.PUBLIC_INSTITUTION,
         entity_id=EntityID("org-source"),
     )
-    recipient = cluster("cluster-recipient", "Redakcja", entity_id=EntityID("org-recipient"))
+    recipient = cluster("entity-recipient", "Redakcja", entity_id=EntityID("org-recipient"))
     text = "Biuro Prasowe przekazało redakcji 300 tys. zł informacji."
     doc = document([source, recipient])
     doc.parsed_sentences = {
@@ -1264,7 +1259,7 @@ def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_of
     recipient_start = sentence_start + text.index("Fundacji Lux Veritatis")
     funder_start = sentence_start + text.index("Jastrzębskie Zakłady Remontowe")
     recipient = cluster(
-        "cluster-recipient",
+        "entity-recipient",
         "Fundacja Lux Veritatis",
         sentence_index=3,
         start_char=recipient_start,
@@ -1272,7 +1267,7 @@ def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_of
         entity_id=EntityID("org-recipient"),
     )
     funder = cluster(
-        "cluster-funder",
+        "entity-funder",
         "Jastrzębskie Zakłady Remontowe",
         sentence_index=3,
         start_char=funder_start,
@@ -1310,19 +1305,19 @@ def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_of
     doc = PolishFundingFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(doc.funding_frames) == 1
-    assert doc.funding_frames[0].funder_cluster_id == "cluster-funder"
-    assert doc.funding_frames[0].recipient_cluster_id == "cluster-recipient"
+    assert doc.funding_frames[0].funder_cluster_id == "entity-funder"
+    assert doc.funding_frames[0].recipient_cluster_id == "entity-recipient"
 
 
 def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
     funder = cluster(
-        "cluster-funder",
+        "entity-funder",
         "WFOŚiGW",
         EntityType.PUBLIC_INSTITUTION,
         entity_id=EntityID("org-funder"),
     )
     recipient = cluster(
-        "cluster-recipient", "Fundacja Lux Veritatis", entity_id=EntityID("org-recipient")
+        "entity-recipient", "Fundacja Lux Veritatis", entity_id=EntityID("org-recipient")
     )
     doc = document([funder, recipient])
     doc.funding_frames = [
@@ -1330,8 +1325,8 @@ def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
             frame_id=FrameID("funding-frame-1"),
             amount_text="300 tys. zł",
             amount_normalized="300 Tys. Zł",
-            funder_cluster_id=funder.cluster_id,
-            recipient_cluster_id=recipient.cluster_id,
+            funder_cluster_id=funder.entity_id,
+            recipient_cluster_id=recipient.entity_id,
             confidence=0.82,
             evidence=[
                 EvidenceSpan(
@@ -1349,8 +1344,8 @@ def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
 
     assert len(facts) == 1
     assert facts[0].fact_type == "FUNDING"
-    assert facts[0].subject_entity_id == "org-recipient"
-    assert facts[0].object_entity_id == "org-funder"
+    assert facts[0].subject_entity_id == "entity-recipient"
+    assert facts[0].object_entity_id == "entity-funder"
     assert facts[0].source_extractor == "funding_frame"
 
 
@@ -1363,7 +1358,7 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
     extractor = PolishGovernanceFrameExtractor(config)
     text = "Jan Kowalski został powołany na prezesa."
     appointee = cluster(
-        "cluster-appointee",
+        "entity-appointee",
         "Jan Kowalski",
         EntityType.PERSON,
         sentence_index=0,
@@ -1390,7 +1385,7 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
         publication_date=None,
         cleaned_text=text,
         paragraphs=[text],
-        clusters=[appointee],
+        resolved_entities=[appointee],
     )
 
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
@@ -1400,7 +1395,7 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
         GovernanceSignal.APPOINTMENT,
     )
 
-    assert person_cluster_id == appointee.cluster_id
+    assert person_cluster_id == appointee.entity_id
     assert appointing_authority_id is None
 
 

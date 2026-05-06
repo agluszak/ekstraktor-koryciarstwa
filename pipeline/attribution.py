@@ -12,8 +12,8 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     EntityCandidate,
-    EntityCluster,
     ParsedWord,
+    ResolvedEntity,
 )
 from pipeline.nlp_rules import (
     BOARD_ROLE_KINDS,
@@ -46,9 +46,9 @@ class ResolvedRoleAttribution:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedPublicEmploymentAttribution:
-    employee: EntityCluster
-    employer: EntityCluster
-    role_cluster: EntityCluster | None
+    employee: ResolvedEntity
+    employer: ResolvedEntity
+    role_cluster: ResolvedEntity | None
 
 
 def resolve_party_attributions(
@@ -404,7 +404,7 @@ def _resolve_public_employment_employer(
     clause: ClauseUnit,
     *,
     config: PipelineConfig,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     current = [
         cluster
         for cluster in _clusters_for_clause(document, clause)
@@ -415,7 +415,7 @@ def _resolve_public_employment_employer(
 
     adjacent = [
         cluster
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
         if cluster.entity_type.name in {"ORGANIZATION", "PUBLIC_INSTITUTION"}
         and _is_public_employer_cluster(cluster)
         and not _is_party_cluster(cluster, config)
@@ -440,7 +440,7 @@ def _resolve_public_employment_employer(
 def _resolve_public_employment_employee(
     document: ArticleDocument,
     clause: ClauseUnit,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     patient = _employment_patient_cluster(document, clause)
     if patient is not None:
         return patient
@@ -461,8 +461,8 @@ def _resolve_public_employment_employee(
 def _resolve_public_employment_role_cluster(
     document: ArticleDocument,
     clause: ClauseUnit,
-    employee: EntityCluster,
-) -> EntityCluster | None:
+    employee: ResolvedEntity,
+) -> ResolvedEntity | None:
     roles = [
         cluster
         for cluster in _clusters_for_clause(document, clause)
@@ -481,7 +481,7 @@ def _document_level_employer_candidates(
     clause: ClauseUnit,
     *,
     config: PipelineConfig,
-) -> list[EntityCluster]:
+) -> list[ResolvedEntity]:
     lowered = clause.text.casefold()
     if not any(
         marker in lowered
@@ -490,7 +490,7 @@ def _document_level_employer_candidates(
         return []
     return [
         cluster
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
         if cluster.entity_type.name in {"ORGANIZATION", "PUBLIC_INSTITUTION"}
         and _is_public_employer_cluster(cluster)
         and not _is_party_cluster(cluster, config)
@@ -504,7 +504,7 @@ def _document_level_employer_candidates(
 def _employment_patient_cluster(
     document: ArticleDocument,
     clause: ClauseUnit,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
     for trigger_word in [word for word in parsed_words if word.lemma.casefold() == "zatrudnić"]:
         object_words = [
@@ -528,7 +528,7 @@ def _employment_patient_cluster(
 def _subject_cluster(
     document: ArticleDocument,
     clause: ClauseUnit,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
     for word in [word for word in parsed_words if word.deprel.startswith("nsubj")]:
         cluster = _person_cluster_overlapping_word(document, clause, word)
@@ -546,7 +546,7 @@ def _person_cluster_in_subtree(
     head_index: int,
     *,
     seen: set[int] | None = None,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     if seen is None:
         seen = set()
     if head_index in seen:
@@ -569,7 +569,7 @@ def _person_cluster_overlapping_word(
     document: ArticleDocument,
     clause: ClauseUnit,
     word: ParsedWord,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     for cluster in _clusters_for_clause(document, clause):
         if cluster.entity_type.name != "PERSON":
             continue
@@ -588,7 +588,7 @@ def _nearest_proxy_cluster(
     document: ArticleDocument,
     clause: ClauseUnit,
     local_start: int,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     proxies = [
         cluster
         for cluster in _clusters_for_clause(document, clause)
@@ -604,13 +604,13 @@ def _nearest_proxy_cluster(
 def _proxy_cluster_for_anchor(
     document: ArticleDocument,
     clause: ClauseUnit,
-    subject: EntityCluster,
-) -> EntityCluster | None:
+    subject: ResolvedEntity,
+) -> ResolvedEntity | None:
     subject_entity_ids = {mention.entity_id for mention in subject.mentions if mention.entity_id}
     return next(
         (
             cluster
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
             if cluster.is_proxy_person
             and cluster.proxy_anchor_entity_id in subject_entity_ids
             and any(mention.sentence_index == clause.sentence_index for mention in cluster.mentions)
@@ -622,14 +622,14 @@ def _proxy_cluster_for_anchor(
 def _clusters_for_clause(
     document: ArticleDocument,
     clause: ClauseUnit,
-) -> list[EntityCluster]:
+) -> list[ResolvedEntity]:
     mention_keys = {
         (mention.entity_id, mention.start_char, mention.end_char)
         for mention in clause.cluster_mentions
     }
     return [
         cluster
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
         if any(
             (mention.entity_id, mention.start_char, mention.end_char) in mention_keys
             for mention in cluster.mentions
@@ -637,7 +637,7 @@ def _clusters_for_clause(
     ]
 
 
-def _is_public_employer_cluster(cluster: EntityCluster) -> bool:
+def _is_public_employer_cluster(cluster: ResolvedEntity) -> bool:
     if cluster.entity_type.name == "PUBLIC_INSTITUTION":
         return True
     if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
@@ -645,7 +645,7 @@ def _is_public_employer_cluster(cluster: EntityCluster) -> bool:
     return is_public_employer_name(cluster.normalized_name.casefold())
 
 
-def _is_party_cluster(cluster: EntityCluster, config: PipelineConfig) -> bool:
+def _is_party_cluster(cluster: ResolvedEntity, config: PipelineConfig) -> bool:
     return is_party_like_name(cluster.normalized_name, config)
 
 
@@ -657,7 +657,7 @@ def _mention_local_end(mention: ClusterMention, clause: ClauseUnit) -> int:
     return max(0, mention.end_char - clause.start_char)
 
 
-def _cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> int:
+def _cluster_clause_distance(cluster: ResolvedEntity, clause: ClauseUnit) -> int:
     return min(
         (
             abs(_mention_local_start(mention, clause))

@@ -7,7 +7,6 @@ from pipeline.base import IdentityResolver
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
-    ClusterID,
     EntityID,
     EntityType,
     FactID,
@@ -35,11 +34,11 @@ from pipeline.models import (
     ArticleDocument,
     ClusterMention,
     Entity,
-    EntityCluster,
     EvidenceSpan,
     Fact,
     IdentityHypothesis,
     Mention,
+    ResolvedEntity,
 )
 from pipeline.utils import normalize_entity_name, stable_id
 
@@ -47,7 +46,7 @@ from pipeline.utils import normalize_entity_name, stable_id
 @dataclass(slots=True)
 class _ProxyRecord:
     entity: Entity
-    cluster: EntityCluster
+    cluster: ResolvedEntity
     kinship_detail: KinshipDetail
     anchor_entity_id: str
     anchor_cluster_id: str
@@ -56,7 +55,7 @@ class _ProxyRecord:
 @dataclass(slots=True)
 class _ResolvedFamilyMention:
     mention: FamilyMention
-    anchor: EntityCluster
+    anchor: ResolvedEntity
 
 
 class PolishFamilyIdentityResolver(IdentityResolver):
@@ -155,7 +154,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         end_char: int,
         surface: str,
         kinship_detail: KinshipDetail,
-        anchor: EntityCluster,
+        anchor: ResolvedEntity,
     ) -> _ProxyRecord:
         anchor_entity_id = self._best_entity_id(anchor)
         canonical_name = normalize_entity_name(surface)
@@ -226,7 +225,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             cluster=cluster,
             kinship_detail=kinship_detail,
             anchor_entity_id=anchor_entity_id,
-            anchor_cluster_id=anchor.cluster_id,
+            anchor_cluster_id=anchor.entity_id,
         )
 
     def _ensure_proxy_cluster(
@@ -239,11 +238,11 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         start_char: int,
         end_char: int,
         surface: str,
-    ) -> EntityCluster:
+    ) -> ResolvedEntity:
         existing = next(
             (
                 cluster
-                for cluster in document.clusters
+                for cluster in document.resolved_entities
                 if cluster.proxy_entity_id == entity.entity_id
             ),
             None,
@@ -258,8 +257,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             entity_id=entity.entity_id,
         )
         if existing is None:
-            cluster = EntityCluster(
-                cluster_id=ClusterID(f"cluster-proxy-{uuid.uuid4().hex[:8]}"),
+            cluster = ResolvedEntity(
+                entity_id=EntityID(f"cluster-proxy-{uuid.uuid4().hex[:8]}"),
                 entity_type=EntityType.PERSON,
                 canonical_name=entity.canonical_name,
                 normalized_name=entity.normalized_name,
@@ -271,7 +270,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 kinship_detail=entity.kinship_detail,
                 proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
             )
-            document.clusters.append(cluster)
+            document.resolved_entities.append(cluster)
             return cluster
         if not any(
             item.start_char == start_char and item.sentence_index == sentence_index
@@ -484,9 +483,9 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 entity_id=EntityID(entity_id),
             )
         )
-        document.clusters.append(
-            EntityCluster(
-                cluster_id=ClusterID(f"cluster-ref-{uuid.uuid4().hex[:8]}"),
+        document.resolved_entities.append(
+            ResolvedEntity(
+                entity_id=EntityID(f"cluster-ref-{uuid.uuid4().hex[:8]}"),
                 entity_type=EntityType.PERSON,
                 canonical_name=canonical,
                 normalized_name=canonical,
@@ -508,7 +507,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
 
     def _refresh_clause_mentions(self, document: ArticleDocument) -> None:
         for clause in document.clause_units:
-            for cluster in document.clusters:
+            for cluster in document.resolved_entities:
                 for mention in cluster.mentions:
                     if mention.sentence_index != clause.sentence_index:
                         continue
@@ -637,8 +636,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         return next((entity for entity in document.entities if entity.entity_id == entity_id), None)
 
     @staticmethod
-    def _best_entity_id(cluster: EntityCluster) -> str:
+    def _best_entity_id(cluster: ResolvedEntity) -> str:
         for mention in cluster.mentions:
             if mention.entity_id:
                 return mention.entity_id
-        return cluster.cluster_id
+        return cluster.entity_id

@@ -1,53 +1,80 @@
 from __future__ import annotations
 
-from pipeline.cli import build_pipeline
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
-from pipeline.models import PipelineInput
+from pipeline.domain_types import EntityType, FactType
+from pipeline.fact_extractor import PolishFactExtractor
+from pipeline.roles import PolishPositionExtractor
+from tests.test_relations import (
+    prepare_for_relation_extraction,
+    prepared_single_clause_document,
+    word,
+)
 
 
-def test_roles_extracted_as_first_class_entities():
+def test_roles_extracted_as_first_class_entities() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    pipeline = build_pipeline(config)
+    text = "Jan Kowalski został prezesem spółki Orlen."
+    document = prepared_single_clause_document(
+        document_id="doc-role-first-class",
+        text=text,
+        entities=[
+            ("Jan Kowalski", EntityType.PERSON, "Jan Kowalski"),
+            ("Orlen", EntityType.ORGANIZATION, "Orlen"),
+        ],
+        parsed_words=[
+            word(1, "Jan", "Jan", 0, head=2, deprel="flat", upos="PROPN"),
+            word(2, "Kowalski", "Kowalski", 4, head=4, deprel="nsubj", upos="PROPN"),
+            word(3, "został", "zostać", 13, head=4, deprel="aux", upos="AUX"),
+            word(4, "prezesem", "prezes", 20, upos="NOUN"),
+            word(5, "spółki", "spółka", 28, head=4, deprel="nmod"),
+            word(6, "Orlen", "Orlen", 35, head=5, deprel="flat", upos="PROPN"),
+        ],
+    )
+    document = PolishPositionExtractor(config).run(document)
+    document = prepare_for_relation_extraction(config, document)
+    result = PolishFactExtractor(config).run(document)
 
-    # Text with a clear role and a person
-    content = "Jan Kowalski został prezesem spółki Orlen. To bardzo ważna informacja dla rynku." * 5
-    html = f"<html><head><title>Ważna zmiana w Orlenie</title></head><body><article><p>{content}</p></article></body></html>"
-    data = PipelineInput(raw_html=html)
-
-    result = pipeline.run(data)
-
-    # Find Position entities
-    positions = [e for e in result.entities if e.entity_type == EntityType.POSITION]
+    positions = [e for e in result.resolved_entities if e.entity_type == EntityType.POSITION]
     assert len(positions) >= 1
     assert any("prezes" in p.canonical_name.lower() for p in positions)
 
-    # Verify the fact has the position_entity_id
-    appointment_facts = [f for f in result.facts if f.fact_type.value == "APPOINTMENT"]
+    appointment_facts = [f for f in result.facts if f.fact_type == FactType.APPOINTMENT]
     assert len(appointment_facts) >= 1
     fact = appointment_facts[0]
     assert fact.position_entity_id is not None
+    assert fact.role is not None
     assert "prezes" in fact.role.lower()
 
 
-def test_roles_clustered_across_sentences():
+def test_roles_clustered_across_mentions() -> None:
     config = PipelineConfig.from_file("config.yaml")
-    pipeline = build_pipeline(config)
-
-    # Text where the role is mentioned twice
-    content = (
-        "Jan Kowalski objął stanowisko prezesa. Jako prezes będzie zarządzał spółką Orlen. To nowa era dla firmy."
-        * 3
+    text = "Jan Kowalski objął stanowisko prezesa i jako prezes zarządza spółką Orlen."
+    document = prepared_single_clause_document(
+        document_id="doc-role-multi-mention",
+        text=text,
+        entities=[
+            ("Jan Kowalski", EntityType.PERSON, "Jan Kowalski"),
+            ("Orlen", EntityType.ORGANIZATION, "Orlen"),
+        ],
+        parsed_words=[
+            word(1, "Jan", "Jan", 0, head=2, deprel="flat", upos="PROPN"),
+            word(2, "Kowalski", "Kowalski", 4, head=3, deprel="nsubj", upos="PROPN"),
+            word(3, "objął", "objąć", 13, upos="VERB"),
+            word(4, "stanowisko", "stanowisko", 18, head=3, deprel="obj"),
+            word(5, "prezesa", "prezes", 29, head=4, deprel="nmod"),
+            word(6, "i", "i", 37, head=3, deprel="cc", upos="CCONJ"),
+            word(7, "jako", "jako", 39, head=8, deprel="case", upos="ADP"),
+            word(8, "prezes", "prezes", 44, head=3, deprel="obl"),
+            word(9, "zarządza", "zarządzać", 51, head=3, deprel="conj", upos="VERB"),
+            word(10, "spółką", "spółka", 60, head=9, deprel="obj"),
+            word(11, "Orlen", "Orlen", 67, head=10, deprel="flat", upos="PROPN"),
+        ],
     )
-    html = f"<html><head><title>Nowy prezes Orlenu</title></head><body><article><p>{content}</p></article></body></html>"
-    data = PipelineInput(raw_html=html)
+    document = PolishPositionExtractor(config).run(document)
+    document = prepare_for_relation_extraction(config, document)
+    result = PolishFactExtractor(config).run(document)
 
-    result = pipeline.run(data)
-
-    # Should have one Position entity with multiple evidence spans
-    positions = [e for e in result.entities if e.entity_type == EntityType.POSITION]
-    # Filter for the main "prezes" entity
+    positions = [e for e in result.resolved_entities if e.entity_type == EntityType.POSITION]
     prezes_entities = [p for p in positions if "prezes" in p.canonical_name.lower()]
     assert len(prezes_entities) == 1
-    entity = prezes_entities[0]
-    assert len(entity.evidence) >= 2
+    assert len(prezes_entities[0].mentions) >= 2

@@ -1,7 +1,6 @@
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClauseID,
-    ClusterID,
     DocumentID,
     EntityID,
     EntityType,
@@ -19,9 +18,9 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     Entity,
-    EntityCluster,
     EvidenceSpan,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
 )
 from pipeline.normalization import DocumentEntityCanonicalizer
@@ -55,7 +54,7 @@ def _person_cluster(
     sentence_index: int,
     paragraph_index: int,
     start_char: int,
-) -> tuple[Entity, EntityCluster]:
+) -> tuple[Entity, ResolvedEntity]:
     evidence = EvidenceSpan(
         text=name,
         sentence_index=sentence_index,
@@ -70,8 +69,8 @@ def _person_cluster(
         normalized_name=name,
         evidence=[evidence],
     )
-    cluster = EntityCluster(
-        cluster_id=ClusterID(f"cluster-{entity_id}"),
+    cluster = ResolvedEntity(
+        entity_id=EntityID(entity_id),
         entity_type=EntityType.PERSON,
         canonical_name=name,
         normalized_name=name,
@@ -153,7 +152,7 @@ def test_creates_spouse_proxy_and_family_tie() -> None:
         start_char=5,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -209,7 +208,7 @@ def test_creates_extended_family_proxies() -> None:
             start_char=len(surface) + 1,
         )
         doc.entities.append(entity)
-        doc.clusters.append(cluster)
+        doc.resolved_entities.append(cluster)
 
         resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -241,7 +240,7 @@ def test_family_proxy_can_anchor_through_public_office_phrase() -> None:
         start_char=13,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -272,7 +271,7 @@ def test_possessive_proxy_anchors_to_sentence_subject_with_global_mentions() -> 
         start_char=0,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -320,7 +319,7 @@ def test_public_role_subject_proxy_prefers_person_with_matching_office_context()
         start_char=36,
     )
     doc.entities.extend([informator, official])
-    doc.clusters.extend([informator_cluster, official_cluster])
+    doc.resolved_entities.extend([informator_cluster, official_cluster])
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -359,7 +358,7 @@ def test_sister_proxy_is_separate_from_spouse_proxy() -> None:
         start_char=5,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -405,7 +404,7 @@ def test_possessive_partner_is_probable_same_person_as_spouse_proxy() -> None:
         start_char=offset + 54,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -445,7 +444,7 @@ def test_possessive_spouse_without_resolved_speaker_does_not_attach_to_nearest_p
         start_char=0,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -484,7 +483,7 @@ def test_honorific_surname_only_stays_possible() -> None:
         start_char=5,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -541,7 +540,7 @@ def test_full_name_with_near_family_context_is_probable_proxy_match() -> None:
         start_char=agnieszka_start,
     )
     doc.entities.extend([karol, agnieszka])
-    doc.clusters.extend([karol_cluster, agnieszka_cluster])
+    doc.resolved_entities.extend([karol_cluster, agnieszka_cluster])
 
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
@@ -592,8 +591,8 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
         canonical_name="Miejski Urząd Pracy",
         normalized_name="Miejski Urząd Pracy",
     )
-    org_cluster = EntityCluster(
-        cluster_id=ClusterID("cluster-mup"),
+    org_cluster = ResolvedEntity(
+        entity_id=EntityID("entity-mup"),
         entity_type=EntityType.PUBLIC_INSTITUTION,
         canonical_name="Miejski Urząd Pracy",
         normalized_name="Miejski Urząd Pracy",
@@ -610,7 +609,7 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
         ],
     )
     doc.entities.extend([karol, org])
-    doc.clusters.extend([karol_cluster, org_cluster])
+    doc.resolved_entities.extend([karol_cluster, org_cluster])
     doc.clause_units[1].trigger_head_text = "została"
     doc.clause_units[1].trigger_head_lemma = "zostać"
     doc.clause_units[1].cluster_mentions.append(org_cluster.mentions[0])
@@ -621,9 +620,9 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
 
     frame = framed.governance_frames[0]
     proxy_cluster_ids = {
-        cluster.cluster_id
-        for cluster in framed.clusters
+        cluster.entity_id
+        for cluster in framed.resolved_entities
         if cluster.kinship_detail == KinshipDetail.SIBLING_SISTER
     }
     assert frame.person_cluster_id in proxy_cluster_ids
-    assert frame.person_cluster_id != "cluster-person-karol"
+    assert frame.person_cluster_id != "entity-person-karol"

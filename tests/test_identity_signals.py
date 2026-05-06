@@ -1,6 +1,5 @@
 from pipeline.domain_types import (
     ClauseID,
-    ClusterID,
     DocumentID,
     EntityID,
     EntityType,
@@ -16,9 +15,9 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     Entity,
-    EntityCluster,
     EvidenceSpan,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
 )
 
@@ -93,7 +92,7 @@ def _person_cluster(
     sentence_index: int,
     paragraph_index: int,
     start_char: int,
-) -> tuple[Entity, EntityCluster]:
+) -> tuple[Entity, ResolvedEntity]:
     evidence = EvidenceSpan(
         text=name,
         sentence_index=sentence_index,
@@ -108,8 +107,8 @@ def _person_cluster(
         normalized_name=name,
         evidence=[evidence],
     )
-    cluster = EntityCluster(
-        cluster_id=ClusterID(f"cluster-{entity_id}"),
+    cluster = ResolvedEntity(
+        entity_id=EntityID(f"entity-{entity_id}"),
         entity_type=EntityType.PERSON,
         canonical_name=name,
         normalized_name=name,
@@ -196,9 +195,9 @@ def test_resolve_possessive_anchor_uses_split_quote_speaker_context() -> None:
         start_char=len(sentences[0]) + 1 + 5,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.resolved_entities.append(cluster)
 
     anchor = resolve_possessive_anchor(doc, 0)
 
     assert anchor is not None
-    assert anchor.cluster_id == cluster.cluster_id
+    assert anchor.entity_id == cluster.entity_id

@@ -68,8 +68,8 @@ def test_polish_entity_clusterer_merges_orgs_by_semantic_similarity(config, mock
     result = clusterer.run(doc)
 
     # Should have only 1 cluster because they were merged via semantic similarity
-    assert len(result.clusters) == 1
-    assert result.clusters[0].canonical_name == "Krajowy Ośrodek Wsparcia Rolnictwa"
+    assert len(result.resolved_entities) == 1
+    assert result.resolved_entities[0].canonical_name == "Krajowy Ośrodek Wsparcia Rolnictwa"
 
 
 def test_polish_entity_clusterer_does_not_merge_dissimilar_orgs(config, mock_runtime):
@@ -113,4 +113,4 @@ def test_polish_entity_clusterer_does_not_merge_dissimilar_orgs(config, mock_run
     result = clusterer.run(doc)
 
     # Should have 2 clusters
-    assert len(result.clusters) == 2
+    assert len(result.resolved_entities) == 2

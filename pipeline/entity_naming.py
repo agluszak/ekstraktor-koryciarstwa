@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
-from pipeline.models import Entity
+from pipeline.models import Entity, ResolvedEntity
 from pipeline.utils import compact_whitespace, normalize_entity_name, unique_preserve_order
 
 GENERIC_ORGANIZATION_TOKENS = frozenset(
@@ -124,7 +124,7 @@ class OrganizationNamingPolicy:
         self.institution_lookup = dict(institution_lookup)
         self.known_acronym_lookup = {alias.lower(): alias for alias in known_acronyms}
 
-    def best_organization_name(self, entity: Entity, names: list[str]) -> str:
+    def best_organization_name(self, entity: Entity | ResolvedEntity, names: list[str]) -> str:
         normalized = [
             normalize_entity_name(name)
             for name in self.candidate_name_parts(names)
@@ -145,7 +145,9 @@ class OrganizationNamingPolicy:
             key=lambda name: self._organization_name_score(entity, name, normalized),
         )
 
-    def canonical_institution_name(self, entity: Entity, names: list[str]) -> str | None:
+    def canonical_institution_name(
+        self, entity: Entity | ResolvedEntity, names: list[str]
+    ) -> str | None:
         if marshal_office := self._canonical_marshal_office_name(names):
             return marshal_office
         primary_tokens = {
@@ -231,7 +233,7 @@ class OrganizationNamingPolicy:
 
     def _organization_name_score(
         self,
-        entity: Entity,
+        entity: Entity | ResolvedEntity,
         name: str,
         candidates: list[str],
     ) -> tuple[int, int, int, int, int, int, int, int, int, int]:
@@ -282,7 +284,7 @@ class OrganizationNamingPolicy:
         return score
 
     @staticmethod
-    def _lemma_match_score(entity: Entity, name: str) -> int:
+    def _lemma_match_score(entity: Entity | ResolvedEntity, name: str) -> int:
         lemmas = {str(lemma).lower() for lemma in entity.lemmas if isinstance(lemma, str) and lemma}
         if not lemmas:
             return 0
@@ -372,7 +374,7 @@ class OrganizationNamingPolicy:
         )
 
     @staticmethod
-    def _organization_evidence_bonus(entity: Entity, name: str) -> int:
+    def _organization_evidence_bonus(entity: Entity | ResolvedEntity, name: str) -> int:
         normalized = name.casefold()
         bonus = 0
         for evidence in entity.evidence:

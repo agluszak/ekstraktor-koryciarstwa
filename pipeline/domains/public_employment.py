@@ -100,8 +100,8 @@ class PolishPublicEmploymentFrameExtractor:
                 PublicEmploymentFrame(
                     frame_id=FrameID(f"public-employment-frame-{uuid.uuid4().hex[:8]}"),
                     signal=signal,
-                    employee_cluster_id=employee.cluster_id,
-                    employer_cluster_id=employer.cluster_id,
+                    employee_cluster_id=employee.entity_id,
+                    employer_cluster_id=employer.entity_id,
                     role_label=role_label,
                     role_cluster_id=role_cluster_id,
                     confidence=0.78 if role_label is not None else 0.64,

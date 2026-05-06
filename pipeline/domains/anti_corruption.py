@@ -28,11 +28,11 @@ from pipeline.models import (
     AntiCorruptionReferralFrame,
     ArticleDocument,
     ClauseUnit,
-    EntityCluster,
     EvidenceSpan,
     Fact,
     ParsedWord,
     PublicProcurementAbuseFrame,
+    ResolvedEntity,
 )
 from pipeline.nlp_rules import COMPENSATION_PATTERN
 from pipeline.public_money_signals import is_public_counterparty
@@ -81,8 +81,8 @@ class PolishAntiCorruptionReferralFrameExtractor:
 
         return AntiCorruptionReferralFrame(
             frame_id=FrameID(f"referral-frame-{uuid.uuid4().hex[:8]}"),
-            complainant_cluster_id=complainant.cluster_id,
-            target_cluster_id=target.cluster_id,
+            complainant_cluster_id=complainant.entity_id,
+            target_cluster_id=target.entity_id,
             confidence=0.82 if complainant.entity_type == EntityType.PERSON else 0.74,
             evidence=[
                 EvidenceSpan(
@@ -118,8 +118,8 @@ class PolishAntiCorruptionReferralFrameExtractor:
     @staticmethod
     def _target_institution(
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
-    ) -> EntityCluster | None:
+        clusters: list[ResolvedEntity],
+    ) -> ResolvedEntity | None:
         target_candidates = [
             cluster
             for cluster in clusters
@@ -144,15 +144,15 @@ class PolishAntiCorruptionReferralFrameExtractor:
     def _complainant_actor(
         document: ArticleDocument,
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
-        target: EntityCluster,
-    ) -> EntityCluster | None:
+        clusters: list[ResolvedEntity],
+        target: ResolvedEntity,
+    ) -> ResolvedEntity | None:
         parsed = document.parsed_sentences.get(clause.sentence_index, [])
         subject_word_indices = {word.index for word in parsed if word.deprel.startswith("nsubj")}
         person_candidates = [
             cluster
             for cluster in clusters
-            if cluster.entity_type == EntityType.PERSON and cluster.cluster_id != target.cluster_id
+            if cluster.entity_type == EntityType.PERSON and cluster.entity_id != target.entity_id
         ]
         for cluster in person_candidates:
             if PolishAntiCorruptionReferralFrameExtractor._cluster_overlaps_word_indices(
@@ -187,7 +187,7 @@ class PolishAntiCorruptionReferralFrameExtractor:
             cluster
             for cluster in clusters
             if cluster.entity_type == EntityType.POLITICAL_PARTY
-            and cluster.cluster_id != target.cluster_id
+            and cluster.entity_id != target.entity_id
         ]
         lowered = clause.text.lower()
         if party_candidates and any(
@@ -199,7 +199,7 @@ class PolishAntiCorruptionReferralFrameExtractor:
     @staticmethod
     def _cluster_overlaps_word_indices(
         clause: ClauseUnit,
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
         parsed: list[ParsedWord],
         indices: set[int],
     ) -> bool:
@@ -225,7 +225,7 @@ class PolishAntiCorruptionAbuseFrameExtractor:
     def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument:
         document.anti_corruption_investigation_frames = []
         document.public_procurement_abuse_frames = []
-        recent_public_actor: EntityCluster | None = None
+        recent_public_actor: ResolvedEntity | None = None
         for clause in document.clause_units:
             clusters = context.clusters_for_mentions(
                 clause.cluster_mentions,
@@ -307,7 +307,7 @@ class PolishAntiCorruptionAbuseFrameExtractor:
     def _investigation_frame(
         self,
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
     ) -> AntiCorruptionInvestigationFrame | None:
         institution = self._accountability_institution(clause, clusters)
         target = self._public_actor_or_office(clause, clusters, exclude=institution)
@@ -315,8 +315,8 @@ class PolishAntiCorruptionAbuseFrameExtractor:
             return None
         return AntiCorruptionInvestigationFrame(
             frame_id=FrameID(f"investigation-frame-{uuid.uuid4().hex[:8]}"),
-            institution_cluster_id=institution.cluster_id,
-            target_cluster_id=target.cluster_id,
+            institution_cluster_id=institution.entity_id,
+            target_cluster_id=target.entity_id,
             confidence=0.78,
             evidence=[self._evidence(clause)],
             extraction_signal="dependency_edge",
@@ -327,9 +327,9 @@ class PolishAntiCorruptionAbuseFrameExtractor:
     def _procurement_abuse_frame(
         self,
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         *,
-        fallback_actor: EntityCluster | None,
+        fallback_actor: ResolvedEntity | None,
     ) -> PublicProcurementAbuseFrame | None:
         actor = self._public_actor_or_office(clause, clusters, exclude=None) or fallback_actor
         if actor is None:
@@ -339,8 +339,8 @@ class PolishAntiCorruptionAbuseFrameExtractor:
         amount_text = amount_match.group("amount") if amount_match else None
         return PublicProcurementAbuseFrame(
             frame_id=FrameID(f"procurement-abuse-frame-{uuid.uuid4().hex[:8]}"),
-            actor_cluster_id=actor.cluster_id,
-            public_context_cluster_id=context.cluster_id if context is not None else None,
+            actor_cluster_id=actor.entity_id,
+            public_context_cluster_id=context.entity_id if context is not None else None,
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()) if amount_text else None,
             confidence=0.72 if context is not None else 0.64,
@@ -353,21 +353,21 @@ class PolishAntiCorruptionAbuseFrameExtractor:
     @staticmethod
     def _accountability_institution(
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
-    ) -> EntityCluster | None:
+        clusters: list[ResolvedEntity],
+    ) -> ResolvedEntity | None:
         return PolishAntiCorruptionReferralFrameExtractor._target_institution(clause, clusters)
 
     @staticmethod
     def _public_actor_or_office(
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         *,
-        exclude: EntityCluster | None,
-    ) -> EntityCluster | None:
+        exclude: ResolvedEntity | None,
+    ) -> ResolvedEntity | None:
         candidates = [
             cluster
             for cluster in clusters
-            if (exclude is None or cluster.cluster_id != exclude.cluster_id)
+            if (exclude is None or cluster.entity_id != exclude.entity_id)
             and cluster.entity_type in {EntityType.PERSON, EntityType.POSITION}
         ]
         public_office_candidates = [
@@ -391,14 +391,14 @@ class PolishAntiCorruptionAbuseFrameExtractor:
     @staticmethod
     def _public_context(
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         *,
-        exclude: EntityCluster,
-    ) -> EntityCluster | None:
+        exclude: ResolvedEntity,
+    ) -> ResolvedEntity | None:
         candidates = [
             cluster
             for cluster in clusters
-            if cluster.cluster_id != exclude.cluster_id
+            if cluster.entity_id != exclude.entity_id
             and cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
             and not any(
                 marker in cluster.normalized_name.lower()

@@ -24,10 +24,10 @@ from pipeline.lemma_signals import lemma_set
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
-    EntityCluster,
     EvidenceSpan,
     Fact,
     FundingFrame,
+    ResolvedEntity,
 )
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
 from pipeline.runtime import PipelineRuntime
@@ -60,10 +60,10 @@ class PolishFundingFrameExtractor:
                         frame_id=FrameID(f"funding-frame-{uuid.uuid4().hex[:8]}"),
                         amount_text=signal.amount_text,
                         amount_normalized=signal.amount_normalized,
-                        funder_cluster_id=signal.payer_cluster.cluster_id
+                        funder_cluster_id=signal.payer_cluster.entity_id
                         if signal.payer_cluster is not None
                         else None,
-                        recipient_cluster_id=signal.recipient_cluster.cluster_id
+                        recipient_cluster_id=signal.recipient_cluster.entity_id
                         if signal.recipient_cluster is not None
                         else None,
                         confidence=signal.confidence,
@@ -158,9 +158,9 @@ class PolishFundingFrameExtractor:
             frame_id=FrameID(f"funding-frame-{uuid.uuid4().hex[:8]}"),
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()) if amount_text else None,
-            funder_cluster_id=funder.cluster_id if funder else None,
-            recipient_cluster_id=recipient.cluster_id if recipient else None,
-            project_cluster_id=project.cluster_id if project else None,
+            funder_cluster_id=funder.entity_id if funder else None,
+            recipient_cluster_id=recipient.entity_id if recipient else None,
+            project_cluster_id=project.entity_id if project else None,
             confidence=confidence,
             evidence=[ExtractionContext.evidence_for_clause(clause)],
             extraction_signal=self._extraction_signal(score_reason),
@@ -176,7 +176,7 @@ class PolishFundingFrameExtractor:
     def _dependency_funder(
         dependency_frame: TriggerArgumentFrame | None,
         context: ExtractionContext,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         if dependency_frame is None:
             return None
         return dependency_frame.first_cluster(
@@ -189,8 +189,8 @@ class PolishFundingFrameExtractor:
     def _dependency_recipient(
         dependency_frame: TriggerArgumentFrame | None,
         context: ExtractionContext,
-        funder: EntityCluster | None,
-    ) -> EntityCluster | None:
+        funder: ResolvedEntity | None,
+    ) -> ResolvedEntity | None:
         if dependency_frame is None:
             return None
         for role in (
@@ -203,7 +203,7 @@ class PolishFundingFrameExtractor:
                 role,
                 {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
             ):
-                if funder is None or cluster.cluster_id != funder.cluster_id:
+                if funder is None or cluster.entity_id != funder.entity_id:
                     return cluster
         return None
 
@@ -222,8 +222,8 @@ class PolishFundingFrameExtractor:
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
-        org_clusters: list[EntityCluster],
-    ) -> EntityCluster | None:
+        org_clusters: list[ResolvedEntity],
+    ) -> ResolvedEntity | None:
         if not org_clusters:
             return None
         trigger_index = self._funding_trigger_index(document, clause)
@@ -247,9 +247,9 @@ class PolishFundingFrameExtractor:
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
-        org_clusters: list[EntityCluster],
-        funder: EntityCluster | None,
-    ) -> EntityCluster | None:
+        org_clusters: list[ResolvedEntity],
+        funder: ResolvedEntity | None,
+    ) -> ResolvedEntity | None:
         candidates = [cluster for cluster in org_clusters if cluster != funder]
         if not candidates:
             return None
@@ -266,19 +266,17 @@ class PolishFundingFrameExtractor:
     def _best_project(
         document: ArticleDocument,
         clause: ClauseUnit,
-        org_clusters: list[EntityCluster],
-        funder: EntityCluster | None,
-        recipient: EntityCluster | None,
-    ) -> EntityCluster | None:
+        org_clusters: list[ResolvedEntity],
+        funder: ResolvedEntity | None,
+        recipient: ResolvedEntity | None,
+    ) -> ResolvedEntity | None:
         _ = document
         project_markers = ("projekt", "park", "program", "inwestyc", "budow")
-        excluded_ids = {
-            cluster.cluster_id for cluster in (funder, recipient) if cluster is not None
-        }
+        excluded_ids = {cluster.entity_id for cluster in (funder, recipient) if cluster is not None}
         candidates = [
             cluster
             for cluster in org_clusters
-            if cluster.cluster_id not in excluded_ids
+            if cluster.entity_id not in excluded_ids
             and any(marker in cluster.normalized_name.lower() for marker in project_markers)
         ]
         if not candidates:
@@ -289,7 +287,7 @@ class PolishFundingFrameExtractor:
         )
 
     @staticmethod
-    def _funder_score(cluster: EntityCluster) -> tuple[int, int, int]:
+    def _funder_score(cluster: ResolvedEntity) -> tuple[int, int, int]:
         normalized = cluster.normalized_name.lower()
         public_bonus = 2 if cluster.entity_type == EntityType.PUBLIC_INSTITUTION else 0
         if is_public_funder_name(normalized):
@@ -299,7 +297,7 @@ class PolishFundingFrameExtractor:
         return (public_bonus, len(cluster.canonical_name.split()), len(cluster.canonical_name))
 
     @staticmethod
-    def _recipient_score(cluster: EntityCluster) -> tuple[int, int, int]:
+    def _recipient_score(cluster: ResolvedEntity) -> tuple[int, int, int]:
         normalized = cluster.normalized_name.lower()
         recipient_bonus = 0
         if any(term in normalized for term in ("fundacja", "stowarzyszenie", "instytut")):
@@ -339,12 +337,12 @@ class PolishFundingFrameExtractor:
         return "wyłożył" in clause.text.lower() or "wyłożyły" in clause.text.lower()
 
     @staticmethod
-    def _cluster_before_offset(cluster: EntityCluster, offset: int) -> bool:
+    def _cluster_before_offset(cluster: ResolvedEntity, offset: int) -> bool:
         return any(mention.end_char <= offset for mention in cluster.mentions)
 
     @staticmethod
     def _cluster_after_offset_in_clause(
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
         offset: int,
         clause: ClauseUnit,
     ) -> bool:
@@ -358,8 +356,8 @@ class PolishFundingFrameExtractor:
     @staticmethod
     def _score_frame(
         *,
-        funder: EntityCluster | None,
-        recipient: EntityCluster | None,
+        funder: ResolvedEntity | None,
+        recipient: ResolvedEntity | None,
         amount_text: str | None,
         same_clause_org_count: int,
     ) -> tuple[float, str]:
@@ -410,8 +408,8 @@ class FundingFactBuilder:
         funder = next(
             (
                 cluster
-                for cluster in document.clusters
-                if cluster.cluster_id == frame.funder_cluster_id
+                for cluster in document.resolved_entities
+                if cluster.entity_id == frame.funder_cluster_id
             ),
             None,
         )

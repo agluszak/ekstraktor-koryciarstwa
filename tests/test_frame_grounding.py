@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType
+from pipeline.domain_types import ClauseID, DocumentID, EntityID, EntityType
 from pipeline.enrichment import SharedEntityEnricher
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
@@ -13,9 +13,9 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     Entity,
-    EntityCluster,
     Mention,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
 )
 
@@ -101,9 +101,9 @@ def _document(
             entity_id=entity_id,
         )
         cluster_mentions.append(cluster_mention)
-        document.clusters.append(
-            EntityCluster(
-                cluster_id=ClusterID(f"cluster-{index}"),
+        document.resolved_entities.append(
+            ResolvedEntity(
+                entity_id=EntityID(f"entity-{index}"),
                 entity_type=entity_type,
                 canonical_name=canonical_name,
                 normalized_name=canonical_name,
@@ -159,9 +159,12 @@ def test_shared_grounding_recovers_person_grounded_foundation_from_money_context
     SharedEntityEnricher(config).run(document)
 
     assert any(
-        cluster.canonical_name == "Fundacja Karola Bielskiego" for cluster in document.clusters
+        cluster.canonical_name == "Fundacja Karola Bielskiego"
+        for cluster in document.resolved_entities
     )
-    assert any(cluster.canonical_name == "Urząd Marszałkowski" for cluster in document.clusters)
+    assert any(
+        cluster.canonical_name == "Urząd Marszałkowski" for cluster in document.resolved_entities
+    )
 
 
 def test_shared_grounding_normalizes_wojewodzki_office_name() -> None:
@@ -196,7 +199,8 @@ def test_shared_grounding_normalizes_wojewodzki_office_name() -> None:
     SharedEntityEnricher(config).run(document)
 
     assert any(
-        cluster.canonical_name == "Opolski Urząd Wojewódzki" for cluster in document.clusters
+        cluster.canonical_name == "Opolski Urząd Wojewódzki"
+        for cluster in document.resolved_entities
     )
 
 
@@ -224,7 +228,7 @@ def test_role_grounder_rejects_person_name_role_phrase() -> None:
     grounded = grounder.ground_public_employment_role(
         document,
         document.clause_units[0],
-        employee=document.clusters[0],
+        employee=document.resolved_entities[0],
         role_cluster=None,
     )
 
@@ -255,7 +259,7 @@ def test_role_grounder_rejects_generic_date_dominated_phrase() -> None:
     grounded = grounder.ground_public_employment_role(
         document,
         document.clause_units[0],
-        employee=document.clusters[0],
+        employee=document.resolved_entities[0],
         role_cluster=None,
     )
 
@@ -308,7 +312,7 @@ def test_shared_grounding_retypes_compact_company_alias_to_existing_organization
 
     company_clusters = [
         cluster
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
         if cluster.entity_type == EntityType.ORGANIZATION
         and cluster.canonical_name == "Przedsiębiorstwo Wodociągów i Kanalizacji"
     ]
@@ -317,7 +321,7 @@ def test_shared_grounding_retypes_compact_company_alias_to_existing_organization
     assert "WodKan" in company_clusters[0].aliases
     assert not any(
         cluster.entity_type == EntityType.PERSON and cluster.canonical_name == "WodKan"
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
     )
 
 
@@ -392,7 +396,7 @@ def test_shared_grounding_uses_embedding_fallback_for_compact_org_alias() -> Non
 
     office_clusters = [
         cluster
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
         if cluster.entity_type == EntityType.PUBLIC_INSTITUTION
         and cluster.canonical_name == "Urząd Marszałkowski Województwa Mazowieckiego"
     ]
@@ -402,5 +406,5 @@ def test_shared_grounding_uses_embedding_fallback_for_compact_org_alias() -> Non
     assert not any(
         cluster.entity_type == EntityType.PERSON
         and cluster.canonical_name == "MarszałkowskiMazowsze"
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
     )

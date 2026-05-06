@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -58,11 +59,19 @@ class PipelineRuntime:
 
     def get_stanza_coref_pipeline(self) -> Any:
         if self._stanza_coref_pipeline is None:
+            coref_model_path = Path(self.config.models.stanza_coref_model_path)
+            if not coref_model_path.exists():
+                msg = (
+                    f"Missing Stanza coref model at {coref_model_path}. "
+                    "Run `uv run python scripts/setup_models.py` first."
+                )
+                raise FileNotFoundError(msg)
             self._stanza_coref_pipeline = self._stanza_factory(
                 "pl",
                 processors="tokenize,coref",
                 coref_model_path=self.config.models.stanza_coref_model_path,
-                download_method=DownloadMethod.REUSE_RESOURCES,
+                # Coref assets must be provisioned up front via scripts/setup_models.py.
+                download_method=DownloadMethod.NONE,
             )
         return self._stanza_coref_pipeline
 
