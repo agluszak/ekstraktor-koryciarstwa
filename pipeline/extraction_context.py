@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from typing import AbstractSet
 
 from pipeline.dependency_frames import DependencyFrameBuilder, TriggerArgumentFrame
 from pipeline.domain_types import (
@@ -110,14 +111,14 @@ class ExtractionContext:
     def clusters_for_clause(
         self,
         clause: ClauseUnit,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
     ) -> list[EntityCluster]:
         return self.clusters_in_sentence(clause.sentence_index, entity_types)
 
     def clusters_for_mentions(
         self,
         mentions: Iterable[ClusterMention],
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
     ) -> list[EntityCluster]:
         seen: set[ClusterID] = set()
         clusters: list[EntityCluster] = []
@@ -219,7 +220,7 @@ class ExtractionContext:
     def clusters_in_sentence(
         self,
         sentence_index: int,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
     ) -> list[EntityCluster]:
         return self._clusters_from_index(
             self.clusters_by_sentence_type,
@@ -230,7 +231,7 @@ class ExtractionContext:
     def clusters_in_sentence_window(
         self,
         clause: ClauseUnit,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
         *,
         before: int = 2,
         after: int = 2,
@@ -248,7 +249,7 @@ class ExtractionContext:
     def previous_clusters(
         self,
         clause: ClauseUnit,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
         *,
         max_distance: int = 2,
     ) -> list[EntityCluster]:
@@ -264,7 +265,7 @@ class ExtractionContext:
     def paragraph_context_clusters(
         self,
         clause: ClauseUnit,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
     ) -> list[EntityCluster]:
         return sorted(
             self._clusters_from_index(
@@ -278,7 +279,7 @@ class ExtractionContext:
     def following_clusters(
         self,
         clause: ClauseUnit,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
         *,
         max_distance: int = 2,
         same_paragraph: bool = True,
@@ -399,7 +400,7 @@ class ExtractionContext:
 
     def _clusters_with_mentions(
         self,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
         predicate: Callable[[ClusterMention], bool],
     ) -> list[EntityCluster]:
         seen: set[ClusterID] = set()
@@ -417,7 +418,7 @@ class ExtractionContext:
     def _clusters_from_index(
         index: dict[tuple[int, EntityType], list[EntityCluster]],
         index_value: int,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
     ) -> list[EntityCluster]:
         seen: set[ClusterID] = set()
         clusters: list[EntityCluster] = []
@@ -443,7 +444,7 @@ class ExtractionContext:
         self,
         sentence_index: int,
         paragraph_index: int,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
     ) -> list[ClusterMentionView]:
         """Return one ClusterMentionView per cluster that has a mention in this sentence."""
         clusters = self.clusters_in_sentence(sentence_index, entity_types)
@@ -452,7 +453,7 @@ class ExtractionContext:
     def mention_views_in_paragraph(
         self,
         paragraph_index: int,
-        entity_types: set[EntityType],
+        entity_types: AbstractSet[EntityType],
     ) -> list[ClusterMentionView]:
         """Return one ClusterMentionView per cluster that has a mention in this paragraph."""
         clusters = self._clusters_from_index(
