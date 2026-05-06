@@ -242,12 +242,8 @@ class OrganizationMentionClassifier:
         self, features: OrganizationMentionFeatures
     ) -> OrganizationKind:
         if not self._public_embeddings:
-            self._public_embeddings = [
-                self.runtime.encode_text(text) for text in PUBLIC_REPRESENTATIVES
-            ]
-            self._company_embeddings = [
-                self.runtime.encode_text(text) for text in COMPANY_REPRESENTATIVES
-            ]
+            self._public_embeddings = self.runtime.encode_texts(list(PUBLIC_REPRESENTATIVES))
+            self._company_embeddings = self.runtime.encode_texts(list(COMPANY_REPRESENTATIVES))
 
         text_to_check = " ".join(features.lemmas)
         if not text_to_check:

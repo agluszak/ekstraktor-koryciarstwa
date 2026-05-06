@@ -85,19 +85,31 @@ class PipelineRuntime:
             )
         return self._sentence_transformer_model
 
+    def encode_texts(self, texts: list[str]) -> list[np.ndarray]:
+        if not texts:
+            return []
+        uncached_texts = [text for text in set(texts) if text not in self._embedding_cache]
+        if uncached_texts:
+            model = self.get_sentence_transformer_model()
+            try:
+                encoded = model.encode(uncached_texts, normalize_embeddings=True)
+            except (TypeError, AttributeError):
+                encoded = model.encode(uncached_texts)
+
+            if isinstance(encoded, list):
+                vectors = [np.asarray(e, dtype=float) for e in encoded]
+            else:
+                vectors = [np.asarray(encoded[i], dtype=float) for i in range(encoded.shape[0])]
+
+            for text, vector in zip(uncached_texts, vectors, strict=False):
+                if vector.ndim != 1:
+                    vector = vector.reshape(-1)
+                norm = np.linalg.norm(vector)
+                if norm > 0:
+                    vector = vector / norm
+                self._embedding_cache[text] = vector
+
+        return [self._embedding_cache[text] for text in texts]
+
     def encode_text(self, text: str) -> np.ndarray:
-        if text in self._embedding_cache:
-            return self._embedding_cache[text]
-        model = self.get_sentence_transformer_model()
-        try:
-            encoded = model.encode(text, normalize_embeddings=True)
-        except (TypeError, AttributeError):
-            encoded = model.encode(text)
-        vector = np.asarray(encoded, dtype=float)
-        if vector.ndim != 1:
-            vector = vector.reshape(-1)
-        norm = np.linalg.norm(vector)
-        if norm > 0:
-            vector = vector / norm
-        self._embedding_cache[text] = vector
-        return vector
+        return self.encode_texts([text])[0]

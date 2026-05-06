@@ -218,8 +218,7 @@ class InMemoryEntityLinker(EntityLinker):
                     self._add_alias(registry_id, variant)
 
     def _encode_embedding(self, text: str) -> np.ndarray:
-        model = self.runtime.get_sentence_transformer_model()
-        return model.encode(text, normalize_embeddings=True)
+        return self.runtime.encode_text(text)
 
     def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
         # Try alias-based match first (case-insensitive via multiple

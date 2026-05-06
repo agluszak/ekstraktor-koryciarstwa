@@ -29,7 +29,11 @@ def mock_runtime():
         # Neutral
         return np.array([0.5, 0.5, 0.0])
 
+    def encode_texts(texts):
+        return [encode_text(t) for t in texts]
+
     runtime.encode_text.side_effect = encode_text
+    runtime.encode_texts.side_effect = encode_texts
     return runtime
 
 
@@ -57,7 +61,11 @@ def test_org_classifier_semantic_public(config, mock_runtime):
             return np.array([0.0, 1.0, 0.0])
         return np.array([0.5, 0.5, 0.0])
 
+    def encode_texts_resort(texts):
+        return [encode_text_resort(t) for t in texts]
+
     mock_runtime.encode_text.side_effect = encode_text_resort
+    mock_runtime.encode_texts.side_effect = encode_texts_resort
 
     res = classifier.classify(
         surface_text="Nieznany Resort",
@@ -82,7 +90,11 @@ def test_org_classifier_semantic_company(config, mock_runtime):
             return np.array([0.0, 1.0, 0.0])
         return np.array([0.5, 0.5, 0.0])
 
+    def encode_texts_gigant(texts):
+        return [encode_text_gigant(t) for t in texts]
+
     mock_runtime.encode_text.side_effect = encode_text_gigant
+    mock_runtime.encode_texts.side_effect = encode_texts_gigant
 
     res = classifier.classify(
         surface_text="Globalny Gigant",
