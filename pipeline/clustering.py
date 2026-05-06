@@ -246,6 +246,9 @@ class PolishEntityClusterer(EntityClusterer):
             cluster.canonical_name = self.canonicalizer.best_organization_name(
                 representative_entity, all_names
             )
+        elif cluster.entity_type in {EntityType.EVENT, EntityType.LAW, EntityType.MONEY}:
+            # For these types, pick the longest name as most descriptive
+            cluster.canonical_name = max(all_names, key=len)
 
         cluster.normalized_name = cluster.canonical_name
         cluster.lemmas = representative_entity.lemmas

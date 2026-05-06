@@ -179,6 +179,14 @@ class DocumentEntityCanonicalizer:
             entity.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
             return
 
+        if entity.entity_type in {EntityType.EVENT, EntityType.LAW, EntityType.MONEY}:
+            # For these types, pick the longest name as most descriptive
+            canonical = max(alias_pool, key=len) if alias_pool else entity.canonical_name
+            entity.canonical_name = canonical
+            entity.normalized_name = canonical
+            entity.aliases = unique_preserve_order([*alias_pool, canonical])
+            return
+
         canonical = self.organization_naming.best_organization_name(entity, alias_pool)
         entity.canonical_name = canonical
         entity.normalized_name = canonical

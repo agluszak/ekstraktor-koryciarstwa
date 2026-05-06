@@ -23,6 +23,9 @@ class EntityType(StrEnum):
     POSITION = "Position"
     PUBLIC_INSTITUTION = "PublicInstitution"
     LOCATION = "Location"
+    MONEY = "Money"
+    EVENT = "Event"
+    LAW = "Law"
 
 
 class CandidateType(StrEnum):
@@ -32,6 +35,9 @@ class CandidateType(StrEnum):
     POSITION = "Position"
     PUBLIC_INSTITUTION = "PublicInstitution"
     LOCATION = "Location"
+    MONEY = "Money"
+    EVENT = "Event"
+    LAW = "Law"
 
 
 class FactType(StrEnum):
