@@ -173,7 +173,7 @@ def prepared_single_clause_document(
         cluster_mentions.append(cluster_mention)
         document.resolved_entities.append(
             ResolvedEntity(
-                entity_id=EntityID(f"cluster-{index}"),
+                entity_id=EntityID(f"entity-{index}"),
                 entity_type=entity_type,
                 canonical_name=canonical_name,
                 normalized_name=canonical_name,
@@ -618,7 +618,7 @@ def test_kinship_phrase_does_not_attach_office_to_relative_name() -> None:
     extracted = PolishFactExtractor(config).run(document)
 
     offices = [fact for fact in extracted.facts if fact.fact_type == FactType.POLITICAL_OFFICE]
-    assert not any(fact.subject_entity_id == EntityID("cluster-0") for fact in offices)
+    assert not any(fact.subject_entity_id == EntityID("entity-0") for fact in offices)
 
 
 def test_shared_enrichment_marks_public_institution_clusters() -> None:
@@ -762,7 +762,7 @@ def test_party_aliases_match_whole_tokens_only() -> None:
     party_names = sorted(
         entity.canonical_name
         for entity in extracted.entities
-        if entity.entity_type == "PoliticalParty"
+        if entity.entity_type == EntityType.POLITICAL_PARTY
     )
 
     assert party_names == ["Prawo i Sprawiedliwość"]
@@ -843,7 +843,7 @@ def test_omitted_subject_party_membership_attaches_to_previous_unique_person() -
     )
     document.resolved_entities.append(
         ResolvedEntity(
-            entity_id=EntityID("cluster-person"),
+            entity_id=EntityID("entity-person"),
             entity_type=EntityType.PERSON,
             canonical_name="Karol Bielski",
             normalized_name="Karol Bielski",
@@ -1705,7 +1705,7 @@ def test_party_alias_inside_non_party_organization_does_not_retype_whole_entity(
     assert any(
         entity.canonical_name == "PSL Fundacji Rozwoju"
         and entity.entity_type == EntityType.ORGANIZATION
-        for entity in extracted.entities
+        for entity in extracted.resolved_entities
     )
 
 
@@ -1882,7 +1882,9 @@ def test_object_appointee_sentence_extracts_appointee_not_appointing_authority()
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
-    entity_names = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+    entity_names = {
+        entity.entity_id: entity.canonical_name for entity in extracted.resolved_entities
+    }
 
     assert appointments
     assert entity_names[appointments[0].subject_entity_id] == "Marcin Horyń"
@@ -2196,7 +2198,7 @@ def test_governance_prefers_specific_company_over_skarb_panstwa() -> None:
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
 
     assert appointments
-    target_ids = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+    target_ids = {entity.entity_id: entity.canonical_name for entity in extracted.resolved_entities}
     assert appointments[0].object_entity_id is not None
     assert target_ids[appointments[0].object_entity_id] == "Stadnina Koni Iwno"
 
@@ -2278,7 +2280,9 @@ def test_governance_keeps_owner_context_without_replacing_target() -> None:
     )
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
-    entity_names = {entity.entity_id: entity.canonical_name for entity in extracted.entities}
+    entity_names = {
+        entity.entity_id: entity.canonical_name for entity in extracted.resolved_entities
+    }
 
     assert appointments
     assert appointments[0].object_entity_id is not None
@@ -2485,8 +2489,8 @@ def test_named_person_referral_to_cba_emits_anti_corruption_fact() -> None:
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
     ]
     assert referrals
-    assert referrals[0].subject_entity_id == EntityID("cluster-0")
-    assert referrals[0].object_entity_id == EntityID("cluster-1")
+    assert referrals[0].subject_entity_id == EntityID("entity-0")
+    assert referrals[0].object_entity_id == EntityID("entity-1")
 
 
 def test_party_referral_to_cba_uses_party_actor_when_no_person_present() -> None:
@@ -2508,8 +2512,8 @@ def test_party_referral_to_cba_uses_party_actor_when_no_person_present() -> None
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
     ]
     assert referrals
-    assert referrals[0].subject_entity_id == EntityID("cluster-0")
-    assert referrals[0].object_entity_id == EntityID("cluster-1")
+    assert referrals[0].subject_entity_id == EntityID("entity-0")
+    assert referrals[0].object_entity_id == EntityID("entity-1")
 
 
 def test_referral_context_uses_stanza_lemmas_for_inflected_trigger() -> None:
@@ -2538,8 +2542,8 @@ def test_referral_context_uses_stanza_lemmas_for_inflected_trigger() -> None:
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
     ]
     assert referrals
-    assert referrals[0].subject_entity_id == EntityID("cluster-0")
-    assert referrals[0].object_entity_id == EntityID("cluster-1")
+    assert referrals[0].subject_entity_id == EntityID("entity-0")
+    assert referrals[0].object_entity_id == EntityID("entity-1")
 
 
 def test_cba_investigation_and_procurement_abuse_emit_public_abuse_facts() -> None:
@@ -2575,10 +2579,10 @@ def test_cba_investigation_and_procurement_abuse_emit_public_abuse_facts() -> No
         fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_PROCUREMENT_ABUSE
     ]
     assert investigations
-    assert investigations[0].subject_entity_id == EntityID("cluster-0")
-    assert investigations[0].object_entity_id == EntityID("cluster-1")
+    assert investigations[0].subject_entity_id == EntityID("entity-0")
+    assert investigations[0].object_entity_id == EntityID("entity-1")
     assert procurement_abuse
-    assert procurement_abuse[0].subject_entity_id == EntityID("cluster-1")
+    assert procurement_abuse[0].subject_entity_id == EntityID("entity-1")
 
 
 def test_cross_sentence_party_context_uses_profile_lemma() -> None:
@@ -2772,14 +2776,14 @@ def test_public_employment_uses_adjacent_public_employer_context() -> None:
     )
     document.resolved_entities = [
         ResolvedEntity(
-            entity_id=EntityID("cluster-person"),
+            entity_id=EntityID("entity-person"),
             entity_type=EntityType.PERSON,
             canonical_name="Rafał Dobosz",
             normalized_name="Rafał Dobosz",
             mentions=[person_mention],
         ),
         ResolvedEntity(
-            entity_id=EntityID("cluster-org"),
+            entity_id=EntityID("entity-org"),
             entity_type=EntityType.PUBLIC_INSTITUTION,
             canonical_name="Urząd Gminy Poczesna",
             normalized_name="Urząd Gminy Poczesna",
@@ -2806,8 +2810,8 @@ def test_public_employment_uses_adjacent_public_employer_context() -> None:
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
     assert appointments
-    assert appointments[0].subject_entity_id == EntityID("cluster-person")
-    assert appointments[0].object_entity_id == EntityID("cluster-org")
+    assert appointments[0].subject_entity_id == EntityID("entity-person")
+    assert appointments[0].object_entity_id == EntityID("entity-org")
     assert appointments[0].role is not None
     assert "ekodoradca" in appointments[0].role.casefold()
 
@@ -2846,8 +2850,8 @@ def test_public_employment_entry_wording_emits_appointment_with_job_label() -> N
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
     assert appointments
-    assert appointments[0].subject_entity_id == EntityID("cluster-0")
-    assert appointments[0].object_entity_id == EntityID("cluster-1")
+    assert appointments[0].subject_entity_id == EntityID("entity-0")
+    assert appointments[0].object_entity_id == EntityID("entity-1")
     assert appointments[0].role == "Koordynator Projektu"
     assert appointments[0].value_text == "Koordynator Projektu"
 
@@ -2886,8 +2890,8 @@ def test_public_employment_status_wording_emits_role_held() -> None:
 
     role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
     assert role_facts
-    assert role_facts[0].subject_entity_id == EntityID("cluster-0")
-    assert role_facts[0].object_entity_id == EntityID("cluster-1")
+    assert role_facts[0].subject_entity_id == EntityID("entity-0")
+    assert role_facts[0].object_entity_id == EntityID("entity-1")
     assert role_facts[0].role == "Główny Specjalista"
     assert role_facts[0].time_scope == TimeScope.CURRENT
 
@@ -2966,7 +2970,7 @@ def test_public_employment_frame_extracts_passive_hiring_patient() -> None:
     document = PolishFrameExtractor(config).run(document)
 
     assert document.public_employment_frames
-    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("cluster-0")
+    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("entity-0")
     assert document.public_employment_frames[0].role_label == "Pomocy Administracyjnej"
 
 
@@ -2997,7 +3001,7 @@ def test_public_employment_frame_uses_proxy_employee_for_partner_job() -> None:
     document = PolishFrameExtractor(config).run(document)
 
     assert document.public_employment_frames
-    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("cluster-0")
+    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("entity-0")
     assert document.public_employment_frames[0].role_label == "Ekodoradca"
 
 
@@ -3033,10 +3037,10 @@ def test_public_employment_attribution_resolves_proxy_employee_and_role_cluster(
     )
 
     assert attribution is not None
-    assert attribution.employee.entity_id == ClusterID("cluster-0")
+    assert attribution.employee.entity_id == ClusterID("entity-0")
     assert attribution.role_cluster is not None
-    assert attribution.role_cluster.entity_id == ClusterID("cluster-1")
-    assert attribution.employer.entity_id == ClusterID("cluster-2")
+    assert attribution.role_cluster.entity_id == ClusterID("entity-1")
+    assert attribution.employer.entity_id == ClusterID("entity-2")
 
 
 def test_public_employment_frame_extracts_copular_director_status() -> None:
@@ -3153,14 +3157,14 @@ def test_public_employment_frame_ignores_wojewoda_decision_as_role_label() -> No
     ]
     document.resolved_entities = [
         ResolvedEntity(
-            ClusterID("cluster-person"),
+            ClusterID("entity-person"),
             EntityType.PERSON,
             "Anna Nowak",
             "Anna Nowak",
             [person_mention],
         ),
         ResolvedEntity(
-            ClusterID("cluster-org"),
+            ClusterID("entity-org"),
             EntityType.PUBLIC_INSTITUTION,
             "Urząd Wojewódzki",
             "Urząd Wojewódzki",
@@ -3218,13 +3222,13 @@ def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 2
     assert {fact.object_entity_id for fact in contracts} == {
-        EntityID("cluster-1"),
-        EntityID("cluster-2"),
+        EntityID("entity-1"),
+        EntityID("entity-2"),
     }
     assert {fact.amount_text for fact in contracts} == {"397 496,95 Zł"}
 
 
-def test_paid_promotion_public_money_flow_emits_public_contract() -> None:
+def test_paid_promotion_context_without_contract_signal_stays_empty() -> None:
     config = PipelineConfig.from_file("config.yaml")
     text = (
         "Fundacja założona przez Karola Bielskiego otrzymała 100 tysięcy złotych "
@@ -3240,9 +3244,13 @@ def test_paid_promotion_public_money_flow_emits_public_contract() -> None:
             word(3, "przez", "przez", 18, head=4, deprel="case"),
             word(4, "Karola", "Karol", 24, head=2, deprel="obl", upos="PROPN"),
             word(5, "otrzymała", "otrzymać", text.index("otrzymała"), upos="VERB"),
-            word(6, "urzędu", "urząd", text.index("urzędu"), head=5, deprel="obl"),
-            word(7, "marszałkowskiego", "marszałkowski", text.index("marszałkowskiego")),
-            word(8, "promowanie", "promowanie", text.index("promowanie")),
+            word(6, "100", "100", text.index("100"), head=5, deprel="obj", upos="NUM"),
+            word(7, "tysięcy", "tysiąc", text.index("tysięcy"), head=6, deprel="nmod"),
+            word(8, "złotych", "złoty", text.index("złotych"), head=6, deprel="nmod"),
+            word(9, "z", "z", text.index("z urzędu"), head=10, deprel="case", upos="ADP"),
+            word(10, "urzędu", "urząd", text.index("urzędu"), head=5, deprel="obl"),
+            word(11, "marszałkowskiego", "marszałkowski", text.index("marszałkowskiego")),
+            word(12, "promowanie", "promowanie", text.index("promowanie")),
         ],
     )
 
@@ -3251,18 +3259,7 @@ def test_paid_promotion_public_money_flow_emits_public_contract() -> None:
     extracted = PolishFactExtractor(config).run(document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
-    assert len(contracts) == 1
-    assert contracts[0].value_normalized == "100 Tysięcy Złotych"
-    assert "Fundacja" in next(
-        entity.canonical_name
-        for entity in extracted.entities
-        if entity.entity_id == contracts[0].subject_entity_id
-    )
-    assert "Urząd Marszałkowski" in next(
-        entity.canonical_name
-        for entity in extracted.entities
-        if entity.entity_id == contracts[0].object_entity_id
-    )
+    assert contracts == []
 
 
 def test_public_contract_detects_zlecenia_with_amount_from_public_company() -> None:
@@ -3293,8 +3290,8 @@ def test_public_contract_detects_zlecenia_with_amount_from_public_company() -> N
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 1
     assert contracts[0].value_text == "ponad 100 tys. zł"
-    assert contracts[0].subject_entity_id == EntityID("cluster-0")
-    assert contracts[0].object_entity_id == EntityID("cluster-1")
+    assert contracts[0].subject_entity_id == EntityID("entity-0")
+    assert contracts[0].object_entity_id == EntityID("entity-1")
 
 
 def test_generic_contract_sentence_without_parties_does_not_emit_public_contract() -> None:
@@ -3364,10 +3361,10 @@ def test_owner_context_collaborator_tie_skips_quote_attribution_person() -> None
         fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
     ]
     assert len(ties) == 1
-    assert ties[0].subject_entity_id == EntityID("cluster-1")
-    assert ties[0].object_entity_id == EntityID("cluster-0")
+    assert ties[0].subject_entity_id == EntityID("entity-1")
+    assert ties[0].object_entity_id == EntityID("entity-0")
     assert ties[0].subject_entity_id != ties[0].object_entity_id
-    assert EntityID("cluster-2") not in {
+    assert EntityID("entity-2") not in {
         ties[0].subject_entity_id,
         ties[0].object_entity_id,
     }
@@ -3404,7 +3401,7 @@ def test_patronage_complaint_context_emits_tie_without_article_specific_name_pat
     ]
     assert ties
     assert any(
-        fact.subject_entity_id == EntityID("cluster-0")
-        and fact.object_entity_id == EntityID("cluster-1")
+        fact.subject_entity_id == EntityID("entity-0")
+        and fact.object_entity_id == EntityID("entity-1")
         for fact in ties
     )

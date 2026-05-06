@@ -54,14 +54,14 @@ def test_cluster_for_mention_does_not_fallback_when_exact_span_is_present() -> N
         paragraphs=[],
         resolved_entities=[
             ResolvedEntity(
-                entity_id=EntityID("cluster-person"),
+                entity_id=EntityID("entity-person"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="jan kowalski",
                 mentions=[person_mention],
             ),
             ResolvedEntity(
-                entity_id=EntityID("cluster-org"),
+                entity_id=EntityID("entity-org"),
                 entity_type=EntityType.PUBLIC_INSTITUTION,
                 canonical_name="Urząd Gminy",
                 normalized_name="urząd gminy",
@@ -104,7 +104,7 @@ def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions()
         paragraphs=[],
         resolved_entities=[
             ResolvedEntity(
-                entity_id=EntityID("cluster-person"),
+                entity_id=EntityID("entity-person"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="jan kowalski",
@@ -125,7 +125,7 @@ def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions()
     cluster = ExtractionContext.build(document).cluster_for_mention(anchorless_mention)
 
     assert cluster is not None
-    assert cluster.entity_id == ClusterID("cluster-person")
+    assert cluster.entity_id == ClusterID("entity-person")
 
 
 def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
@@ -226,14 +226,14 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
         ],
         resolved_entities=[
             ResolvedEntity(
-                entity_id=EntityID("cluster-person"),
+                entity_id=EntityID("entity-person"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="jan kowalski",
                 mentions=[person_mention],
             ),
             ResolvedEntity(
-                entity_id=EntityID("cluster-org"),
+                entity_id=EntityID("entity-org"),
                 entity_type=EntityType.PUBLIC_INSTITUTION,
                 canonical_name="Urząd Miasta",
                 normalized_name="urząd miasta",
@@ -244,7 +244,7 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
     context = ExtractionContext.build(document)
 
     mention_cluster = context.cluster_for_mention(person_mention)
-    id_cluster = context.cluster_by_id(ClusterID("cluster-person"))
+    id_cluster = context.cluster_by_id(ClusterID("entity-person"))
     entity = context.entity_by_id(EntityID("entity-person"))
     entity_cluster = context.cluster_by_entity_id(EntityID("entity-person"))
 
@@ -252,14 +252,14 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
     assert id_cluster is not None
     assert entity is not None
     assert entity_cluster is not None
-    assert mention_cluster.entity_id == ClusterID("cluster-person")
+    assert mention_cluster.entity_id == ClusterID("entity-person")
     assert id_cluster.canonical_name == "Jan Kowalski"
     assert entity.canonical_name == "Jan Kowalski"
-    assert entity_cluster.entity_id == ClusterID("cluster-person")
+    assert entity_cluster.entity_id == ClusterID("entity-person")
     sentence_cluster_ids = [
         cluster.entity_id for cluster in context.clusters_in_sentence(1, {EntityType.PERSON})
     ]
-    assert sentence_cluster_ids == [ClusterID("cluster-person")]
+    assert sentence_cluster_ids == [ClusterID("entity-person")]
     clause = ClauseUnit(
         clause_id=ClauseID("clause"),
         text="",
@@ -276,7 +276,7 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
             clause,
             {EntityType.PERSON, EntityType.PUBLIC_INSTITUTION},
         )
-    ] == [ClusterID("cluster-org"), ClusterID("cluster-person")]
+    ] == [ClusterID("entity-org"), ClusterID("entity-person")]
 
 
 def test_fact_context_indexes_sentence_paragraph_and_previous_sentence_candidates() -> None:

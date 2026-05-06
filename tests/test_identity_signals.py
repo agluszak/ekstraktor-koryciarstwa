@@ -108,7 +108,7 @@ def _person_cluster(
         evidence=[evidence],
     )
     cluster = ResolvedEntity(
-        entity_id=EntityID(f"cluster-{entity_id}"),
+        entity_id=EntityID(f"entity-{entity_id}"),
         entity_type=EntityType.PERSON,
         canonical_name=name,
         normalized_name=name,

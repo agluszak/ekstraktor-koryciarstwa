@@ -592,7 +592,7 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
         normalized_name="Miejski Urząd Pracy",
     )
     org_cluster = ResolvedEntity(
-        entity_id=EntityID("cluster-mup"),
+        entity_id=EntityID("entity-mup"),
         entity_type=EntityType.PUBLIC_INSTITUTION,
         canonical_name="Miejski Urząd Pracy",
         normalized_name="Miejski Urząd Pracy",
@@ -625,4 +625,4 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
         if cluster.kinship_detail == KinshipDetail.SIBLING_SISTER
     }
     assert frame.person_cluster_id in proxy_cluster_ids
-    assert frame.person_cluster_id != "cluster-person-karol"
+    assert frame.person_cluster_id != "entity-person-karol"

@@ -62,7 +62,7 @@ class PipelineRuntime:
                 "pl",
                 processors="tokenize,coref",
                 coref_model_path=self.config.models.stanza_coref_model_path,
-                download_method=DownloadMethod.REUSE_RESOURCES,
+                download_method=DownloadMethod.NONE,
             )
         return self._stanza_coref_pipeline
 

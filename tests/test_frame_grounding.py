@@ -103,7 +103,7 @@ def _document(
         cluster_mentions.append(cluster_mention)
         document.resolved_entities.append(
             ResolvedEntity(
-                entity_id=EntityID(f"cluster-{index}"),
+                entity_id=EntityID(f"entity-{index}"),
                 entity_type=entity_type,
                 canonical_name=canonical_name,
                 normalized_name=canonical_name,

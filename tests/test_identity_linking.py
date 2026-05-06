@@ -6,7 +6,7 @@ import pytest
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import DocumentID, EntityID, EntityType
 from pipeline.linking import InMemoryEntityLinker
-from pipeline.models import ArticleDocument, Entity
+from pipeline.models import ArticleDocument, Entity, ResolvedEntity
 
 
 @pytest.fixture
@@ -23,6 +23,30 @@ def mock_runtime():
 def linker(mock_runtime):
     config = PipelineConfig.from_file("config.yaml")
     return InMemoryEntityLinker(config, runtime=mock_runtime)
+
+
+def with_resolved_entities(document: ArticleDocument) -> ArticleDocument:
+    document.resolved_entities = [
+        ResolvedEntity(
+            entity_id=entity.entity_id,
+            entity_type=entity.entity_type,
+            canonical_name=entity.canonical_name,
+            normalized_name=entity.normalized_name,
+            mentions=[],
+            evidence=entity.evidence,
+            aliases=entity.aliases,
+            lemmas=entity.lemmas,
+            organization_kind=entity.organization_kind,
+            is_proxy_person=entity.is_proxy_person,
+            proxy_kind=entity.proxy_kind,
+            kinship_detail=entity.kinship_detail,
+            proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
+            role_kind=entity.role_kind,
+            role_modifier=entity.role_modifier,
+        )
+        for entity in document.entities
+    ]
+    return document
 
 
 def test_onet_deduplication(linker):
@@ -65,13 +89,13 @@ def test_onet_deduplication(linker):
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
     # Should result in 1 entity (Onet) after deduplication
-    assert len(linked_doc.entities) == 1
-    assert linked_doc.entities[0].canonical_name == "Onet"
+    assert len(linked_doc.resolved_entities) == 1
+    assert linked_doc.resolved_entities[0].canonical_name == "Onet"
     # The registry_id should be stable across runs for the same seeded data
-    assert linked_doc.entities[0].registry_id is not None
+    assert linked_doc.resolved_entities[0].registry_id is not None
 
 
 def test_wp_deduplication(linker):
@@ -104,11 +128,11 @@ def test_wp_deduplication(linker):
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
     # Should result in 1 entity (Wirtualna Polska)
-    assert len(linked_doc.entities) == 1
-    assert linked_doc.entities[0].canonical_name == "Wirtualna Polska"
+    assert len(linked_doc.resolved_entities) == 1
+    assert linked_doc.resolved_entities[0].canonical_name == "Wirtualna Polska"
 
 
 def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
@@ -131,9 +155,9 @@ def test_component_acronym_alias_does_not_steal_subsidiary_identity(linker):
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
-    assert linked_doc.entities[0].canonical_name == "AMW Rewita"
+    assert linked_doc.resolved_entities[0].canonical_name == "AMW Rewita"
 
 
 def test_linker_prefers_shared_naming_policy_for_marshal_office_canonical(linker):
@@ -156,10 +180,10 @@ def test_linker_prefers_shared_naming_policy_for_marshal_office_canonical(linker
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
-    assert len(linked_doc.entities) == 1
-    assert linked_doc.entities[0].canonical_name == "Urząd Marszałkowski"
+    assert len(linked_doc.resolved_entities) == 1
+    assert linked_doc.resolved_entities[0].canonical_name == "Urząd Marszałkowski"
 
 
 def test_org_typed_party_alias_does_not_link_to_seeded_party(linker):
@@ -193,9 +217,11 @@ def test_org_typed_party_alias_does_not_link_to_seeded_party(linker):
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
-    assert {(entity.entity_type, entity.canonical_name) for entity in linked_doc.entities} == {
+    assert {
+        (entity.entity_type, entity.canonical_name) for entity in linked_doc.resolved_entities
+    } == {
         (EntityType.ORGANIZATION, "PiS"),
         (EntityType.POLITICAL_PARTY, "Prawo i Sprawiedliwość"),
     }
@@ -228,10 +254,10 @@ def test_exact_duplicate_canonical_names_are_merged_after_linking(linker):
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
-    assert len(linked_doc.entities) == 1
-    assert linked_doc.entities[0].canonical_name == "Natura Tour"
+    assert len(linked_doc.resolved_entities) == 1
+    assert linked_doc.resolved_entities[0].canonical_name == "Natura Tour"
 
 
 def test_exact_name_party_and_organization_are_not_merged_after_linking(linker):
@@ -261,9 +287,11 @@ def test_exact_name_party_and_organization_are_not_merged_after_linking(linker):
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
-    assert {(entity.entity_type, entity.canonical_name) for entity in linked_doc.entities} == {
+    assert {
+        (entity.entity_type, entity.canonical_name) for entity in linked_doc.resolved_entities
+    } == {
         (EntityType.ORGANIZATION, "Koalicja Obywatelska"),
         (EntityType.POLITICAL_PARTY, "Koalicja Obywatelska"),
     }
@@ -302,6 +330,6 @@ def test_seeded_party_canonical_name_is_refreshed_in_registry(linker):
         ],
     )
 
-    linked_doc = linker.run(doc)
+    linked_doc = linker.run(with_resolved_entities(doc))
 
-    assert linked_doc.entities[0].canonical_name == "Prawo i Sprawiedliwość"
+    assert linked_doc.resolved_entities[0].canonical_name == "Prawo i Sprawiedliwość"

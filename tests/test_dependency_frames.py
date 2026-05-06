@@ -29,7 +29,7 @@ def cluster(
                 paragraph_index=0,
                 start_char=start_char,
                 end_char=start_char + len(name),
-                entity_id=EntityID(cluster_id.replace("cluster-", "entity-")),
+                entity_id=EntityID(cluster_id.replace("entity-", "entity-")),
             )
         ],
     )
@@ -63,9 +63,9 @@ def clause(text: str, trigger: str, lemma: str) -> ClauseUnit:
 
 def test_dependency_frame_extracts_active_appointment_arguments() -> None:
     text = "Starosta powołał Annę Nowak na prezeskę spółki."
-    authority = cluster("cluster-authority", "Starosta", EntityType.PERSON, 0)
-    appointee = cluster("cluster-person", "Annę Nowak", EntityType.PERSON, 17)
-    company = cluster("cluster-org", "spółki", EntityType.ORGANIZATION, 39)
+    authority = cluster("entity-authority", "Starosta", EntityType.PERSON, 0)
+    appointee = cluster("entity-person", "Annę Nowak", EntityType.PERSON, 17)
+    company = cluster("entity-org", "spółki", EntityType.ORGANIZATION, 39)
     doc = document(text, [authority, appointee, company])
     doc.parsed_sentences = {
         0: [
@@ -93,12 +93,12 @@ def test_dependency_frame_extracts_active_appointment_arguments() -> None:
         {EntityType.PERSON},
     )
     assert object_cluster is not None
-    assert object_cluster.entity_id == ClusterID("cluster-person")
+    assert object_cluster.entity_id == ClusterID("entity-person")
 
 
 def test_dependency_frame_marks_passive_subject() -> None:
     text = "Anna Nowak została powołana na prezeskę spółki."
-    person = cluster("cluster-person", "Anna Nowak", EntityType.PERSON, 0)
+    person = cluster("entity-person", "Anna Nowak", EntityType.PERSON, 0)
     doc = document(text, [person])
     doc.parsed_sentences = {
         0: [
@@ -120,13 +120,13 @@ def test_dependency_frame_marks_passive_subject() -> None:
         {EntityType.PERSON},
     )
     assert passive_subject is not None
-    assert passive_subject.entity_id == ClusterID("cluster-person")
+    assert passive_subject.entity_id == ClusterID("entity-person")
 
 
 def test_dependency_frame_extracts_funding_transfer_arguments_and_money() -> None:
     text = "WFOŚiGW przekazał Fundacji Lux Veritatis 300 tys. zł dotacji."
-    funder = cluster("cluster-funder", "WFOŚiGW", EntityType.PUBLIC_INSTITUTION, 0)
-    recipient = cluster("cluster-recipient", "Fundacji Lux Veritatis", EntityType.ORGANIZATION, 17)
+    funder = cluster("entity-funder", "WFOŚiGW", EntityType.PUBLIC_INSTITUTION, 0)
+    recipient = cluster("entity-recipient", "Fundacji Lux Veritatis", EntityType.ORGANIZATION, 17)
     doc = document(text, [funder, recipient])
     doc.parsed_sentences = {
         0: [
@@ -152,12 +152,12 @@ def test_dependency_frame_extracts_funding_transfer_arguments_and_money() -> Non
         {EntityType.PUBLIC_INSTITUTION},
     )
     assert subject is not None
-    assert subject.entity_id == ClusterID("cluster-funder")
+    assert subject.entity_id == ClusterID("entity-funder")
 
 
 def test_dependency_frame_marks_reporting_przekazac() -> None:
     text = "Biuro Prasowe przekazało redakcji 300 tys. zł informacji."
-    source = cluster("cluster-source", "Biuro Prasowe", EntityType.PUBLIC_INSTITUTION, 0)
+    source = cluster("entity-source", "Biuro Prasowe", EntityType.PUBLIC_INSTITUTION, 0)
     doc = document(text, [source])
     doc.parsed_sentences = {
         0: [
