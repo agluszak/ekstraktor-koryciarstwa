@@ -235,14 +235,19 @@ class ClusterMention:
 
 
 @dataclass(slots=True)
-class EntityCluster:
-    cluster_id: ClusterID
+class ResolvedEntity:
+    entity_id: EntityID
     entity_type: EntityType
     canonical_name: str
     normalized_name: str
     mentions: list[ClusterMention]
 
-    # Inlined attributes
+    # From Entity (added fields)
+    evidence: list[EvidenceSpan] = field(default_factory=list)
+    registry_id: str | None = None
+    is_honorific_person_ref: bool = False
+
+    # Inlined attributes (same as EntityCluster)
     aliases: list[str] = field(default_factory=list)
     lemmas: list[str] = field(default_factory=list)
     organization_kind: OrganizationKind | None = None
@@ -427,7 +432,7 @@ class ArticleDocument:
     temporal_expressions: list[TemporalExpression] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
     score: ScoreResult | None = None
-    clusters: list[EntityCluster] = field(default_factory=list)
+    resolved_entities: list[ResolvedEntity] = field(default_factory=list)
     parsed_sentences: dict[int, list[ParsedWord]] = field(default_factory=dict)
     clause_units: list[ClauseUnit] = field(default_factory=list)
     governance_frames: list[GovernanceFrame] = field(default_factory=list)
@@ -451,7 +456,7 @@ class ExtractionResult:
     title: str
     publication_date: str | None
     relevance: RelevanceDecision
-    entities: list[Entity]
+    entities: list[ResolvedEntity]
     facts: list[Fact]
     score: ScoreResult | None
     identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
@@ -468,7 +473,7 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         title=document.title,
         publication_date=document.publication_date,
         relevance=document.relevance or RelevanceDecision(False, 0.0, []),
-        entities=document.entities,
+        entities=document.resolved_entities,
         facts=document.facts,
         score=document.score,
         identity_hypotheses=document.identity_hypotheses,

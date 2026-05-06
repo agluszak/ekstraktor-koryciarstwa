@@ -23,10 +23,10 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     Entity,
-    EntityCluster,
     EvidenceSpan,
     Mention,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
 )
 from pipeline.relations.org_typing import OrganizationMentionClassifier
@@ -124,8 +124,8 @@ class FrameSlotGrounder:
         document: ArticleDocument,
         clause: ClauseUnit,
         *,
-        employee: EntityCluster | None,
-        role_cluster: EntityCluster | None,
+        employee: ResolvedEntity | None,
+        role_cluster: ResolvedEntity | None,
     ) -> GroundedRoleLabel | None:
         if role_cluster is not None and not self._is_public_office_role(role_cluster):
             evidence = self._slot_evidence_for_cluster(clause, role_cluster)
@@ -135,7 +135,7 @@ class FrameSlotGrounder:
                     head_lemma=role_cluster.normalized_name.split()[0].casefold(),
                     evidence=evidence,
                     source="role_cluster",
-                    role_cluster_id=role_cluster.cluster_id,
+                    role_cluster_id=role_cluster.entity_id,
                 )
 
         candidate = None
@@ -199,7 +199,7 @@ class FrameSlotGrounder:
             for mention in clause.cluster_mentions
             if mention.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         }
-        for cluster in document.clusters:
+        for cluster in document.resolved_entities:
             if cluster.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
                 continue
             mention = next(
@@ -210,9 +210,9 @@ class FrameSlotGrounder:
                 ),
                 None,
             )
-            if mention is None or cluster.cluster_id in seen:
+            if mention is None or cluster.entity_id in seen:
                 continue
-            seen.add(cluster.cluster_id)
+            seen.add(cluster.entity_id)
             entity_id = next((item.entity_id for item in cluster.mentions if item.entity_id), None)
             grounded.append(
                 GroundedOrganizationMention(
@@ -227,7 +227,7 @@ class FrameSlotGrounder:
                         start_char=mention.start_char,
                         end_char=mention.end_char,
                     ),
-                    cluster_id=cluster.cluster_id,
+                    cluster_id=cluster.entity_id,
                     entity_id=entity_id,
                 )
             )
@@ -236,7 +236,7 @@ class FrameSlotGrounder:
     @staticmethod
     def refresh_clause_mentions(document: ArticleDocument) -> None:
         by_sentence: dict[int, list[ClusterMention]] = {}
-        for cluster in document.clusters:
+        for cluster in document.resolved_entities:
             for mention in cluster.mentions:
                 by_sentence.setdefault(mention.sentence_index, []).append(mention)
         for clause in document.clause_units:
@@ -476,7 +476,7 @@ class FrameSlotGrounder:
                 start_char=sentence.start_char + local_start,
                 end_char=sentence.start_char + local_end,
             ),
-            cluster_id=existing_cluster.cluster_id,
+            cluster_id=existing_cluster.entity_id,
             synthetic=True,
         )
 
@@ -494,7 +494,7 @@ class FrameSlotGrounder:
             return explicit
         candidates = [
             cluster.canonical_name
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
             if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         ]
         for candidate in candidates:
@@ -510,10 +510,10 @@ class FrameSlotGrounder:
         document: ArticleDocument,
         sentence: SentenceFragment,
         alias: str,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         candidates = [
             cluster
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
             if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
             and any(
                 mention.paragraph_index == sentence.paragraph_index for mention in cluster.mentions
@@ -530,8 +530,8 @@ class FrameSlotGrounder:
     def _embedding_cluster_for_compact_alias(
         self,
         alias: str,
-        candidates: list[EntityCluster],
-    ) -> EntityCluster | None:
+        candidates: list[ResolvedEntity],
+    ) -> ResolvedEntity | None:
         alias_tokens = self._compact_alias_tokens(alias)
         alias_bases = {
             org_token_base(token.casefold()) for token in alias_tokens if len(token) >= 4
@@ -539,7 +539,7 @@ class FrameSlotGrounder:
         if len(alias_tokens) < 2 or not alias_bases:
             return None
         alias_embedding = self._encode_text(" ".join(alias_tokens))
-        ranked: list[tuple[float, EntityCluster]] = []
+        ranked: list[tuple[float, ResolvedEntity]] = []
         for cluster in candidates:
             cluster_bases = {
                 org_token_base(token.casefold())
@@ -679,7 +679,7 @@ class FrameSlotGrounder:
     ) -> str | None:
         person_mentions = [
             mention
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
             if cluster.entity_type == EntityType.PERSON
             for mention in cluster.mentions
             if mention.paragraph_index == sentence.paragraph_index
@@ -696,7 +696,7 @@ class FrameSlotGrounder:
         overlapping = next(
             (
                 cluster
-                for cluster in document.clusters
+                for cluster in document.resolved_entities
                 if any(
                     mention.sentence_index == grounded.evidence.sentence_index
                     and mention.start_char == grounded.evidence.start_char
@@ -709,7 +709,7 @@ class FrameSlotGrounder:
         existing = next(
             (
                 cluster
-                for cluster in document.clusters
+                for cluster in document.resolved_entities
                 if cluster.entity_type == grounded.entity_type
                 and cluster.normalized_name.casefold() == grounded.canonical_name.casefold()
             ),
@@ -718,7 +718,7 @@ class FrameSlotGrounder:
         if (
             existing is not None
             and overlapping is not None
-            and overlapping.cluster_id != existing.cluster_id
+            and overlapping.entity_id != existing.entity_id
             and overlapping.entity_type
             not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         ):
@@ -735,7 +735,7 @@ class FrameSlotGrounder:
         noisy_match = next(
             (
                 cluster
-                for cluster in document.clusters
+                for cluster in document.resolved_entities
                 if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
                 and cluster.canonical_name.casefold().startswith(grounded.canonical_name.casefold())
                 and any(
@@ -789,8 +789,8 @@ class FrameSlotGrounder:
             end_char=grounded.evidence.end_char,
             entity_id=entity_id,
         )
-        cluster = EntityCluster(
-            cluster_id=ClusterID(stable_id("cluster", document.document_id, entity_id)),
+        cluster = ResolvedEntity(
+            entity_id=EntityID(stable_id("cluster", document.document_id, entity_id)),
             entity_type=grounded.entity_type,
             canonical_name=grounded.canonical_name,
             normalized_name=grounded.canonical_name,
@@ -800,11 +800,11 @@ class FrameSlotGrounder:
         )
         document.entities.append(entity)
         document.mentions.append(mention)
-        document.clusters.append(cluster)
+        document.resolved_entities.append(cluster)
 
     @staticmethod
     def _grounding_beats_existing(
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
         grounded: GroundedOrganizationMention,
     ) -> bool:
         existing = cluster.canonical_name.casefold()
@@ -826,13 +826,13 @@ class FrameSlotGrounder:
     @staticmethod
     def _remove_cluster(
         document: ArticleDocument,
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
     ) -> None:
         entity_ids = {
             mention.entity_id for mention in cluster.mentions if mention.entity_id is not None
         }
-        document.clusters = [
-            item for item in document.clusters if item.cluster_id != cluster.cluster_id
+        document.resolved_entities = [
+            item for item in document.resolved_entities if item.entity_id != cluster.entity_id
         ]
         document.entities = [item for item in document.entities if item.entity_id not in entity_ids]
         document.mentions = [item for item in document.mentions if item.entity_id not in entity_ids]
@@ -846,7 +846,7 @@ class FrameSlotGrounder:
     @staticmethod
     def _replace_cluster_canonical(
         document: ArticleDocument,
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
         grounded: GroundedOrganizationMention,
     ) -> None:
         previous_name = cluster.canonical_name
@@ -882,7 +882,7 @@ class FrameSlotGrounder:
     @staticmethod
     def _append_alias_mention(
         document: ArticleDocument,
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
         grounded: GroundedOrganizationMention,
     ) -> None:
         if any(
@@ -932,7 +932,7 @@ class FrameSlotGrounder:
         )
 
     @staticmethod
-    def _compact_alias_match_score(alias: str, cluster: EntityCluster) -> int:
+    def _compact_alias_match_score(alias: str, cluster: ResolvedEntity) -> int:
         if not FrameSlotGrounder._looks_like_compact_org_alias(alias):
             return 0
         lowered_alias = alias.casefold()
@@ -1014,7 +1014,7 @@ class FrameSlotGrounder:
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
-        employee: EntityCluster,
+        employee: ResolvedEntity,
     ) -> _RoleLabelCandidate | None:
         parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
         employee_words = [
@@ -1234,7 +1234,7 @@ class FrameSlotGrounder:
         if any(word.upos == "PROPN" for word in candidate.words):
             person_tokens = {
                 token.casefold()
-                for cluster in document.clusters
+                for cluster in document.resolved_entities
                 if cluster.entity_type == EntityType.PERSON
                 for mention in cluster.mentions
                 if mention.sentence_index == clause.sentence_index
@@ -1248,7 +1248,7 @@ class FrameSlotGrounder:
             cluster.entity_type == EntityType.POSITION
             and cluster.role_kind in PUBLIC_OFFICE_ROLE_KINDS
             and cluster.canonical_name.casefold() == label.casefold()
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
         ):
             return True
         return False
@@ -1256,7 +1256,7 @@ class FrameSlotGrounder:
     @staticmethod
     def _slot_evidence_for_cluster(
         clause: ClauseUnit,
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
     ) -> SlotEvidence | None:
         mention = next(
             (item for item in cluster.mentions if item.sentence_index == clause.sentence_index),
@@ -1371,7 +1371,7 @@ class FrameSlotGrounder:
         return max(0, mention.end_char - clause.start_char)
 
     @staticmethod
-    def _is_public_office_role(cluster: EntityCluster) -> bool:
+    def _is_public_office_role(cluster: ResolvedEntity) -> bool:
         if cluster.role_kind in PUBLIC_OFFICE_ROLE_KINDS:
             return True
         normalized = cluster.normalized_name.casefold()

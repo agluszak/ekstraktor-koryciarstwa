@@ -22,7 +22,7 @@ from pipeline.models import (
     ClusterMention,
     CompensationFrame,
     Entity,
-    EntityCluster,
+    ResolvedEntity,
     EvidenceSpan,
     FundingFrame,
     GovernanceFrame,
@@ -43,9 +43,9 @@ def cluster(
     end_char: int | None = None,
     entity_id: str | None = None,
     organization_kind: OrganizationKind | None = None,
-) -> EntityCluster:
-    return EntityCluster(
-        cluster_id=ClusterID(cluster_id),
+) -> ResolvedEntity:
+    return ResolvedEntity(
+        entity_id=EntityID(cluster_id),
         entity_type=entity_type,
         canonical_name=name,
         normalized_name=name,
@@ -102,7 +102,7 @@ def parsed_word(
     )
 
 
-def document(clusters: list[EntityCluster]) -> ArticleDocument:
+def document(clusters: list[ResolvedEntity]) -> ArticleDocument:
     return ArticleDocument(
         document_id=DocumentID("doc-1"),
         source_url=None,
@@ -111,7 +111,7 @@ def document(clusters: list[EntityCluster]) -> ArticleDocument:
         publication_date="2026-04-15",
         cleaned_text="",
         paragraphs=[],
-        clusters=clusters,
+        resolved_entities=clusters,
     )
 
 
@@ -226,18 +226,18 @@ def test_governance_fact_builder_expands_list_appointments_with_exception() -> N
                 end_char=len(text),
             )
         ],
-        clusters=[target, anna, piotr, ewa, marek],
+        resolved_entities=[target, anna, piotr, ewa, marek],
     )
 
     facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert {fact.subject_entity_id for fact in facts} == {
-        EntityID("entity-anna"),
-        EntityID("entity-piotr"),
-        EntityID("entity-ewa"),
+        EntityID("cluster-anna"),
+        EntityID("cluster-piotr"),
+        EntityID("cluster-ewa"),
     }
     assert all(fact.fact_type == FactType.APPOINTMENT for fact in facts)
-    assert all(fact.object_entity_id == EntityID("entity-target") for fact in facts)
+    assert all(fact.object_entity_id == EntityID("cluster-target") for fact in facts)
     assert all(fact.role == "rada nadzorcza" for fact in facts)
 
 
@@ -393,7 +393,7 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
                 end_char=sentence_break + len(clause_text),
             ),
         ],
-        clusters=[authority, appointee],
+        resolved_entities=[authority, appointee],
         parsed_sentences={
             0: [
                 parsed_word(1, "Piotr", "Piotr", 0, head=3, deprel="nsubj", upos="PROPN"),
@@ -427,8 +427,8 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
         GovernanceSignal.APPOINTMENT,
     )
 
-    assert person_cluster_id == appointee.cluster_id
-    assert appointing_authority_id == authority.cluster_id
+    assert person_cluster_id == appointee.entity_id
+    assert appointing_authority_id == authority.entity_id
 
 
 def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> None:
@@ -486,7 +486,7 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
                 end_char=second_break + len(clause_text),
             ),
         ],
-        clusters=[authority, appointee],
+        resolved_entities=[authority, appointee],
         parsed_sentences={
             0: [
                 parsed_word(1, "Prezydent", "prezydent", 0, head=4, deprel="nsubj"),
@@ -528,8 +528,8 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
         GovernanceSignal.APPOINTMENT,
     )
 
-    assert person_cluster_id == appointee.cluster_id
-    assert appointing_authority_id == authority.cluster_id
+    assert person_cluster_id == appointee.entity_id
+    assert appointing_authority_id == authority.entity_id
 
 
 def test_target_resolver_prefers_company_over_ministry_owner() -> None:
@@ -840,7 +840,7 @@ def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
 
     clustered = PolishEntityClusterer(config).run(doc)
 
-    mention = clustered.clusters[0].mentions[0]
+    mention = clustered.resolved_entities[0].mentions[0]
     assert mention.paragraph_index == 1
     assert mention.start_char == start
     assert mention.end_char == start + len("Stadninę Koni Iwno")
@@ -866,17 +866,17 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
         GovernanceFrame(
             frame_id=FrameID("frame-roleless"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.7,
             evidence=[EvidenceSpan(text="Jan trafił do AMW Rewita.", paragraph_index=0)],
         ),
         GovernanceFrame(
             frame_id=FrameID("frame-role"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.8,
             evidence=[
                 EvidenceSpan(
@@ -891,7 +891,7 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
 
     assert len(facts) == 1
     assert facts[0].value_text == "Wiceprezes"
-    assert facts[0].position_entity_id == "position-1"
+    assert facts[0].position_entity_id == "cluster-role"
     assert facts[0].confidence == 0.8
 
 
@@ -915,9 +915,9 @@ def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> Non
         GovernanceFrame(
             frame_id=FrameID("frame-date"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.9,
             evidence=[
                 EvidenceSpan(
@@ -999,9 +999,9 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
         GovernanceFrame(
             frame_id=FrameID("frame-authority"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            target_org_cluster_id=organization.entity_id,
             confidence=0.9,
             evidence=[
                 EvidenceSpan(
@@ -1028,7 +1028,7 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
     facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
     assert len(facts) == 1
-    assert facts[0].appointing_authority_entity_id == EntityID("person-2")
+    assert facts[0].appointing_authority_entity_id == EntityID("cluster-authority")
 
 
 def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
@@ -1047,9 +1047,9 @@ def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
             amount_text="31 tys. zł brutto",
             amount_normalized="31 Tys. Zł Brutto",
             period="Miesięcznie",
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            organization_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            role_cluster_id=role.entity_id,
+            organization_cluster_id=organization.entity_id,
             confidence=0.85,
             evidence=[
                 EvidenceSpan(
@@ -1067,9 +1067,9 @@ def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
 
     assert len(facts) == 1
     assert facts[0].fact_type == "COMPENSATION"
-    assert facts[0].subject_entity_id == "person-1"
-    assert facts[0].object_entity_id == "org-1"
-    assert facts[0].position_entity_id == "position-1"
+    assert facts[0].subject_entity_id == "cluster-person"
+    assert facts[0].object_entity_id == "cluster-org"
+    assert facts[0].position_entity_id == "cluster-role"
     assert facts[0].source_extractor == "compensation_frame"
 
 
@@ -1100,8 +1100,8 @@ def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> No
             amount_text="31 tys. zł brutto",
             amount_normalized="31 Tys. Zł Brutto",
             period="Miesięcznie",
-            person_cluster_id=person.cluster_id,
-            organization_cluster_id=organization.cluster_id,
+            person_cluster_id=person.entity_id,
+            organization_cluster_id=organization.entity_id,
             confidence=0.85,
             evidence=[
                 EvidenceSpan(
@@ -1330,8 +1330,8 @@ def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
             frame_id=FrameID("funding-frame-1"),
             amount_text="300 tys. zł",
             amount_normalized="300 Tys. Zł",
-            funder_cluster_id=funder.cluster_id,
-            recipient_cluster_id=recipient.cluster_id,
+            funder_cluster_id=funder.entity_id,
+            recipient_cluster_id=recipient.entity_id,
             confidence=0.82,
             evidence=[
                 EvidenceSpan(
@@ -1349,8 +1349,8 @@ def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
 
     assert len(facts) == 1
     assert facts[0].fact_type == "FUNDING"
-    assert facts[0].subject_entity_id == "org-recipient"
-    assert facts[0].object_entity_id == "org-funder"
+    assert facts[0].subject_entity_id == "cluster-recipient"
+    assert facts[0].object_entity_id == "cluster-funder"
     assert facts[0].source_extractor == "funding_frame"
 
 
@@ -1390,7 +1390,7 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
         publication_date=None,
         cleaned_text=text,
         paragraphs=[text],
-        clusters=[appointee],
+        resolved_entities=[appointee],
     )
 
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
@@ -1400,7 +1400,7 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
         GovernanceSignal.APPOINTMENT,
     )
 
-    assert person_cluster_id == appointee.cluster_id
+    assert person_cluster_id == appointee.entity_id
     assert appointing_authority_id is None
 
 

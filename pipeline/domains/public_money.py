@@ -21,11 +21,11 @@ from pipeline.lemma_signals import has_lemma, lemma_set, words_with_lemmas
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
-    EntityCluster,
     EvidenceSpan,
     Fact,
     ParsedWord,
     PublicContractFrame,
+    ResolvedEntity,
 )
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
 from pipeline.public_money_signals import (
@@ -105,8 +105,8 @@ class PublicMoneyFlowKind(StrEnum):
 @dataclass(frozen=True, slots=True)
 class PublicMoneyFlowSignal:
     kind: PublicMoneyFlowKind
-    payer_cluster: EntityCluster | None
-    recipient_cluster: EntityCluster | None
+    payer_cluster: ResolvedEntity | None
+    recipient_cluster: ResolvedEntity | None
     amount_text: str | None
     amount_normalized: str | None
     confidence: float
@@ -140,8 +140,8 @@ class PolishPublicContractFrameExtractor:
                 document.public_contract_frames.append(
                     PublicContractFrame(
                         frame_id=FrameID(f"contract-frame-{uuid.uuid4().hex[:8]}"),
-                        contractor_cluster_id=signal.recipient_cluster.cluster_id,
-                        counterparty_cluster_id=signal.payer_cluster.cluster_id,
+                        contractor_cluster_id=signal.recipient_cluster.entity_id,
+                        counterparty_cluster_id=signal.payer_cluster.entity_id,
                         amount_text=signal.amount_text,
                         amount_normalized=signal.amount_normalized,
                         confidence=signal.confidence,
@@ -202,13 +202,13 @@ class PolishPublicContractFrameExtractor:
             confidence += 0.04
         frames: list[PublicContractFrame] = []
         for counterparty in counterparties:
-            if counterparty.cluster_id == contractor.cluster_id:
+            if counterparty.entity_id == contractor.entity_id:
                 continue
             frames.append(
                 PublicContractFrame(
                     frame_id=FrameID(f"contract-frame-{uuid.uuid4().hex[:8]}"),
-                    contractor_cluster_id=contractor.cluster_id,
-                    counterparty_cluster_id=counterparty.cluster_id,
+                    contractor_cluster_id=contractor.entity_id,
+                    counterparty_cluster_id=counterparty.entity_id,
                     amount_text=amount_text,
                     amount_normalized=normalize_entity_name(amount_text.lower())
                     if amount_text
@@ -272,9 +272,9 @@ class PolishPublicContractFrameExtractor:
     @staticmethod
     def _best_contractor(
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         trigger_offset: int,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         organizations = [
             cluster
             for cluster in clusters
@@ -310,13 +310,13 @@ class PolishPublicContractFrameExtractor:
     @staticmethod
     def _public_counterparties(
         clause: ClauseUnit,
-        clusters: list[EntityCluster],
-        contractor: EntityCluster,
+        clusters: list[ResolvedEntity],
+        contractor: ResolvedEntity,
         trigger_offset: int,
-    ) -> list[EntityCluster]:
-        counterparties: list[EntityCluster] = []
+    ) -> list[ResolvedEntity]:
+        counterparties: list[ResolvedEntity] = []
         for cluster in clusters:
-            if cluster.cluster_id == contractor.cluster_id:
+            if cluster.entity_id == contractor.entity_id:
                 continue
             if cluster.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
                 continue
@@ -391,7 +391,7 @@ def _przekazac_has_numeric_dep_object(parsed_words: list[ParsedWord]) -> bool:
     return False
 
 
-def funding_recipient_score(cluster: EntityCluster) -> tuple[int, int, int]:
+def funding_recipient_score(cluster: ResolvedEntity) -> tuple[int, int, int]:
     normalized = cluster.normalized_name.lower()
     recipient_bonus = 0
     if any(term in normalized for term in ("fundacja", "stowarzyszenie", "instytut")):
@@ -433,7 +433,7 @@ def _public_money_flow_signal(
         return None
     payer = _public_money_payer(clause, org_clusters)
     recipient = _public_money_recipient(clause, org_clusters, payer)
-    if payer is None or recipient is None or payer.cluster_id == recipient.cluster_id:
+    if payer is None or recipient is None or payer.entity_id == recipient.entity_id:
         return None
     kind = (
         PublicMoneyFlowKind.PUBLIC_CONTRACT
@@ -527,12 +527,12 @@ def _public_money_clusters(
     clause: ClauseUnit,
     grounded_orgs: list[GroundedOrganizationMention],
     context: ExtractionContext,
-) -> list[EntityCluster]:
-    cluster_ids = [
-        mention.cluster_id for mention in grounded_orgs if mention.cluster_id is not None
-    ]
+) -> list[ResolvedEntity]:
+    cluster_ids = [mention.entity_id for mention in grounded_orgs if mention.entity_id is not None]
     if cluster_ids:
-        return [cluster for cluster in document.clusters if cluster.cluster_id in cluster_ids]
+        return [
+            cluster for cluster in document.resolved_entities if cluster.entity_id in cluster_ids
+        ]
     return context.clusters_for_mentions(
         clause.cluster_mentions,
         {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
@@ -541,8 +541,8 @@ def _public_money_clusters(
 
 def _public_money_payer(
     clause: ClauseUnit,
-    clusters: list[EntityCluster],
-) -> EntityCluster | None:
+    clusters: list[ResolvedEntity],
+) -> ResolvedEntity | None:
     candidates = [cluster for cluster in clusters if is_public_counterparty(clause, cluster)]
     if not candidates:
         return None
@@ -565,11 +565,11 @@ def _public_money_payer(
 
 def _public_money_recipient(
     clause: ClauseUnit,
-    clusters: list[EntityCluster],
-    payer: EntityCluster | None,
-) -> EntityCluster | None:
+    clusters: list[ResolvedEntity],
+    payer: ResolvedEntity | None,
+) -> ResolvedEntity | None:
     candidates = [
-        cluster for cluster in clusters if payer is None or cluster.cluster_id != payer.cluster_id
+        cluster for cluster in clusters if payer is None or cluster.entity_id != payer.entity_id
     ]
     if not candidates:
         return None

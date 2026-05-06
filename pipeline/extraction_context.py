@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
@@ -23,9 +22,9 @@ from pipeline.models import (
     ClusterMention,
     Entity,
     EntityCandidate,
-    EntityCluster,
     EvidenceSpan,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
 )
 from pipeline.temporal import resolve_event_date
@@ -34,15 +33,17 @@ from pipeline.temporal import resolve_event_date
 @dataclass(slots=True)
 class ExtractionContext:
     document: ArticleDocument
-    clusters_by_id: dict[ClusterID, EntityCluster] = field(init=False)
+    clusters_by_id: dict[ClusterID, ResolvedEntity] = field(init=False)
     entities_by_id: dict[EntityID, Entity] = field(init=False)
-    cluster_by_entity_id_index: dict[EntityID, EntityCluster] = field(init=False)
-    exact_mention_index: dict[tuple[int, int, int, EntityType], EntityCluster] = field(init=False)
-    text_mention_index: dict[tuple[str, int, int, EntityType], list[EntityCluster]] = field(
+    cluster_by_entity_id_index: dict[EntityID, ResolvedEntity] = field(init=False)
+    exact_mention_index: dict[tuple[int, int, int, EntityType], ResolvedEntity] = field(init=False)
+    text_mention_index: dict[tuple[str, int, int, EntityType], list[ResolvedEntity]] = field(
         init=False
     )
-    clusters_by_sentence_type: dict[tuple[int, EntityType], list[EntityCluster]] = field(init=False)
-    clusters_by_paragraph_type: dict[tuple[int, EntityType], list[EntityCluster]] = field(
+    clusters_by_sentence_type: dict[tuple[int, EntityType], list[ResolvedEntity]] = field(
+        init=False
+    )
+    clusters_by_paragraph_type: dict[tuple[int, EntityType], list[ResolvedEntity]] = field(
         init=False
     )
     dependency_frames_by_clause_id: dict[ClauseID, TriggerArgumentFrame] = field(init=False)
@@ -52,7 +53,9 @@ class ExtractionContext:
         return cls(document=document)
 
     def __post_init__(self) -> None:
-        self.clusters_by_id = {cluster.cluster_id: cluster for cluster in self.document.clusters}
+        self.clusters_by_id = {
+            cluster.entity_id: cluster for cluster in self.document.resolved_entities
+        }
         self.entities_by_id = {entity.entity_id: entity for entity in self.document.entities}
         self.cluster_by_entity_id_index = {}
         self.exact_mention_index = {}
@@ -61,7 +64,7 @@ class ExtractionContext:
         self.clusters_by_paragraph_type = {}
         self.dependency_frames_by_clause_id = {}
 
-        for cluster in self.document.clusters:
+        for cluster in self.document.resolved_entities:
             for mention in cluster.mentions:
                 if (
                     mention.entity_id is not None
@@ -105,27 +108,27 @@ class ExtractionContext:
         self,
         clause: ClauseUnit,
         entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         return self.clusters_in_sentence(clause.sentence_index, entity_types)
 
     def clusters_for_mentions(
         self,
         mentions: Iterable[ClusterMention],
         entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         seen: set[ClusterID] = set()
-        clusters: list[EntityCluster] = []
+        clusters: list[ResolvedEntity] = []
         for mention in mentions:
             if mention.entity_type not in entity_types:
                 continue
             cluster = self.cluster_for_mention(mention)
-            if cluster is None or cluster.cluster_id in seen:
+            if cluster is None or cluster.entity_id in seen:
                 continue
-            seen.add(cluster.cluster_id)
+            seen.add(cluster.entity_id)
             clusters.append(cluster)
         return clusters
 
-    def cluster_for_mention(self, mention_ref: ClusterMention) -> EntityCluster | None:
+    def cluster_for_mention(self, mention_ref: ClusterMention) -> ResolvedEntity | None:
         exact_match = self.exact_mention_index.get(
             (
                 mention_ref.sentence_index,
@@ -139,7 +142,7 @@ class ExtractionContext:
         if self._has_exact_span(mention_ref):
             return None
 
-        fallback_matches: list[EntityCluster] = []
+        fallback_matches: list[ResolvedEntity] = []
         candidate_clusters = self.text_mention_index.get(
             (
                 mention_ref.text,
@@ -174,7 +177,7 @@ class ExtractionContext:
     def _has_exact_span(mention: ClusterMention) -> bool:
         return mention.end_char > mention.start_char
 
-    def cluster_by_id(self, cluster_id: ClusterID | None) -> EntityCluster | None:
+    def cluster_by_id(self, cluster_id: ClusterID | None) -> ResolvedEntity | None:
         if cluster_id is None:
             return None
         return self.clusters_by_id.get(cluster_id)
@@ -189,23 +192,17 @@ class ExtractionContext:
         return self.entity_id_for_cluster(cluster) if cluster is not None else None
 
     @staticmethod
-    def entity_id_for_cluster(cluster: EntityCluster) -> EntityID:
-        entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
-        if entity_ids:
-            return Counter(entity_ids).most_common(1)[0][0]
-        return EntityID(str(cluster.cluster_id))
+    def entity_id_for_cluster(cluster: ResolvedEntity) -> EntityID:
+        return cluster.entity_id
 
-    def cluster_entity_id_map(self) -> dict[ClusterID, EntityID]:
-        return {
-            cluster.cluster_id: self.entity_id_for_cluster(cluster)
-            for cluster in self.document.clusters
-        }
+    def cluster_entity_id_map(self) -> dict[EntityID, EntityID]:
+        return {re.entity_id: re.entity_id for re in self.document.resolved_entities}
 
     def cluster_name(self, cluster_id: ClusterID | None) -> str | None:
         cluster = self.cluster_by_id(cluster_id)
         return cluster.canonical_name if cluster is not None else None
 
-    def cluster_by_entity_id(self, entity_id: EntityID | None) -> EntityCluster | None:
+    def cluster_by_entity_id(self, entity_id: EntityID | None) -> ResolvedEntity | None:
         if entity_id is None:
             return None
         return self.cluster_by_entity_id_index.get(entity_id)
@@ -214,7 +211,7 @@ class ExtractionContext:
         self,
         sentence_index: int,
         entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         return self._clusters_from_index(
             self.clusters_by_sentence_type,
             sentence_index,
@@ -228,7 +225,7 @@ class ExtractionContext:
         *,
         before: int = 2,
         after: int = 2,
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         start_sentence = max(0, clause.sentence_index - before)
         end_sentence = clause.sentence_index + after
         return self._clusters_with_mentions(
@@ -245,7 +242,7 @@ class ExtractionContext:
         entity_types: set[EntityType],
         *,
         max_distance: int = 2,
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         start_sentence = max(0, clause.sentence_index - max_distance)
         return self._clusters_with_mentions(
             entity_types,
@@ -259,7 +256,7 @@ class ExtractionContext:
         self,
         clause: ClauseUnit,
         entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         return sorted(
             self._clusters_from_index(
                 self.clusters_by_paragraph_type,
@@ -276,7 +273,7 @@ class ExtractionContext:
         *,
         max_distance: int = 2,
         same_paragraph: bool = True,
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         end_sentence = clause.sentence_index + max_distance
         return self._clusters_with_mentions(
             entity_types,
@@ -289,7 +286,7 @@ class ExtractionContext:
     def evidence_window(
         self,
         clause: ClauseUnit,
-        clusters: Iterable[EntityCluster],
+        clusters: Iterable[ResolvedEntity],
     ) -> list[EvidenceSpan]:
         sentence_indexes = {clause.sentence_index}
         for cluster in clusters:
@@ -345,7 +342,7 @@ class ExtractionContext:
         )
 
     @staticmethod
-    def cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> tuple[int, int]:
+    def cluster_clause_distance(cluster: ResolvedEntity, clause: ClauseUnit) -> tuple[int, int]:
         distances = [
             (
                 abs(mention.sentence_index - clause.sentence_index),
@@ -357,9 +354,9 @@ class ExtractionContext:
 
     @staticmethod
     def best_cluster_near_offset(
-        clusters: Iterable[EntityCluster],
+        clusters: Iterable[ResolvedEntity],
         offset: int,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         return min(
             clusters,
             key=lambda cluster: min(
@@ -370,23 +367,23 @@ class ExtractionContext:
 
     @staticmethod
     def merge_clusters(
-        primary: Iterable[EntityCluster],
-        secondary: Iterable[EntityCluster],
-    ) -> list[EntityCluster]:
-        merged: list[EntityCluster] = []
+        primary: Iterable[ResolvedEntity],
+        secondary: Iterable[ResolvedEntity],
+    ) -> list[ResolvedEntity]:
+        merged: list[ResolvedEntity] = []
         seen: set[ClusterID] = set()
         for cluster in [*primary, *secondary]:
-            if cluster.cluster_id in seen:
+            if cluster.entity_id in seen:
                 continue
-            seen.add(cluster.cluster_id)
+            seen.add(cluster.entity_id)
             merged.append(cluster)
         return merged
 
     @staticmethod
     def sort_clusters_by_clause_distance(
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         clause: ClauseUnit,
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         return sorted(
             clusters, key=lambda cluster: ExtractionContext.cluster_clause_distance(cluster, clause)
         )
@@ -395,42 +392,42 @@ class ExtractionContext:
         self,
         entity_types: set[EntityType],
         predicate: Callable[[ClusterMention], bool],
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         seen: set[ClusterID] = set()
-        clusters: list[EntityCluster] = []
-        for cluster in self.document.clusters:
-            if cluster.entity_type not in entity_types or cluster.cluster_id in seen:
+        clusters: list[ResolvedEntity] = []
+        for cluster in self.document.resolved_entities:
+            if cluster.entity_type not in entity_types or cluster.entity_id in seen:
                 continue
             if not any(predicate(mention) for mention in cluster.mentions):
                 continue
-            seen.add(cluster.cluster_id)
+            seen.add(cluster.entity_id)
             clusters.append(cluster)
         return clusters
 
     @staticmethod
     def _clusters_from_index(
-        index: dict[tuple[int, EntityType], list[EntityCluster]],
+        index: dict[tuple[int, EntityType], list[ResolvedEntity]],
         index_value: int,
         entity_types: set[EntityType],
-    ) -> list[EntityCluster]:
+    ) -> list[ResolvedEntity]:
         seen: set[ClusterID] = set()
-        clusters: list[EntityCluster] = []
+        clusters: list[ResolvedEntity] = []
         for entity_type in entity_types:
             for cluster in index.get((index_value, entity_type), []):
-                if cluster.cluster_id in seen:
+                if cluster.entity_id in seen:
                     continue
-                seen.add(cluster.cluster_id)
+                seen.add(cluster.entity_id)
                 clusters.append(cluster)
         return clusters
 
     @staticmethod
     def _append_unique_cluster(
-        index: dict[tuple[int, EntityType], list[EntityCluster]],
+        index: dict[tuple[int, EntityType], list[ResolvedEntity]],
         key: tuple[int, EntityType],
-        cluster: EntityCluster,
+        cluster: ResolvedEntity,
     ) -> None:
         bucket = index.setdefault(key, [])
-        if all(existing.cluster_id != cluster.cluster_id for existing in bucket):
+        if all(existing.entity_id != cluster.entity_id for existing in bucket):
             bucket.append(cluster)
 
 

@@ -19,9 +19,9 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     CompensationFrame,
-    EntityCluster,
     EvidenceSpan,
     Fact,
+    ResolvedEntity,
 )
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
 from pipeline.role_text import find_role_text
@@ -224,9 +224,9 @@ class PolishCompensationFrameExtractor:
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()),
             period=normalize_entity_name(period.lower()) if period else None,
-            person_cluster_id=person_cluster.cluster_id if person_cluster else None,
-            role_cluster_id=role_cluster.cluster_id if role_cluster else None,
-            organization_cluster_id=org_cluster.cluster_id if org_cluster else None,
+            person_cluster_id=person_cluster.entity_id if person_cluster else None,
+            role_cluster_id=role_cluster.entity_id if role_cluster else None,
+            organization_cluster_id=org_cluster.entity_id if org_cluster else None,
             confidence=confidence,
             evidence=[
                 EvidenceSpan(
@@ -267,7 +267,7 @@ class PolishCompensationFrameExtractor:
     def _find_cluster_for_mention(
         mention_ref,
         context: ExtractionContext,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         return context.cluster_for_mention(mention_ref)
 
     @classmethod
@@ -277,10 +277,10 @@ class PolishCompensationFrameExtractor:
         clause: ClauseUnit,
         entity_types: set[EntityType],
         offset: int,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         candidates = [
             cluster
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
             if cluster.entity_type in entity_types
             and cls._cluster_is_valid_compensation_anchor(cluster)
             and any(
@@ -300,10 +300,10 @@ class PolishCompensationFrameExtractor:
         offset: int,
         *,
         max_sentence_distance: int = 3,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         candidates = [
             cluster
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
             if cluster.entity_type in entity_types
             and cls._cluster_is_valid_compensation_anchor(cluster)
             and any(
@@ -318,11 +318,11 @@ class PolishCompensationFrameExtractor:
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         role_text = find_role_text(document, clause)
         if role_text is None:
             return None
-        for cluster in document.clusters:
+        for cluster in document.resolved_entities:
             if cluster.entity_type != EntityType.POSITION:
                 continue
             if cluster.canonical_name.lower() == role_text.lower():
@@ -333,14 +333,14 @@ class PolishCompensationFrameExtractor:
     def _governance_context(
         document: ArticleDocument,
         clause: ClauseUnit,
-        person: EntityCluster | None,
+        person: ResolvedEntity | None,
     ):
         for frame in document.governance_frames:
             if not frame.evidence:
                 continue
             evidence = frame.evidence[0]
             same_paragraph = evidence.paragraph_index == clause.paragraph_index
-            same_person = person is not None and frame.person_cluster_id == person.cluster_id
+            same_person = person is not None and frame.person_cluster_id == person.entity_id
             if same_paragraph and (same_person or person is None):
                 return frame
         return None
@@ -349,15 +349,15 @@ class PolishCompensationFrameExtractor:
     def _cluster_by_id(
         context: ExtractionContext,
         cluster_id: ClusterID | None,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         return context.cluster_by_id(cluster_id)
 
     @staticmethod
     def _score_frame(
         *,
-        person_cluster: EntityCluster | None,
-        role_cluster: EntityCluster | None,
-        org_cluster: EntityCluster | None,
+        person_cluster: ResolvedEntity | None,
+        role_cluster: ResolvedEntity | None,
+        org_cluster: ResolvedEntity | None,
         context_reason: str,
     ) -> tuple[float, str]:
         if person_cluster is not None and org_cluster is not None and role_cluster is not None:
@@ -390,7 +390,7 @@ class PolishCompensationFrameExtractor:
         return any(marker in lowered for marker in PUBLIC_REMUNERATION_MARKERS)
 
     @classmethod
-    def _cluster_is_valid_compensation_anchor(cls, cluster: EntityCluster) -> bool:
+    def _cluster_is_valid_compensation_anchor(cls, cluster: ResolvedEntity) -> bool:
         if cluster.entity_type != EntityType.ORGANIZATION:
             return True
         if is_employer_like_name(cluster.normalized_name):
@@ -401,9 +401,9 @@ class PolishCompensationFrameExtractor:
     @classmethod
     def _best_valid_org_cluster(
         cls,
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         offset: int,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         valid_clusters = [
             cluster for cluster in clusters if cls._cluster_is_valid_compensation_anchor(cluster)
         ]
@@ -411,11 +411,11 @@ class PolishCompensationFrameExtractor:
 
     @staticmethod
     def _best_local_cluster(
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         clause: ClauseUnit,
         offset: int,
-    ) -> EntityCluster | None:
-        candidates: list[tuple[int, EntityCluster]] = []
+    ) -> ResolvedEntity | None:
+        candidates: list[tuple[int, ResolvedEntity]] = []
         for cluster in clusters:
             mention_offsets = [
                 max(0, offset - mention.end_char)
@@ -434,17 +434,17 @@ class PolishCompensationFrameExtractor:
     @classmethod
     def _best_local_org_cluster(
         cls,
-        clusters: list[EntityCluster],
+        clusters: list[ResolvedEntity],
         clause: ClauseUnit,
         offset: int,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         valid_clusters = [
             cluster for cluster in clusters if cls._cluster_is_valid_compensation_anchor(cluster)
         ]
         before_amount = cls._best_local_cluster(valid_clusters, clause, offset)
         if before_amount is not None:
             return before_amount
-        candidates: list[tuple[int, EntityCluster]] = []
+        candidates: list[tuple[int, ResolvedEntity]] = []
         for cluster in valid_clusters:
             mention_offsets = [
                 max(0, mention.start_char - offset)
@@ -497,8 +497,8 @@ class CompensationFactBuilder:
         organization = next(
             (
                 cluster
-                for cluster in document.clusters
-                if cluster.cluster_id == frame.organization_cluster_id
+                for cluster in document.resolved_entities
+                if cluster.entity_id == frame.organization_cluster_id
             ),
             None,
         )

@@ -6,14 +6,14 @@ import numpy as np
 
 from pipeline.base import EntityClusterer
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import ClusterID, EntityID, EntityType
+from pipeline.domain_types import EntityID, EntityType
 from pipeline.models import (
     ArticleDocument,
     ClusterMention,
     Entity,
-    EntityCluster,
     EvidenceSpan,
     Mention,
+    ResolvedEntity,
 )
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
@@ -41,8 +41,8 @@ class PolishEntityClusterer(EntityClusterer):
             document.entities
         )
 
-        clusters: list[EntityCluster] = []
-        entity_to_cluster_id: dict[EntityID, ClusterID] = {}
+        clusters: list[ResolvedEntity] = []
+        entity_to_resolved_id: dict[EntityID, EntityID] = {}
 
         for entity in document.entities:
             match = next(
@@ -51,18 +51,18 @@ class PolishEntityClusterer(EntityClusterer):
             )
 
             if match is None:
-                cluster_id = ClusterID(f"cluster-{uuid.uuid4().hex[:8]}")
+                cluster_id = EntityID(f"cluster-{uuid.uuid4().hex[:8]}")
                 cluster = self._create_cluster(cluster_id, entity)
                 clusters.append(cluster)
-                entity_to_cluster_id[entity.entity_id] = cluster_id
+                entity_to_resolved_id[entity.entity_id] = cluster_id
             else:
                 self._add_to_cluster(match, entity)
-                entity_to_cluster_id[entity.entity_id] = match.cluster_id
+                entity_to_resolved_id[entity.entity_id] = match.entity_id
 
         for mention in document.mentions:
-            if mention.entity_id and mention.entity_id in entity_to_cluster_id:
-                cluster_id = entity_to_cluster_id[mention.entity_id]
-                cluster = next(c for c in clusters if c.cluster_id == cluster_id)
+            if mention.entity_id and mention.entity_id in entity_to_resolved_id:
+                cluster_id = entity_to_resolved_id[mention.entity_id]
+                cluster = next(c for c in clusters if c.entity_id == cluster_id)
 
                 m_start, m_end, m_para = self._mention_location(document, mention)
 
@@ -98,19 +98,15 @@ class PolishEntityClusterer(EntityClusterer):
                 elif existing_mention.ner_label is None and mention.ner_label is not None:
                     existing_mention.ner_label = mention.ner_label
 
-        document.clusters = clusters
+        document.resolved_entities = clusters
         return document
 
-    def _entity_matches_cluster(self, entity: Entity, cluster: EntityCluster) -> bool:
-        if (
-            entity.is_proxy_person or cluster.is_proxy_person or entity.is_honorific_person_ref
-            # Note: EntityCluster doesn't have is_honorific_person_ref,
-            # it was only in Entity.attributes before.
-        ):
+    def _entity_matches_cluster(self, entity: Entity, cluster: ResolvedEntity) -> bool:
+        if entity.is_proxy_person or cluster.is_proxy_person or entity.is_honorific_person_ref:
             return entity.entity_id == cluster.proxy_entity_id
 
         temp_entity = Entity(
-            entity_id=EntityID(str(cluster.cluster_id)),
+            entity_id=EntityID(str(cluster.entity_id)),
             entity_type=cluster.entity_type,
             canonical_name=cluster.canonical_name,
             normalized_name=cluster.normalized_name,
@@ -145,7 +141,7 @@ class PolishEntityClusterer(EntityClusterer):
             return 0.0
         return float(np.dot(left, right))
 
-    def _create_cluster(self, cluster_id: ClusterID, entity: Entity) -> EntityCluster:
+    def _create_cluster(self, cluster_id: EntityID, entity: Entity) -> ResolvedEntity:
         mentions = []
         # Add mentions from entity evidence
         for evidence in entity.evidence:
@@ -164,8 +160,8 @@ class PolishEntityClusterer(EntityClusterer):
                 )
             )
 
-        return EntityCluster(
-            cluster_id=cluster_id,
+        return ResolvedEntity(
+            entity_id=cluster_id,
             entity_type=entity.entity_type,
             canonical_name=entity.canonical_name,
             normalized_name=entity.normalized_name,
@@ -180,9 +176,11 @@ class PolishEntityClusterer(EntityClusterer):
             proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
             role_kind=entity.role_kind,
             role_modifier=entity.role_modifier,
+            evidence=list(entity.evidence),
+            is_honorific_person_ref=entity.is_honorific_person_ref,
         )
 
-    def _add_to_cluster(self, cluster: EntityCluster, entity: Entity) -> None:
+    def _add_to_cluster(self, cluster: ResolvedEntity, entity: Entity) -> None:
         all_names = unique_preserve_order(
             [
                 cluster.canonical_name,
@@ -218,7 +216,7 @@ class PolishEntityClusterer(EntityClusterer):
 
         # Create a representative entity for naming policy
         representative_entity = Entity(
-            entity_id=EntityID(str(cluster.cluster_id)),
+            entity_id=EntityID(str(cluster.entity_id)),
             entity_type=cluster.entity_type,
             canonical_name=cluster.canonical_name,
             normalized_name=cluster.normalized_name,

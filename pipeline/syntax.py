@@ -47,7 +47,7 @@ class StanzaClauseParser(ClauseParser):
 
                 sent_offset = sentence_fragment.start_char
 
-                for cluster in document.clusters:
+                for cluster in document.resolved_entities:
                     for mention in cluster.mentions:
                         if mention.sentence_index != sentence_fragment.sentence_index:
                             continue

@@ -9,7 +9,7 @@ type Json = JsonValue
 
 EntityID = NewType("EntityID", str)
 FactID = NewType("FactID", str)
-ClusterID = NewType("ClusterID", str)
+ClusterID = EntityID
 DocumentID = NewType("DocumentID", str)
 CandidateID = NewType("CandidateID", str)
 ClauseID = NewType("ClauseID", str)

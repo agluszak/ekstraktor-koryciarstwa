@@ -9,15 +9,15 @@ from pipeline.domain_lexicons import (
     DERIVED_ORGANIZATION_PATTERN,
     ORGANIZATION_GROUNDING_MARKERS,
 )
-from pipeline.domain_types import ClusterID, EntityID, EntityType, OrganizationKind
+from pipeline.domain_types import EntityID, EntityType, OrganizationKind
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
     ArticleDocument,
     ClusterMention,
     Entity,
-    EntityCluster,
     EvidenceSpan,
     Mention,
+    ResolvedEntity,
     SentenceFragment,
 )
 from pipeline.relations.org_typing import OrganizationMentionClassifier
@@ -171,7 +171,7 @@ class SharedEntityEnricher(EntityEnricher):
     ) -> str | None:
         person_mentions = [
             mention
-            for cluster in document.clusters
+            for cluster in document.resolved_entities
             if cluster.entity_type == EntityType.PERSON
             for mention in cluster.mentions
             if mention.paragraph_index == sentence.paragraph_index
@@ -230,8 +230,8 @@ class SharedEntityEnricher(EntityEnricher):
             end_char=derived.end_char,
             entity_id=entity_id,
         )
-        cluster = EntityCluster(
-            cluster_id=ClusterID(stable_id("cluster", document.document_id, entity_id)),
+        cluster = ResolvedEntity(
+            entity_id=EntityID(stable_id("cluster", document.document_id, entity_id)),
             entity_type=derived.entity_type,
             canonical_name=derived.canonical_name,
             normalized_name=derived.canonical_name,
@@ -241,11 +241,11 @@ class SharedEntityEnricher(EntityEnricher):
         )
         document.entities.append(entity)
         document.mentions.append(mention)
-        document.clusters.append(cluster)
+        document.resolved_entities.append(cluster)
 
     def _enrich_public_institutions(self, document: ArticleDocument) -> None:
         entity_by_id = {entity.entity_id: entity for entity in document.entities}
-        for cluster in document.clusters:
+        for cluster in document.resolved_entities:
             if cluster.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
                 continue
             best_mention = cluster.mentions[0] if cluster.mentions else None

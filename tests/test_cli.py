@@ -11,6 +11,7 @@ from pipeline.models import (
     Entity,
     ExtractionResult,
     RelevanceDecision,
+    ResolvedEntity,
 )
 
 
@@ -28,11 +29,12 @@ class StubPipeline:
             publication_date=None,
             relevance=RelevanceDecision(is_relevant=True, score=1.0, reasons=["test"]),
             entities=[
-                Entity(
+                ResolvedEntity(
                     entity_id=EntityID("person-1"),
                     entity_type=EntityType.PERSON,
                     canonical_name="Jan Kowalski",
                     normalized_name="Jan Kowalski",
+                    mentions=[],
                 )
             ],
             facts=[],

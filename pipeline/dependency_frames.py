@@ -9,7 +9,7 @@ from pipeline.domain_types import ClauseID, ClusterID, EntityType
 from pipeline.grammar_signals import (
     infer_time_scope_with_temporal_context,
 )
-from pipeline.models import ArticleDocument, ClauseUnit, EntityCluster, ParsedWord
+from pipeline.models import ArticleDocument, ClauseUnit, ParsedWord, ResolvedEntity
 from pipeline.nlp_rules import COMPENSATION_PATTERN, FUNDING_HINTS
 
 if TYPE_CHECKING:
@@ -64,8 +64,8 @@ class TriggerArgumentFrame:
         context: ExtractionContext,
         role: DependencyArgumentRole,
         entity_types: set[EntityType] | None = None,
-    ) -> list[EntityCluster]:
-        clusters: list[EntityCluster] = []
+    ) -> list[ResolvedEntity]:
+        clusters: list[ResolvedEntity] = []
         seen: set[ClusterID] = set()
         for argument in self.arguments:
             if argument.role != role or argument.cluster_id is None:
@@ -73,9 +73,9 @@ class TriggerArgumentFrame:
             if entity_types is not None and argument.entity_type not in entity_types:
                 continue
             cluster = context.cluster_by_id(argument.cluster_id)
-            if cluster is None or cluster.cluster_id in seen:
+            if cluster is None or cluster.entity_id in seen:
                 continue
-            seen.add(cluster.cluster_id)
+            seen.add(cluster.entity_id)
             clusters.append(cluster)
         return clusters
 
@@ -84,7 +84,7 @@ class TriggerArgumentFrame:
         context: ExtractionContext,
         roles: Iterable[DependencyArgumentRole],
         entity_types: set[EntityType],
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         for role in roles:
             clusters = self.clusters_for_role(context, role, entity_types)
             if clusters:
@@ -167,7 +167,7 @@ class DependencyFrameBuilder:
             if role is None:
                 continue
             cluster = self._cluster_for_word(clause, word, context)
-            key = (role, cluster.cluster_id if cluster else None, word.index)
+            key = (role, cluster.entity_id if cluster else None, word.index)
             if key in seen:
                 continue
             seen.add(key)
@@ -178,7 +178,7 @@ class DependencyFrameBuilder:
                     token_text=word.text,
                     token_lemma=word.lemma,
                     deprel=word.deprel,
-                    cluster_id=cluster.cluster_id if cluster else None,
+                    cluster_id=cluster.entity_id if cluster else None,
                     entity_type=cluster.entity_type if cluster else None,
                 )
             )
@@ -219,7 +219,7 @@ class DependencyFrameBuilder:
         clause: ClauseUnit,
         word: ParsedWord,
         context: ExtractionContext,
-    ) -> EntityCluster | None:
+    ) -> ResolvedEntity | None:
         absolute_start = clause.start_char + word.start
         absolute_end = clause.start_char + word.end
         candidates = [

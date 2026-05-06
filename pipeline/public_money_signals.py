@@ -7,12 +7,12 @@ from pipeline.entity_classifiers import (
     is_company_like_name,
     is_public_counterparty_name,
 )
-from pipeline.models import ClauseUnit, EntityCluster
+from pipeline.models import ClauseUnit, ResolvedEntity
 from pipeline.semantic_signals import CONTRACTOR_CONTEXT_MARKERS, PUBLIC_COUNTERPARTY_MARKERS
 
 
 def cluster_before_offset(
-    cluster: EntityCluster,
+    cluster: ResolvedEntity,
     offset: int,
     clause: ClauseUnit,
 ) -> bool:
@@ -23,7 +23,7 @@ def cluster_before_offset(
 
 
 def cluster_after_or_near_trigger(
-    cluster: EntityCluster,
+    cluster: ResolvedEntity,
     offset: int,
     clause: ClauseUnit,
 ) -> bool:
@@ -35,7 +35,7 @@ def cluster_after_or_near_trigger(
 
 def cluster_has_context_marker(
     clause: ClauseUnit,
-    cluster: EntityCluster,
+    cluster: ResolvedEntity,
     markers: Iterable[str],
     *,
     before: int,
@@ -53,7 +53,7 @@ def cluster_has_context_marker(
     return False
 
 
-def is_company_like_contractor(clause: ClauseUnit, cluster: EntityCluster) -> bool:
+def is_company_like_contractor(clause: ClauseUnit, cluster: ResolvedEntity) -> bool:
     if cluster.organization_kind == OrganizationKind.COMPANY:
         return True
     if is_company_like_name(cluster.normalized_name):
@@ -67,7 +67,7 @@ def is_company_like_contractor(clause: ClauseUnit, cluster: EntityCluster) -> bo
     )
 
 
-def is_public_counterparty(clause: ClauseUnit, cluster: EntityCluster) -> bool:
+def is_public_counterparty(clause: ClauseUnit, cluster: ResolvedEntity) -> bool:
     if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
         return True
     if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
@@ -93,7 +93,7 @@ def is_public_counterparty(clause: ClauseUnit, cluster: EntityCluster) -> bool:
     )
 
 
-def has_person_firm_context(clause: ClauseUnit, cluster: EntityCluster) -> bool:
+def has_person_firm_context(clause: ClauseUnit, cluster: ResolvedEntity) -> bool:
     return cluster_has_context_marker(
         clause,
         cluster,

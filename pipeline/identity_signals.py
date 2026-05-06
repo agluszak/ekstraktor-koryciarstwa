@@ -8,7 +8,7 @@ from pipeline.domain_lexicons import (
     PUBLIC_SUBJECT_ROLE_LEMMAS,
 )
 from pipeline.domain_types import EntityType, KinshipDetail
-from pipeline.models import ArticleDocument, EntityCluster, ParsedWord, SentenceFragment
+from pipeline.models import ArticleDocument, ParsedWord, ResolvedEntity, SentenceFragment
 from pipeline.utils import normalize_entity_name
 
 POSSESSIVE_LEMMAS = {"mój", "swój"}
@@ -250,7 +250,7 @@ def resolve_anchor(
     document: ArticleDocument,
     sentence_index: int,
     anchor_surface: str | None,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     if anchor_surface is None:
         return None
     normalized = normalize_entity_name(anchor_surface)
@@ -262,7 +262,7 @@ def resolve_anchor(
         return nearest_person_cluster(document, sentence_index, before=3, after=0)
     candidates = [
         cluster
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
         if cluster.entity_type == EntityType.PERSON
         and not cluster.is_proxy_person
         and (
@@ -279,7 +279,7 @@ def resolve_anchor(
 def resolve_possessive_anchor(
     document: ArticleDocument,
     sentence_index: int,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     return speaker_cluster(document, sentence_index) or subject_person_cluster(
         document, sentence_index
     )
@@ -288,7 +288,7 @@ def resolve_possessive_anchor(
 def subject_person_cluster(
     document: ArticleDocument,
     sentence_index: int,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     parsed = document.parsed_sentences.get(sentence_index, [])
     subject_words = [word for word in parsed if word.deprel.startswith("nsubj")]
     if not subject_words:
@@ -298,7 +298,7 @@ def subject_person_cluster(
     )
     if sentence is None:
         return None
-    for cluster in document.clusters:
+    for cluster in document.resolved_entities:
         if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
             continue
         for mention in cluster.mentions:
@@ -329,11 +329,11 @@ def person_cluster_with_role_context(
     document: ArticleDocument,
     sentence_index: int,
     role_lemmas: list[str],
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     sentences = {sentence.sentence_index: sentence for sentence in document.sentences}
-    candidates: list[tuple[int, int, EntityCluster]] = []
+    candidates: list[tuple[int, int, ResolvedEntity]] = []
     role_markers = tuple(role_lemmas)
-    for cluster in document.clusters:
+    for cluster in document.resolved_entities:
         if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
             continue
         for mention in cluster.mentions:
@@ -359,7 +359,7 @@ def person_cluster_with_role_context(
     return min(candidates, key=lambda item: (item[0], -item[1]))[2]
 
 
-def speaker_cluster(document: ArticleDocument, sentence_index: int) -> EntityCluster | None:
+def speaker_cluster(document: ArticleDocument, sentence_index: int) -> ResolvedEntity | None:
     cluster = speaker_cluster_raw(document, sentence_index)
     if cluster is not None:
         return cluster
@@ -386,7 +386,7 @@ def speaker_cluster(document: ArticleDocument, sentence_index: int) -> EntityClu
 def speaker_cluster_raw(
     document: ArticleDocument,
     sentence_index: int,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     parsed = document.parsed_sentences.get(sentence_index, [])
     speech_heads = {
         word.index for word in parsed if word.lemma.casefold() in ATTRIBUTION_SPEECH_LEMMAS
@@ -401,7 +401,7 @@ def speaker_cluster_raw(
     speaker_words = [
         word for word in parsed if word.head in speech_heads and word.deprel.startswith("nsubj")
     ]
-    for cluster in document.clusters:
+    for cluster in document.resolved_entities:
         if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
             continue
         for mention in cluster.mentions:
@@ -420,10 +420,10 @@ def nearest_person_cluster(
     *,
     before: int,
     after: int,
-) -> EntityCluster | None:
+) -> ResolvedEntity | None:
     candidates = [
         cluster
-        for cluster in document.clusters
+        for cluster in document.resolved_entities
         if cluster.entity_type == EntityType.PERSON
         and not cluster.is_proxy_person
         and any(
@@ -436,7 +436,7 @@ def nearest_person_cluster(
     return min(candidates, key=lambda cluster: cluster_sentence_distance(cluster, sentence_index))
 
 
-def cluster_sentence_distance(cluster: EntityCluster, sentence_index: int) -> tuple[int, int]:
+def cluster_sentence_distance(cluster: ResolvedEntity, sentence_index: int) -> tuple[int, int]:
     distances = [
         (abs(mention.sentence_index - sentence_index), mention.start_char)
         for mention in cluster.mentions

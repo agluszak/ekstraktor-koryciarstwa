@@ -5,7 +5,7 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
-    EntityCluster,
+    ResolvedEntity,
     ParsedWord,
 )
 
@@ -15,9 +15,9 @@ def cluster(
     name: str,
     entity_type: EntityType,
     start_char: int,
-) -> EntityCluster:
-    return EntityCluster(
-        cluster_id=ClusterID(cluster_id),
+) -> ResolvedEntity:
+    return ResolvedEntity(
+        entity_id=EntityID(cluster_id),
         entity_type=entity_type,
         canonical_name=name,
         normalized_name=name.casefold(),
@@ -35,7 +35,7 @@ def cluster(
     )
 
 
-def document(text: str, clusters: list[EntityCluster]) -> ArticleDocument:
+def document(text: str, clusters: list[ResolvedEntity]) -> ArticleDocument:
     return ArticleDocument(
         document_id=DocumentID("doc"),
         source_url=None,
@@ -44,7 +44,7 @@ def document(text: str, clusters: list[EntityCluster]) -> ArticleDocument:
         publication_date=None,
         cleaned_text=text,
         paragraphs=[text],
-        clusters=clusters,
+        resolved_entities=clusters,
     )
 
 
@@ -93,7 +93,7 @@ def test_dependency_frame_extracts_active_appointment_arguments() -> None:
         {EntityType.PERSON},
     )
     assert object_cluster is not None
-    assert object_cluster.cluster_id == ClusterID("cluster-person")
+    assert object_cluster.entity_id == ClusterID("cluster-person")
 
 
 def test_dependency_frame_marks_passive_subject() -> None:
@@ -120,7 +120,7 @@ def test_dependency_frame_marks_passive_subject() -> None:
         {EntityType.PERSON},
     )
     assert passive_subject is not None
-    assert passive_subject.cluster_id == ClusterID("cluster-person")
+    assert passive_subject.entity_id == ClusterID("cluster-person")
 
 
 def test_dependency_frame_extracts_funding_transfer_arguments_and_money() -> None:
@@ -152,7 +152,7 @@ def test_dependency_frame_extracts_funding_transfer_arguments_and_money() -> Non
         {EntityType.PUBLIC_INSTITUTION},
     )
     assert subject is not None
-    assert subject.cluster_id == ClusterID("cluster-funder")
+    assert subject.entity_id == ClusterID("cluster-funder")
 
 
 def test_dependency_frame_marks_reporting_przekazac() -> None:

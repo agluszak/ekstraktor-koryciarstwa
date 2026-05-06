@@ -18,8 +18,8 @@ from pipeline.models import (
     ClusterMention,
     Entity,
     EntityCandidate,
-    EntityCluster,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
     TemporalExpression,
 )
@@ -52,16 +52,16 @@ def test_cluster_for_mention_does_not_fallback_when_exact_span_is_present() -> N
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-person"),
+        resolved_entities=[
+            ResolvedEntity(
+                entity_id=EntityID("cluster-person"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="jan kowalski",
                 mentions=[person_mention],
             ),
-            EntityCluster(
-                cluster_id=ClusterID("cluster-org"),
+            ResolvedEntity(
+                entity_id=EntityID("cluster-org"),
                 entity_type=EntityType.PUBLIC_INSTITUTION,
                 canonical_name="Urząd Gminy",
                 normalized_name="urząd gminy",
@@ -102,9 +102,9 @@ def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions()
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-person"),
+        resolved_entities=[
+            ResolvedEntity(
+                entity_id=EntityID("cluster-person"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="jan kowalski",
@@ -125,7 +125,7 @@ def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions()
     cluster = ExtractionContext.build(document).cluster_for_mention(anchorless_mention)
 
     assert cluster is not None
-    assert cluster.cluster_id == ClusterID("cluster-person")
+    assert cluster.entity_id == ClusterID("cluster-person")
 
 
 def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
@@ -153,16 +153,16 @@ def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("far"),
+        resolved_entities=[
+            ResolvedEntity(
+                entity_id=EntityID("far"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Fundusz",
                 normalized_name="fundusz",
                 mentions=[far],
             ),
-            EntityCluster(
-                cluster_id=ClusterID("near"),
+            ResolvedEntity(
+                entity_id=EntityID("near"),
                 entity_type=EntityType.ORGANIZATION,
                 canonical_name="Spółka",
                 normalized_name="spółka",
@@ -186,7 +186,7 @@ def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
         {EntityType.ORGANIZATION},
     )
 
-    assert [cluster.cluster_id for cluster in clusters] == [ClusterID("near"), ClusterID("far")]
+    assert [cluster.entity_id for cluster in clusters] == [ClusterID("near"), ClusterID("far")]
 
 
 def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_indexes() -> None:
@@ -224,16 +224,16 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
                 normalized_name="jan kowalski",
             )
         ],
-        clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-person"),
+        resolved_entities=[
+            ResolvedEntity(
+                entity_id=EntityID("cluster-person"),
                 entity_type=EntityType.PERSON,
                 canonical_name="Jan Kowalski",
                 normalized_name="jan kowalski",
                 mentions=[person_mention],
             ),
-            EntityCluster(
-                cluster_id=ClusterID("cluster-org"),
+            ResolvedEntity(
+                entity_id=EntityID("cluster-org"),
                 entity_type=EntityType.PUBLIC_INSTITUTION,
                 canonical_name="Urząd Miasta",
                 normalized_name="urząd miasta",
@@ -252,12 +252,12 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
     assert id_cluster is not None
     assert entity is not None
     assert entity_cluster is not None
-    assert mention_cluster.cluster_id == ClusterID("cluster-person")
+    assert mention_cluster.entity_id == ClusterID("cluster-person")
     assert id_cluster.canonical_name == "Jan Kowalski"
     assert entity.canonical_name == "Jan Kowalski"
-    assert entity_cluster.cluster_id == ClusterID("cluster-person")
+    assert entity_cluster.entity_id == ClusterID("cluster-person")
     sentence_cluster_ids = [
-        cluster.cluster_id for cluster in context.clusters_in_sentence(1, {EntityType.PERSON})
+        cluster.entity_id for cluster in context.clusters_in_sentence(1, {EntityType.PERSON})
     ]
     assert sentence_cluster_ids == [ClusterID("cluster-person")]
     clause = ClauseUnit(
@@ -271,7 +271,7 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
         end_char=70,
     )
     assert [
-        cluster.cluster_id
+        cluster.entity_id
         for cluster in context.paragraph_context_clusters(
             clause,
             {EntityType.PERSON, EntityType.PUBLIC_INSTITUTION},

@@ -8,7 +8,7 @@ from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityID, EntityType
 from pipeline.entity_naming import org_token_base
-from pipeline.models import ArticleDocument, Entity
+from pipeline.models import ArticleDocument, ResolvedEntity
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_party_name, stable_id
@@ -44,10 +44,10 @@ class InMemoryEntityLinker(EntityLinker):
         return "in_memory_entity_linker"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        if not self._knowledge_seeded and document.entities:
+        if not self._knowledge_seeded and document.resolved_entities:
             self._seed_knowledge_graph()
             self._knowledge_seeded = True
-        for entity in document.entities:
+        for entity in document.resolved_entities:
             if entity.is_proxy_person or entity.is_honorific_person_ref:
                 entity.registry_id = stable_id(
                     "document_local_ref", document.document_id, entity.entity_id
@@ -70,9 +70,11 @@ class InMemoryEntityLinker(EntityLinker):
                     entry["canonical_name"] = preferred_canonical
 
         # Deduplicate: merge entities that resolved to the same registry_id
-        document.entities, id_remap = self._deduplicate_by_registry(document.entities)
-        document.entities, exact_name_remap = self._deduplicate_exact_names(
-            document.entities,
+        document.resolved_entities, id_remap = self._deduplicate_by_registry(
+            document.resolved_entities
+        )
+        document.resolved_entities, exact_name_remap = self._deduplicate_exact_names(
+            document.resolved_entities,
         )
         id_remap.update(exact_name_remap)
 
@@ -94,7 +96,7 @@ class InMemoryEntityLinker(EntityLinker):
 
         return self.canonicalizer.run(document)
 
-    def _preferred_registry_canonical(self, entity: Entity, registry_canonical: str) -> str:
+    def _preferred_registry_canonical(self, entity: ResolvedEntity, registry_canonical: str) -> str:
         if entity.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
             return registry_canonical
         candidates = [
@@ -221,7 +223,7 @@ class InMemoryEntityLinker(EntityLinker):
         model = self.runtime.get_sentence_transformer_model()
         return model.encode(text, normalize_embeddings=True)
 
-    def _match_or_create(self, entity: Entity, fingerprint: EntityFingerprint) -> str:
+    def _match_or_create(self, entity: ResolvedEntity, fingerprint: EntityFingerprint) -> str:
         # Try alias-based match first (case-insensitive via multiple
         # candidate forms: canonical_name, normalized_name, raw aliases).
         search_names = self._alias_search_names(entity)
@@ -297,7 +299,7 @@ class InMemoryEntityLinker(EntityLinker):
         self._upsert_alias(registry_id, entity)
         return registry_id
 
-    def _alias_search_names(self, entity: Entity) -> set[str]:
+    def _alias_search_names(self, entity: ResolvedEntity) -> set[str]:
         primary_names = {
             name
             for name in {entity.canonical_name, entity.normalized_name}
@@ -331,16 +333,16 @@ class InMemoryEntityLinker(EntityLinker):
 
     @staticmethod
     def _deduplicate_by_registry(
-        entities: list[Entity],
-    ) -> tuple[list[Entity], dict[EntityID, EntityID]]:
+        entities: list[ResolvedEntity],
+    ) -> tuple[list[ResolvedEntity], dict[EntityID, EntityID]]:
         """Merge entities that resolved to the same registry_id.
 
         Returns the deduplicated list and a mapping from removed entity_ids
         to the primary entity_id they were merged into.
         """
-        registry_map: dict[str, Entity] = {}
+        registry_map: dict[str, ResolvedEntity] = {}
         id_remap: dict[EntityID, EntityID] = {}
-        result: list[Entity] = []
+        result: list[ResolvedEntity] = []
         for entity in entities:
             if entity.is_proxy_person or entity.is_honorific_person_ref:
                 result.append(entity)
@@ -364,11 +366,11 @@ class InMemoryEntityLinker(EntityLinker):
 
     @staticmethod
     def _deduplicate_exact_names(
-        entities: list[Entity],
-    ) -> tuple[list[Entity], dict[EntityID, EntityID]]:
-        exact_name_map: dict[tuple[str, str], Entity] = {}
+        entities: list[ResolvedEntity],
+    ) -> tuple[list[ResolvedEntity], dict[EntityID, EntityID]]:
+        exact_name_map: dict[tuple[str, str], ResolvedEntity] = {}
         id_remap: dict[EntityID, EntityID] = {}
-        result: list[Entity] = []
+        result: list[ResolvedEntity] = []
         for entity in entities:
             if entity.is_proxy_person or entity.is_honorific_person_ref:
                 result.append(entity)
@@ -403,7 +405,7 @@ class InMemoryEntityLinker(EntityLinker):
             EntityType.PUBLIC_INSTITUTION.value,
         }
 
-    def _upsert_alias(self, registry_id: str, entity: Entity) -> None:
+    def _upsert_alias(self, registry_id: str, entity: ResolvedEntity) -> None:
         aliases = {
             alias
             for alias in {
@@ -422,7 +424,7 @@ class InMemoryEntityLinker(EntityLinker):
         return {"normalized_name": normalized_name, "name_tokens": tokens}
 
     @staticmethod
-    def _fingerprint(entity: Entity) -> EntityFingerprint:
+    def _fingerprint(entity: ResolvedEntity) -> EntityFingerprint:
         tokens = entity.normalized_name.split()
         return {
             "normalized_name": entity.normalized_name,
@@ -469,7 +471,7 @@ class InMemoryEntityLinker(EntityLinker):
         return float(sum(a * b for a, b in zip(current_embedding, stored_embedding, strict=False)))
 
     @staticmethod
-    def _embedding_text(entity: Entity) -> str:
+    def _embedding_text(entity: ResolvedEntity) -> str:
         return entity.normalized_name.strip()
 
     def _token_bases(self, tokens: list[str]) -> set[str]:
