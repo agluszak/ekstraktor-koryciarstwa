@@ -62,6 +62,7 @@ class PipelineRuntime:
                 "pl",
                 processors="tokenize,coref",
                 coref_model_path=self.config.models.stanza_coref_model_path,
+                # Coref assets must be provisioned up front via scripts/setup_models.py.
                 download_method=DownloadMethod.NONE,
             )
         return self._stanza_coref_pipeline

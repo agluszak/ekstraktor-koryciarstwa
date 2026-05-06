@@ -56,9 +56,7 @@ def cluster(
                 paragraph_index=0,
                 start_char=start_char,
                 end_char=end_char if end_char is not None else start_char + len(name),
-                entity_id=EntityID(entity_id)
-                if entity_id
-                else EntityID(cluster_id.replace("entity-", "entity-")),
+                entity_id=EntityID(entity_id) if entity_id else EntityID(cluster_id),
             )
         ],
         aliases=[name],
