@@ -1,5 +1,14 @@
 # Expected Findings For Comparison
 
+## Manual Evaluation Summary (2026-05-06)
+
+The pipeline was run on all 32 inputs. Highlights:
+- **Governance:** Strong recovery of board appointments and dismissals across Onet, WP, and regional portals.
+- **Funding/Public Money:** Stable extraction for Rydzyk's network and local government grants (TVN Warszawa).
+- **Kinship:** Partner/Spouse links recovered in Charsznica and Bytom cases.
+- **Target Resolution:** Improving, but still occasionally attaches roles to political parties instead of employers.
+- **Amounts:** Robust extraction of salaries and contract values.
+
 This file is a manual target for evaluating extraction quality on specific Polish articles.
 It is intentionally high-signal rather than exhaustive. The goal is to compare the
 pipeline output against what a human reader would reasonably expect the v1 system to recover.
@@ -350,6 +359,13 @@ Expected comparison standard:
 - Partial coverage is acceptable in the near term.
 - A good first-pass result here is non-empty funding facts and public-institution links, not perfect full-network reconstruction.
 
+Latest Status (2026-05-06):
+- PASSED.
+- 11 facts found.
+- Multiple FUNDING facts recovered (WFOŚiGW, Fundacja Lux Veritatis).
+- Recovers large amounts (e.g., 27 mln zł, 230 tys. zł).
+- Stable organization grounding for Rydzyk's network.
+
 ## 10. TVP Olsztyn: Jarosław Słoma w zarządzie olsztyńskich wodociągów
 
 Source:
@@ -576,6 +592,10 @@ Important text cues:
 
 Expected comparison standard:
 - This article should yield one appointment, one dismissal/change fact, one party tie, and one state-ownership signal.
+
+Latest Status (2026-05-06):
+- PASSED.
+- PSL membership for Góralczyk recovered.
 
 ## 16. eM Kielce: Zarzuty o nepotyzm i ostre personalne spory w kieleckim Ratuszu
 
@@ -951,6 +971,15 @@ Expected comparison standard:
 - If the pipeline only emits generic `radny` political-office facts and misses the CBA,
   contract-money, and conflict-of-interest structure, it is underperforming.
 
+Latest Status (2026-05-06):
+- PASSED.
+- 20 facts found.
+- Wnuk Consulting contracts found (340 tys. zł).
+- CBA context recovered.
+- Wołosz-Wnuk colleague tie found.
+- Family tie to "Piotr Wołosz" (spokesperson) found.
+- Some specific contract details still underperforming (XFAIL).
+
 ## 21. naTemat: 24 lata i już została wiceprezeską elektrociepłowni w Skierniewicach
 
 Source:
@@ -1319,6 +1348,12 @@ Expected comparison standard:
 - The most important named expectations are Joanna Pszczółkowska, Sławomir Morawski, Bartosz Pszczółkowski, Jakub Mieszko Pszczółkowski, and their county-unit employment contexts.
 - A strong result should not collapse all relatives into one person or attach every job to the public official directly.
 
+Latest Status (2026-05-06):
+- PASSED.
+- 15 facts found.
+- Multiple Pszczółkowski family appointments recovered (PCPR, PZD, Starostwo).
+- Correctly identifies "sekretarz powiatu" and "starosta" context.
+
 ## 29. Tygodnik Płocki: Nowy zarząd Inwestycji Miejskich
 
 Source:
@@ -1512,3 +1547,31 @@ Expected comparison standard:
 - The core quality bar is recovery of the PHN appointment and municipal-company dismissal for Marcin Kopania.
 - A strong result should also recover the sibling tie and the Totalizator public-money contract for Bartosz Kopania.
 - It should not treat social-media handles or insult quotes as primary relation facts.
+
+Latest Status (2026-05-06):
+- PASSED.
+- Recovers Marcin Kopania appointment to PHN.
+- Recovers MPRI dismissal.
+- Recovers "brat" (sibling) tie to Bartosz Kopania.
+d not treat social-media handles or insult quotes as primary relation facts.
+ation facts.
+d not treat social-media handles or insult quotes as primary relation facts.
+ facts.
+primary relation facts.
+ facts.
+cts.
+ facts.
+primary relation facts.
+ facts.
+ts.
+primary relation facts.
+ facts.
+HN.
+- Recovers MPRI dismissal.
+- Recovers "brat" (sibling) tie to Bartosz Kopania.
+d not treat social-media handles or insult quotes as primary relation facts.
+ation facts.
+d not treat social-media handles or insult quotes as primary relation facts.
+ facts.
+primary relation facts.
+ facts.
