@@ -25,6 +25,17 @@ from pipeline.models import (
     EvidenceSpan,
 )
 
+ALL_ENTITY_TYPES: frozenset[EntityType] = frozenset(
+    {
+        EntityType.PERSON,
+        EntityType.POLITICAL_PARTY,
+        EntityType.POSITION,
+        EntityType.ORGANIZATION,
+        EntityType.PUBLIC_INSTITUTION,
+        EntityType.LOCATION,
+    }
+)
+
 
 @dataclass(slots=True)
 class ExtractionContext:

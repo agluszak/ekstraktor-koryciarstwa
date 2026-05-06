@@ -24,6 +24,7 @@ from pipeline.domain_types import (
 from pipeline.domains.political_profile import CrossSentencePartyFactBuilder
 from pipeline.enrichment import SharedEntityEnricher
 from pipeline.extraction_context import (
+    ALL_ENTITY_TYPES,
     ExtractionContext,
 )
 from pipeline.fact_extractor import PolishFactExtractor
@@ -312,16 +313,8 @@ def test_resolve_party_attributions_uses_shared_candidate_support() -> None:
     )
 
     context, sentence = build_extraction_context(document)
-    _ALL_TYPES = {
-        EntityType.PERSON,
-        EntityType.POLITICAL_PARTY,
-        EntityType.POSITION,
-        EntityType.ORGANIZATION,
-        EntityType.PUBLIC_INSTITUTION,
-        EntityType.LOCATION,
-    }
     views = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
+        sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
     )
     person = next(v for v in views if v.canonical_name == "Jan Kowalski")
 
@@ -347,16 +340,8 @@ def test_resolve_political_role_attributions_uses_shared_role_support() -> None:
     )
 
     context, sentence = build_extraction_context(document)
-    _ALL_TYPES = {
-        EntityType.PERSON,
-        EntityType.POLITICAL_PARTY,
-        EntityType.POSITION,
-        EntityType.ORGANIZATION,
-        EntityType.PUBLIC_INSTITUTION,
-        EntityType.LOCATION,
-    }
     views = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
+        sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
     )
     person = next(v for v in views if "Joanna" in v.canonical_name)
 
@@ -1051,16 +1036,8 @@ def test_appositive_profile_tail_links_leading_person_despite_intervening_name()
     )
 
     context, sentence = build_extraction_context(document)
-    _ALL_TYPES = {
-        EntityType.PERSON,
-        EntityType.POLITICAL_PARTY,
-        EntityType.POSITION,
-        EntityType.ORGANIZATION,
-        EntityType.PUBLIC_INSTITUTION,
-        EntityType.LOCATION,
-    }
     views = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
+        sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
     )
     person = next(v for v in views if v.canonical_name == "Jarosław Słoma")
 

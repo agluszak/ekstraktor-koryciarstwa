@@ -13,6 +13,7 @@ from pipeline.domain_types import (
     TimeScope,
 )
 from pipeline.extraction_context import (
+    ALL_ENTITY_TYPES,
     ExtractionContext,
     clusters_to_mention_views,
 )
@@ -53,14 +54,6 @@ _PARTY_TYPES = {EntityType.POLITICAL_PARTY}
 _POSITION_TYPES = {EntityType.POSITION}
 _ORG_TYPES = {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
 _LOCATION_TYPES = {EntityType.LOCATION}
-_ALL_TYPES = {
-    EntityType.PERSON,
-    EntityType.POLITICAL_PARTY,
-    EntityType.POSITION,
-    EntityType.ORGANIZATION,
-    EntityType.PUBLIC_INSTITUTION,
-    EntityType.LOCATION,
-}
 
 
 class PoliticalProfileFactExtractor:
@@ -68,7 +61,7 @@ class PoliticalProfileFactExtractor:
         facts: list[Fact] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
+                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
             )
             if not any(v.entity_type == EntityType.PERSON for v in sentence_views):
                 continue
@@ -173,7 +166,7 @@ class CrossSentencePartyFactBuilder:
         facts: list[Fact] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
+                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
             )
             parties = [
                 v
@@ -206,7 +199,9 @@ class CrossSentencePartyFactBuilder:
                 if previous_sentence.paragraph_index == sentence.paragraph_index
                 and previous_sentence.sentence_index < sentence.sentence_index
                 for v in clusters_to_mention_views(
-                    context.clusters_in_sentence(previous_sentence.sentence_index, _ALL_TYPES),
+                    context.clusters_in_sentence(
+                        previous_sentence.sentence_index, ALL_ENTITY_TYPES
+                    ),
                     previous_sentence.sentence_index,
                     previous_sentence.paragraph_index,
                 )
@@ -219,7 +214,7 @@ class CrossSentencePartyFactBuilder:
             recent_persons = [
                 v
                 for v in clusters_to_mention_views(
-                    context.clusters_in_sentence(sentence.sentence_index - 1, _ALL_TYPES),
+                    context.clusters_in_sentence(sentence.sentence_index - 1, ALL_ENTITY_TYPES),
                     sentence.sentence_index - 1,
                     sentence.paragraph_index,
                 )
@@ -261,7 +256,7 @@ class CrossSentencePartyFactBuilder:
             persons = [
                 v
                 for v in clusters_to_mention_views(
-                    context.clusters_in_sentence(next_sentence.sentence_index, _ALL_TYPES),
+                    context.clusters_in_sentence(next_sentence.sentence_index, ALL_ENTITY_TYPES),
                     next_sentence.sentence_index,
                     next_sentence.paragraph_index,
                 )

@@ -15,6 +15,7 @@ from pipeline.domain_types import (
     RelationshipType,
 )
 from pipeline.extraction_context import (
+    ALL_ENTITY_TYPES,
     ExtractionContext,
     clusters_to_mention_views,
 )
@@ -33,33 +34,24 @@ from pipeline.secondary_fact_helpers import (
     build_secondary_fact,
 )
 
-_ALL_TYPES = {
-    EntityType.PERSON,
-    EntityType.POLITICAL_PARTY,
-    EntityType.POSITION,
-    EntityType.ORGANIZATION,
-    EntityType.PUBLIC_INSTITUTION,
-    EntityType.LOCATION,
-}
-
 
 class TieFactExtractor:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         facts: list[Fact] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
+                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
             )
             if not sentence_views:
                 continue
 
             paragraph_views = context.mention_views_in_paragraph(
-                sentence.paragraph_index, _ALL_TYPES
+                sentence.paragraph_index, ALL_ENTITY_TYPES
             )
             previous_views = [
                 v
                 for v in clusters_to_mention_views(
-                    context.clusters_in_sentence(sentence.sentence_index - 1, _ALL_TYPES),
+                    context.clusters_in_sentence(sentence.sentence_index - 1, ALL_ENTITY_TYPES),
                     sentence.sentence_index - 1,
                     sentence.paragraph_index,
                 )
@@ -468,6 +460,8 @@ def _document_owner_person_candidates(
         cluster = context.cluster_by_entity_id(entity.entity_id)
         if cluster is None:
             continue
+        # Synthetic mention with zero offsets: positional fields are not used here
+        # (only canonical_name / entity_id are needed for tie fact construction).
         synthetic_mention = ClusterMention(
             text=entity.canonical_name,
             entity_type=EntityType.PERSON,

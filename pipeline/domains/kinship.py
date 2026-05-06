@@ -13,7 +13,7 @@ from pipeline.domain_types import (
     RelationshipType,
     TimeScope,
 )
-from pipeline.extraction_context import ExtractionContext
+from pipeline.extraction_context import ALL_ENTITY_TYPES, ExtractionContext
 from pipeline.models import (
     ArticleDocument,
     ClusterMentionView,
@@ -25,15 +25,6 @@ from pipeline.models import (
     SentenceFragment,
 )
 from pipeline.utils import stable_id
-
-_ALL_TYPES = {
-    EntityType.PERSON,
-    EntityType.POLITICAL_PARTY,
-    EntityType.POSITION,
-    EntityType.ORGANIZATION,
-    EntityType.PUBLIC_INSTITUTION,
-    EntityType.LOCATION,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +49,7 @@ class KinshipTieBuilder:
         evidence_items: list[KinshipTieEvidence] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
+                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
             )
             evidence_items.extend(
                 self._direct_sentence_ties(
@@ -371,6 +362,9 @@ class KinshipTieBuilder:
 
 
 def _cluster_to_view(cluster: EntityCluster) -> ClusterMentionView:
+    """Build a ClusterMentionView for identity-resolution lookups where positional info is
+    not required (only canonical_name, entity_id, and entity_type are accessed downstream).
+    Uses the first real mention when available, or a zero-position sentinel otherwise."""
     from pipeline.models import ClusterMention
 
     mention = (
