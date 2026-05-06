@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from pipeline.config import PipelineConfig
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
+from pipeline.extraction_context import ExtractionContext
 from pipeline.models import ArticleDocument, Fact
 from pipeline.runtime import PipelineRuntime
 
@@ -15,29 +15,14 @@ class FrameDomain(Protocol):
     def run(self, document: ArticleDocument, context: ExtractionContext) -> ArticleDocument: ...
 
 
-class SentenceFactDomain(Protocol):
-    def extract(self, context: SentenceContext) -> list[Fact]: ...
-
-
 class DocumentFactDomain(Protocol):
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]: ...
-
-
-class GraphFactDomain(Protocol):
-    def build(
-        self,
-        document: ArticleDocument,
-        context: ExtractionContext,
-        fact_context: FactExtractionContext,
-    ) -> list[Fact]: ...
 
 
 @dataclass(frozen=True, slots=True)
 class DomainRegistry:
     frame_extractors: tuple[FrameDomain, ...]
-    sentence_fact_extractors: tuple[SentenceFactDomain, ...]
     document_fact_builders: tuple[DocumentFactDomain, ...]
-    graph_fact_builders: tuple[GraphFactDomain, ...]
 
 
 def build_default_domain_registry(
@@ -83,10 +68,6 @@ def build_default_domain_registry(
             PolishAntiCorruptionReferralFrameExtractor(config),
             PolishAntiCorruptionAbuseFrameExtractor(config),
         ),
-        sentence_fact_extractors=(
-            PoliticalProfileFactExtractor(),
-            TieFactExtractor(),
-        ),
         document_fact_builders=(
             GovernanceFactBuilder(),
             CompensationFactBuilder(),
@@ -96,8 +77,8 @@ def build_default_domain_registry(
             AntiCorruptionReferralFactBuilder(),
             AntiCorruptionInvestigationFactBuilder(),
             PublicProcurementAbuseFactBuilder(),
-        ),
-        graph_fact_builders=(
+            PoliticalProfileFactExtractor(),
+            TieFactExtractor(),
             CrossSentencePartyFactBuilder(),
             KinshipTieBuilder(),
         ),

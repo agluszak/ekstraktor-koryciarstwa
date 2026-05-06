@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
-    CandidateType,
     EntityID,
+    EntityType,
     FactID,
     FactType,
     IdentityHypothesisStatus,
@@ -13,11 +13,11 @@ from pipeline.domain_types import (
     RelationshipType,
     TimeScope,
 )
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext
+from pipeline.extraction_context import ALL_ENTITY_TYPES, ExtractionContext
 from pipeline.models import (
     ArticleDocument,
-    CandidateGraph,
-    EntityCandidate,
+    ClusterMentionView,
+    EntityCluster,
     EvidenceSpan,
     Fact,
     IdentityResolutionMetadata,
@@ -29,8 +29,8 @@ from pipeline.utils import stable_id
 
 @dataclass(frozen=True, slots=True)
 class KinshipTieEvidence:
-    subject: EntityCandidate
-    target: EntityCandidate
+    subject: ClusterMentionView
+    target: ClusterMentionView
     kinship_detail: KinshipDetail
     confidence: float
     extraction_signal: str
@@ -45,18 +45,21 @@ class KinshipTieBuilder:
         self,
         document: ArticleDocument,
         context: ExtractionContext,
-        fact_context: FactExtractionContext,
     ) -> list[Fact]:
         evidence_items: list[KinshipTieEvidence] = []
         for sentence in document.sentences:
+            sentence_views = context.mention_views_in_sentence(
+                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
+            )
             evidence_items.extend(
                 self._direct_sentence_ties(
                     document=document,
                     sentence=sentence,
-                    sentence_candidates=fact_context.sentence_candidates(sentence.sentence_index),
+                    sentence_views=sentence_views,
                 )
             )
-        evidence_items.extend(self._identity_backed_proxy_ties(document, fact_context.graph))
+        views_by_entity_id = _build_views_by_entity_id(document.clusters)
+        evidence_items.extend(self._identity_backed_proxy_ties(document, views_by_entity_id))
         return [self._fact(document, evidence) for evidence in evidence_items]
 
     def _direct_sentence_ties(
@@ -64,12 +67,12 @@ class KinshipTieBuilder:
         *,
         document: ArticleDocument,
         sentence: SentenceFragment,
-        sentence_candidates: list[EntityCandidate],
+        sentence_views: list[ClusterMentionView],
     ) -> list[KinshipTieEvidence]:
         persons = [
-            candidate
-            for candidate in sentence_candidates
-            if candidate.candidate_type == CandidateType.PERSON and candidate.entity_id is not None
+            v
+            for v in sentence_views
+            if v.entity_type == EntityType.PERSON and v.entity_id is not None
         ]
         if len(persons) < 2:
             return []
@@ -104,8 +107,8 @@ class KinshipTieBuilder:
     @staticmethod
     def _subject_for_kinship_word(
         kinship_word: ParsedWord,
-        persons: list[EntityCandidate],
-    ) -> EntityCandidate | None:
+        persons: list[ClusterMentionView],
+    ) -> ClusterMentionView | None:
         preceding = [
             person
             for person in persons
@@ -119,8 +122,8 @@ class KinshipTieBuilder:
         self,
         kinship_word: ParsedWord,
         parsed_words: list[ParsedWord],
-        persons: list[EntityCandidate],
-    ) -> EntityCandidate | None:
+        persons: list[ClusterMentionView],
+    ) -> ClusterMentionView | None:
         descendants = self._descendant_indices(parsed_words, kinship_word.index)
         after_candidates = [
             person
@@ -130,7 +133,7 @@ class KinshipTieBuilder:
         dependency_matches = [
             person
             for person in after_candidates
-            if self._candidate_overlaps_word_indices(person, parsed_words, descendants)
+            if self._view_overlaps_word_indices(person, parsed_words, descendants)
         ]
         if dependency_matches:
             return min(dependency_matches, key=lambda person: person.start_char)
@@ -151,16 +154,16 @@ class KinshipTieBuilder:
         return descendants
 
     @staticmethod
-    def _candidate_overlaps_word_indices(
-        candidate: EntityCandidate,
+    def _view_overlaps_word_indices(
+        view: ClusterMentionView,
         parsed_words: list[ParsedWord],
         word_indices: set[int],
     ) -> bool:
         return any(
             word.index in word_indices
             and (
-                candidate.start_char <= word.start < candidate.end_char
-                or word.start <= candidate.start_char < word.end
+                view.start_char <= word.start < view.end_char
+                or word.start <= view.start_char < word.end
             )
             for word in parsed_words
         )
@@ -168,7 +171,7 @@ class KinshipTieBuilder:
     def _text_fallback_ties(
         self,
         sentence: SentenceFragment,
-        persons: list[EntityCandidate],
+        persons: list[ClusterMentionView],
     ) -> list[KinshipTieEvidence]:
         lowered = sentence.text.casefold()
         ties: list[KinshipTieEvidence] = []
@@ -207,13 +210,8 @@ class KinshipTieBuilder:
     def _identity_backed_proxy_ties(
         self,
         document: ArticleDocument,
-        candidate_graph: CandidateGraph,
+        views_by_entity_id: dict[EntityID, ClusterMentionView],
     ) -> list[KinshipTieEvidence]:
-        candidates_by_entity_id = {
-            candidate.entity_id: candidate
-            for candidate in candidate_graph.candidates
-            if candidate.entity_id is not None
-        }
         facts_by_proxy = {
             fact.subject_entity_id: fact
             for fact in document.facts
@@ -249,8 +247,8 @@ class KinshipTieBuilder:
                 if hypothesis.status == IdentityHypothesisStatus.CONFIRMED
                 else proxy_entity_id
             )
-            subject = candidates_by_entity_id.get(subject_id)
-            target = candidates_by_entity_id.get(proxy_fact.object_entity_id)
+            subject = views_by_entity_id.get(subject_id)
+            target = views_by_entity_id.get(proxy_fact.object_entity_id)
             if subject is None or target is None or subject.entity_id == target.entity_id:
                 continue
             sentence = self._sentence_for_evidence(document, proxy_fact.evidence)
@@ -329,8 +327,8 @@ class KinshipTieBuilder:
                 "fact",
                 document.document_id,
                 FactType.PERSONAL_OR_POLITICAL_TIE,
-                evidence.subject.entity_id or evidence.subject.candidate_id,
-                evidence.target.entity_id or evidence.target.candidate_id,
+                evidence.subject.entity_id or evidence.subject.cluster_id,
+                evidence.target.entity_id or evidence.target.cluster_id,
                 evidence.kinship_detail.value,
                 str(evidence.sentence.sentence_index),
                 evidence.extraction_signal,
@@ -339,8 +337,8 @@ class KinshipTieBuilder:
         return Fact(
             fact_id=fact_id,
             fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
-            subject_entity_id=EntityID(evidence.subject.entity_id or evidence.subject.candidate_id),
-            object_entity_id=EntityID(evidence.target.entity_id or evidence.target.candidate_id),
+            subject_entity_id=EntityID(evidence.subject.entity_id or evidence.subject.cluster_id),
+            object_entity_id=EntityID(evidence.target.entity_id or evidence.target.cluster_id),
             value_text=evidence.kinship_detail.value,
             value_normalized=evidence.kinship_detail.value,
             time_scope=TimeScope.CURRENT,
@@ -361,3 +359,37 @@ class KinshipTieBuilder:
             extraction_signal=evidence.extraction_signal,
             evidence_scope=evidence.evidence_scope,
         )
+
+
+def _cluster_to_view(cluster: EntityCluster) -> ClusterMentionView:
+    """Build a ClusterMentionView for identity-resolution lookups where positional info is
+    not required (only canonical_name, entity_id, and entity_type are accessed downstream).
+    Uses the first real mention when available, or a zero-position sentinel when
+    ``cluster.mentions`` is empty. Callers must not rely on start/end offsets from the
+    sentinel view."""
+    from pipeline.models import ClusterMention
+
+    mention = (
+        cluster.mentions[0]
+        if cluster.mentions
+        else ClusterMention(
+            text=cluster.canonical_name,
+            entity_type=cluster.entity_type,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=0,
+        )
+    )
+    return ClusterMentionView(cluster=cluster, mention=mention)
+
+
+def _build_views_by_entity_id(
+    clusters: list[EntityCluster],
+) -> dict[EntityID, ClusterMentionView]:
+    result: dict[EntityID, ClusterMentionView] = {}
+    for cluster in clusters:
+        entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id), None)
+        if entity_id is not None and entity_id not in result:
+            result[entity_id] = _cluster_to_view(cluster)
+    return result

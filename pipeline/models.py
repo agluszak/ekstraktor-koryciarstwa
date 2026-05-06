@@ -4,8 +4,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from pipeline.domain_types import (
-    CandidateID,
-    CandidateType,
     ClauseID,
     ClusterID,
     DocumentID,
@@ -140,44 +138,6 @@ class ScoreResult:
 
 
 @dataclass(slots=True)
-class EntityCandidate:
-    candidate_id: CandidateID
-    entity_id: EntityID | None
-    candidate_type: CandidateType
-    canonical_name: str
-    normalized_name: str
-    sentence_index: int
-    paragraph_index: int
-    start_char: int
-    end_char: int
-    source: str
-
-    # Inlined attributes
-    organization_kind: OrganizationKind | None = None
-    role_kind: RoleKind | None = None
-    role_modifier: RoleModifier | None = None
-    is_proxy_person: bool = False
-    kinship_detail: KinshipDetail | None = None
-    mention_type: EntityType | str | None = None
-    ner_label: NERLabel | None = None
-
-
-@dataclass(slots=True)
-class CandidateEdge:
-    edge_type: str
-    source_candidate_id: CandidateID
-    target_candidate_id: CandidateID
-    confidence: float
-    sentence_index: int
-
-
-@dataclass(slots=True)
-class CandidateGraph:
-    candidates: list[EntityCandidate] = field(default_factory=list)
-    edges: list[CandidateEdge] = field(default_factory=list)
-
-
-@dataclass(slots=True)
 class SentenceFragment:
     text: str
     paragraph_index: int
@@ -253,6 +213,80 @@ class EntityCluster:
     proxy_anchor_entity_id: EntityID | None = None
     role_kind: RoleKind | None = None
     role_modifier: RoleModifier | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterMentionView:
+    """A cluster viewed through its representative mention in a specific sentence.
+
+    Replaces the old EntityCandidate type. Use this wherever per-sentence positional
+    information about an EntityCluster is needed (proximity checks, word overlap, etc.).
+    """
+
+    cluster: EntityCluster
+    mention: ClusterMention
+
+    @property
+    def cluster_id(self) -> ClusterID:
+        return self.cluster.cluster_id
+
+    @property
+    def entity_id(self) -> EntityID | None:
+        if self.mention.entity_id is not None:
+            return self.mention.entity_id
+        return next((m.entity_id for m in self.cluster.mentions if m.entity_id), None)
+
+    @property
+    def entity_type(self) -> EntityType:
+        return self.cluster.entity_type
+
+    @property
+    def canonical_name(self) -> str:
+        return self.cluster.canonical_name
+
+    @property
+    def normalized_name(self) -> str:
+        return self.cluster.normalized_name
+
+    @property
+    def start_char(self) -> int:
+        return self.mention.start_char
+
+    @property
+    def end_char(self) -> int:
+        return self.mention.end_char
+
+    @property
+    def sentence_index(self) -> int:
+        return self.mention.sentence_index
+
+    @property
+    def paragraph_index(self) -> int:
+        return self.mention.paragraph_index
+
+    @property
+    def is_proxy_person(self) -> bool:
+        return self.cluster.is_proxy_person
+
+    @property
+    def kinship_detail(self) -> KinshipDetail | None:
+        return self.cluster.kinship_detail
+
+    @property
+    def organization_kind(self) -> OrganizationKind | None:
+        return self.cluster.organization_kind
+
+    @property
+    def role_kind(self) -> RoleKind | None:
+        return self.cluster.role_kind
+
+    @property
+    def role_modifier(self) -> RoleModifier | None:
+        return self.cluster.role_modifier
+
+    @property
+    def ner_label(self) -> NERLabel | None:
+        return self.mention.ner_label
 
 
 @dataclass(slots=True)

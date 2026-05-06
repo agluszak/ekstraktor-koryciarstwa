@@ -10,10 +10,18 @@ from pipeline.domain_types import (
     RelationshipType,
     RoleKind,
 )
-from pipeline.extraction_context import SentenceContext
+from pipeline.grammar_signals import infer_time_scope_with_temporal_context
 from pipeline.lemma_signals import lemma_set
-from pipeline.models import ArticleDocument, EntityCandidate, Fact, ParsedWord
+from pipeline.models import (
+    ArticleDocument,
+    ClusterMentionView,
+    EvidenceSpan,
+    Fact,
+    ParsedWord,
+    SentenceFragment,
+)
 from pipeline.relation_signals import is_quote_speaker_risk
+from pipeline.temporal import resolve_event_date
 from pipeline.utils import stable_id
 
 POLITICAL_ROLE_NAMES = frozenset(
@@ -46,9 +54,9 @@ class SecondaryFactScorer:
     @classmethod
     def tie(
         cls,
-        context: SentenceContext,
-        source: EntityCandidate,
-        target: EntityCandidate,
+        parsed_words: list[ParsedWord],
+        source: ClusterMentionView,
+        target: ClusterMentionView,
         trigger: str,
         edge_confidence: float,
     ) -> SecondaryFactScore:
@@ -63,7 +71,9 @@ class SecondaryFactScorer:
         if distance > 120:
             confidence -= 0.12
             reason += ":long_distance"
-        if _is_quote_speaker_risk(context, source) or _is_quote_speaker_risk(context, target):
+        if is_quote_speaker_risk(parsed_words, source) or is_quote_speaker_risk(
+            parsed_words, target
+        ):
             confidence -= 0.12
             reason += ":quote_speaker_risk"
         return cls._score(confidence, signal, "same_sentence", reason)
@@ -86,10 +96,10 @@ class SecondaryFactScorer:
 def build_secondary_fact(
     *,
     document: ArticleDocument,
-    sentence_context: SentenceContext,
+    sentence: SentenceFragment,
     fact_type: FactType,
-    subject: EntityCandidate,
-    object_candidate: EntityCandidate | None,
+    subject: ClusterMentionView,
+    object_candidate: ClusterMentionView | None,
     value_text: str | None,
     value_normalized: str | None,
     confidence: float,
@@ -100,34 +110,57 @@ def build_secondary_fact(
     candidacy_scope: str | None = None,
     relationship_type: RelationshipType | None = None,
 ) -> Fact:
+    parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+    time_scope = infer_time_scope_with_temporal_context(
+        sentence.text,
+        parsed_words,
+        temporal_expressions=document.temporal_expressions,
+        sentence_index=sentence.sentence_index,
+        publication_date=document.publication_date,
+    )
+    event_date = resolve_event_date(
+        document, sentence_index=sentence.sentence_index, text=sentence.text
+    )
+    evidence = EvidenceSpan(
+        text=sentence.text,
+        sentence_index=sentence.sentence_index,
+        paragraph_index=sentence.paragraph_index,
+        start_char=sentence.start_char,
+        end_char=sentence.end_char,
+    )
+    overlaps_governance = any(
+        ev.sentence_index == sentence.sentence_index
+        for frame in document.governance_frames
+        for ev in frame.evidence
+    )
     f = Fact(
         fact_id=FactID(
             stable_id(
                 "fact",
                 document.document_id,
                 fact_type,
-                subject.entity_id or subject.candidate_id,
-                object_candidate.entity_id or object_candidate.candidate_id
+                subject.entity_id or subject.cluster_id,
+                object_candidate.entity_id or object_candidate.cluster_id
                 if object_candidate
                 else "",
                 value_normalized or value_text or "",
-                sentence_context.evidence.text,
+                evidence.text,
             )
         ),
         fact_type=fact_type,
-        subject_entity_id=EntityID(subject.entity_id or subject.candidate_id),
-        object_entity_id=EntityID(object_candidate.entity_id or object_candidate.candidate_id)
+        subject_entity_id=EntityID(subject.entity_id or subject.cluster_id),
+        object_entity_id=EntityID(object_candidate.entity_id or object_candidate.cluster_id)
         if object_candidate
         else None,
         value_text=value_text,
         value_normalized=value_normalized,
-        time_scope=sentence_context.time_scope,
-        event_date=sentence_context.event_date,
+        time_scope=time_scope,
+        event_date=event_date,
         confidence=round(confidence, 3),
-        evidence=sentence_context.evidence,
+        evidence=evidence,
         extraction_signal=score.extraction_signal,
         evidence_scope=score.evidence_scope,
-        overlaps_governance=sentence_context.overlaps_governance,
+        overlaps_governance=overlaps_governance,
         source_extractor=source_extractor,
         score_reason=score.reason,
     )
@@ -149,10 +182,3 @@ def _has_signal(
         parsed_lemmas.intersection(lemmas)
         or any(trigger in lowered_text for trigger in surface_triggers)
     )
-
-
-def _is_quote_speaker_risk(
-    context: SentenceContext,
-    candidate: EntityCandidate,
-) -> bool:
-    return is_quote_speaker_risk(context.parsed_words, candidate)

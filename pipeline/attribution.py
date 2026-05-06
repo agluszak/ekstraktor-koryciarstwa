@@ -4,43 +4,42 @@ from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import KINSHIP_LEMMAS
-from pipeline.domain_types import CandidateType, OrganizationKind
+from pipeline.domain_types import EntityType, OrganizationKind
 from pipeline.entity_classifiers import is_party_like_name, is_public_employer_name
-from pipeline.extraction_context import SentenceContext
+from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
-    EntityCandidate,
+    ClusterMentionView,
     EntityCluster,
     ParsedWord,
+    SentenceFragment,
 )
 from pipeline.nlp_rules import (
-    BOARD_ROLE_KINDS,
-    BODY_CONTEXT_TERMS,
     OFFICE_CANDIDACY_LEMMAS,
-    OWNER_CONTEXT_TERMS,
-    TARGET_CONTEXT_TERMS,
 )
 from pipeline.relation_signals import (
+    _other_person_between,
     party_context_window_supports,
     party_syntactic_signal,
     person_role_syntactic_signal,
+    supports_person_role_link,
 )
 from pipeline.secondary_fact_helpers import POLITICAL_ROLE_NAMES, SecondaryFactScore
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedPartyAttribution:
-    person: EntityCandidate
-    party: EntityCandidate
+    person: ClusterMentionView
+    party: ClusterMentionView
     score: SecondaryFactScore
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedRoleAttribution:
-    person: EntityCandidate
-    role: EntityCandidate
+    person: ClusterMentionView
+    role: ClusterMentionView
     score: SecondaryFactScore
 
 
@@ -52,31 +51,36 @@ class ResolvedPublicEmploymentAttribution:
 
 
 def resolve_party_attributions(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> list[ResolvedPartyAttribution]:
     if person.is_proxy_person:
         return []
 
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    parties = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.POLITICAL_PARTY}
+    )
+    persons = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.PERSON}
+    )
+
     attributed: list[ResolvedPartyAttribution] = []
     seen_targets: set[str] = set()
-    parties = [*context.outgoing("person-affiliated-party", person.candidate_id), *context.parties]
     for party in parties:
-        target_key = str(party.entity_id or party.candidate_id)
+        target_key = str(party.entity_id or party.cluster_id)
         if target_key in seen_targets:
             continue
         seen_targets.add(target_key)
-        if (
-            context.edge_confidence(
-                "person-affiliated-party", person.candidate_id, party.candidate_id
-            )
-            is None
-        ):
-            if _other_person_between(person, party, context.persons):
-                continue
-        score = _party_membership_score(context, person, party, governance_signal=governance_signal)
+        if _other_person_between(person, party, persons):
+            continue
+        score = _party_membership_score(
+            parsed_words, lowered_text, person, party, governance_signal=governance_signal
+        )
         if score is None:
             continue
         attributed.append(ResolvedPartyAttribution(person=person, party=party, score=score))
@@ -84,19 +88,39 @@ def resolve_party_attributions(
 
 
 def resolve_political_role_attributions(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> list[ResolvedRoleAttribution]:
     if person.is_proxy_person:
         return []
 
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    positions = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.POSITION}
+    )
+    persons = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.PERSON}
+    )
+
     attributed: list[ResolvedRoleAttribution] = []
-    for role in context.outgoing("person-has-role", person.candidate_id):
+    for role in positions:
         if role.normalized_name.lower() not in POLITICAL_ROLE_NAMES:
             continue
-        score = _political_office_score(context, person, role, governance_signal=governance_signal)
+        if not supports_person_role_link(
+            parsed_words=parsed_words,
+            sentence_text=sentence.text,
+            person=person,
+            role=role,
+            sentence_persons=persons,
+        ):
+            continue
+        score = _political_office_score(
+            parsed_words, lowered_text, persons, person, role, governance_signal=governance_signal
+        )
         if score is None:
             continue
         attributed.append(ResolvedRoleAttribution(person=person, role=role, score=score))
@@ -104,24 +128,27 @@ def resolve_political_role_attributions(
 
 
 def resolve_candidacy_score(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
 ) -> SecondaryFactScore | None:
     if person.is_proxy_person:
         return None
-    lemmas = {word.lemma for word in context.parsed_words}
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    lemmas = {word.lemma for word in parsed_words}
     if not (
         OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
-        or "kandydat" in context.lowered_text
-        or "wybory" in context.lowered_text
+        or "kandydat" in lowered_text
+        or "wybory" in lowered_text
     ):
         return None
     governing_words = [
         word
-        for word in context.parsed_words
+        for word in parsed_words
         if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
     ]
-    if "wybory" not in context.lowered_text and "kandydat" not in context.lowered_text:
+    if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
     if any(abs(person.start_char - word.start) <= 28 for word in governing_words):
         return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
@@ -147,45 +174,29 @@ def resolve_public_employment_attribution(
 
 
 def _party_membership_score(
-    context: SentenceContext,
-    person: EntityCandidate,
-    party: EntityCandidate,
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
-    edge_confidence = context.edge_confidence(
-        "person-affiliated-party",
-        person.candidate_id,
-        party.candidate_id,
-    )
     syntactic_signal = party_syntactic_signal(
-        parsed_words=context.parsed_words,
-        sentence_text=context.sentence.text,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        sentence_text=lowered_text,
+        lowered_text=lowered_text,
         person=person,
         party=party,
     )
     distance = abs(person.start_char - party.start_char)
 
     if syntactic_signal == "syntactic_direct":
-        return _score(
-            max(0.85, edge_confidence or 0.0),
-            syntactic_signal,
-            "same_sentence",
-            "direct_party_edge",
-        )
+        return _score(0.85, syntactic_signal, "same_sentence", "direct_party_edge")
     if syntactic_signal == "appositive_context":
-        return _score(
-            max(0.78, edge_confidence or 0.0), syntactic_signal, "same_sentence", "party_apposition"
-        )
-    if edge_confidence is not None:
-        confidence = max(0.72, edge_confidence)
-        if governance_signal:
-            confidence -= 0.12
-        return _score(confidence, "dependency_edge", "same_sentence", "candidate_graph_party_edge")
+        return _score(0.78, syntactic_signal, "same_sentence", "party_apposition")
     if distance <= 40 and party_context_window_supports(
-        parsed_words=context.parsed_words,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
         person=person,
         party=party,
     ):
@@ -199,204 +210,36 @@ def _party_membership_score(
 
 
 def _political_office_score(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate,
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+    persons: list[ClusterMentionView],
+    person: ClusterMentionView,
+    role: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
-    edge_confidence = context.edge_confidence(
-        "person-has-role",
-        person.candidate_id,
-        role.candidate_id,
-    )
     syntactic_signal = person_role_syntactic_signal(
-        parsed_words=context.parsed_words,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
         person=person,
         role=role,
-        sentence_persons=context.persons,
+        sentence_persons=persons,
     )
     distance = abs(person.start_char - role.start_char)
 
     if syntactic_signal == "syntactic_direct":
-        confidence = max(0.85, edge_confidence or 0.0)
+        confidence = 0.85
         if governance_signal:
             confidence -= 0.08
         return _score(confidence, syntactic_signal, "same_sentence", "direct_office_role")
     if syntactic_signal == "appositive_context":
-        confidence = max(0.78, edge_confidence or 0.0)
+        confidence = 0.78
         if governance_signal:
             confidence -= 0.08
         return _score(confidence, syntactic_signal, "same_sentence", "office_apposition")
-    if edge_confidence is not None and edge_confidence >= 0.72:
-        confidence = max(0.72, edge_confidence)
-        if governance_signal:
-            confidence -= 0.1
-        return _score(confidence, "dependency_edge", "same_sentence", "person_role_edge")
     if distance <= 20 and not governance_signal:
         return _score(0.51, "same_sentence", "same_sentence", "near_title")
     return None
-
-
-def _candidate_organization_pool(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate | None,
-) -> list[EntityCandidate]:
-    pooled: dict[str, EntityCandidate] = {}
-    if role is not None:
-        for candidate in context.outgoing("role-at-organization", role.candidate_id):
-            if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-                pooled[candidate.candidate_id] = candidate
-    for candidate in context.outgoing("person-org-context", person.candidate_id):
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-            pooled[candidate.candidate_id] = candidate
-    for candidate in context.paragraph_organizations:
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-            pooled[candidate.candidate_id] = candidate
-    return list(pooled.values())
-
-
-def _organization_priority(candidate: EntityCandidate) -> float:
-    normalized = candidate.normalized_name.lower()
-    kind = candidate.organization_kind
-    if kind == OrganizationKind.PUBLIC_INSTITUTION:
-        base = 0.9
-    elif kind == OrganizationKind.COMPANY:
-        base = 1.0
-    elif kind == OrganizationKind.GOVERNING_BODY:
-        base = 0.25
-    else:
-        base = 0.5
-    if normalized.startswith("zarząd") or normalized.startswith("rada"):
-        base -= 0.35
-    if "skarbu państwa" in normalized:
-        base -= 0.65
-    if any(term in normalized for term in OWNER_CONTEXT_TERMS):
-        base -= 0.25
-    if normalized.isupper() and len(normalized) <= 6:
-        base -= 0.2
-    if len(normalized.split()) == 1 and normalized.isalpha() and normalized.isupper():
-        base -= 0.1
-    return base + min(len(candidate.canonical_name), 40) / 200
-
-
-def _organization_resolution_score(
-    *,
-    context: SentenceContext,
-    candidate: EntityCandidate,
-    role: EntityCandidate | None,
-    person: EntityCandidate,
-) -> tuple[float, float, int]:
-    reference_start = role.start_char if role is not None else person.start_char
-    role_edge = (
-        context.edge_confidence("role-at-organization", role.candidate_id, candidate.candidate_id)
-        if role is not None
-        else None
-    )
-    person_edge = context.edge_confidence(
-        "person-org-context",
-        person.candidate_id,
-        candidate.candidate_id,
-    )
-    confidence = max(role_edge or 0.0, person_edge or 0.0)
-    priority = _organization_priority(candidate)
-    distance = abs(reference_start - candidate.start_char)
-    clause_bonus = _organization_clause_bonus(context, candidate, role, person)
-    if _is_target_like_org(candidate):
-        priority += 0.14
-    if _is_owner_like_org(candidate):
-        priority -= 0.2
-    if role is not None and candidate.start_char >= role.start_char:
-        priority += 0.06
-    if candidate.sentence_index != person.sentence_index:
-        priority -= 0.08
-    priority += clause_bonus
-    return (confidence * 0.65 + priority * 0.35, priority, -distance)
-
-
-def _role_priority(candidate: EntityCandidate) -> float:
-    role_name = candidate.normalized_name.lower()
-    if role_name in POLITICAL_ROLE_NAMES:
-        return 0.2
-    if role_name in {role.value for role in BOARD_ROLE_KINDS}:
-        return 1.0 + min(len(role_name), 32) / 200
-    return 0.8 + min(len(role_name), 32) / 300
-
-
-def _is_target_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    if _is_body_like_org(candidate) or _is_owner_like_org(candidate):
-        return False
-    if candidate.organization_kind == OrganizationKind.COMPANY:
-        return True
-    return any(
-        term in normalized
-        for term in ("stadnin", "rewita", "tour", "wodociąg", "hotel", "port", "centrum", "spółk")
-    )
-
-
-def _is_owner_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    if "skarbu państwa" in normalized:
-        return True
-    if candidate.organization_kind == OrganizationKind.PUBLIC_INSTITUTION and any(
-        term in normalized for term in OWNER_CONTEXT_TERMS
-    ):
-        return True
-    return False
-
-
-def _is_body_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    kind = candidate.organization_kind
-    return kind == OrganizationKind.GOVERNING_BODY or any(
-        normalized.startswith(term) for term in BODY_CONTEXT_TERMS
-    )
-
-
-def _organization_clause_bonus(
-    context: SentenceContext,
-    candidate: EntityCandidate,
-    role: EntityCandidate | None,
-    person: EntityCandidate,
-) -> float:
-    reference = role or person
-    if candidate.sentence_index != reference.sentence_index:
-        return -0.06
-
-    local_start = min(reference.end_char, candidate.end_char)
-    local_end = max(reference.start_char, candidate.start_char)
-    between_text = context.lowered_text[local_start:local_end]
-    bonus = 0.0
-
-    if role is not None and candidate.start_char >= role.end_char:
-        bonus += 0.08
-    if between_text and "," not in between_text and len(between_text) <= 24:
-        bonus += 0.08
-    if any(term in candidate.normalized_name.lower() for term in TARGET_CONTEXT_TERMS):
-        bonus += 0.08
-    if any(term in between_text for term in OWNER_CONTEXT_TERMS):
-        bonus -= 0.14
-    if any(term in between_text for term in BODY_CONTEXT_TERMS):
-        bonus -= 0.1
-    return bonus
-
-
-def _other_person_between(
-    left: EntityCandidate,
-    right: EntityCandidate,
-    persons: list[EntityCandidate],
-) -> bool:
-    between_start = min(left.end_char, right.end_char)
-    between_end = max(left.start_char, right.start_char)
-    return any(
-        candidate.candidate_id not in {left.candidate_id, right.candidate_id}
-        and candidate.start_char >= between_start
-        and candidate.end_char <= between_end
-        for candidate in persons
-    )
 
 
 def _resolve_public_employment_employer(

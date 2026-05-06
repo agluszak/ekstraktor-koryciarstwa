@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pipeline.models import EntityCandidate, ParsedWord
+from pipeline.models import ClusterMentionView, ParsedWord
 from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, PARTY_PROFILE_CONTEXT_LEMMAS
 
 KINSHIP_CONTEXT_MARKERS = frozenset(
@@ -27,7 +27,7 @@ KINSHIP_CONTEXT_MARKERS = frozenset(
 
 def candidate_words(
     parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
+    candidate: ClusterMentionView,
 ) -> list[ParsedWord]:
     return [
         word
@@ -39,7 +39,7 @@ def candidate_words(
 
 def candidate_head_word(
     parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
+    candidate: ClusterMentionView,
 ) -> ParsedWord | None:
     words = candidate_words(parsed_words, candidate)
     if not words:
@@ -50,8 +50,8 @@ def candidate_head_word(
 
 def between_candidates_text(
     lowered_text: str,
-    left: EntityCandidate,
-    right: EntityCandidate,
+    left: ClusterMentionView,
+    right: ClusterMentionView,
 ) -> str:
     between_start = min(left.end_char, right.end_char)
     between_end = max(left.start_char, right.start_char)
@@ -60,7 +60,7 @@ def between_candidates_text(
 
 def is_quote_speaker_risk(
     parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
+    candidate: ClusterMentionView,
 ) -> bool:
     overlapping_words = candidate_words(parsed_words, candidate)
     if not overlapping_words:
@@ -85,8 +85,8 @@ def party_syntactic_signal(
     parsed_words: list[ParsedWord],
     sentence_text: str,
     lowered_text: str,
-    person: EntityCandidate,
-    party: EntityCandidate,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
 ) -> str | None:
     party_word = candidate_head_word(parsed_words, party)
     person_words = candidate_words(parsed_words, person)
@@ -113,8 +113,8 @@ def party_context_window_supports(
     *,
     parsed_words: list[ParsedWord],
     lowered_text: str,
-    person: EntityCandidate,
-    party: EntityCandidate,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
     window_before: int = 8,
     window_after: int = 16,
 ) -> bool:
@@ -141,8 +141,8 @@ def supports_party_link(
     *,
     sentence_text: str,
     parsed_words: list[ParsedWord],
-    person: EntityCandidate,
-    party: EntityCandidate,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
 ) -> bool:
     lowered_text = sentence_text.lower()
     distance = abs(person.start_char - party.start_char)
@@ -188,9 +188,9 @@ def person_role_syntactic_signal(
     *,
     parsed_words: list[ParsedWord],
     lowered_text: str,
-    person: EntityCandidate,
-    role: EntityCandidate,
-    sentence_persons: list[EntityCandidate],
+    person: ClusterMentionView,
+    role: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
 ) -> str | None:
     if person.is_proxy_person and _candidate_contains(person, role):
         return None
@@ -229,9 +229,9 @@ def supports_person_role_link(
     *,
     parsed_words: list[ParsedWord],
     sentence_text: str,
-    person: EntityCandidate,
-    role: EntityCandidate,
-    sentence_persons: list[EntityCandidate],
+    person: ClusterMentionView,
+    role: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
 ) -> bool:
     lowered_text = sentence_text.casefold()
     signal = person_role_syntactic_signal(
@@ -262,19 +262,19 @@ def supports_person_role_link(
     return between_text.strip(" \t,:;()[]\"'") == ""
 
 
-def _candidate_contains(container: EntityCandidate, inner: EntityCandidate) -> bool:
+def _candidate_contains(container: ClusterMentionView, inner: ClusterMentionView) -> bool:
     return container.start_char <= inner.start_char and inner.end_char <= container.end_char
 
 
 def _other_person_between(
-    left: EntityCandidate,
-    right: EntityCandidate,
-    sentence_persons: list[EntityCandidate],
+    left: ClusterMentionView,
+    right: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
 ) -> bool:
     between_start = min(left.end_char, right.end_char)
     between_end = max(left.start_char, right.start_char)
     return any(
-        candidate.candidate_id not in {left.candidate_id, right.candidate_id}
+        candidate.cluster_id not in {left.cluster_id, right.cluster_id}
         and candidate.start_char >= between_start
         and candidate.end_char <= between_end
         for candidate in sentence_persons
@@ -283,8 +283,8 @@ def _other_person_between(
 
 def _supports_descriptive_tail_link(
     lowered_text: str,
-    person: EntityCandidate,
-    target: EntityCandidate,
+    person: ClusterMentionView,
+    target: ClusterMentionView,
 ) -> bool:
     if target.start_char <= person.end_char:
         return False
