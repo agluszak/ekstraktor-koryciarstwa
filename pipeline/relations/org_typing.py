@@ -227,6 +227,7 @@ class OrganizationMentionClassifier:
             and self.runtime.sentence_transformer_loaded
             and organization_kind == OrganizationKind.ORGANIZATION
         ):
+            # Optional path: only use semantic narrowing when embeddings are already loaded.
             semantic_kind = self._semantic_organization_kind(features)
             if semantic_kind != OrganizationKind.ORGANIZATION:
                 organization_kind = semantic_kind

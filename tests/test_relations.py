@@ -3259,6 +3259,7 @@ def test_paid_promotion_context_without_contract_signal_stays_empty() -> None:
     extracted = PolishFactExtractor(config).run(document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
+    # This clause currently lacks a strong contract signal, so extraction should stay empty.
     assert contracts == []
 
 
