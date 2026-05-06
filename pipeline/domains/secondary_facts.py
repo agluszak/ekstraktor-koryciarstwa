@@ -10,26 +10,28 @@ from pipeline.complaint_classifier import (
     has_whistleblower_markers,
 )
 from pipeline.domain_types import (
-    CandidateID,
-    CandidateType,
     EntityType,
     FactType,
     RelationshipType,
 )
 from pipeline.extraction_context import (
     ExtractionContext,
-    SentenceContext,
-    clusters_to_sentence_candidates,
+    clusters_to_mention_views,
 )
-from pipeline.models import ArticleDocument, EntityCandidate, Fact
+from pipeline.models import (
+    ArticleDocument,
+    ClusterMention,
+    ClusterMentionView,
+    Fact,
+    SentenceFragment,
+)
 from pipeline.nlp_rules import TIE_WORDS
+from pipeline.relation_signals import is_quote_speaker_risk
 from pipeline.secondary_fact_helpers import (
     SecondaryFactScore,
     SecondaryFactScorer,
-    _is_quote_speaker_risk,
     build_secondary_fact,
 )
-from pipeline.utils import stable_id
 
 _ALL_TYPES = {
     EntityType.PERSON,
@@ -45,72 +47,90 @@ class TieFactExtractor:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         facts: list[Fact] = []
         for sentence in document.sentences:
-            sentence_clusters = context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES)
-            sentence_candidates = clusters_to_sentence_candidates(
-                sentence_clusters, sentence.sentence_index, sentence.paragraph_index
+            sentence_views = context.mention_views_in_sentence(
+                sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
             )
-            if not sentence_candidates:
+            if not sentence_views:
                 continue
 
-            paragraph_clusters = sum(
-                (
-                    context.clusters_in_sentence(s.sentence_index, _ALL_TYPES)
-                    for s in document.sentences
-                    if s.paragraph_index == sentence.paragraph_index
-                ),
-                [],
+            paragraph_views = context.mention_views_in_paragraph(
+                sentence.paragraph_index, _ALL_TYPES
             )
-            seen: set[str] = set()
-            unique_paragraph = []
-            for c in paragraph_clusters:
-                key = str(c.cluster_id)
-                if key not in seen:
-                    seen.add(key)
-                    unique_paragraph.append(c)
-
-            prev_sentence_clusters = context.clusters_in_sentence(
-                sentence.sentence_index - 1, _ALL_TYPES
-            )
-            previous_candidates = [
-                c
-                for c in clusters_to_sentence_candidates(
-                    prev_sentence_clusters, sentence.sentence_index - 1, sentence.paragraph_index
+            previous_views = [
+                v
+                for v in clusters_to_mention_views(
+                    context.clusters_in_sentence(sentence.sentence_index - 1, _ALL_TYPES),
+                    sentence.sentence_index - 1,
+                    sentence.paragraph_index,
                 )
-                if c.paragraph_index == sentence.paragraph_index
+                if v.paragraph_index == sentence.paragraph_index
             ]
 
-            sentence_context = SentenceContext(
-                document=document,
-                sentence=sentence,
-                parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
-                candidates=sentence_candidates,
-                paragraph_candidates=clusters_to_sentence_candidates(
-                    unique_paragraph, sentence.sentence_index, sentence.paragraph_index
-                ),
-                previous_candidates=previous_candidates,
+            facts.extend(
+                self._process_sentence(
+                    document,
+                    context,
+                    sentence,
+                    sentence_views,
+                    paragraph_views,
+                    previous_views,
+                )
             )
-            facts.extend(self._process_sentence(sentence_context))
         return facts
 
-    def _process_sentence(self, context: SentenceContext) -> list[Fact]:
-        trigger = self._tie_trigger(context)
+    def _process_sentence(
+        self,
+        document: ArticleDocument,
+        context: ExtractionContext,
+        sentence: SentenceFragment,
+        sentence_views: list[ClusterMentionView],
+        paragraph_views: list[ClusterMentionView],
+        previous_views: list[ClusterMentionView],
+    ) -> list[Fact]:
+        parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+        trigger = self._tie_trigger(parsed_words, sentence.text.lower())
         if trigger is None:
-            return self._complaint_context_ties(context)
+            return self._complaint_context_ties(
+                document, context, sentence, sentence_views, paragraph_views
+            )
         facts: list[Fact] = []
-        facts.extend(self._nearby_person_pairs(context, trigger))
+        facts.extend(
+            self._nearby_person_pairs(document, sentence, sentence_views, parsed_words, trigger)
+        )
         if not facts:
-            facts.extend(self._owner_context_ties(context, trigger))
+            facts.extend(
+                self._owner_context_ties(
+                    document,
+                    context,
+                    sentence,
+                    sentence_views,
+                    paragraph_views,
+                    parsed_words,
+                    trigger,
+                )
+            )
         if not facts:
-            facts.extend(self._complaint_context_ties(context))
+            facts.extend(
+                self._complaint_context_ties(
+                    document, context, sentence, sentence_views, paragraph_views
+                )
+            )
         return facts
 
-    def _nearby_person_pairs(self, context: SentenceContext, trigger: str) -> list[Fact]:
+    @staticmethod
+    def _nearby_person_pairs(
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+        sentence_views: list[ClusterMentionView],
+        parsed_words: list,
+        trigger: str,
+    ) -> list[Fact]:
         """Find exactly 2 nearby persons around a tie word and emit a tie fact."""
-        lowered = context.lowered_text
+        lowered = sentence.text.lower()
         anchor = lowered.find(trigger)
         if anchor < 0:
             return []
-        persons = context.persons
+        persons = [v for v in sentence_views if v.entity_type == EntityType.PERSON]
         nearby = [
             person
             for person in persons
@@ -120,11 +140,11 @@ class TieFactExtractor:
             return []
         source, target = nearby[0], nearby[1]
         confidence = 0.72
-        score = SecondaryFactScorer.tie(context, source, target, trigger, confidence)
+        score = SecondaryFactScorer.tie(parsed_words, source, target, trigger, confidence)
         return [
             build_secondary_fact(
-                document=context.document,
-                sentence_context=context,
+                document=document,
+                sentence=sentence,
                 fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
                 subject=source,
                 object_candidate=target,
@@ -138,9 +158,8 @@ class TieFactExtractor:
         ]
 
     @staticmethod
-    def _tie_trigger(context: SentenceContext) -> str | None:
-        lemma_tokens = {(word.lemma or word.text).casefold() for word in context.parsed_words}
-        text = context.lowered_text
+    def _tie_trigger(parsed_words: list, lowered_text: str) -> str | None:
+        lemma_tokens = {(word.lemma or word.text).casefold() for word in parsed_words}
         for trigger in TIE_WORDS:
             if " " not in trigger and trigger in lemma_tokens:
                 return trigger
@@ -149,18 +168,26 @@ class TieFactExtractor:
             ):
                 return trigger
             pattern = rf"(?<!\w){re.escape(trigger)}(?!\w)"
-            if re.search(pattern, text):
+            if re.search(pattern, lowered_text):
                 return trigger
             if " " not in trigger and re.search(
                 rf"(?<!\w){re.escape(trigger[: max(5, len(trigger) - 2)])}\w*",
-                text,
+                lowered_text,
             ):
                 return trigger
         return None
 
     @staticmethod
-    def _owner_context_ties(context: SentenceContext, trigger: str) -> list[Fact]:
-        lowered = context.lowered_text
+    def _owner_context_ties(
+        document: ArticleDocument,
+        context: ExtractionContext,
+        sentence: SentenceFragment,
+        sentence_views: list[ClusterMentionView],
+        paragraph_views: list[ClusterMentionView],
+        parsed_words: list,
+        trigger: str,
+    ) -> list[Fact]:
+        lowered = sentence.text.lower()
         anchor = lowered.find(trigger)
         if anchor < 0:
             anchor = min(
@@ -174,39 +201,47 @@ class TieFactExtractor:
         if anchor < 0:
             return []
         public_role_markers = ("prezydent", "burmistrz", "wójt", "minister", "poseł", "radny")
+        persons = [v for v in sentence_views if v.entity_type == EntityType.PERSON]
         public_actors = [
             person
-            for person in context.persons
+            for person in persons
             if person.start_char >= anchor
             and any(
                 marker in lowered[max(0, person.start_char - 40) : person.end_char + 8]
                 for marker in public_role_markers
             )
-            and not _is_quote_speaker_risk(context, person)
+            and not is_quote_speaker_risk(parsed_words, person)
         ]
         if not public_actors:
             return []
         source = min(public_actors, key=lambda person: person.start_char)
 
-        org_names = " ".join(org.normalized_name.lower() for org in context.organizations)
+        org_types = {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+        org_names = " ".join(
+            v.normalized_name.lower() for v in sentence_views if v.entity_type in org_types
+        )
         document_org_names = " ".join(
             entity.normalized_name.lower()
-            for entity in context.document.entities
-            if entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            for entity in document.entities
+            if entity.entity_type in org_types
         )
+        paragraph_persons = [v for v in paragraph_views if v.entity_type == EntityType.PERSON]
         owner_candidates = [
             person
-            for person in context.paragraph_persons
+            for person in paragraph_persons
             if person.entity_id != source.entity_id
             and person.canonical_name.split()
             and not _person_name_looks_like_company(person.canonical_name)
             and person.canonical_name.split()[-1].lower() in f"{org_names} {document_org_names}"
-            and not _is_quote_speaker_risk(context, person)
+            and not is_quote_speaker_risk(parsed_words, person)
         ]
         owner_candidates.extend(
             _document_owner_person_candidates(
-                context,
+                document=document,
+                context=context,
+                sentence=sentence,
                 source=source,
+                lowered_text=lowered,
                 document_org_names=document_org_names,
             )
         )
@@ -221,8 +256,8 @@ class TieFactExtractor:
         )
         return [
             build_secondary_fact(
-                document=context.document,
-                sentence_context=context,
+                document=document,
+                sentence=sentence,
                 fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
                 subject=source,
                 object_candidate=target,
@@ -235,26 +270,38 @@ class TieFactExtractor:
             )
         ]
 
-    def _complaint_context_ties(self, context: SentenceContext) -> list[Fact]:
-        paragraph_text = self._paragraph_text(context)
+    def _complaint_context_ties(
+        self,
+        document: ArticleDocument,
+        context: ExtractionContext,
+        sentence: SentenceFragment,
+        sentence_views: list[ClusterMentionView],
+        paragraph_views: list[ClusterMentionView],
+    ) -> list[Fact]:
+        paragraph_text = self._paragraph_text(document, sentence)
         complaint_signal = detect_patronage_complaint(paragraph_text)
         if complaint_signal is None:
             return []
 
-        paragraph_people = self._unique_people(context.paragraph_persons)
+        parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+        paragraph_people = self._unique_people(
+            [v for v in paragraph_views if v.entity_type == EntityType.PERSON]
+        )
         if len(paragraph_people) < 2:
             return []
 
-        source = self._complaint_source(context)
+        source = self._complaint_source(
+            document, sentence, sentence_views, paragraph_views, paragraph_text, parsed_words
+        )
         if source is None:
             return []
         target_candidates = [
             candidate
             for candidate in paragraph_people
             if candidate.entity_id != source.entity_id
-            and self._has_complaint_power_context(context, candidate)
-            and not self._looks_like_complaint_recipient(context, candidate)
-            and not _is_quote_speaker_risk(context, candidate)
+            and self._has_complaint_power_context(paragraph_text, candidate)
+            and not self._looks_like_complaint_recipient(paragraph_text, candidate)
+            and not is_quote_speaker_risk(parsed_words, candidate)
         ]
         if not target_candidates:
             return []
@@ -278,8 +325,8 @@ class TieFactExtractor:
         )
         return [
             build_secondary_fact(
-                document=context.document,
-                sentence_context=context,
+                document=document,
+                sentence=sentence,
                 fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
                 subject=source,
                 object_candidate=target,
@@ -293,117 +340,124 @@ class TieFactExtractor:
         ]
 
     @staticmethod
-    def _paragraph_text(context: SentenceContext) -> str:
+    def _paragraph_text(document: ArticleDocument, sentence: SentenceFragment) -> str:
         return " ".join(
-            sentence.text.lower()
-            for sentence in context.document.sentences
-            if sentence.paragraph_index == context.sentence.paragraph_index
+            s.text.lower()
+            for s in document.sentences
+            if s.paragraph_index == sentence.paragraph_index
         )
 
     @staticmethod
-    def _unique_people(candidates: list[EntityCandidate]) -> list[EntityCandidate]:
-        unique: dict[str, EntityCandidate] = {}
-        for candidate in candidates:
-            if candidate.entity_id is None:
+    def _unique_people(views: list[ClusterMentionView]) -> list[ClusterMentionView]:
+        unique: dict[str, ClusterMentionView] = {}
+        for view in views:
+            if view.entity_id is None:
                 continue
-            unique.setdefault(str(candidate.entity_id), candidate)
+            unique.setdefault(str(view.entity_id), view)
         return list(unique.values())
 
-    def _complaint_source(self, context: SentenceContext) -> EntityCandidate | None:
-        sentence_people = [
-            candidate
-            for candidate in self._unique_people(context.persons)
-            if not _is_quote_speaker_risk(context, candidate)
-        ]
-        if not sentence_people:
-            sentence_people = [
-                candidate
-                for candidate in self._unique_people(context.paragraph_persons)
-                if not _is_quote_speaker_risk(context, candidate)
+    def _complaint_source(
+        self,
+        document: ArticleDocument,
+        sentence: SentenceFragment,
+        sentence_views: list[ClusterMentionView],
+        paragraph_views: list[ClusterMentionView],
+        paragraph_text: str,
+        parsed_words: list,
+    ) -> ClusterMentionView | None:
+        sentence_persons = self._unique_people(
+            [
+                v
+                for v in sentence_views
+                if v.entity_type == EntityType.PERSON and not is_quote_speaker_risk(parsed_words, v)
             ]
-        if not sentence_people:
+        )
+        if not sentence_persons:
+            sentence_persons = self._unique_people(
+                [
+                    v
+                    for v in paragraph_views
+                    if v.entity_type == EntityType.PERSON
+                    and not is_quote_speaker_risk(parsed_words, v)
+                ]
+            )
+        if not sentence_persons:
             return None
         speaker_candidates = [
-            candidate
-            for candidate in sentence_people
-            if self._has_speaker_context(context, candidate)
-            and not self._looks_like_complaint_recipient(context, candidate)
+            v
+            for v in sentence_persons
+            if self._has_speaker_context(paragraph_text, v)
+            and not self._looks_like_complaint_recipient(paragraph_text, v)
         ]
         if speaker_candidates:
             return max(
                 speaker_candidates,
-                key=lambda candidate: (
-                    self._has_whistleblower_context(context, candidate),
-                    -candidate.start_char,
+                key=lambda v: (
+                    self._has_whistleblower_context(paragraph_text, v),
+                    -v.start_char,
                 ),
             )
         return min(
             (
-                candidate
-                for candidate in sentence_people
-                if not self._has_complaint_power_context(context, candidate)
-                and not self._looks_like_complaint_recipient(context, candidate)
+                v
+                for v in sentence_persons
+                if not self._has_complaint_power_context(paragraph_text, v)
+                and not self._looks_like_complaint_recipient(paragraph_text, v)
             ),
-            key=lambda candidate: candidate.start_char,
+            key=lambda v: v.start_char,
             default=None,
         )
 
-    def _has_speaker_context(self, context: SentenceContext, candidate: EntityCandidate) -> bool:
-        window = self._candidate_context_window(context, candidate)
+    @staticmethod
+    def _has_speaker_context(paragraph_text: str, view: ClusterMentionView) -> bool:
+        window = _candidate_context_window(paragraph_text, view)
         return has_speaker_markers(window)
 
-    def _has_complaint_power_context(
-        self,
-        context: SentenceContext,
-        candidate: EntityCandidate,
-    ) -> bool:
-        window = self._candidate_context_window(context, candidate)
+    @staticmethod
+    def _has_complaint_power_context(paragraph_text: str, view: ClusterMentionView) -> bool:
+        window = _candidate_context_window(paragraph_text, view)
         return has_power_holder_markers(window)
 
-    def _has_whistleblower_context(
-        self,
-        context: SentenceContext,
-        candidate: EntityCandidate,
-    ) -> bool:
-        window = self._candidate_context_window(context, candidate)
+    @staticmethod
+    def _has_whistleblower_context(paragraph_text: str, view: ClusterMentionView) -> bool:
+        window = _candidate_context_window(paragraph_text, view)
         return has_whistleblower_markers(window)
 
-    def _looks_like_complaint_recipient(
-        self,
-        context: SentenceContext,
-        candidate: EntityCandidate,
-    ) -> bool:
-        window = self._candidate_context_window(context, candidate)
+    @staticmethod
+    def _looks_like_complaint_recipient(paragraph_text: str, view: ClusterMentionView) -> bool:
+        window = _candidate_context_window(paragraph_text, view)
         return has_complaint_recipient_markers(window)
 
-    @staticmethod
-    def _candidate_context_window(context: SentenceContext, candidate: EntityCandidate) -> str:
-        paragraph_text = TieFactExtractor._paragraph_text(context)
-        names = [
-            candidate.canonical_name.lower(),
-            candidate.normalized_name.lower(),
-        ]
-        if candidate.canonical_name.split():
-            names.append(candidate.canonical_name.split()[0].lower())
-        if candidate.canonical_name.split():
-            names.append(candidate.canonical_name.split()[-1].lower())
-        for name in names:
-            anchor = paragraph_text.find(name)
-            if anchor >= 0:
-                return paragraph_text[max(0, anchor - 64) : anchor + len(name) + 64]
-        return paragraph_text[:128]
+
+def _candidate_context_window(paragraph_text: str, view: ClusterMentionView) -> str:
+    names = [
+        view.canonical_name.lower(),
+        view.normalized_name.lower(),
+    ]
+    if view.canonical_name.split():
+        names.append(view.canonical_name.split()[0].lower())
+    if view.canonical_name.split():
+        names.append(view.canonical_name.split()[-1].lower())
+    for name in names:
+        anchor = paragraph_text.find(name)
+        if anchor >= 0:
+            return paragraph_text[max(0, anchor - 64) : anchor + len(name) + 64]
+    return paragraph_text[:128]
 
 
 def _document_owner_person_candidates(
-    context: SentenceContext,
     *,
-    source: EntityCandidate,
+    document: ArticleDocument,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    source: ClusterMentionView,
+    lowered_text: str,
     document_org_names: str,
-) -> list[EntityCandidate]:
-    candidates: list[EntityCandidate] = []
-    if not any(marker in context.lowered_text for marker in ("firmą prowadzon", "firma prowadzon")):
-        return candidates
-    for entity in context.document.entities:
+) -> list[ClusterMentionView]:
+    if not any(marker in lowered_text for marker in ("firmą prowadzon", "firma prowadzon")):
+        return []
+    views: list[ClusterMentionView] = []
+    for entity in document.entities:
         if entity.entity_type != EntityType.PERSON or entity.entity_id == source.entity_id:
             continue
         if _person_name_looks_like_company(entity.canonical_name):
@@ -411,29 +465,20 @@ def _document_owner_person_candidates(
         tokens = entity.canonical_name.split()
         if len(tokens) < 2 or tokens[-1].lower() not in document_org_names:
             continue
-        candidates.append(
-            EntityCandidate(
-                candidate_id=CandidateID(
-                    stable_id(
-                        "candidate",
-                        context.document.document_id,
-                        entity.entity_id,
-                        str(context.sentence.sentence_index),
-                        "owner-context",
-                    )
-                ),
-                entity_id=entity.entity_id,
-                candidate_type=CandidateType.PERSON,
-                canonical_name=entity.canonical_name,
-                normalized_name=entity.normalized_name,
-                sentence_index=context.sentence.sentence_index,
-                paragraph_index=context.sentence.paragraph_index,
-                start_char=0,
-                end_char=0,
-                source="document_owner_context",
-            )
+        cluster = context.cluster_by_entity_id(entity.entity_id)
+        if cluster is None:
+            continue
+        synthetic_mention = ClusterMention(
+            text=entity.canonical_name,
+            entity_type=EntityType.PERSON,
+            sentence_index=sentence.sentence_index,
+            paragraph_index=sentence.paragraph_index,
+            start_char=0,
+            end_char=0,
+            entity_id=entity.entity_id,
         )
-    return candidates
+        views.append(ClusterMentionView(cluster=cluster, mention=synthetic_mention))
+    return views
 
 
 def _person_name_looks_like_company(name: str) -> bool:

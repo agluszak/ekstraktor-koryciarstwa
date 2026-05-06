@@ -6,7 +6,8 @@ from pipeline.domain_types import (
     EntityType,
     NERLabel,
 )
-from pipeline.extraction_context import ExtractionContext, SentenceContext
+from pipeline.extraction_context import ExtractionContext
+from pipeline.grammar_signals import infer_time_scope_with_temporal_context
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
@@ -274,6 +275,8 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
 
 
 def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
+    from pipeline.temporal import resolve_event_date
+
     document = ArticleDocument(
         document_id=DocumentID("doc"),
         source_url=None,
@@ -293,16 +296,11 @@ def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
         ],
     )
     sentence = document.sentences[0]
-    context = SentenceContext(
-        document=document,
-        sentence=sentence,
-        parsed_words=[],
-        candidates=[],
-        paragraph_candidates=[],
-        previous_candidates=[],
-    )
 
-    assert context.event_date == "2019-02-25"
+    event_date = resolve_event_date(
+        document, sentence_index=sentence.sentence_index, text=sentence.text
+    )
+    assert event_date == "2019-02-25"
 
 
 def test_sentence_context_time_scope_detects_future_from_morphology() -> None:
@@ -325,33 +323,35 @@ def test_sentence_context_time_scope_detects_future_from_morphology() -> None:
         ],
     )
     sentence = document.sentences[0]
-    context = SentenceContext(
-        document=document,
-        sentence=sentence,
-        parsed_words=[
-            ParsedWord(1, "Anna", "Anna", "PROPN", 2, "nsubj", 0, 4),
-            ParsedWord(
-                2,
-                "będzie",
-                "być",
-                "AUX",
-                0,
-                "root",
-                5,
-                11,
-                feats={"Tense": "Fut"},
-            ),
-            ParsedWord(3, "pełnić", "pełnić", "VERB", 2, "xcomp", 12, 18),
-        ],
-        candidates=[],
-        paragraph_candidates=[],
-        previous_candidates=[],
-    )
+    parsed_words = [
+        ParsedWord(1, "Anna", "Anna", "PROPN", 2, "nsubj", 0, 4),
+        ParsedWord(
+            2,
+            "będzie",
+            "być",
+            "AUX",
+            0,
+            "root",
+            5,
+            11,
+            feats={"Tense": "Fut"},
+        ),
+        ParsedWord(3, "pełnić", "pełnić", "VERB", 2, "xcomp", 12, 18),
+    ]
 
-    assert context.time_scope.value == "future"
+    result = infer_time_scope_with_temporal_context(
+        sentence.text,
+        parsed_words,
+        temporal_expressions=document.temporal_expressions,
+        sentence_index=sentence.sentence_index,
+        publication_date=document.publication_date,
+    )
+    assert result.value == "future"
 
 
 def test_sentence_context_event_date_prefers_preserved_ner_date_span() -> None:
+    from pipeline.temporal import resolve_event_date
+
     document = ArticleDocument(
         document_id=DocumentID("doc"),
         source_url=None,
@@ -382,19 +382,16 @@ def test_sentence_context_event_date_prefers_preserved_ner_date_span() -> None:
         ],
     )
     sentence = document.sentences[0]
-    context = SentenceContext(
-        document=document,
-        sentence=sentence,
-        parsed_words=[],
-        candidates=[],
-        paragraph_candidates=[],
-        previous_candidates=[],
-    )
 
-    assert context.event_date == "2019-02-25"
+    event_date = resolve_event_date(
+        document, sentence_index=sentence.sentence_index, text=sentence.text
+    )
+    assert event_date == "2019-02-25"
 
 
 def test_sentence_context_event_date_falls_back_to_publication_date() -> None:
+    from pipeline.temporal import resolve_event_date
+
     document = ArticleDocument(
         document_id=DocumentID("doc"),
         source_url=None,
@@ -414,16 +411,11 @@ def test_sentence_context_event_date_falls_back_to_publication_date() -> None:
         ],
     )
     sentence = document.sentences[0]
-    context = SentenceContext(
-        document=document,
-        sentence=sentence,
-        parsed_words=[],
-        candidates=[],
-        paragraph_candidates=[],
-        previous_candidates=[],
-    )
 
-    assert context.event_date == "2019-03-22"
+    event_date = resolve_event_date(
+        document, sentence_index=sentence.sentence_index, text=sentence.text
+    )
+    assert event_date == "2019-03-22"
 
 
 def test_sentence_context_time_scope_anchors_former_from_past_temporal_expression() -> None:
@@ -459,16 +451,15 @@ def test_sentence_context_time_scope_anchors_former_from_past_temporal_expressio
         ],
     )
     sentence = document.sentences[0]
-    context = SentenceContext(
-        document=document,
-        sentence=sentence,
-        parsed_words=[],
-        candidates=[],
-        paragraph_candidates=[],
-        previous_candidates=[],
-    )
 
-    assert context.time_scope.value == "former"
+    result = infer_time_scope_with_temporal_context(
+        sentence.text,
+        [],
+        temporal_expressions=document.temporal_expressions,
+        sentence_index=sentence.sentence_index,
+        publication_date=document.publication_date,
+    )
+    assert result.value == "former"
 
 
 def test_sentence_context_time_scope_anchors_future_from_future_temporal_expression() -> None:
@@ -504,13 +495,12 @@ def test_sentence_context_time_scope_anchors_future_from_future_temporal_express
         ],
     )
     sentence = document.sentences[0]
-    context = SentenceContext(
-        document=document,
-        sentence=sentence,
-        parsed_words=[],
-        candidates=[],
-        paragraph_candidates=[],
-        previous_candidates=[],
-    )
 
-    assert context.time_scope.value == "future"
+    result = infer_time_scope_with_temporal_context(
+        sentence.text,
+        [],
+        temporal_expressions=document.temporal_expressions,
+        sentence_index=sentence.sentence_index,
+        publication_date=document.publication_date,
+    )
+    assert result.value == "future"

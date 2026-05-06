@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 
 from pipeline.dependency_frames import DependencyFrameBuilder, TriggerArgumentFrame
 from pipeline.domain_types import (
-    CandidateID,
-    CandidateType,
     ClauseID,
     ClusterID,
     EntityID,
@@ -21,14 +19,11 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
+    ClusterMentionView,
     Entity,
-    EntityCandidate,
     EntityCluster,
     EvidenceSpan,
-    ParsedWord,
-    SentenceFragment,
 )
-from pipeline.temporal import resolve_event_date
 
 
 @dataclass(slots=True)
@@ -433,18 +428,54 @@ class ExtractionContext:
         if all(existing.cluster_id != cluster.cluster_id for existing in bucket):
             bucket.append(cluster)
 
+    def mention_views_in_sentence(
+        self,
+        sentence_index: int,
+        paragraph_index: int,
+        entity_types: set[EntityType],
+    ) -> list[ClusterMentionView]:
+        """Return one ClusterMentionView per cluster that has a mention in this sentence."""
+        clusters = self.clusters_in_sentence(sentence_index, entity_types)
+        return clusters_to_mention_views(clusters, sentence_index, paragraph_index)
 
-def clusters_to_sentence_candidates(
+    def mention_views_in_paragraph(
+        self,
+        paragraph_index: int,
+        entity_types: set[EntityType],
+    ) -> list[ClusterMentionView]:
+        """Return one ClusterMentionView per cluster that has a mention in this paragraph."""
+        clusters = self._clusters_from_index(
+            self.clusters_by_paragraph_type,
+            paragraph_index,
+            entity_types,
+        )
+        views: list[ClusterMentionView] = []
+        seen: set[ClusterID] = set()
+        for cluster in clusters:
+            if cluster.cluster_id in seen:
+                continue
+            seen.add(cluster.cluster_id)
+            para_mentions = sorted(
+                [m for m in cluster.mentions if m.paragraph_index == paragraph_index],
+                key=lambda m: m.start_char,
+            )
+            if not para_mentions:
+                continue
+            views.append(ClusterMentionView(cluster=cluster, mention=para_mentions[0]))
+        return views
+
+
+def clusters_to_mention_views(
     clusters: list[EntityCluster],
     sentence_index: int,
     paragraph_index: int,
-) -> list[EntityCandidate]:
-    """Build EntityCandidate objects from EntityClusters for a given sentence.
+) -> list[ClusterMentionView]:
+    """Build ClusterMentionView objects from EntityClusters for a given sentence.
 
     For each cluster that has a mention in the target sentence, one representative
-    EntityCandidate is produced using the earliest mention in that sentence.
+    ClusterMentionView is produced using the earliest mention in that sentence.
     """
-    candidates: list[EntityCandidate] = []
+    views: list[ClusterMentionView] = []
     seen_cluster_ids: set[ClusterID] = set()
     for cluster in clusters:
         if cluster.cluster_id in seen_cluster_ids:
@@ -454,141 +485,5 @@ def clusters_to_sentence_candidates(
             continue
         seen_cluster_ids.add(cluster.cluster_id)
         mention = min(sentence_mentions, key=lambda m: m.start_char)
-        entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id is not None), None)
-        candidates.append(
-            EntityCandidate(
-                candidate_id=CandidateID(str(cluster.cluster_id)),
-                entity_id=entity_id,
-                candidate_type=CandidateType(cluster.entity_type),
-                canonical_name=cluster.canonical_name,
-                normalized_name=cluster.normalized_name,
-                sentence_index=mention.sentence_index,
-                paragraph_index=mention.paragraph_index,
-                start_char=mention.start_char,
-                end_char=mention.end_char,
-                source="cluster",
-                organization_kind=cluster.organization_kind,
-                role_kind=cluster.role_kind,
-                role_modifier=cluster.role_modifier,
-                is_proxy_person=cluster.is_proxy_person,
-                kinship_detail=cluster.kinship_detail,
-                ner_label=mention.ner_label,
-            )
-        )
-    return candidates
-
-
-@dataclass(slots=True)
-class SentenceContext:
-    document: ArticleDocument
-    sentence: SentenceFragment
-    parsed_words: list[ParsedWord]
-    candidates: list[EntityCandidate]
-    paragraph_candidates: list[EntityCandidate]
-    previous_candidates: list[EntityCandidate]
-
-    @property
-    def persons(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.candidates
-            if candidate.candidate_type == CandidateType.PERSON
-        ]
-
-    @property
-    def positions(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.candidates
-            if candidate.candidate_type == CandidateType.POSITION
-        ]
-
-    @property
-    def organizations(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.candidates
-            if candidate.candidate_type
-            in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
-        ]
-
-    @property
-    def locations(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.candidates
-            if candidate.candidate_type == CandidateType.LOCATION
-        ]
-
-    @property
-    def parties(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.candidates
-            if candidate.candidate_type == CandidateType.POLITICAL_PARTY
-        ]
-
-    @property
-    def paragraph_persons(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.paragraph_candidates
-            if candidate.candidate_type == CandidateType.PERSON
-        ]
-
-    @property
-    def paragraph_organizations(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.paragraph_candidates
-            if candidate.candidate_type
-            in {CandidateType.ORGANIZATION, CandidateType.PUBLIC_INSTITUTION}
-        ]
-
-    @property
-    def paragraph_locations(self) -> list[EntityCandidate]:
-        return [
-            candidate
-            for candidate in self.paragraph_candidates
-            if candidate.candidate_type == CandidateType.LOCATION
-        ]
-
-    @property
-    def lowered_text(self) -> str:
-        return self.sentence.text.lower()
-
-    @property
-    def event_date(self) -> str | None:
-        return resolve_event_date(
-            self.document,
-            sentence_index=self.sentence.sentence_index,
-            text=self.sentence.text,
-        )
-
-    @property
-    def time_scope(self) -> TimeScope:
-        return infer_time_scope_with_temporal_context(
-            self.sentence.text,
-            self.parsed_words,
-            temporal_expressions=self.document.temporal_expressions,
-            sentence_index=self.sentence.sentence_index,
-            publication_date=self.document.publication_date,
-        )
-
-    @property
-    def evidence(self) -> EvidenceSpan:
-        return EvidenceSpan(
-            text=self.sentence.text,
-            sentence_index=self.sentence.sentence_index,
-            paragraph_index=self.sentence.paragraph_index,
-            start_char=self.sentence.start_char,
-            end_char=self.sentence.end_char,
-        )
-
-    @property
-    def overlaps_governance(self) -> bool:
-        return any(
-            evidence.sentence_index == self.sentence.sentence_index
-            for frame in self.document.governance_frames
-            for evidence in frame.evidence
-        )
+        views.append(ClusterMentionView(cluster=cluster, mention=mention))
+    return views

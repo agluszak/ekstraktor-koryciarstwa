@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import CandidateType, OrganizationKind
+from pipeline.domain_types import EntityType, OrganizationKind
 from pipeline.models import ParsedWord
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import compact_whitespace, normalize_entity_name, normalize_party_name
@@ -94,7 +94,7 @@ COMPANY_REPRESENTATIVES = (
 
 @dataclass(slots=True)
 class OrganizationTypingResult:
-    candidate_type: CandidateType
+    candidate_type: EntityType
     organization_kind: OrganizationKind
     canonical_name: str | None = None
 
@@ -197,7 +197,7 @@ class OrganizationMentionClassifier:
         )
         if alias_name is not None:
             return OrganizationTypingResult(
-                candidate_type=CandidateType.POLITICAL_PARTY,
+                candidate_type=EntityType.POLITICAL_PARTY,
                 organization_kind=OrganizationKind.ORGANIZATION,
                 canonical_name=alias_name,
             )
@@ -208,13 +208,13 @@ class OrganizationMentionClassifier:
         )
         if institution_name is not None:
             return OrganizationTypingResult(
-                candidate_type=CandidateType.PUBLIC_INSTITUTION,
+                candidate_type=EntityType.PUBLIC_INSTITUTION,
                 organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
                 canonical_name=institution_name,
             )
         if self._is_party_like(features):
             return OrganizationTypingResult(
-                candidate_type=CandidateType.POLITICAL_PARTY,
+                candidate_type=EntityType.POLITICAL_PARTY,
                 organization_kind=OrganizationKind.ORGANIZATION,
                 canonical_name=normalize_entity_name(" ".join(features.lemmas)),
             )
@@ -228,9 +228,9 @@ class OrganizationMentionClassifier:
                 organization_kind = semantic_kind
 
         candidate_type = (
-            CandidateType.PUBLIC_INSTITUTION
+            EntityType.PUBLIC_INSTITUTION
             if organization_kind == OrganizationKind.PUBLIC_INSTITUTION
-            else CandidateType.ORGANIZATION
+            else EntityType.ORGANIZATION
         )
         return OrganizationTypingResult(
             candidate_type=candidate_type,

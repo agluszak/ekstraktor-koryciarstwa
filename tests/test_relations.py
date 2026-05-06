@@ -25,8 +25,6 @@ from pipeline.domains.political_profile import CrossSentencePartyFactBuilder
 from pipeline.enrichment import SharedEntityEnricher
 from pipeline.extraction_context import (
     ExtractionContext,
-    SentenceContext,
-    clusters_to_sentence_candidates,
 )
 from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.frames import PolishFrameExtractor
@@ -202,31 +200,14 @@ def prepared_single_clause_document(
     return document
 
 
-def build_sentence_context(document: ArticleDocument) -> SentenceContext:
+def build_extraction_context(
+    document: ArticleDocument,
+) -> tuple[ExtractionContext, SentenceFragment]:
     config = PipelineConfig.from_file("config.yaml")
     SharedEntityEnricher(config).run(document)
     context = ExtractionContext.build(document)
     sentence = document.sentences[0]
-    _ALL_TYPES = {
-        EntityType.PERSON,
-        EntityType.POLITICAL_PARTY,
-        EntityType.POSITION,
-        EntityType.ORGANIZATION,
-        EntityType.PUBLIC_INSTITUTION,
-        EntityType.LOCATION,
-    }
-    sentence_clusters = context.clusters_in_sentence(sentence.sentence_index, _ALL_TYPES)
-    sentence_candidates = clusters_to_sentence_candidates(
-        sentence_clusters, sentence.sentence_index, sentence.paragraph_index
-    )
-    return SentenceContext(
-        document=document,
-        sentence=sentence,
-        parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
-        candidates=sentence_candidates,
-        paragraph_candidates=sentence_candidates,
-        previous_candidates=[],
-    )
+    return context, sentence
 
 
 def test_role_matcher_uses_wojewoda_lemma_for_inflected_surface() -> None:
@@ -330,12 +311,21 @@ def test_resolve_party_attributions_uses_shared_candidate_support() -> None:
         ],
     )
 
-    context = build_sentence_context(document)
-    person = next(
-        candidate for candidate in context.persons if candidate.canonical_name == "Jan Kowalski"
+    context, sentence = build_extraction_context(document)
+    _ALL_TYPES = {
+        EntityType.PERSON,
+        EntityType.POLITICAL_PARTY,
+        EntityType.POSITION,
+        EntityType.ORGANIZATION,
+        EntityType.PUBLIC_INSTITUTION,
+        EntityType.LOCATION,
+    }
+    views = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
     )
+    person = next(v for v in views if v.canonical_name == "Jan Kowalski")
 
-    attributions = resolve_party_attributions(context, person, governance_signal=False)
+    attributions = resolve_party_attributions(context, sentence, person, governance_signal=False)
 
     assert len(attributions) == 1
     assert attributions[0].party.canonical_name == "Polskie Stronnictwo Ludowe"
@@ -356,13 +346,23 @@ def test_resolve_political_role_attributions_uses_shared_role_support() -> None:
         ],
     )
 
-    context = build_sentence_context(document)
-    person = next(
-        candidate for candidate in context.persons if "Joanna" in candidate.canonical_name
+    context, sentence = build_extraction_context(document)
+    _ALL_TYPES = {
+        EntityType.PERSON,
+        EntityType.POLITICAL_PARTY,
+        EntityType.POSITION,
+        EntityType.ORGANIZATION,
+        EntityType.PUBLIC_INSTITUTION,
+        EntityType.LOCATION,
+    }
+    views = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
     )
+    person = next(v for v in views if "Joanna" in v.canonical_name)
 
     attributions = resolve_political_role_attributions(
         context,
+        sentence,
         person,
         governance_signal=False,
     )
@@ -1050,14 +1050,26 @@ def test_appositive_profile_tail_links_leading_person_despite_intervening_name()
         ],
     )
 
-    context = build_sentence_context(document)
-    person = next(
-        candidate for candidate in context.persons if candidate.canonical_name == "Jarosław Słoma"
+    context, sentence = build_extraction_context(document)
+    _ALL_TYPES = {
+        EntityType.PERSON,
+        EntityType.POLITICAL_PARTY,
+        EntityType.POSITION,
+        EntityType.ORGANIZATION,
+        EntityType.PUBLIC_INSTITUTION,
+        EntityType.LOCATION,
+    }
+    views = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, _ALL_TYPES
     )
+    person = next(v for v in views if v.canonical_name == "Jarosław Słoma")
 
-    party_attributions = resolve_party_attributions(context, person, governance_signal=False)
+    party_attributions = resolve_party_attributions(
+        context, sentence, person, governance_signal=False
+    )
     role_attributions = resolve_political_role_attributions(
         context,
+        sentence,
         person,
         governance_signal=False,
     )

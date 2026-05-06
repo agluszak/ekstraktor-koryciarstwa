@@ -4,16 +4,17 @@ from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import KINSHIP_LEMMAS
-from pipeline.domain_types import OrganizationKind
+from pipeline.domain_types import EntityType, OrganizationKind
 from pipeline.entity_classifiers import is_party_like_name, is_public_employer_name
-from pipeline.extraction_context import SentenceContext
+from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
-    EntityCandidate,
+    ClusterMentionView,
     EntityCluster,
     ParsedWord,
+    SentenceFragment,
 )
 from pipeline.nlp_rules import (
     OFFICE_CANDIDACY_LEMMAS,
@@ -30,15 +31,15 @@ from pipeline.secondary_fact_helpers import POLITICAL_ROLE_NAMES, SecondaryFactS
 
 @dataclass(frozen=True, slots=True)
 class ResolvedPartyAttribution:
-    person: EntityCandidate
-    party: EntityCandidate
+    person: ClusterMentionView
+    party: ClusterMentionView
     score: SecondaryFactScore
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedRoleAttribution:
-    person: EntityCandidate
-    role: EntityCandidate
+    person: ClusterMentionView
+    role: ClusterMentionView
     score: SecondaryFactScore
 
 
@@ -50,24 +51,36 @@ class ResolvedPublicEmploymentAttribution:
 
 
 def resolve_party_attributions(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> list[ResolvedPartyAttribution]:
     if person.is_proxy_person:
         return []
 
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    parties = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.POLITICAL_PARTY}
+    )
+    persons = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.PERSON}
+    )
+
     attributed: list[ResolvedPartyAttribution] = []
     seen_targets: set[str] = set()
-    for party in context.parties:
-        target_key = str(party.entity_id or party.candidate_id)
+    for party in parties:
+        target_key = str(party.entity_id or party.cluster_id)
         if target_key in seen_targets:
             continue
         seen_targets.add(target_key)
-        if _other_person_between(person, party, context.persons):
+        if _other_person_between(person, party, persons):
             continue
-        score = _party_membership_score(context, person, party, governance_signal=governance_signal)
+        score = _party_membership_score(
+            parsed_words, lowered_text, person, party, governance_signal=governance_signal
+        )
         if score is None:
             continue
         attributed.append(ResolvedPartyAttribution(person=person, party=party, score=score))
@@ -75,27 +88,39 @@ def resolve_party_attributions(
 
 
 def resolve_political_role_attributions(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> list[ResolvedRoleAttribution]:
     if person.is_proxy_person:
         return []
 
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    positions = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.POSITION}
+    )
+    persons = context.mention_views_in_sentence(
+        sentence.sentence_index, sentence.paragraph_index, {EntityType.PERSON}
+    )
+
     attributed: list[ResolvedRoleAttribution] = []
-    for role in context.positions:
+    for role in positions:
         if role.normalized_name.lower() not in POLITICAL_ROLE_NAMES:
             continue
         if not supports_person_role_link(
-            parsed_words=context.parsed_words,
-            sentence_text=context.sentence.text,
+            parsed_words=parsed_words,
+            sentence_text=sentence.text,
             person=person,
             role=role,
-            sentence_persons=context.persons,
+            sentence_persons=persons,
         ):
             continue
-        score = _political_office_score(context, person, role, governance_signal=governance_signal)
+        score = _political_office_score(
+            parsed_words, lowered_text, persons, person, role, governance_signal=governance_signal
+        )
         if score is None:
             continue
         attributed.append(ResolvedRoleAttribution(person=person, role=role, score=score))
@@ -103,24 +128,27 @@ def resolve_political_role_attributions(
 
 
 def resolve_candidacy_score(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
 ) -> SecondaryFactScore | None:
     if person.is_proxy_person:
         return None
-    lemmas = {word.lemma for word in context.parsed_words}
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    lemmas = {word.lemma for word in parsed_words}
     if not (
         OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
-        or "kandydat" in context.lowered_text
-        or "wybory" in context.lowered_text
+        or "kandydat" in lowered_text
+        or "wybory" in lowered_text
     ):
         return None
     governing_words = [
         word
-        for word in context.parsed_words
+        for word in parsed_words
         if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
     ]
-    if "wybory" not in context.lowered_text and "kandydat" not in context.lowered_text:
+    if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
     if any(abs(person.start_char - word.start) <= 28 for word in governing_words):
         return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
@@ -146,16 +174,17 @@ def resolve_public_employment_attribution(
 
 
 def _party_membership_score(
-    context: SentenceContext,
-    person: EntityCandidate,
-    party: EntityCandidate,
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
     syntactic_signal = party_syntactic_signal(
-        parsed_words=context.parsed_words,
-        sentence_text=context.sentence.text,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        sentence_text=lowered_text,
+        lowered_text=lowered_text,
         person=person,
         party=party,
     )
@@ -166,8 +195,8 @@ def _party_membership_score(
     if syntactic_signal == "appositive_context":
         return _score(0.78, syntactic_signal, "same_sentence", "party_apposition")
     if distance <= 40 and party_context_window_supports(
-        parsed_words=context.parsed_words,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
         person=person,
         party=party,
     ):
@@ -181,18 +210,20 @@ def _party_membership_score(
 
 
 def _political_office_score(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate,
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+    persons: list[ClusterMentionView],
+    person: ClusterMentionView,
+    role: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
     syntactic_signal = person_role_syntactic_signal(
-        parsed_words=context.parsed_words,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
         person=person,
         role=role,
-        sentence_persons=context.persons,
+        sentence_persons=persons,
     )
     distance = abs(person.start_char - role.start_char)
 
