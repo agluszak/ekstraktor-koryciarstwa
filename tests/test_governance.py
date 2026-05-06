@@ -1,7 +1,6 @@
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
     ClauseID,
-    ClusterID,
     DocumentID,
     EntityID,
     EntityType,
@@ -22,12 +21,12 @@ from pipeline.models import (
     ClusterMention,
     CompensationFrame,
     Entity,
-    ResolvedEntity,
     EvidenceSpan,
     FundingFrame,
     GovernanceFrame,
     Mention,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
     TemporalExpression,
 )

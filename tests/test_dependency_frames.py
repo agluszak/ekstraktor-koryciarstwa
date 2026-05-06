@@ -5,8 +5,8 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
-    ResolvedEntity,
     ParsedWord,
+    ResolvedEntity,
 )
 
 

@@ -1,6 +1,5 @@
 from pipeline.domain_types import (
     ClauseID,
-    ClusterID,
     DocumentID,
     EntityID,
     EntityType,
@@ -16,9 +15,9 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     Entity,
-    ResolvedEntity,
     EvidenceSpan,
     ParsedWord,
+    ResolvedEntity,
     SentenceFragment,
 )
 

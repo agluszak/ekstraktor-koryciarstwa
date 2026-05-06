@@ -8,7 +8,6 @@ from pathlib import Path
 from pipeline.cli import emit_json, handle_worker_request, iter_batch_inputs, run_batch
 from pipeline.domain_types import EntityID, EntityType
 from pipeline.models import (
-    Entity,
     ExtractionResult,
     RelevanceDecision,
     ResolvedEntity,
