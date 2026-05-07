@@ -39,10 +39,9 @@ def test_roles_clustered_across_sentences():
 
     # Text where the role is mentioned twice
     content = (
-        ("Jan Kowalski objął stanowisko prezesa. Jako prezes będzie zarządzał spółką Orlen. "
-         "To nowa era dla firmy.")
-        * 3
-    )
+        "Jan Kowalski objął stanowisko prezesa. Jako prezes będzie zarządzał spółką Orlen. "
+        "To nowa era dla firmy."
+    ) * 3
     html = (
         f"<html><head><title>Nowy prezes Orlenu</title></head>"
         f"<body><article><p>{content}</p></article></body></html>"
