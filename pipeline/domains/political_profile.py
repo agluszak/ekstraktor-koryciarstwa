@@ -35,6 +35,7 @@ from pipeline.nlp_rules import (
 from pipeline.secondary_fact_helpers import (
     _has_signal,
     build_secondary_fact,
+    build_secondary_sentence_metadata,
 )
 from pipeline.utils import stable_id
 
@@ -61,7 +62,7 @@ class PoliticalProfileFactExtractor:
         facts: list[Fact] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
+                sentence.sentence_index, ALL_ENTITY_TYPES
             )
             if not any(v.entity_type == EntityType.PERSON for v in sentence_views):
                 continue
@@ -76,6 +77,11 @@ class PoliticalProfileFactExtractor:
     ) -> list[Fact]:
         facts: list[Fact] = []
         parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+        sentence_metadata = build_secondary_sentence_metadata(
+            document=document,
+            sentence=sentence,
+            parsed_words=parsed_words,
+        )
         lowered_text = sentence.text.lower()
         governance_signal = _has_signal(
             parsed_words,
@@ -85,9 +91,7 @@ class PoliticalProfileFactExtractor:
         )
         persons = [
             v
-            for v in context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, {EntityType.PERSON}
-            )
+            for v in context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
             if not v.is_proxy_person
         ]
         for person in persons:
@@ -116,6 +120,7 @@ class PoliticalProfileFactExtractor:
                         score=attribution.score,
                         source_extractor="political_profile",
                         party=attribution.party.canonical_name,
+                        sentence_metadata=sentence_metadata,
                     )
                 )
 
@@ -138,6 +143,7 @@ class PoliticalProfileFactExtractor:
                         score=attribution.score,
                         source_extractor="political_profile",
                         office_type=attribution.role.canonical_name,
+                        sentence_metadata=sentence_metadata,
                     )
                 )
 
@@ -156,6 +162,7 @@ class PoliticalProfileFactExtractor:
                         score=candidacy_score,
                         source_extractor="political_profile",
                         candidacy_scope="mentioned",
+                        sentence_metadata=sentence_metadata,
                     )
                 )
         return facts
@@ -166,7 +173,7 @@ class CrossSentencePartyFactBuilder:
         facts: list[Fact] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
+                sentence.sentence_index, ALL_ENTITY_TYPES
             )
             parties = [
                 v
@@ -203,7 +210,6 @@ class CrossSentencePartyFactBuilder:
                         previous_sentence.sentence_index, ALL_ENTITY_TYPES
                     ),
                     previous_sentence.sentence_index,
-                    previous_sentence.paragraph_index,
                 )
                 if v.entity_type == EntityType.PERSON and v.entity_id is not None
             ]
@@ -216,7 +222,6 @@ class CrossSentencePartyFactBuilder:
                 for v in clusters_to_mention_views(
                     context.clusters_in_sentence(sentence.sentence_index - 1, ALL_ENTITY_TYPES),
                     sentence.sentence_index - 1,
-                    sentence.paragraph_index,
                 )
                 if v.entity_type == EntityType.PERSON
                 and v.entity_id is not None
@@ -258,7 +263,6 @@ class CrossSentencePartyFactBuilder:
                 for v in clusters_to_mention_views(
                     context.clusters_in_sentence(next_sentence.sentence_index, ALL_ENTITY_TYPES),
                     next_sentence.sentence_index,
-                    next_sentence.paragraph_index,
                 )
                 if v.entity_type == EntityType.PERSON
                 and v.entity_id is not None

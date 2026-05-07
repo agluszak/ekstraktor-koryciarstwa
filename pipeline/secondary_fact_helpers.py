@@ -9,6 +9,7 @@ from pipeline.domain_types import (
     FactType,
     RelationshipType,
     RoleKind,
+    TimeScope,
 )
 from pipeline.grammar_signals import infer_time_scope_with_temporal_context
 from pipeline.lemma_signals import lemma_set
@@ -46,6 +47,14 @@ class SecondaryFactScore:
     extraction_signal: str
     evidence_scope: str
     reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class SecondarySentenceMetadata:
+    time_scope: TimeScope
+    event_date: str | None
+    evidence: EvidenceSpan
+    overlaps_governance: bool
 
 
 class SecondaryFactScorer:
@@ -93,24 +102,12 @@ class SecondaryFactScorer:
         )
 
 
-def build_secondary_fact(
+def build_secondary_sentence_metadata(
     *,
     document: ArticleDocument,
     sentence: SentenceFragment,
-    fact_type: FactType,
-    subject: ClusterMentionView,
-    object_candidate: ClusterMentionView | None,
-    value_text: str | None,
-    value_normalized: str | None,
-    confidence: float,
-    score: SecondaryFactScore,
-    source_extractor: str,
-    party: str | None = None,
-    office_type: str | None = None,
-    candidacy_scope: str | None = None,
-    relationship_type: RelationshipType | None = None,
-) -> Fact:
-    parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+    parsed_words: list[ParsedWord],
+) -> SecondarySentenceMetadata:
     time_scope = infer_time_scope_with_temporal_context(
         sentence.text,
         parsed_words,
@@ -133,6 +130,38 @@ def build_secondary_fact(
         for frame in document.governance_frames
         for ev in frame.evidence
     )
+    return SecondarySentenceMetadata(
+        time_scope=time_scope,
+        event_date=event_date,
+        evidence=evidence,
+        overlaps_governance=overlaps_governance,
+    )
+
+
+def build_secondary_fact(
+    *,
+    document: ArticleDocument,
+    sentence: SentenceFragment,
+    fact_type: FactType,
+    subject: ClusterMentionView,
+    object_candidate: ClusterMentionView | None,
+    value_text: str | None,
+    value_normalized: str | None,
+    confidence: float,
+    score: SecondaryFactScore,
+    source_extractor: str,
+    party: str | None = None,
+    office_type: str | None = None,
+    candidacy_scope: str | None = None,
+    relationship_type: RelationshipType | None = None,
+    sentence_metadata: SecondarySentenceMetadata | None = None,
+) -> Fact:
+    if sentence_metadata is None:
+        sentence_metadata = build_secondary_sentence_metadata(
+            document=document,
+            sentence=sentence,
+            parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
+        )
     f = Fact(
         fact_id=FactID(
             stable_id(
@@ -144,7 +173,7 @@ def build_secondary_fact(
                 if object_candidate
                 else "",
                 value_normalized or value_text or "",
-                evidence.text,
+                sentence_metadata.evidence.text,
             )
         ),
         fact_type=fact_type,
@@ -154,13 +183,13 @@ def build_secondary_fact(
         else None,
         value_text=value_text,
         value_normalized=value_normalized,
-        time_scope=time_scope,
-        event_date=event_date,
+        time_scope=sentence_metadata.time_scope,
+        event_date=sentence_metadata.event_date,
         confidence=round(confidence, 3),
-        evidence=evidence,
+        evidence=sentence_metadata.evidence,
         extraction_signal=score.extraction_signal,
         evidence_scope=score.evidence_scope,
-        overlaps_governance=overlaps_governance,
+        overlaps_governance=sentence_metadata.overlaps_governance,
         source_extractor=source_extractor,
         score_reason=score.reason,
     )

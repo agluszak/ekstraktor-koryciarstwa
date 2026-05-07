@@ -17,13 +17,13 @@ from pipeline.domain_types import (
 from pipeline.extraction_context import (
     ALL_ENTITY_TYPES,
     ExtractionContext,
-    clusters_to_mention_views,
 )
 from pipeline.models import (
     ArticleDocument,
     ClusterMention,
     ClusterMentionView,
     Fact,
+    ParsedWord,
     SentenceFragment,
 )
 from pipeline.nlp_rules import TIE_WORDS
@@ -31,7 +31,9 @@ from pipeline.relation_signals import is_quote_speaker_risk
 from pipeline.secondary_fact_helpers import (
     SecondaryFactScore,
     SecondaryFactScorer,
+    SecondarySentenceMetadata,
     build_secondary_fact,
+    build_secondary_sentence_metadata,
 )
 
 
@@ -40,7 +42,7 @@ class TieFactExtractor:
         facts: list[Fact] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
+                sentence.sentence_index, ALL_ENTITY_TYPES
             )
             if not sentence_views:
                 continue
@@ -48,15 +50,6 @@ class TieFactExtractor:
             paragraph_views = context.mention_views_in_paragraph(
                 sentence.paragraph_index, ALL_ENTITY_TYPES
             )
-            previous_views = [
-                v
-                for v in clusters_to_mention_views(
-                    context.clusters_in_sentence(sentence.sentence_index - 1, ALL_ENTITY_TYPES),
-                    sentence.sentence_index - 1,
-                    sentence.paragraph_index,
-                )
-                if v.paragraph_index == sentence.paragraph_index
-            ]
 
             facts.extend(
                 self._process_sentence(
@@ -65,7 +58,6 @@ class TieFactExtractor:
                     sentence,
                     sentence_views,
                     paragraph_views,
-                    previous_views,
                 )
             )
         return facts
@@ -77,17 +69,33 @@ class TieFactExtractor:
         sentence: SentenceFragment,
         sentence_views: list[ClusterMentionView],
         paragraph_views: list[ClusterMentionView],
-        previous_views: list[ClusterMentionView],
     ) -> list[Fact]:
         parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+        sentence_metadata = build_secondary_sentence_metadata(
+            document=document,
+            sentence=sentence,
+            parsed_words=parsed_words,
+        )
         trigger = self._tie_trigger(parsed_words, sentence.text.lower())
         if trigger is None:
             return self._complaint_context_ties(
-                document, context, sentence, sentence_views, paragraph_views
+                document,
+                context,
+                sentence,
+                sentence_views,
+                paragraph_views,
+                sentence_metadata,
             )
         facts: list[Fact] = []
         facts.extend(
-            self._nearby_person_pairs(document, sentence, sentence_views, parsed_words, trigger)
+            self._nearby_person_pairs(
+                document,
+                sentence,
+                sentence_views,
+                parsed_words,
+                trigger,
+                sentence_metadata,
+            )
         )
         if not facts:
             facts.extend(
@@ -99,12 +107,18 @@ class TieFactExtractor:
                     paragraph_views,
                     parsed_words,
                     trigger,
+                    sentence_metadata,
                 )
             )
         if not facts:
             facts.extend(
                 self._complaint_context_ties(
-                    document, context, sentence, sentence_views, paragraph_views
+                    document,
+                    context,
+                    sentence,
+                    sentence_views,
+                    paragraph_views,
+                    sentence_metadata,
                 )
             )
         return facts
@@ -114,8 +128,9 @@ class TieFactExtractor:
         document: ArticleDocument,
         sentence: SentenceFragment,
         sentence_views: list[ClusterMentionView],
-        parsed_words: list,
+        parsed_words: list[ParsedWord],
         trigger: str,
+        sentence_metadata: SecondarySentenceMetadata,
     ) -> list[Fact]:
         """Find exactly 2 nearby persons around a tie word and emit a tie fact."""
         lowered = sentence.text.lower()
@@ -146,11 +161,12 @@ class TieFactExtractor:
                 score=score,
                 source_extractor="tie",
                 relationship_type=TIE_WORDS[trigger],
+                sentence_metadata=sentence_metadata,
             )
         ]
 
     @staticmethod
-    def _tie_trigger(parsed_words: list, lowered_text: str) -> str | None:
+    def _tie_trigger(parsed_words: list[ParsedWord], lowered_text: str) -> str | None:
         lemma_tokens = {(word.lemma or word.text).casefold() for word in parsed_words}
         for trigger in TIE_WORDS:
             if " " not in trigger and trigger in lemma_tokens:
@@ -176,8 +192,9 @@ class TieFactExtractor:
         sentence: SentenceFragment,
         sentence_views: list[ClusterMentionView],
         paragraph_views: list[ClusterMentionView],
-        parsed_words: list,
+        parsed_words: list[ParsedWord],
         trigger: str,
+        sentence_metadata: SecondarySentenceMetadata,
     ) -> list[Fact]:
         lowered = sentence.text.lower()
         anchor = lowered.find(trigger)
@@ -259,6 +276,7 @@ class TieFactExtractor:
                 score=score,
                 source_extractor="tie",
                 relationship_type=TIE_WORDS[trigger],
+                sentence_metadata=sentence_metadata,
             )
         ]
 
@@ -269,6 +287,7 @@ class TieFactExtractor:
         sentence: SentenceFragment,
         sentence_views: list[ClusterMentionView],
         paragraph_views: list[ClusterMentionView],
+        sentence_metadata: SecondarySentenceMetadata,
     ) -> list[Fact]:
         paragraph_text = self._paragraph_text(document, sentence)
         complaint_signal = detect_patronage_complaint(paragraph_text)
@@ -328,6 +347,7 @@ class TieFactExtractor:
                 score=score,
                 source_extractor="tie",
                 relationship_type=RelationshipType.ASSOCIATE,
+                sentence_metadata=sentence_metadata,
             )
         ]
 
@@ -355,7 +375,7 @@ class TieFactExtractor:
         sentence_views: list[ClusterMentionView],
         paragraph_views: list[ClusterMentionView],
         paragraph_text: str,
-        parsed_words: list,
+        parsed_words: list[ParsedWord],
     ) -> ClusterMentionView | None:
         sentence_persons = self._unique_people(
             [

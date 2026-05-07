@@ -241,19 +241,23 @@ class OrganizationMentionClassifier:
     def _semantic_organization_kind(
         self, features: OrganizationMentionFeatures
     ) -> OrganizationKind:
+        runtime = self.runtime
+        if runtime is None:
+            return OrganizationKind.ORGANIZATION
+
         if not self._public_embeddings:
             self._public_embeddings = [
-                self.runtime.encode_text(text) for text in PUBLIC_REPRESENTATIVES
+                runtime.encode_text(text) for text in PUBLIC_REPRESENTATIVES
             ]
             self._company_embeddings = [
-                self.runtime.encode_text(text) for text in COMPANY_REPRESENTATIVES
+                runtime.encode_text(text) for text in COMPANY_REPRESENTATIVES
             ]
 
         text_to_check = " ".join(features.lemmas)
         if not text_to_check:
             return OrganizationKind.ORGANIZATION
 
-        emb = self.runtime.encode_text(text_to_check)
+        emb = runtime.encode_text(text_to_check)
 
         def max_sim(target_embs: list[np.ndarray]) -> float:
             return max((float(np.dot(emb, target)) for target in target_embs), default=0.0)

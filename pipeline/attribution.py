@@ -63,11 +63,9 @@ def resolve_party_attributions(
     parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
     lowered_text = sentence.text.lower()
     parties = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, {EntityType.POLITICAL_PARTY}
+        sentence.sentence_index, {EntityType.POLITICAL_PARTY}
     )
-    persons = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, {EntityType.PERSON}
-    )
+    persons = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
 
     attributed: list[ResolvedPartyAttribution] = []
     seen_targets: set[str] = set()
@@ -79,7 +77,12 @@ def resolve_party_attributions(
         if _other_person_between(person, party, persons):
             continue
         score = _party_membership_score(
-            parsed_words, lowered_text, person, party, governance_signal=governance_signal
+            parsed_words,
+            sentence.text,
+            lowered_text,
+            person,
+            party,
+            governance_signal=governance_signal,
         )
         if score is None:
             continue
@@ -99,12 +102,8 @@ def resolve_political_role_attributions(
 
     parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
     lowered_text = sentence.text.lower()
-    positions = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, {EntityType.POSITION}
-    )
-    persons = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, {EntityType.PERSON}
-    )
+    positions = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.POSITION})
+    persons = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
 
     attributed: list[ResolvedRoleAttribution] = []
     for role in positions:
@@ -175,6 +174,7 @@ def resolve_public_employment_attribution(
 
 def _party_membership_score(
     parsed_words: list[ParsedWord],
+    sentence_text: str,
     lowered_text: str,
     person: ClusterMentionView,
     party: ClusterMentionView,
@@ -183,7 +183,7 @@ def _party_membership_score(
 ) -> SecondaryFactScore | None:
     syntactic_signal = party_syntactic_signal(
         parsed_words=parsed_words,
-        sentence_text=lowered_text,
+        sentence_text=sentence_text,
         lowered_text=lowered_text,
         person=person,
         party=party,

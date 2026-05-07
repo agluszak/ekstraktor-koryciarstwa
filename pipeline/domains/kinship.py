@@ -49,7 +49,7 @@ class KinshipTieBuilder:
         evidence_items: list[KinshipTieEvidence] = []
         for sentence in document.sentences:
             sentence_views = context.mention_views_in_sentence(
-                sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
+                sentence.sentence_index, ALL_ENTITY_TYPES
             )
             evidence_items.extend(
                 self._direct_sentence_ties(

@@ -263,9 +263,13 @@ class SharedEntityEnricher(EntityEnricher):
             )
             if typing_result.organization_kind is not None:
                 cluster.organization_kind = typing_result.organization_kind
-            if typing_result.candidate_type.value == EntityType.PUBLIC_INSTITUTION.value:
-                cluster.entity_type = EntityType.PUBLIC_INSTITUTION
-                cluster.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
+            if typing_result.candidate_type in {
+                EntityType.PUBLIC_INSTITUTION,
+                EntityType.POLITICAL_PARTY,
+            }:
+                cluster.entity_type = typing_result.candidate_type
+                if typing_result.candidate_type == EntityType.PUBLIC_INSTITUTION:
+                    cluster.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
                 if typing_result.canonical_name is not None:
                     cluster.canonical_name = typing_result.canonical_name
                     cluster.normalized_name = typing_result.canonical_name
@@ -276,12 +280,12 @@ class SharedEntityEnricher(EntityEnricher):
                 if entity is None:
                     continue
                 entity.organization_kind = cluster.organization_kind
-                if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
-                    entity.entity_type = EntityType.PUBLIC_INSTITUTION
+                if cluster.entity_type in {EntityType.PUBLIC_INSTITUTION, EntityType.POLITICAL_PARTY}:
+                    entity.entity_type = cluster.entity_type
                     if typing_result.canonical_name is not None:
                         entity.canonical_name = typing_result.canonical_name
                         entity.normalized_name = typing_result.canonical_name
-                    mention.entity_type = EntityType.PUBLIC_INSTITUTION
+                    mention.entity_type = cluster.entity_type
 
     @staticmethod
     def _refresh_clause_mentions(document: ArticleDocument) -> None:

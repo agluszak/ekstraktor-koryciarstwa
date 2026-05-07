@@ -313,9 +313,7 @@ def test_resolve_party_attributions_uses_shared_candidate_support() -> None:
     )
 
     context, sentence = build_extraction_context(document)
-    views = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
-    )
+    views = context.mention_views_in_sentence(sentence.sentence_index, ALL_ENTITY_TYPES)
     person = next(v for v in views if v.canonical_name == "Jan Kowalski")
 
     attributions = resolve_party_attributions(context, sentence, person, governance_signal=False)
@@ -340,9 +338,7 @@ def test_resolve_political_role_attributions_uses_shared_role_support() -> None:
     )
 
     context, sentence = build_extraction_context(document)
-    views = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
-    )
+    views = context.mention_views_in_sentence(sentence.sentence_index, ALL_ENTITY_TYPES)
     person = next(v for v in views if "Joanna" in v.canonical_name)
 
     attributions = resolve_political_role_attributions(
@@ -1036,9 +1032,7 @@ def test_appositive_profile_tail_links_leading_person_despite_intervening_name()
     )
 
     context, sentence = build_extraction_context(document)
-    views = context.mention_views_in_sentence(
-        sentence.sentence_index, sentence.paragraph_index, ALL_ENTITY_TYPES
-    )
+    views = context.mention_views_in_sentence(sentence.sentence_index, ALL_ENTITY_TYPES)
     person = next(v for v in views if v.canonical_name == "Jarosław Słoma")
 
     party_attributions = resolve_party_attributions(

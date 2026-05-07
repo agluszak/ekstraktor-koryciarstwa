@@ -443,12 +443,11 @@ class ExtractionContext:
     def mention_views_in_sentence(
         self,
         sentence_index: int,
-        paragraph_index: int,
         entity_types: AbstractSet[EntityType],
     ) -> list[ClusterMentionView]:
         """Return one ClusterMentionView per cluster that has a mention in this sentence."""
         clusters = self.clusters_in_sentence(sentence_index, entity_types)
-        return clusters_to_mention_views(clusters, sentence_index, paragraph_index)
+        return clusters_to_mention_views(clusters, sentence_index)
 
     def mention_views_in_paragraph(
         self,
@@ -480,7 +479,6 @@ class ExtractionContext:
 def clusters_to_mention_views(
     clusters: list[EntityCluster],
     sentence_index: int,
-    paragraph_index: int,
 ) -> list[ClusterMentionView]:
     """Build ClusterMentionView objects from EntityClusters for a given sentence.
 
