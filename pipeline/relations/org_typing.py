@@ -241,6 +241,7 @@ class OrganizationMentionClassifier:
     def _semantic_organization_kind(
         self, features: OrganizationMentionFeatures
     ) -> OrganizationKind:
+        assert self.runtime is not None
         if not self._public_embeddings:
             self._public_embeddings = [
                 self.runtime.encode_text(text) for text in PUBLIC_REPRESENTATIVES
