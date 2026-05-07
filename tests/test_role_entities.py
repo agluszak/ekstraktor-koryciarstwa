@@ -30,8 +30,7 @@ def test_roles_extracted_as_first_class_entities():
     assert len(appointment_facts) >= 1
     fact = appointment_facts[0]
     assert fact.position_entity_id is not None
-    assert fact.role is not None
-    assert "prezes" in fact.role.lower()
+    assert fact.role and "prezes" in fact.role.lower()
 
 
 def test_roles_clustered_across_sentences():

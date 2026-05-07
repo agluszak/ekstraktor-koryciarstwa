@@ -174,7 +174,9 @@ def resolve_public_employment_attribution(
 
 def _party_membership_score(
     parsed_words: list[ParsedWord],
+    # Original sentence surface for token/dependency-level heuristics.
     sentence_text: str,
+    # Lowercased sentence reused for substring/window checks.
     lowered_text: str,
     person: ClusterMentionView,
     party: ClusterMentionView,
