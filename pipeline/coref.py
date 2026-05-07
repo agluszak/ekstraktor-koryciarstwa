@@ -8,7 +8,7 @@ from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import EntityID, EntityType
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
@@ -222,7 +222,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                         paragraph_index=sentence.paragraph_index,
                         start_char=abs_start,
                         end_char=abs_end,
-                        entity_id=best_eid,
+                        entity_id=EntityID(best_eid) if best_eid else None,
                     )
                 )
                 existing_offsets.add((sentence.sentence_index, abs_start, abs_end))

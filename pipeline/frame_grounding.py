@@ -117,7 +117,6 @@ class FrameSlotGrounder:
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
         self.organization_classifier = OrganizationMentionClassifier(config, runtime=self.runtime)
-        self._embedding_cache: dict[str, np.ndarray] = {}
 
     def ground_public_employment_role(
         self,
@@ -970,22 +969,7 @@ class FrameSlotGrounder:
         return [token for token in expanded.split() if token]
 
     def _encode_text(self, text: str) -> np.ndarray:
-        cached = self._embedding_cache.get(text)
-        if cached is not None:
-            return cached
-        model = self.runtime.get_sentence_transformer_model()
-        try:
-            encoded = model.encode(text, normalize_embeddings=True)
-        except TypeError:
-            encoded = model.encode(text)
-        vector = np.asarray(encoded, dtype=float)
-        if vector.ndim != 1:
-            vector = vector.reshape(-1)
-        norm = np.linalg.norm(vector)
-        if norm > 0:
-            vector = vector / norm
-        self._embedding_cache[text] = vector
-        return vector
+        return self.runtime.encode_text(text)
 
     @staticmethod
     def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
