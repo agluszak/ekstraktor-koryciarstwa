@@ -241,6 +241,9 @@ class OrganizationMentionClassifier:
     def _semantic_organization_kind(
         self, features: OrganizationMentionFeatures
     ) -> OrganizationKind:
+        if self.runtime is None:
+            return OrganizationKind.ORGANIZATION
+
         if not self._public_embeddings:
             self._public_embeddings = self.runtime.encode_texts(list(PUBLIC_REPRESENTATIVES))
             self._company_embeddings = self.runtime.encode_texts(list(COMPANY_REPRESENTATIVES))
