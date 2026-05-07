@@ -51,7 +51,7 @@ class SecondaryFactScore:
 
 @dataclass(frozen=True, slots=True)
 class SecondarySentenceMetadata:
-    """Sentence-level fact fields precomputed once and reused across fact builders."""
+    """Precomputed sentence context and fact metadata reused across fact builders."""
 
     time_scope: TimeScope
     event_date: str | None
