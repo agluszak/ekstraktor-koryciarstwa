@@ -198,7 +198,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 Mention(
                     text=surface,
                     normalized_text=canonical_name,
-                    mention_type=EntityType.PERSON.value,
+                    mention_type=EntityType.PERSON,
                     sentence_index=sentence_index,
                     paragraph_index=paragraph_index,
                     start_char=start_char,
@@ -476,7 +476,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             Mention(
                 text=surface,
                 normalized_text=canonical,
-                mention_type=EntityType.PERSON.value,
+                mention_type=EntityType.PERSON,
                 sentence_index=sentence_index,
                 paragraph_index=paragraph_index,
                 start_char=start_char,

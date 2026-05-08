@@ -24,6 +24,12 @@ class EntityType(StrEnum):
     LOCATION = "Location"
 
 
+class MentionType(StrEnum):
+    RESOLVED_PERSON_REFERENCE = "ResolvedPersonReference"
+    RESOLVED_ORG_REFERENCE = "ResolvedOrgReference"
+    RESOLVED_ORG_ANAPHOR = "ResolvedOrgAnaphor"
+
+
 class FactType(StrEnum):
     APPOINTMENT = "APPOINTMENT"
     DISMISSAL = "DISMISSAL"

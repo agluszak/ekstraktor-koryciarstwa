@@ -16,6 +16,7 @@ from pipeline.domain_types import (
     IdentityHypothesisReason,
     IdentityHypothesisStatus,
     KinshipDetail,
+    MentionType,
     NERLabel,
     OrganizationKind,
     ProxyKind,
@@ -170,7 +171,7 @@ class ParsedSentence:
 class Mention:
     text: str
     normalized_text: str
-    mention_type: EntityType | str
+    mention_type: EntityType | MentionType | str
     sentence_index: int
     paragraph_index: int = 0
     start_char: int = 0

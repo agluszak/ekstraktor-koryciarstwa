@@ -8,7 +8,7 @@ from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityID, EntityType
+from pipeline.domain_types import EntityID, EntityType, MentionType
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
@@ -108,11 +108,11 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     # representative text is not a bare generic noun (too ambiguous).
                     representative_entity = self._match_org_entity(org_by_name, representative_text)
                     if representative_entity is not None:
-                        mention_type = "ResolvedOrgReference"
+                        mention_type = MentionType.RESOLVED_ORG_REFERENCE
                     else:
                         continue
                 else:
-                    mention_type = "ResolvedPersonReference"
+                    mention_type = MentionType.RESOLVED_PERSON_REFERENCE
 
                 for mention in chain.mentions:
                     sentence_index = mention.sentence
@@ -217,7 +217,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     Mention(
                         text=sentence.text[start_idx : start_idx + len(marker)],
                         normalized_text=normalize_entity_name(marker),
-                        mention_type="ResolvedOrgAnaphor",
+                        mention_type=MentionType.RESOLVED_ORG_ANAPHOR,
                         sentence_index=sentence.sentence_index,
                         paragraph_index=sentence.paragraph_index,
                         start_char=abs_start,

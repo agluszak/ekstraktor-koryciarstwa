@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
-from pipeline.domain_types import DocumentID, EntityID, EntityType
+from pipeline.domain_types import DocumentID, EntityID, EntityType, MentionType
 from pipeline.models import ArticleDocument, Entity, SentenceFragment
 
 
@@ -114,4 +114,4 @@ def test_coref_resolved_mentions_preserve_exact_offsets(monkeypatch) -> None:
     assert m.start_char == 27
     assert m.end_char == 29
     assert m.entity_id == "person-1"
-    assert m.mention_type == "ResolvedPersonReference"
+    assert m.mention_type == MentionType.RESOLVED_PERSON_REFERENCE
