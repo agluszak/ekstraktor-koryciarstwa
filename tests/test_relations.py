@@ -205,6 +205,9 @@ def build_extraction_context(
     document: ArticleDocument,
 ) -> tuple[ExtractionContext, SentenceFragment]:
     config = PipelineConfig.from_file("config.yaml")
+    ExtractionContext.build(document)
+    ExtractionContext.build(document)
+    ExtractionContext.build(document)
     SharedEntityEnricher(config).run(document)
     context = ExtractionContext.build(document)
     sentence = document.sentences[0]
@@ -1247,6 +1250,130 @@ def test_headline_party_context_links_next_sentence_person() -> None:
     assert party_facts
     assert party_facts[0].object_entity_id is not None
     assert entity_names[party_facts[0].object_entity_id] == "Polskie Stronnictwo Ludowe"
+
+
+def test_cross_sentence_party_context_uses_public_office_role_kind() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    sentence0 = "Wiceminister Polskiego Stronnictwa Ludowego"
+    sentence1 = "Jan Kowalski zabrał głos."
+    text = f"{sentence0}. {sentence1}"
+    document = ArticleDocument(
+        document_id=DocumentID("doc-party-role-kind"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[sentence0, sentence1],
+        sentences=[
+            SentenceFragment(
+                text=sentence0,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(sentence0),
+            ),
+            SentenceFragment(
+                text=sentence1,
+                paragraph_index=1,
+                sentence_index=1,
+                start_char=len(sentence0) + 2,
+                end_char=len(text),
+            ),
+        ],
+        entities=[
+            Entity(
+                entity_id=EntityID("party-role-kind"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Polskiego Stronnictwa Ludowego",
+                normalized_name="Polskiego Stronnictwa Ludowego",
+            ),
+            Entity(
+                entity_id=EntityID("person-role-kind"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Polskiego Stronnictwa Ludowego",
+                normalized_text="Polskiego Stronnictwa Ludowego",
+                mention_type="PoliticalParty",
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=sentence0.index("Polskiego"),
+                end_char=len(sentence0),
+                entity_id=EntityID("party-role-kind"),
+            ),
+            Mention(
+                text="Jan Kowalski",
+                normalized_text="Jan Kowalski",
+                mention_type="Person",
+                sentence_index=1,
+                paragraph_index=1,
+                start_char=text.index("Jan Kowalski"),
+                end_char=text.index("Jan Kowalski") + len("Jan Kowalski"),
+                entity_id=EntityID("person-role-kind"),
+            ),
+        ],
+        parsed_sentences={
+            0: [
+                word(1, "Wiceminister", "wiceminister", 0),
+                word(
+                    2,
+                    "Polskiego",
+                    "polski",
+                    sentence0.index("Polskiego"),
+                    head=3,
+                    deprel="amod",
+                    upos="ADJ",
+                ),
+                word(
+                    3,
+                    "Stronnictwa",
+                    "stronnictwo",
+                    sentence0.index("Stronnictwa"),
+                    head=1,
+                    deprel="nmod",
+                    upos="PROPN",
+                ),
+                word(
+                    4,
+                    "Ludowego",
+                    "ludowy",
+                    sentence0.index("Ludowego"),
+                    head=3,
+                    deprel="amod",
+                    upos="ADJ",
+                ),
+            ],
+            1: [
+                word(1, "Jan", "Jan", 0, head=2, deprel="flat", upos="PROPN"),
+                word(2, "Kowalski", "Kowalski", 4, head=3, deprel="nsubj", upos="PROPN"),
+                word(3, "zabrał", "zabrać", 13, upos="VERB"),
+                word(4, "głos", "głos", 20, head=3, deprel="obj"),
+            ],
+        },
+    )
+
+    ExtractionContext.build(document)
+    SharedEntityEnricher(config).run(document)
+    context = ExtractionContext.build(document)
+    sentence0_views = context.mention_views_in_sentence(0, ALL_ENTITY_TYPES)
+
+    assert any(
+        view.entity_type == EntityType.POSITION and view.role_kind == RoleKind.MINISTER
+        for view in sentence0_views
+    )
+
+    facts = CrossSentencePartyFactBuilder().build(document, context)
+    party_facts = [fact for fact in facts if fact.fact_type == FactType.PARTY_MEMBERSHIP]
+
+    assert party_facts
+    assert party_facts[0].object_entity_id is not None
+    entity_names = {entity.entity_id: entity.canonical_name for entity in document.entities}
+    assert entity_names[party_facts[0].object_entity_id] == "Polskiego Stronnictwa Ludowego"
 
 
 def test_segmenter_keeps_initials_with_surname() -> None:

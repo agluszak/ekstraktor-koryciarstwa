@@ -64,15 +64,7 @@ PARTY_CONTEXT_LEMMAS = frozenset(
         "prezes",
         "członek",
         "członkini",
-        "poseł",
-        "posłanka",
-        "senator",
-        "senatorka",
         "partia",
-        "radny",
-        "radna",
-        "wicewojewoda",
-        "wiceminister",
     }
 )
 PARTY_PROFILE_CONTEXT_LEMMAS = PARTY_CONTEXT_LEMMAS - frozenset({"prezes"})

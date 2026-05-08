@@ -10,6 +10,7 @@ from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
+    ClusterMention,
     ClusterMentionView,
     EntityCluster,
     ParsedWord,
@@ -20,6 +21,7 @@ from pipeline.nlp_rules import (
 )
 from pipeline.relation_signals import (
     _other_person_between,
+    _supports_descriptive_tail_link,
     candidate_head_word,
     candidate_words,
     party_context_window_supports,
@@ -366,9 +368,6 @@ def _resolve_public_employment_employer(
     # 3. Document-level fallback
     fallback_clusters = _document_level_employer_candidates(context.document, clause, config=config)
     if fallback_clusters:
-        # Use a sentinel view for document-level fallback
-        from pipeline.domains.kinship import _cluster_to_view
-
         best_cluster = min(
             fallback_clusters,
             key=lambda cluster: _cluster_clause_distance(cluster, clause),
@@ -571,6 +570,22 @@ def _cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> int:
         ),
         default=9999,
     )
+
+
+def _cluster_to_view(cluster: EntityCluster) -> ClusterMentionView:
+    mention = (
+        cluster.mentions[0]
+        if cluster.mentions
+        else ClusterMention(
+            text=cluster.canonical_name,
+            entity_type=cluster.entity_type,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=0,
+        )
+    )
+    return ClusterMentionView(cluster=cluster, mention=mention)
 
 
 def _score(

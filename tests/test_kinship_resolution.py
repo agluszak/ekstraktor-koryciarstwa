@@ -148,6 +148,144 @@ def test_kinship_apposition_emits_spouse_tie() -> None:
     assert facts[0].relationship_type == "family"
 
 
+def test_kinship_apposition_handles_sparse_dependency_indices() -> None:
+    sentence_text = (
+        "Marszałek powołał Sylwię Sobolewską, żonę byłego sekretarza Krzysztofa Sobolewskiego."
+    )
+    sentence = SentenceFragment(
+        text=sentence_text,
+        paragraph_index=0,
+        sentence_index=0,
+        start_char=0,
+        end_char=len(sentence_text),
+    )
+    sylwia_start = sentence_text.index("Sylwię")
+    krzysztof_start = sentence_text.index("Krzysztofa")
+    kinship_start = sentence_text.index("żonę")
+    former_start = sentence_text.index("byłego")
+    secretary_start = sentence_text.index("sekretarza")
+    doc = ArticleDocument(
+        document_id=DocumentID("doc-kinship-sparse-indices"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date="2026-04-22",
+        cleaned_text=sentence_text,
+        paragraphs=[sentence_text],
+        sentences=[sentence],
+        parsed_sentences={
+            0: [
+                ParsedWord(11, "Marszałek", "marszałek", "NOUN", 12, "nsubj", 0, 9),
+                ParsedWord(12, "powołał", "powołać", "VERB", 0, "root", 10, 17),
+                ParsedWord(
+                    13,
+                    "Sylwię",
+                    "Sylwia",
+                    "PROPN",
+                    12,
+                    "obj",
+                    sylwia_start,
+                    sylwia_start + 6,
+                ),
+                ParsedWord(
+                    14,
+                    "Sobolewską",
+                    "Sobolewska",
+                    "PROPN",
+                    13,
+                    "flat",
+                    sylwia_start + 7,
+                    sylwia_start + 17,
+                ),
+                ParsedWord(
+                    15,
+                    "żonę",
+                    "żona",
+                    "NOUN",
+                    13,
+                    "appos",
+                    kinship_start,
+                    kinship_start + 4,
+                ),
+                ParsedWord(16, "byłego", "były", "ADJ", 17, "amod", former_start, former_start + 6),
+                ParsedWord(
+                    17,
+                    "sekretarza",
+                    "sekretarz",
+                    "NOUN",
+                    15,
+                    "nmod",
+                    secretary_start,
+                    secretary_start + 10,
+                ),
+                ParsedWord(
+                    18,
+                    "Krzysztofa",
+                    "Krzysztof",
+                    "PROPN",
+                    17,
+                    "flat",
+                    krzysztof_start,
+                    krzysztof_start + 10,
+                ),
+                ParsedWord(
+                    19,
+                    "Sobolewskiego",
+                    "Sobolewski",
+                    "PROPN",
+                    18,
+                    "flat",
+                    krzysztof_start + 11,
+                    krzysztof_start + 23,
+                ),
+            ]
+        },
+        clusters=[
+            EntityCluster(
+                cluster_id=ClusterID("cluster-sylwia-sparse"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Sylwia Sobolewska",
+                normalized_name="sylwia sobolewska",
+                mentions=[
+                    ClusterMention(
+                        text="Sylwię Sobolewską",
+                        entity_id=EntityID("person-sylwia-sparse"),
+                        entity_type=EntityType.PERSON,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=sylwia_start,
+                        end_char=sylwia_start + len("Sylwię Sobolewską"),
+                    )
+                ],
+            ),
+            EntityCluster(
+                cluster_id=ClusterID("cluster-krzysztof-sparse"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Krzysztof Sobolewski",
+                normalized_name="krzysztof sobolewski",
+                mentions=[
+                    ClusterMention(
+                        text="Krzysztofa Sobolewskiego",
+                        entity_id=EntityID("person-krzysztof-sparse"),
+                        entity_type=EntityType.PERSON,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=krzysztof_start,
+                        end_char=krzysztof_start + len("Krzysztofa Sobolewskiego"),
+                    )
+                ],
+            ),
+        ],
+    )
+
+    facts = KinshipTieBuilder().build(doc, ExtractionContext.build(doc))
+
+    assert len(facts) == 1
+    assert facts[0].subject_entity_id == "person-sylwia-sparse"
+    assert facts[0].object_entity_id == "person-krzysztof-sparse"
+    assert facts[0].kinship_detail == KinshipDetail.SPOUSE
+
+
 def test_kinship_builder_does_not_pair_nearest_previous_people_without_evidence() -> None:
     sentence = SentenceFragment(
         text="Jego żona później zrezygnowała.",

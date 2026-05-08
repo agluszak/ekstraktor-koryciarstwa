@@ -14,6 +14,7 @@ from pipeline.domain_types import (
     TimeScope,
 )
 from pipeline.extraction_context import ALL_ENTITY_TYPES, ExtractionContext
+from pipeline.lemma_signals import word_by_index
 from pipeline.models import (
     ArticleDocument,
     ClusterMentionView,
@@ -123,7 +124,7 @@ class KinshipTieBuilder:
 
         # Check for coreferent pronouns or direct mentions
         for idx in subject_indices:
-            word = parsed_words[idx - 1] if 0 < idx <= len(parsed_words) else None
+            word = word_by_index(parsed_words, idx)
             if not word:
                 continue
 

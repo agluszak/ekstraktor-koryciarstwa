@@ -5,6 +5,7 @@ from pipeline.attribution import (
     resolve_party_attributions,
     resolve_political_role_attributions,
 )
+from pipeline.domain_lexicons import PUBLIC_OFFICE_ROLE_KINDS
 from pipeline.domain_types import (
     EntityID,
     EntityType,
@@ -55,6 +56,22 @@ _PARTY_TYPES = {EntityType.POLITICAL_PARTY}
 _POSITION_TYPES = {EntityType.POSITION}
 _ORG_TYPES = {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
 _LOCATION_TYPES = {EntityType.LOCATION}
+_PARTY_CONTEXT_FALLBACK_MARKERS = ("działacz", "polityk", "lider", "członk", "parti")
+
+
+def _has_party_profile_context(
+    sentence_views: list[ClusterMentionView],
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+) -> bool:
+    if any(
+        view.entity_type == EntityType.POSITION and view.role_kind in PUBLIC_OFFICE_ROLE_KINDS
+        for view in sentence_views
+    ):
+        return True
+    if parsed_words:
+        return any(word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS for word in parsed_words)
+    return any(marker in lowered_text for marker in _PARTY_CONTEXT_FALLBACK_MARKERS)
 
 
 class PoliticalProfileFactExtractor:
@@ -184,15 +201,7 @@ class CrossSentencePartyFactBuilder:
                 continue
             lowered = sentence.text.lower()
             parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
-            if parsed_words:
-                has_party_context = any(
-                    word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS for word in parsed_words
-                )
-            else:
-                has_party_context = any(
-                    marker in lowered
-                    for marker in ("działacz", "polityk", "radn", "lider", "członk")
-                )
+            has_party_context = _has_party_profile_context(sentence_views, parsed_words, lowered)
             has_omitted_subject_trigger = self._has_omitted_subject_party_trigger(
                 parsed_words, lowered
             )
