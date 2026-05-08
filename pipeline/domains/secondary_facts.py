@@ -20,8 +20,8 @@ from pipeline.extraction_context import (
 )
 from pipeline.models import (
     ArticleDocument,
-    ClusterMention,
     ClusterMentionView,
+    EntityCluster,
     Fact,
     ParsedWord,
     SentenceFragment,
@@ -153,7 +153,14 @@ class TieFactExtractor:
             anchor=anchor,
         )
         confidence = 0.72
-        score = SecondaryFactScorer.tie(parsed_words, source, target, trigger, confidence)
+        score = SecondaryFactScorer.tie(
+            parsed_words,
+            source,
+            target,
+            trigger,
+            confidence,
+            sentence_start=sentence.start_char,
+        )
         return [
             build_secondary_fact(
                 document=document,
@@ -232,7 +239,7 @@ class TieFactExtractor:
                 ]
                 for marker in public_role_markers
             )
-            and not is_quote_speaker_risk(parsed_words, person)
+            and not _quote_speaker_risk_in_sentence(parsed_words, person, sentence)
         ]
         if not public_actors:
             return []
@@ -255,7 +262,7 @@ class TieFactExtractor:
             and person.canonical_name.split()
             and not _person_name_looks_like_company(person.canonical_name)
             and person.canonical_name.split()[-1].lower() in f"{org_names} {document_org_names}"
-            and not is_quote_speaker_risk(parsed_words, person)
+            and not _quote_speaker_risk_in_sentence(parsed_words, person, sentence)
         ]
         owner_candidates.extend(
             _document_owner_person_candidates(
@@ -284,7 +291,7 @@ class TieFactExtractor:
                     ]
                     for marker in owner_markers
                 )
-                and not is_quote_speaker_risk(parsed_words, person)
+                and not _quote_speaker_risk_in_sentence(parsed_words, person, sentence)
             )
         if not owner_candidates:
             return []
@@ -344,7 +351,7 @@ class TieFactExtractor:
             if candidate.entity_id != source.entity_id
             and self._has_complaint_power_context(paragraph_text, candidate)
             and not self._looks_like_complaint_recipient(paragraph_text, candidate)
-            and not is_quote_speaker_risk(parsed_words, candidate)
+            and not _quote_speaker_risk_in_sentence(parsed_words, candidate, sentence)
         ]
         if not target_candidates:
             return []
@@ -413,7 +420,8 @@ class TieFactExtractor:
             [
                 v
                 for v in sentence_views
-                if v.entity_type == EntityType.PERSON and not is_quote_speaker_risk(parsed_words, v)
+                if v.entity_type == EntityType.PERSON
+                and not _quote_speaker_risk_in_sentence(parsed_words, v, sentence)
             ]
         )
         if not sentence_persons:
@@ -422,7 +430,7 @@ class TieFactExtractor:
                     v
                     for v in paragraph_views
                     if v.entity_type == EntityType.PERSON
-                    and not is_quote_speaker_risk(parsed_words, v)
+                    and not _quote_speaker_risk_in_sentence(parsed_words, v, sentence)
                 ]
             )
         if not sentence_persons:
@@ -545,19 +553,37 @@ def _document_owner_person_candidates(
         cluster = context.cluster_by_entity_id(entity.entity_id)
         if cluster is None:
             continue
-        # Synthetic mention with zero offsets: positional fields are not used here
-        # (only canonical_name / entity_id are needed for tie fact construction).
-        synthetic_mention = ClusterMention(
-            text=entity.canonical_name,
-            entity_type=EntityType.PERSON,
-            sentence_index=sentence.sentence_index,
-            paragraph_index=sentence.paragraph_index,
-            start_char=0,
-            end_char=0,
-            entity_id=entity.entity_id,
-        )
-        views.append(ClusterMentionView(cluster=cluster, mention=synthetic_mention))
+        view = _cluster_view_closest_to_sentence(cluster, sentence)
+        if view is not None:
+            views.append(view)
     return views
+
+
+def _cluster_view_closest_to_sentence(
+    cluster: EntityCluster,
+    sentence: SentenceFragment,
+) -> ClusterMentionView | None:
+    if not cluster.mentions:
+        return None
+    mention = min(
+        cluster.mentions,
+        key=lambda candidate: (
+            candidate.sentence_index != sentence.sentence_index,
+            candidate.paragraph_index != sentence.paragraph_index,
+            abs(candidate.start_char - sentence.start_char),
+        ),
+    )
+    return ClusterMentionView(cluster=cluster, mention=mention)
+
+
+def _quote_speaker_risk_in_sentence(
+    parsed_words: list[ParsedWord],
+    view: ClusterMentionView,
+    sentence: SentenceFragment,
+) -> bool:
+    if view.sentence_index != sentence.sentence_index:
+        return False
+    return is_quote_speaker_risk(parsed_words, view, sentence_start=sentence.start_char)
 
 
 def _person_name_looks_like_company(name: str) -> bool:

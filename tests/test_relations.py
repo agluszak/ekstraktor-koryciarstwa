@@ -110,7 +110,16 @@ def prepare_for_relation_extraction(
     shared_runtime = runtime or PipelineRuntime(config)
     document = PolishEntityClusterer(config).run(document)
     document = StanzaClauseParser(config, shared_runtime).run(document)
+    document = SharedEntityEnricher(config, runtime=shared_runtime).run(document)
     return PolishFrameExtractor(config).run(document)
+
+
+def run_fact_extractor_with_enrichment(
+    config: PipelineConfig,
+    document: ArticleDocument,
+) -> ArticleDocument:
+    SharedEntityEnricher(config).run(document)
+    return PolishFactExtractor(config).run(document)
 
 
 def prepared_single_clause_document(
@@ -205,9 +214,6 @@ def build_extraction_context(
     document: ArticleDocument,
 ) -> tuple[ExtractionContext, SentenceFragment]:
     config = PipelineConfig.from_file("config.yaml")
-    ExtractionContext.build(document)
-    ExtractionContext.build(document)
-    ExtractionContext.build(document)
     SharedEntityEnricher(config).run(document)
     context = ExtractionContext.build(document)
     sentence = document.sentences[0]
@@ -372,8 +378,10 @@ def test_proxy_person_does_not_emit_office_or_candidacy_facts() -> None:
     )
     document.entities[0].is_proxy_person = True
     document.entities[0].kinship_detail = KinshipDetail.PARTNER
+    document.clusters[0].is_proxy_person = True
+    document.clusters[0].kinship_detail = KinshipDetail.PARTNER
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     assert not any(fact.fact_type == FactType.POLITICAL_OFFICE for fact in extracted.facts)
     assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
@@ -405,7 +413,7 @@ def test_kinship_phrase_does_not_attach_office_to_relative_name() -> None:
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     offices = [fact for fact in extracted.facts if fact.fact_type == FactType.POLITICAL_OFFICE]
     assert not any(fact.subject_entity_id == EntityID("entity-0") for fact in offices)
@@ -573,7 +581,7 @@ def test_razem_party_alias_yields_membership_fact() -> None:
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     assert any(
         fact.fact_type == FactType.PARTY_MEMBERSHIP and fact.value_normalized == "Razem"
@@ -657,7 +665,7 @@ def test_omitted_subject_party_membership_attaches_to_previous_unique_person() -
         ],
     }
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     assert any(
         fact.fact_type == FactType.PARTY_MEMBERSHIP
@@ -1317,6 +1325,42 @@ def test_cross_sentence_party_context_uses_public_office_role_kind() -> None:
                 entity_id=EntityID("person-role-kind"),
             ),
         ],
+        clusters=[
+            EntityCluster(
+                cluster_id=ClusterID("cluster-party-role-kind"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Polskiego Stronnictwa Ludowego",
+                normalized_name="Polskiego Stronnictwa Ludowego",
+                mentions=[
+                    ClusterMention(
+                        text="Polskiego Stronnictwa Ludowego",
+                        entity_type=EntityType.POLITICAL_PARTY,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=sentence0.index("Polskiego"),
+                        end_char=len(sentence0),
+                        entity_id=EntityID("party-role-kind"),
+                    )
+                ],
+            ),
+            EntityCluster(
+                cluster_id=ClusterID("cluster-person-role-kind"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+                mentions=[
+                    ClusterMention(
+                        text="Jan Kowalski",
+                        entity_type=EntityType.PERSON,
+                        sentence_index=1,
+                        paragraph_index=1,
+                        start_char=text.index("Jan Kowalski"),
+                        end_char=text.index("Jan Kowalski") + len("Jan Kowalski"),
+                        entity_id=EntityID("person-role-kind"),
+                    )
+                ],
+            ),
+        ],
         parsed_sentences={
             0: [
                 word(1, "Wiceminister", "wiceminister", 0),
@@ -1357,7 +1401,6 @@ def test_cross_sentence_party_context_uses_public_office_role_kind() -> None:
         },
     )
 
-    ExtractionContext.build(document)
     SharedEntityEnricher(config).run(document)
     context = ExtractionContext.build(document)
     sentence0_views = context.mention_views_in_sentence(0, ALL_ENTITY_TYPES)
@@ -2380,7 +2423,7 @@ def test_named_person_referral_to_cba_emits_anti_corruption_fact() -> None:
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     referrals = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
@@ -2403,7 +2446,7 @@ def test_party_referral_to_cba_uses_party_actor_when_no_person_present() -> None
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     referrals = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
@@ -2433,7 +2476,7 @@ def test_referral_context_uses_stanza_lemmas_for_inflected_trigger() -> None:
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     referrals = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_REFERRAL
@@ -2467,7 +2510,7 @@ def test_cba_investigation_and_procurement_abuse_emit_public_abuse_facts() -> No
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     investigations = [
         fact for fact in extracted.facts if fact.fact_type == FactType.ANTI_CORRUPTION_INVESTIGATION
@@ -2485,6 +2528,8 @@ def test_cba_investigation_and_procurement_abuse_emit_public_abuse_facts() -> No
 def test_cross_sentence_party_context_uses_profile_lemma() -> None:
     text_1 = "Kandydatka PSL pracowała wcześniej w urzędzie."
     text_2 = "Anna Nowak została dyrektorem spółki."
+    party_start = text_1.index("PSL")
+    person_start = len(text_1) + 1
     document = ArticleDocument(
         document_id=DocumentID("doc-cross-party-lemma"),
         source_url=None,
@@ -2530,6 +2575,8 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
                 mention_type="PoliticalParty",
                 sentence_index=0,
                 paragraph_index=0,
+                start_char=party_start,
+                end_char=party_start + len("PSL"),
                 entity_id=EntityID("party-1"),
             ),
             Mention(
@@ -2538,7 +2585,45 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
                 mention_type="Person",
                 sentence_index=1,
                 paragraph_index=0,
+                start_char=person_start,
+                end_char=person_start + len("Anna Nowak"),
                 entity_id=EntityID("person-1"),
+            ),
+        ],
+        clusters=[
+            EntityCluster(
+                cluster_id=ClusterID("cluster-party-1"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Polskie Stronnictwo Ludowe",
+                normalized_name="Polskie Stronnictwo Ludowe",
+                mentions=[
+                    ClusterMention(
+                        text="PSL",
+                        entity_type=EntityType.POLITICAL_PARTY,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=party_start,
+                        end_char=party_start + len("PSL"),
+                        entity_id=EntityID("party-1"),
+                    )
+                ],
+            ),
+            EntityCluster(
+                cluster_id=ClusterID("cluster-person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Anna Nowak",
+                normalized_name="Anna Nowak",
+                mentions=[
+                    ClusterMention(
+                        text="Anna Nowak",
+                        entity_type=EntityType.PERSON,
+                        sentence_index=1,
+                        paragraph_index=0,
+                        start_char=person_start,
+                        end_char=person_start + len("Anna Nowak"),
+                        entity_id=EntityID("person-1"),
+                    )
+                ],
             ),
         ],
     )
@@ -2697,7 +2782,7 @@ def test_public_employment_uses_adjacent_public_employer_context() -> None:
     ]
     document = PolishFrameExtractor(config).run(document)
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
     assert appointments
@@ -2737,7 +2822,7 @@ def test_public_employment_entry_wording_emits_appointment_with_job_label() -> N
 
     document = PolishFrameExtractor(config).run(document)
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     appointments = [fact for fact in extracted.facts if fact.fact_type == FactType.APPOINTMENT]
     assert appointments
@@ -2777,7 +2862,7 @@ def test_public_employment_status_wording_emits_role_held() -> None:
 
     document = PolishFrameExtractor(config).run(document)
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
     assert role_facts
@@ -2826,7 +2911,7 @@ def test_public_employment_past_status_emits_former_scope_and_period() -> None:
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     role_facts = [fact for fact in extracted.facts if fact.fact_type == FactType.ROLE_HELD]
     assert role_facts
@@ -3110,7 +3195,7 @@ def test_public_contract_emits_one_fact_per_public_counterparty_with_same_amount
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 2
@@ -3145,7 +3230,7 @@ def test_paid_promotion_public_money_flow_emits_public_contract() -> None:
 
     SharedEntityEnricher(config).run(document)
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 1
@@ -3185,7 +3270,7 @@ def test_public_contract_detects_zlecenia_with_amount_from_public_company() -> N
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     contracts = [fact for fact in extracted.facts if fact.fact_type == FactType.PUBLIC_CONTRACT]
     assert len(contracts) == 1
@@ -3204,7 +3289,7 @@ def test_generic_contract_sentence_without_parties_does_not_emit_public_contract
     )
 
     document = PolishFrameExtractor(config).run(document)
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     assert not any(fact.fact_type == FactType.PUBLIC_CONTRACT for fact in extracted.facts)
 
@@ -3230,7 +3315,7 @@ def test_zalozona_does_not_trigger_family_tie() -> None:
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     assert not any(
         fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
@@ -3255,7 +3340,7 @@ def test_owner_context_collaborator_tie_skips_quote_attribution_person() -> None
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     ties = [
         fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE
@@ -3294,7 +3379,7 @@ def test_patronage_complaint_context_emits_tie_without_article_specific_name_pat
         ],
     )
 
-    extracted = PolishFactExtractor(config).run(document)
+    extracted = run_fact_extractor_with_enrichment(config, document)
 
     ties = [
         fact for fact in extracted.facts if fact.fact_type == FactType.PERSONAL_OR_POLITICAL_TIE

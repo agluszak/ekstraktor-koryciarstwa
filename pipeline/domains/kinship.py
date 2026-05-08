@@ -138,7 +138,6 @@ class KinshipTieBuilder:
                     and mention.start_char <= abs_start
                     and mention.end_char >= abs_end
                     and mention.entity_id is not None
-                    and mention.mention_type in {EntityType.PERSON, "ResolvedPersonReference"}
                 ):
                     for view in sentence_persons:
                         if view.entity_id == mention.entity_id:
@@ -520,5 +519,4 @@ def _build_views_by_entity_id(
         entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id), None)
         if entity_id is not None and entity_id not in result:
             result[entity_id] = _cluster_to_view(cluster)
-    return result
     return result

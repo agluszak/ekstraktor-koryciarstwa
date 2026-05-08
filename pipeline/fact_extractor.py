@@ -3,7 +3,6 @@ from __future__ import annotations
 from pipeline.base import FactExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_registry import DomainRegistry, build_default_domain_registry
-from pipeline.enrichment import SharedEntityEnricher
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import ArticleDocument, Fact
 from pipeline.normalization import DocumentEntityCanonicalizer
@@ -17,14 +16,12 @@ class PolishFactExtractor(FactExtractor):
     ) -> None:
         self.config = config
         self.canonicalizer = DocumentEntityCanonicalizer(config)
-        self.enricher = SharedEntityEnricher(config)
         self.registry = registry or build_default_domain_registry(config)
 
     def name(self) -> str:
         return "polish_fact_extractor"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        document = self.enricher.run(document)
         extraction_context = ExtractionContext.build(document)
         facts: list[Fact] = list(document.facts)
 

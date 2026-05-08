@@ -25,7 +25,6 @@ from pipeline.models import (
     EntityCluster,
     EvidenceSpan,
 )
-from pipeline.utils import stable_id
 
 ALL_ENTITY_TYPES: frozenset[EntityType] = frozenset(
     {
@@ -37,71 +36,6 @@ ALL_ENTITY_TYPES: frozenset[EntityType] = frozenset(
         EntityType.LOCATION,
     }
 )
-
-
-def _materialize_clusters_from_mentions(document: ArticleDocument) -> None:
-    entities_by_id = {entity.entity_id: entity for entity in document.entities}
-    mentions_by_entity: dict[EntityID, list[ClusterMention]] = {}
-    for mention in document.mentions:
-        if mention.entity_id is None:
-            continue
-        entity = entities_by_id.get(mention.entity_id)
-        if entity is None:
-            continue
-        mentions_by_entity.setdefault(mention.entity_id, []).append(
-            ClusterMention(
-                text=mention.text,
-                entity_type=entity.entity_type,
-                sentence_index=mention.sentence_index,
-                paragraph_index=mention.paragraph_index,
-                start_char=mention.start_char,
-                end_char=mention.end_char,
-                entity_id=mention.entity_id,
-                ner_label=mention.ner_label,
-            )
-        )
-    for entity_id, mentions in mentions_by_entity.items():
-        entity = entities_by_id[entity_id]
-        document.clusters.append(
-            EntityCluster(
-                cluster_id=ClusterID(stable_id("cluster", document.document_id, entity_id)),
-                entity_type=entity.entity_type,
-                canonical_name=entity.canonical_name,
-                normalized_name=entity.normalized_name,
-                mentions=mentions,
-                aliases=list(entity.aliases),
-                lemmas=list(entity.lemmas),
-                organization_kind=entity.organization_kind,
-                is_proxy_person=entity.is_proxy_person,
-                proxy_kind=entity.proxy_kind,
-                kinship_detail=entity.kinship_detail,
-                proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
-                role_kind=entity.role_kind,
-                role_modifier=entity.role_modifier,
-            )
-        )
-
-
-def _sync_cluster_entity_metadata(document: ArticleDocument) -> None:
-    entities_by_id = {entity.entity_id: entity for entity in document.entities}
-    for cluster in document.clusters:
-        entity_id = next(
-            (mention.entity_id for mention in cluster.mentions if mention.entity_id),
-            None,
-        )
-        if entity_id is None:
-            continue
-        entity = entities_by_id.get(entity_id)
-        if entity is None:
-            continue
-        cluster.entity_type = entity.entity_type
-        cluster.organization_kind = entity.organization_kind
-        cluster.is_proxy_person = entity.is_proxy_person
-        cluster.proxy_kind = entity.proxy_kind
-        cluster.kinship_detail = entity.kinship_detail
-        cluster.proxy_anchor_entity_id = entity.proxy_anchor_entity_id
-        cluster.role_kind = entity.role_kind
-        cluster.role_modifier = entity.role_modifier
 
 
 @dataclass(slots=True)
@@ -122,9 +56,6 @@ class ExtractionContext:
 
     @classmethod
     def build(cls, document: ArticleDocument) -> ExtractionContext:
-        if not document.clusters and document.mentions:
-            _materialize_clusters_from_mentions(document)
-        _sync_cluster_entity_metadata(document)
         return cls(document=document)
 
     def __post_init__(self) -> None:

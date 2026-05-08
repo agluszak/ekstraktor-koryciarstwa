@@ -70,6 +70,8 @@ class SecondaryFactScorer:
         target: ClusterMentionView,
         trigger: str,
         edge_confidence: float,
+        *,
+        sentence_start: int,
     ) -> SecondaryFactScore:
         strong_triggers = {"przyjaciel", "doradca", "rekomendować", "rekomendacja"}
         distance = abs(source.start_char - target.start_char)
@@ -82,9 +84,9 @@ class SecondaryFactScorer:
         if distance > 120:
             confidence -= 0.12
             reason += ":long_distance"
-        if is_quote_speaker_risk(parsed_words, source) or is_quote_speaker_risk(
-            parsed_words, target
-        ):
+        if is_quote_speaker_risk(
+            parsed_words, source, sentence_start=sentence_start
+        ) or is_quote_speaker_risk(parsed_words, target, sentence_start=sentence_start):
             confidence -= 0.12
             reason += ":quote_speaker_risk"
         return cls._score(confidence, signal, "same_sentence", reason)
@@ -164,6 +166,9 @@ def build_secondary_fact(
             sentence=sentence,
             parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
         )
+    object_stable_id_part = (
+        object_candidate.entity_id or object_candidate.cluster_id if object_candidate else ""
+    )
     f = Fact(
         fact_id=FactID(
             stable_id(
@@ -171,9 +176,7 @@ def build_secondary_fact(
                 document.document_id,
                 fact_type,
                 subject.entity_id or subject.cluster_id,
-                object_candidate.entity_id or object_candidate.cluster_id
-                if object_candidate
-                else "",
+                object_stable_id_part,
                 value_normalized or value_text or "",
                 sentence_metadata.evidence.text,
             )

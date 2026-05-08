@@ -28,7 +28,7 @@ def candidate_words(
     parsed_words: list[ParsedWord],
     candidate: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> list[ParsedWord]:
     local_start = candidate.start_char - sentence_start
     local_end = candidate.end_char - sentence_start
@@ -43,7 +43,7 @@ def candidate_head_word(
     parsed_words: list[ParsedWord],
     candidate: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> ParsedWord | None:
     words = candidate_words(parsed_words, candidate, sentence_start=sentence_start)
     if not words:
@@ -57,7 +57,7 @@ def between_candidates_text(
     left: ClusterMentionView,
     right: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> str:
     between_start = min(left.end_char, right.end_char) - sentence_start
     between_end = max(left.start_char, right.start_char) - sentence_start
@@ -68,7 +68,7 @@ def is_quote_speaker_risk(
     parsed_words: list[ParsedWord],
     candidate: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> bool:
     overlapping_words = candidate_words(parsed_words, candidate, sentence_start=sentence_start)
     if not overlapping_words:
@@ -95,7 +95,7 @@ def party_syntactic_signal(
     lowered_text: str,
     person: ClusterMentionView,
     party: ClusterMentionView,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> str | None:
     party_word = candidate_head_word(parsed_words, party, sentence_start=sentence_start)
     person_words = candidate_words(parsed_words, person, sentence_start=sentence_start)
@@ -150,7 +150,7 @@ def party_context_window_supports(
     party: ClusterMentionView,
     window_before: int = 8,
     window_after: int = 16,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> bool:
     between_text = between_candidates_text(
         lowered_text,
@@ -176,7 +176,7 @@ def supports_party_link(
     parsed_words: list[ParsedWord],
     person: ClusterMentionView,
     party: ClusterMentionView,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> bool:
     lowered_text = sentence_text.lower()
     distance = abs(person.start_char - party.start_char)
@@ -243,7 +243,7 @@ def person_role_syntactic_signal(
     person: ClusterMentionView,
     role: ClusterMentionView,
     sentence_persons: list[ClusterMentionView],
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> str | None:
     if person.is_proxy_person and _candidate_contains(person, role):
         return None
@@ -295,7 +295,7 @@ def supports_person_role_link(
     person: ClusterMentionView,
     role: ClusterMentionView,
     sentence_persons: list[ClusterMentionView],
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> bool:
     lowered_text = sentence_text.casefold()
     signal = person_role_syntactic_signal(
@@ -361,7 +361,7 @@ def _supports_descriptive_tail_link(
     person: ClusterMentionView,
     target: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> bool:
     """Check if the target is a descriptive appositive of the person.
 

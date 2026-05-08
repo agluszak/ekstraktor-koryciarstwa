@@ -118,10 +118,9 @@ class PoliticalProfileFactExtractor:
                 person,
                 governance_signal=governance_signal,
             ):
-                time_scope_val = _sentence_time_scope(document, sentence, parsed_words)
                 fact_type = (
                     FactType.FORMER_PARTY_MEMBERSHIP
-                    if time_scope_val == TimeScope.FORMER
+                    if sentence_metadata.time_scope == TimeScope.FORMER
                     else FactType.PARTY_MEMBERSHIP
                 )
                 facts.append(
@@ -349,19 +348,3 @@ class CrossSentencePartyFactBuilder:
             evidence_scope=evidence_scope,
             party=party.canonical_name,
         )
-
-
-def _sentence_time_scope(
-    document: ArticleDocument,
-    sentence: SentenceFragment,
-    parsed_words: list[ParsedWord],
-) -> TimeScope:
-    from pipeline.grammar_signals import infer_time_scope_with_temporal_context
-
-    return infer_time_scope_with_temporal_context(
-        sentence.text,
-        parsed_words,
-        temporal_expressions=document.temporal_expressions,
-        sentence_index=sentence.sentence_index,
-        publication_date=document.publication_date,
-    )

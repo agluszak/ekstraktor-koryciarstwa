@@ -104,7 +104,7 @@ def _party_context_links_person(
     person: ClusterMentionView,
     party: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
 ) -> bool:
     party_word = candidate_head_word(parsed_words, party, sentence_start=sentence_start)
     person_words = candidate_words(parsed_words, person, sentence_start=sentence_start)
@@ -264,7 +264,7 @@ def _party_membership_score(
     person: ClusterMentionView,
     party: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
     syntactic_signal = party_syntactic_signal(
@@ -304,7 +304,7 @@ def _political_office_score(
     person: ClusterMentionView,
     role: ClusterMentionView,
     *,
-    sentence_start: int = 0,
+    sentence_start: int,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
     syntactic_signal = person_role_syntactic_signal(
