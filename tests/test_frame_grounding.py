@@ -12,6 +12,7 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
+    ClusterMentionView,
     Entity,
     EntityCluster,
     Mention,
@@ -224,7 +225,9 @@ def test_role_grounder_rejects_person_name_role_phrase() -> None:
     grounded = grounder.ground_public_employment_role(
         document,
         document.clause_units[0],
-        employee=document.clusters[0],
+        employee=ClusterMentionView(
+            cluster=document.clusters[0], mention=document.clusters[0].mentions[0]
+        ),
         role_cluster=None,
     )
 
@@ -255,7 +258,9 @@ def test_role_grounder_rejects_generic_date_dominated_phrase() -> None:
     grounded = grounder.ground_public_employment_role(
         document,
         document.clause_units[0],
-        employee=document.clusters[0],
+        employee=ClusterMentionView(
+            cluster=document.clusters[0], mention=document.clusters[0].mentions[0]
+        ),
         role_cluster=None,
     )
 

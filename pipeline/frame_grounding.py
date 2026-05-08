@@ -22,6 +22,7 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
+    ClusterMentionView,
     Entity,
     EntityCluster,
     EvidenceSpan,
@@ -124,11 +125,11 @@ class FrameSlotGrounder:
         document: ArticleDocument,
         clause: ClauseUnit,
         *,
-        employee: EntityCluster | None,
-        role_cluster: EntityCluster | None,
+        employee: ClusterMentionView | None,
+        role_cluster: ClusterMentionView | None,
     ) -> GroundedRoleLabel | None:
-        if role_cluster is not None and not self._is_public_office_role(role_cluster):
-            evidence = self._slot_evidence_for_cluster(clause, role_cluster)
+        if role_cluster is not None and not self._is_public_office_role(role_cluster.cluster):
+            evidence = self._slot_evidence_for_cluster(clause, role_cluster.cluster)
             if evidence is not None:
                 return GroundedRoleLabel(
                     label=role_cluster.canonical_name,
@@ -1014,17 +1015,15 @@ class FrameSlotGrounder:
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
-        employee: EntityCluster,
+        employee: ClusterMentionView,
     ) -> _RoleLabelCandidate | None:
         parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
         employee_words = [
             word
-            for mention in employee.mentions
-            if mention.sentence_index == clause.sentence_index
             for word in parsed_words
-            if self._mention_local_start(mention, clause)
+            if employee.start_char - clause.start_char
             <= word.start
-            < self._mention_local_end(mention, clause)
+            < employee.end_char - clause.start_char
         ]
         for employee_word in employee_words:
             stanowisko = self._first_descendant_with_lemma(

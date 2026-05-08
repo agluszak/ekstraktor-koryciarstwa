@@ -562,11 +562,11 @@ def test_razem_party_alias_yields_membership_fact() -> None:
         text=text,
         entities=[("Marcelina Zawisza", EntityType.PERSON, "Marcelina Zawisza")],
         parsed_words=[
-            word(1, "Marcelina", "Marcelina", 0, upos="PROPN"),
-            word(2, "Zawisza", "Zawisza", 10, upos="PROPN"),
-            word(3, "posłanka", "posłanka", text.index("posłanka")),
-            word(4, "partii", "partia", text.index("partii")),
-            word(5, "Razem", "Razem", text.index("Razem"), upos="PROPN"),
+            word(1, "Marcelina", "Marcelina", 0, head=2, deprel="flat", upos="PROPN"),
+            word(2, "Zawisza", "Zawisza", 10, head=0, deprel="root", upos="PROPN"),
+            word(3, "posłanka", "posłanka", text.index("posłanka"), head=2, deprel="appos"),
+            word(4, "partii", "partia", text.index("partii"), head=3, deprel="nmod"),
+            word(5, "Razem", "Razem", text.index("Razem"), head=4, deprel="nmod", upos="PROPN"),
         ],
     )
 
@@ -2793,9 +2793,11 @@ def test_public_employment_attribution_resolves_proxy_employee_and_role_cluster(
         ],
     )
     document.clusters[0].is_proxy_person = True
+    context = ExtractionContext.build(document)
 
     attribution = resolve_public_employment_attribution(
-        document,
+        context,
+        document.sentences[0],
         document.clause_units[0],
         config=config,
     )

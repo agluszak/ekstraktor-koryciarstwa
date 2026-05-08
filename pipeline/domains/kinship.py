@@ -69,12 +69,8 @@ class KinshipTieBuilder:
         sentence: SentenceFragment,
         sentence_views: list[ClusterMentionView],
     ) -> list[KinshipTieEvidence]:
-        persons = [
-            v
-            for v in sentence_views
-            if v.entity_type == EntityType.PERSON and v.entity_id is not None
-        ]
-        if len(persons) < 2:
+        persons = [v for v in sentence_views if v.entity_type == EntityType.PERSON]
+        if not persons:
             return []
         parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
         if not parsed_words:
@@ -85,53 +81,152 @@ class KinshipTieBuilder:
             kinship_detail = self._kinship_detail(word)
             if kinship_detail is None:
                 continue
-            subject = self._subject_for_kinship_word(word, sentence, persons)
-            target = self._target_for_kinship_word(word, sentence, parsed_words, persons)
-            if subject is None or target is None:
+
+            # 1. Resolve subject (the "anchor" person who has the relative)
+            subject = self._resolve_subject(word, sentence, parsed_words, persons, document)
+            if subject is None:
                 continue
-            if subject.entity_id == target.entity_id:
+
+            # 2. Resolve target (the relative person mentioned in the context)
+            target = self._resolve_target(word, sentence, parsed_words, persons)
+            if target is None or subject.cluster_id == target.cluster_id:
                 continue
+
             ties.append(
                 KinshipTieEvidence(
                     subject=subject,
                     target=target,
                     kinship_detail=kinship_detail,
                     confidence=0.88,
-                    extraction_signal="kinship_apposition",
+                    extraction_signal="kinship_dependency",
                     evidence_scope="same_sentence",
                     sentence=sentence,
                 )
             )
         return ties
 
-    @staticmethod
-    def _subject_for_kinship_word(
-        kinship_word: ParsedWord,
-        sentence: SentenceFragment,
-        persons: list[ClusterMentionView],
-    ) -> ClusterMentionView | None:
-        kinship_start = sentence.start_char + kinship_word.start
-        preceding = [
-            person
-            for person in persons
-            if person.end_char <= kinship_start and kinship_start - person.end_char <= 12
-        ]
-        if preceding:
-            return max(preceding, key=lambda person: person.end_char)
-        return None
-
-    def _target_for_kinship_word(
+    def _resolve_subject(
         self,
         kinship_word: ParsedWord,
         sentence: SentenceFragment,
         parsed_words: list[ParsedWord],
-        persons: list[ClusterMentionView],
+        sentence_persons: list[ClusterMentionView],
+        document: ArticleDocument,
     ) -> ClusterMentionView | None:
-        kinship_end = sentence.start_char + kinship_word.end
+        """Find the person who 'owns' the kinship relation (e.g. the 'his' in 'his wife')."""
+        # A. Look for nominal modifiers or possessives (e.g. "żona Jana", "jego żona")
+        subject_indices = {
+            w.index
+            for w in parsed_words
+            if w.head == kinship_word.index and w.deprel in {"nmod", "det:poss", "nmod:poss"}
+        }
+
+        # Check for coreferent pronouns or direct mentions
+        for idx in subject_indices:
+            word = parsed_words[idx - 1] if 0 < idx <= len(parsed_words) else None
+            if not word:
+                continue
+
+            # Try to find a PERSON cluster mention at this word's offset
+            abs_start = sentence.start_char + word.start
+            abs_end = sentence.start_char + word.end
+
+            for mention in document.mentions:
+                if (
+                    mention.sentence_index == sentence.sentence_index
+                    and mention.start_char <= abs_start
+                    and mention.end_char >= abs_end
+                    and mention.entity_id is not None
+                    and mention.mention_type in {EntityType.PERSON, "ResolvedPersonReference"}
+                ):
+                    for view in sentence_persons:
+                        if view.entity_id == mention.entity_id:
+                            # Prefer non-proxy if available
+                            if not view.is_proxy_person:
+                                return view
+                            # If it is a proxy, try to find the anchor
+                            anchor_view = self._resolve_proxy_to_named(view, sentence_persons)
+                            if anchor_view:
+                                return anchor_view
+                            return view
+
+        # B. Fallback: apposition (e.g. "Jan Kowalski, mąż...")
+        if kinship_word.deprel == "appos":
+            head_idx = kinship_word.head
+            for view in sentence_persons:
+                if self._view_overlaps_word_index(view, sentence, parsed_words, head_idx):
+                    if not view.is_proxy_person:
+                        return view
+                    anchor_view = self._resolve_proxy_to_named(view, sentence_persons)
+                    if anchor_view:
+                        return anchor_view
+                    return view
+
+        # C. Fallback: strict character distance (generous margin)
+        kinship_start = sentence.start_char + kinship_word.start
+        preceding = [
+            person
+            for person in sentence_persons
+            if person.end_char <= kinship_start and kinship_start - person.end_char <= 36
+        ]
+        if preceding:
+            best = max(preceding, key=lambda person: person.end_char)
+            if best.is_proxy_person:
+                anchor = self._resolve_proxy_to_named(best, sentence_persons)
+                if anchor:
+                    return anchor
+            return best
+
+        return None
+
+    def _resolve_proxy_to_named(
+        self,
+        proxy_view: ClusterMentionView,
+        sentence_persons: list[ClusterMentionView],
+    ) -> ClusterMentionView | None:
+        """Resolve a proxy person to a named person in the same sentence if they are linked."""
+        if not proxy_view.is_proxy_person:
+            return None
+
+        # Check for proximity and apposition-like structure
+        # (Named Person, Proxy) e.g. "Rafał Dobosz, kuzyn..."
+        for view in sentence_persons:
+            if view.is_proxy_person or view.cluster_id == proxy_view.cluster_id:
+                continue
+
+            # If they are very close and separated by a comma or similar
+            if (
+                abs(view.end_char - proxy_view.start_char) <= 4
+                or abs(proxy_view.end_char - view.start_char) <= 4
+            ):
+                return view
+        return None
+
+    def _resolve_target(
+        self,
+        kinship_word: ParsedWord,
+        sentence: SentenceFragment,
+        parsed_words: list[ParsedWord],
+        sentence_persons: list[ClusterMentionView],
+    ) -> ClusterMentionView | None:
+        """Find the person who IS the relative (e.g. the 'Anna' in 'his wife Anna')."""
+        # A. Apposition to the kinship word (e.g. "żona Anna")
+        target_indices = {
+            w.index
+            for w in parsed_words
+            if w.head == kinship_word.index and w.deprel in {"appos", "flat"}
+        }
+        for idx in target_indices:
+            for view in sentence_persons:
+                if self._view_overlaps_word_index(view, sentence, parsed_words, idx):
+                    return view
+
+        # B. Descendant search (e.g. "żona ... Anny")
         descendants = self._descendant_indices(parsed_words, kinship_word.index)
+        kinship_end = sentence.start_char + kinship_word.end
         after_candidates = [
             person
-            for person in persons
+            for person in sentence_persons
             if person.start_char >= kinship_end and person.start_char - kinship_end <= 120
         ]
         dependency_matches = [
@@ -141,9 +236,29 @@ class KinshipTieBuilder:
         ]
         if dependency_matches:
             return min(dependency_matches, key=lambda person: person.start_char)
+
+        # C. Fallback: nearest person after kinship word
         if after_candidates:
             return min(after_candidates, key=lambda person: person.start_char)
+
         return None
+
+    @staticmethod
+    def _view_overlaps_word_index(
+        view: ClusterMentionView,
+        sentence: SentenceFragment,
+        parsed_words: list[ParsedWord],
+        word_index: int,
+    ) -> bool:
+        word = next((w for w in parsed_words if w.index == word_index), None)
+        if not word:
+            return False
+        word_start = sentence.start_char + word.start
+        word_end = sentence.start_char + word.end
+        return (
+            view.start_char <= word_start < view.end_char
+            or word_start <= view.start_char < word_end
+        )
 
     @staticmethod
     def _descendant_indices(parsed_words: list[ParsedWord], root_index: int) -> set[int]:
@@ -404,4 +519,5 @@ def _build_views_by_entity_id(
         entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id), None)
         if entity_id is not None and entity_id not in result:
             result[entity_id] = _cluster_to_view(cluster)
+    return result
     return result
