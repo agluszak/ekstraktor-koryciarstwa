@@ -29,7 +29,7 @@ def test_person_name_normalization_uses_lemmas() -> None:
     document = segmenter.run(document)
     document = extractor.run(document)
 
-    people = [entity for entity in document.entities if entity.entity_type == "Person"]
+    people = [entity for entity in document.entities if entity.entity_type == EntityType.PERSON]
 
     assert len(people) == 1
     assert people[0].canonical_name == "Hanna Gronkiewicz-Waltz"

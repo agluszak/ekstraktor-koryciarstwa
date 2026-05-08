@@ -171,7 +171,7 @@ class ParsedSentence:
 class Mention:
     text: str
     normalized_text: str
-    mention_type: EntityType | MentionType | str
+    mention_type: EntityType | MentionType
     sentence_index: int
     paragraph_index: int = 0
     start_char: int = 0

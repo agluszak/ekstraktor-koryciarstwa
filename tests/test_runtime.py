@@ -218,7 +218,7 @@ def test_coref_resolver_uses_inference_mode_and_resets_pipeline() -> None:
             Mention(
                 text="Jan Kowalski",
                 normalized_text="Jan Kowalski",
-                mention_type="Person",
+                mention_type=EntityType.PERSON,
                 sentence_index=0,
                 entity_id=EntityID("person-1"),
             )
