@@ -246,9 +246,7 @@ class OrganizationMentionClassifier:
             return OrganizationKind.ORGANIZATION
 
         if not self._public_embeddings:
-            self._public_embeddings = [
-                runtime.encode_text(text) for text in PUBLIC_REPRESENTATIVES
-            ]
+            self._public_embeddings = [runtime.encode_text(text) for text in PUBLIC_REPRESENTATIVES]
             self._company_embeddings = [
                 runtime.encode_text(text) for text in COMPANY_REPRESENTATIVES
             ]

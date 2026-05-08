@@ -134,9 +134,10 @@ class TieFactExtractor:
     ) -> list[Fact]:
         """Find exactly 2 nearby persons around a tie word and emit a tie fact."""
         lowered = sentence.text.lower()
-        anchor = lowered.find(trigger)
-        if anchor < 0:
+        local_anchor = lowered.find(trigger)
+        if local_anchor < 0:
             return []
+        anchor = sentence.start_char + local_anchor
         persons = [v for v in sentence_views if v.entity_type == EntityType.PERSON]
         nearby = [
             person
@@ -145,7 +146,12 @@ class TieFactExtractor:
         ]
         if len(nearby) != 2 or nearby[0].entity_id == nearby[1].entity_id:
             return []
-        source, target = nearby[0], nearby[1]
+        source, target = _ordered_tie_pair(
+            nearby,
+            sentence=sentence,
+            lowered_text=lowered,
+            anchor=anchor,
+        )
         confidence = 0.72
         score = SecondaryFactScorer.tie(parsed_words, source, target, trigger, confidence)
         return [
@@ -197,9 +203,9 @@ class TieFactExtractor:
         sentence_metadata: SecondarySentenceMetadata,
     ) -> list[Fact]:
         lowered = sentence.text.lower()
-        anchor = lowered.find(trigger)
-        if anchor < 0:
-            anchor = min(
+        local_anchor = lowered.find(trigger)
+        if local_anchor < 0:
+            local_anchor = min(
                 (
                     lowered.find(marker)
                     for marker in ("współpracownik", "koleg", "znajom", "przyjaciel")
@@ -207,8 +213,9 @@ class TieFactExtractor:
                 ),
                 default=-1,
             )
-        if anchor < 0:
+        if local_anchor < 0:
             return []
+        anchor = sentence.start_char + local_anchor
         public_role_markers = ("prezydent", "burmistrz", "wójt", "minister", "poseł", "radny")
         persons = [v for v in sentence_views if v.entity_type == EntityType.PERSON]
         public_actors = [
@@ -216,7 +223,13 @@ class TieFactExtractor:
             for person in persons
             if person.start_char >= anchor
             and any(
-                marker in lowered[max(0, person.start_char - 40) : person.end_char + 8]
+                marker
+                in lowered[
+                    max(0, person.start_char - sentence.start_char - 40) : max(
+                        0,
+                        person.end_char - sentence.start_char + 8,
+                    )
+                ]
                 for marker in public_role_markers
             )
             and not is_quote_speaker_risk(parsed_words, person)
@@ -254,6 +267,25 @@ class TieFactExtractor:
                 document_org_names=document_org_names,
             )
         )
+        if not owner_candidates:
+            owner_markers = ("firma", "firmy", "spółka", "spółki", "właściciel", "prowadz")
+            owner_candidates.extend(
+                person
+                for person in paragraph_persons
+                if person.entity_id != source.entity_id
+                and person.end_char <= anchor
+                and any(
+                    marker
+                    in lowered[
+                        max(0, person.start_char - sentence.start_char - 80) : max(
+                            0,
+                            person.end_char - sentence.start_char + 18,
+                        )
+                    ]
+                    for marker in owner_markers
+                )
+                and not is_quote_speaker_risk(parsed_words, person)
+            )
         if not owner_candidates:
             return []
         target = min(owner_candidates, key=lambda person: abs(person.start_char - anchor))
@@ -455,6 +487,39 @@ def _candidate_context_window(paragraph_text: str, view: ClusterMentionView) -> 
         if anchor >= 0:
             return paragraph_text[max(0, anchor - 64) : anchor + len(name) + 64]
     return paragraph_text[:128]
+
+
+def _ordered_tie_pair(
+    nearby: list[ClusterMentionView],
+    *,
+    sentence: SentenceFragment,
+    lowered_text: str,
+    anchor: int,
+) -> tuple[ClusterMentionView, ClusterMentionView]:
+    ordered = sorted(nearby, key=lambda person: person.start_char)
+    possessive_target = max(
+        (
+            person
+            for person in ordered
+            if person.end_char <= anchor
+            and "jego"
+            in lowered_text[
+                max(0, person.end_char - sentence.start_char) : max(
+                    0,
+                    anchor - sentence.start_char,
+                )
+            ]
+        ),
+        key=lambda person: person.end_char,
+        default=None,
+    )
+    if possessive_target is None:
+        return ordered[0], ordered[1]
+    source = next(
+        (person for person in ordered if person.entity_id != possessive_target.entity_id),
+        ordered[0],
+    )
+    return source, possessive_target
 
 
 def _document_owner_person_candidates(

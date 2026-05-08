@@ -85,8 +85,8 @@ class KinshipTieBuilder:
             kinship_detail = self._kinship_detail(word)
             if kinship_detail is None:
                 continue
-            subject = self._subject_for_kinship_word(word, persons)
-            target = self._target_for_kinship_word(word, parsed_words, persons)
+            subject = self._subject_for_kinship_word(word, sentence, persons)
+            target = self._target_for_kinship_word(word, sentence, parsed_words, persons)
             if subject is None or target is None:
                 continue
             if subject.entity_id == target.entity_id:
@@ -107,12 +107,14 @@ class KinshipTieBuilder:
     @staticmethod
     def _subject_for_kinship_word(
         kinship_word: ParsedWord,
+        sentence: SentenceFragment,
         persons: list[ClusterMentionView],
     ) -> ClusterMentionView | None:
+        kinship_start = sentence.start_char + kinship_word.start
         preceding = [
             person
             for person in persons
-            if person.end_char <= kinship_word.start and kinship_word.start - person.end_char <= 12
+            if person.end_char <= kinship_start and kinship_start - person.end_char <= 12
         ]
         if preceding:
             return max(preceding, key=lambda person: person.end_char)
@@ -121,19 +123,21 @@ class KinshipTieBuilder:
     def _target_for_kinship_word(
         self,
         kinship_word: ParsedWord,
+        sentence: SentenceFragment,
         parsed_words: list[ParsedWord],
         persons: list[ClusterMentionView],
     ) -> ClusterMentionView | None:
+        kinship_end = sentence.start_char + kinship_word.end
         descendants = self._descendant_indices(parsed_words, kinship_word.index)
         after_candidates = [
             person
             for person in persons
-            if person.start_char >= kinship_word.end and person.start_char - kinship_word.end <= 120
+            if person.start_char >= kinship_end and person.start_char - kinship_end <= 120
         ]
         dependency_matches = [
             person
             for person in after_candidates
-            if self._view_overlaps_word_indices(person, parsed_words, descendants)
+            if self._view_overlaps_word_indices(person, sentence, parsed_words, descendants)
         ]
         if dependency_matches:
             return min(dependency_matches, key=lambda person: person.start_char)
@@ -156,14 +160,17 @@ class KinshipTieBuilder:
     @staticmethod
     def _view_overlaps_word_indices(
         view: ClusterMentionView,
+        sentence: SentenceFragment,
         parsed_words: list[ParsedWord],
         word_indices: set[int],
     ) -> bool:
         return any(
             word.index in word_indices
             and (
-                view.start_char <= word.start < view.end_char
-                or word.start <= view.start_char < word.end
+                view.start_char <= sentence.start_char + word.start < view.end_char
+                or sentence.start_char + word.start
+                <= view.start_char
+                < sentence.start_char + word.end
             )
             for word in parsed_words
         )
@@ -176,9 +183,10 @@ class KinshipTieBuilder:
         lowered = sentence.text.casefold()
         ties: list[KinshipTieEvidence] = []
         for surface, kinship_detail in KINSHIP_BY_LEMMA.items():
-            anchor = lowered.find(surface)
-            if anchor < 0:
+            local_anchor = lowered.find(surface)
+            if local_anchor < 0:
                 continue
+            anchor = sentence.start_char + local_anchor
             subject = max(
                 (person for person in persons if person.end_char <= anchor),
                 key=lambda person: person.end_char,
@@ -191,7 +199,11 @@ class KinshipTieBuilder:
             )
             if subject is None or target is None or subject.entity_id == target.entity_id:
                 continue
-            between_subject = lowered[subject.end_char : anchor]
+            between_subject = lowered[
+                max(0, subject.end_char - sentence.start_char) : max(
+                    0, anchor - sentence.start_char
+                )
+            ]
             if len(between_subject) > 12 or "," not in between_subject:
                 continue
             ties.append(

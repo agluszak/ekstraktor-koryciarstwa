@@ -18,9 +18,12 @@ from pipeline.models import (
 )
 from pipeline.nlp_rules import (
     OFFICE_CANDIDACY_LEMMAS,
+    PARTY_CONTEXT_LEMMAS,
 )
 from pipeline.relation_signals import (
     _other_person_between,
+    candidate_head_word,
+    candidate_words,
     party_context_window_supports,
     party_syntactic_signal,
     person_role_syntactic_signal,
@@ -70,24 +73,52 @@ def resolve_party_attributions(
     attributed: list[ResolvedPartyAttribution] = []
     seen_targets: set[str] = set()
     for party in parties:
-        target_key = str(party.entity_id or party.cluster_id)
+        target_key = party.normalized_name.casefold()
         if target_key in seen_targets:
             continue
         seen_targets.add(target_key)
-        if _other_person_between(person, party, persons):
-            continue
         score = _party_membership_score(
             parsed_words,
             sentence.text,
             lowered_text,
             person,
             party,
+            sentence_start=sentence.start_char,
             governance_signal=governance_signal,
         )
         if score is None:
             continue
+        if _other_person_between(person, party, persons) and not _party_context_links_person(
+            parsed_words,
+            person,
+            party,
+            sentence_start=sentence.start_char,
+        ):
+            continue
         attributed.append(ResolvedPartyAttribution(person=person, party=party, score=score))
     return attributed
+
+
+def _party_context_links_person(
+    parsed_words: list[ParsedWord],
+    person: ClusterMentionView,
+    party: ClusterMentionView,
+    *,
+    sentence_start: int = 0,
+) -> bool:
+    party_word = candidate_head_word(parsed_words, party, sentence_start=sentence_start)
+    if party_word is None:
+        return False
+    context_head = next((word for word in parsed_words if word.index == party_word.head), None)
+    if context_head is None or context_head.lemma.casefold() not in PARTY_CONTEXT_LEMMAS:
+        return False
+    person_word_indices = {
+        word.index for word in candidate_words(parsed_words, person, sentence_start=sentence_start)
+    }
+    return context_head.head in person_word_indices or any(
+        word.head == context_head.index
+        for word in candidate_words(parsed_words, person, sentence_start=sentence_start)
+    )
 
 
 def resolve_political_role_attributions(
@@ -115,10 +146,17 @@ def resolve_political_role_attributions(
             person=person,
             role=role,
             sentence_persons=persons,
+            sentence_start=sentence.start_char,
         ):
             continue
         score = _political_office_score(
-            parsed_words, lowered_text, persons, person, role, governance_signal=governance_signal
+            parsed_words,
+            lowered_text,
+            persons,
+            person,
+            role,
+            sentence_start=sentence.start_char,
+            governance_signal=governance_signal,
         )
         if score is None:
             continue
@@ -149,7 +187,10 @@ def resolve_candidacy_score(
     ]
     if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
-    if any(abs(person.start_char - word.start) <= 28 for word in governing_words):
+    if any(
+        abs(person.start_char - (sentence.start_char + word.start)) <= 28
+        for word in governing_words
+    ):
         return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
     return _score(0.55, "same_sentence", "same_sentence", "election_context")
 
@@ -181,6 +222,7 @@ def _party_membership_score(
     person: ClusterMentionView,
     party: ClusterMentionView,
     *,
+    sentence_start: int = 0,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
     syntactic_signal = party_syntactic_signal(
@@ -189,6 +231,7 @@ def _party_membership_score(
         lowered_text=lowered_text,
         person=person,
         party=party,
+        sentence_start=sentence_start,
     )
     distance = abs(person.start_char - party.start_char)
 
@@ -201,6 +244,7 @@ def _party_membership_score(
         lowered_text=lowered_text,
         person=person,
         party=party,
+        sentence_start=sentence_start,
     ):
         return _score(
             0.55 - (0.1 if governance_signal else 0.0),
@@ -218,6 +262,7 @@ def _political_office_score(
     person: ClusterMentionView,
     role: ClusterMentionView,
     *,
+    sentence_start: int = 0,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
     syntactic_signal = person_role_syntactic_signal(
@@ -226,6 +271,7 @@ def _political_office_score(
         person=person,
         role=role,
         sentence_persons=persons,
+        sentence_start=sentence_start,
     )
     distance = abs(person.start_char - role.start_char)
 

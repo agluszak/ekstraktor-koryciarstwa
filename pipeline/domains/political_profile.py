@@ -266,7 +266,7 @@ class CrossSentencePartyFactBuilder:
                 )
                 if v.entity_type == EntityType.PERSON
                 and v.entity_id is not None
-                and v.start_char <= 20
+                and v.start_char - next_sentence.start_char <= 20
             ]
             if not persons:
                 continue
