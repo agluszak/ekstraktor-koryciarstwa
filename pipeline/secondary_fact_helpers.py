@@ -9,11 +9,20 @@ from pipeline.domain_types import (
     FactType,
     RelationshipType,
     RoleKind,
+    TimeScope,
 )
-from pipeline.extraction_context import SentenceContext
+from pipeline.grammar_signals import infer_time_scope_with_temporal_context
 from pipeline.lemma_signals import lemma_set
-from pipeline.models import ArticleDocument, EntityCandidate, Fact, ParsedWord
+from pipeline.models import (
+    ArticleDocument,
+    ClusterMentionView,
+    EvidenceSpan,
+    Fact,
+    ParsedWord,
+    SentenceFragment,
+)
 from pipeline.relation_signals import is_quote_speaker_risk
+from pipeline.temporal import resolve_event_date
 from pipeline.utils import stable_id
 
 POLITICAL_ROLE_NAMES = frozenset(
@@ -40,17 +49,29 @@ class SecondaryFactScore:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class SecondarySentenceMetadata:
+    """Precomputed sentence context and fact metadata reused across fact builders."""
+
+    time_scope: TimeScope
+    event_date: str | None
+    evidence: EvidenceSpan
+    overlaps_governance: bool
+
+
 class SecondaryFactScorer:
     SAME_SENTENCE = 0.55
 
     @classmethod
     def tie(
         cls,
-        context: SentenceContext,
-        source: EntityCandidate,
-        target: EntityCandidate,
+        parsed_words: list[ParsedWord],
+        source: ClusterMentionView,
+        target: ClusterMentionView,
         trigger: str,
         edge_confidence: float,
+        *,
+        sentence_start: int,
     ) -> SecondaryFactScore:
         strong_triggers = {"przyjaciel", "doradca", "rekomendować", "rekomendacja"}
         distance = abs(source.start_char - target.start_char)
@@ -63,7 +84,9 @@ class SecondaryFactScorer:
         if distance > 120:
             confidence -= 0.12
             reason += ":long_distance"
-        if _is_quote_speaker_risk(context, source) or _is_quote_speaker_risk(context, target):
+        if is_quote_speaker_risk(
+            parsed_words, source, sentence_start=sentence_start
+        ) or is_quote_speaker_risk(parsed_words, target, sentence_start=sentence_start):
             confidence -= 0.12
             reason += ":quote_speaker_risk"
         return cls._score(confidence, signal, "same_sentence", reason)
@@ -83,13 +106,49 @@ class SecondaryFactScorer:
         )
 
 
+def build_secondary_sentence_metadata(
+    *,
+    document: ArticleDocument,
+    sentence: SentenceFragment,
+    parsed_words: list[ParsedWord],
+) -> SecondarySentenceMetadata:
+    time_scope = infer_time_scope_with_temporal_context(
+        sentence.text,
+        parsed_words,
+        temporal_expressions=document.temporal_expressions,
+        sentence_index=sentence.sentence_index,
+        publication_date=document.publication_date,
+    )
+    event_date = resolve_event_date(
+        document, sentence_index=sentence.sentence_index, text=sentence.text
+    )
+    evidence = EvidenceSpan(
+        text=sentence.text,
+        sentence_index=sentence.sentence_index,
+        paragraph_index=sentence.paragraph_index,
+        start_char=sentence.start_char,
+        end_char=sentence.end_char,
+    )
+    overlaps_governance = any(
+        ev.sentence_index == sentence.sentence_index
+        for frame in document.governance_frames
+        for ev in frame.evidence
+    )
+    return SecondarySentenceMetadata(
+        time_scope=time_scope,
+        event_date=event_date,
+        evidence=evidence,
+        overlaps_governance=overlaps_governance,
+    )
+
+
 def build_secondary_fact(
     *,
     document: ArticleDocument,
-    sentence_context: SentenceContext,
+    sentence: SentenceFragment,
     fact_type: FactType,
-    subject: EntityCandidate,
-    object_candidate: EntityCandidate | None,
+    subject: ClusterMentionView,
+    object_candidate: ClusterMentionView | None,
     value_text: str | None,
     value_normalized: str | None,
     confidence: float,
@@ -99,35 +158,43 @@ def build_secondary_fact(
     office_type: str | None = None,
     candidacy_scope: str | None = None,
     relationship_type: RelationshipType | None = None,
+    sentence_metadata: SecondarySentenceMetadata | None = None,
 ) -> Fact:
+    if sentence_metadata is None:
+        sentence_metadata = build_secondary_sentence_metadata(
+            document=document,
+            sentence=sentence,
+            parsed_words=document.parsed_sentences.get(sentence.sentence_index, []),
+        )
+    object_stable_id_part = (
+        object_candidate.entity_id or object_candidate.cluster_id if object_candidate else ""
+    )
     f = Fact(
         fact_id=FactID(
             stable_id(
                 "fact",
                 document.document_id,
                 fact_type,
-                subject.entity_id or subject.candidate_id,
-                object_candidate.entity_id or object_candidate.candidate_id
-                if object_candidate
-                else "",
+                subject.entity_id or subject.cluster_id,
+                object_stable_id_part,
                 value_normalized or value_text or "",
-                sentence_context.evidence.text,
+                sentence_metadata.evidence.text,
             )
         ),
         fact_type=fact_type,
-        subject_entity_id=EntityID(subject.entity_id or subject.candidate_id),
-        object_entity_id=EntityID(object_candidate.entity_id or object_candidate.candidate_id)
+        subject_entity_id=EntityID(subject.entity_id or subject.cluster_id),
+        object_entity_id=EntityID(object_candidate.entity_id or object_candidate.cluster_id)
         if object_candidate
         else None,
         value_text=value_text,
         value_normalized=value_normalized,
-        time_scope=sentence_context.time_scope,
-        event_date=sentence_context.event_date,
+        time_scope=sentence_metadata.time_scope,
+        event_date=sentence_metadata.event_date,
         confidence=round(confidence, 3),
-        evidence=sentence_context.evidence,
+        evidence=sentence_metadata.evidence,
         extraction_signal=score.extraction_signal,
         evidence_scope=score.evidence_scope,
-        overlaps_governance=sentence_context.overlaps_governance,
+        overlaps_governance=sentence_metadata.overlaps_governance,
         source_extractor=source_extractor,
         score_reason=score.reason,
     )
@@ -149,10 +216,3 @@ def _has_signal(
         parsed_lemmas.intersection(lemmas)
         or any(trigger in lowered_text for trigger in surface_triggers)
     )
-
-
-def _is_quote_speaker_risk(
-    context: SentenceContext,
-    candidate: EntityCandidate,
-) -> bool:
-    return is_quote_speaker_risk(context.parsed_words, candidate)

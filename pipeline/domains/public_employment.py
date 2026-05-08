@@ -72,8 +72,16 @@ class PolishPublicEmploymentFrameExtractor:
             signal = self._signal(document, clause)
             if signal is None:
                 continue
+            sentence = (
+                document.sentences[clause.sentence_index]
+                if clause.sentence_index < len(document.sentences)
+                else None
+            )
+            if sentence is None:
+                continue
             attribution = resolve_public_employment_attribution(
-                document,
+                context,
+                sentence,
                 clause,
                 config=self.config,
             )

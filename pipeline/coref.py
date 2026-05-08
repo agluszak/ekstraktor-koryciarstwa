@@ -8,7 +8,7 @@ from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import EntityID, EntityType
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
@@ -211,7 +211,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     continue
 
                 # Closest by sentence distance
-                best_eid = max(candidates, key=lambda x: (x[1], x[0]))[0]
+                best_eid = EntityID(max(candidates, key=lambda x: (x[1], x[0]))[0])
 
                 resolved.append(
                     Mention(

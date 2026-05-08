@@ -12,7 +12,7 @@ from pipeline.domain_types import (
     FactType,
     TimeScope,
 )
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
+from pipeline.extraction_context import ExtractionContext
 from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.frames import PolishFrameExtractor
 from pipeline.models import (
@@ -97,35 +97,17 @@ class DummyFrameDomain:
         return document
 
 
-class DummySentenceFactDomain:
-    def extract(self, context: SentenceContext) -> list[Fact]:
-        return [_fact(context.document, "sentence")]
-
-
 class DummyDocumentFactDomain:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         assert context.entity_by_id(EntityID("person-1")) is not None
         return [_fact(document, "document")]
 
 
-class DummyGraphFactDomain:
-    def build(
-        self,
-        document: ArticleDocument,
-        context: ExtractionContext,
-        fact_context: FactExtractionContext,
-    ) -> list[Fact]:
-        assert fact_context.sentence_candidates(0)
-        return [_fact(document, "graph")]
-
-
 def test_custom_registry_domains_run_without_runner_changes() -> None:
     config = PipelineConfig.from_file("config.yaml")
     registry = DomainRegistry(
         frame_extractors=(DummyFrameDomain(),),
-        sentence_fact_extractors=(DummySentenceFactDomain(),),
         document_fact_builders=(DummyDocumentFactDomain(),),
-        graph_fact_builders=(DummyGraphFactDomain(),),
     )
     document = _document()
 
@@ -133,7 +115,7 @@ def test_custom_registry_domains_run_without_runner_changes() -> None:
     extracted = PolishFactExtractor(config, registry=registry).run(framed)
 
     assert extracted.title == "doc:framed"
-    assert [fact.value_text for fact in extracted.facts] == ["sentence", "document", "graph"]
+    assert [fact.value_text for fact in extracted.facts] == ["document"]
 
 
 def test_default_registry_order_matches_existing_domain_order() -> None:
@@ -149,10 +131,6 @@ def test_default_registry_order_matches_existing_domain_order() -> None:
         "polish_anti_corruption_referral_frame_extractor",
         "polish_anti_corruption_abuse_frame_extractor",
     ]
-    assert [type(extractor).__name__ for extractor in registry.sentence_fact_extractors] == [
-        "PoliticalProfileFactExtractor",
-        "TieFactExtractor",
-    ]
     assert [type(builder).__name__ for builder in registry.document_fact_builders] == [
         "GovernanceFactBuilder",
         "CompensationFactBuilder",
@@ -162,8 +140,8 @@ def test_default_registry_order_matches_existing_domain_order() -> None:
         "AntiCorruptionReferralFactBuilder",
         "AntiCorruptionInvestigationFactBuilder",
         "PublicProcurementAbuseFactBuilder",
-    ]
-    assert [type(builder).__name__ for builder in registry.graph_fact_builders] == [
+        "PoliticalProfileFactExtractor",
+        "TieFactExtractor",
         "CrossSentencePartyFactBuilder",
         "KinshipTieBuilder",
     ]

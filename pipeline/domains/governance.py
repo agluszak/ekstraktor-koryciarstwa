@@ -21,7 +21,7 @@ from pipeline.entity_classifiers import (
     is_party_like_name,
     is_target_organization_name,
 )
-from pipeline.extraction_context import ExtractionContext, resolve_event_date
+from pipeline.extraction_context import ExtractionContext
 from pipeline.grammar_signals import infer_sentence_time_scope
 from pipeline.models import (
     ArticleDocument,
@@ -47,6 +47,7 @@ from pipeline.semantic_signals import (
     GOVERNANCE_TARGET_HEAD_MARKERS,
     OWNER_CONTEXT_EXTRA_TERMS,
 )
+from pipeline.temporal import resolve_event_date
 from pipeline.utils import stable_id
 
 PARLIAMENTARY_REMUNERATION_FACT_MARKERS = frozenset(

@@ -4,99 +4,201 @@ from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import KINSHIP_LEMMAS
-from pipeline.domain_types import CandidateType, OrganizationKind
+from pipeline.domain_types import EntityType, OrganizationKind
 from pipeline.entity_classifiers import is_party_like_name, is_public_employer_name
-from pipeline.extraction_context import SentenceContext
+from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
-    EntityCandidate,
+    ClusterMentionView,
     EntityCluster,
     ParsedWord,
+    SentenceFragment,
 )
 from pipeline.nlp_rules import (
-    BOARD_ROLE_KINDS,
-    BODY_CONTEXT_TERMS,
     OFFICE_CANDIDACY_LEMMAS,
-    OWNER_CONTEXT_TERMS,
-    TARGET_CONTEXT_TERMS,
 )
 from pipeline.relation_signals import (
+    _other_person_between,
+    _supports_descriptive_tail_link,
+    candidate_head_word,
+    candidate_words,
     party_context_window_supports,
     party_syntactic_signal,
     person_role_syntactic_signal,
+    supports_person_role_link,
 )
-from pipeline.secondary_fact_helpers import POLITICAL_ROLE_NAMES, SecondaryFactScore
+from pipeline.secondary_fact_helpers import SecondaryFactScore
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedPartyAttribution:
-    person: EntityCandidate
-    party: EntityCandidate
+    person: ClusterMentionView
+    party: ClusterMentionView
     score: SecondaryFactScore
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedRoleAttribution:
-    person: EntityCandidate
-    role: EntityCandidate
+    person: ClusterMentionView
+    role: ClusterMentionView
     score: SecondaryFactScore
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedPublicEmploymentAttribution:
-    employee: EntityCluster
-    employer: EntityCluster
-    role_cluster: EntityCluster | None
+    employee: ClusterMentionView
+    employer: ClusterMentionView
+    role_cluster: ClusterMentionView | None
 
 
 def resolve_party_attributions(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> list[ResolvedPartyAttribution]:
     if person.is_proxy_person:
         return []
 
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    parties = context.mention_views_in_sentence(
+        sentence.sentence_index, {EntityType.POLITICAL_PARTY}
+    )
+    persons = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
+
     attributed: list[ResolvedPartyAttribution] = []
     seen_targets: set[str] = set()
-    parties = [*context.outgoing("person-affiliated-party", person.candidate_id), *context.parties]
     for party in parties:
-        target_key = str(party.entity_id or party.candidate_id)
+        target_key = party.normalized_name.casefold()
         if target_key in seen_targets:
             continue
         seen_targets.add(target_key)
-        if (
-            context.edge_confidence(
-                "person-affiliated-party", person.candidate_id, party.candidate_id
-            )
-            is None
-        ):
-            if _other_person_between(person, party, context.persons):
-                continue
-        score = _party_membership_score(context, person, party, governance_signal=governance_signal)
+        score = _party_membership_score(
+            parsed_words,
+            sentence.text,
+            lowered_text,
+            person,
+            party,
+            sentence_start=sentence.start_char,
+            governance_signal=governance_signal,
+        )
         if score is None:
+            continue
+        if _other_person_between(person, party, persons) and not _party_context_links_person(
+            parsed_words,
+            person,
+            party,
+            sentence_start=sentence.start_char,
+        ):
             continue
         attributed.append(ResolvedPartyAttribution(person=person, party=party, score=score))
     return attributed
 
 
+def _party_context_links_person(
+    parsed_words: list[ParsedWord],
+    person: ClusterMentionView,
+    party: ClusterMentionView,
+    *,
+    sentence_start: int,
+) -> bool:
+    party_word = candidate_head_word(parsed_words, party, sentence_start=sentence_start)
+    person_words = candidate_words(parsed_words, person, sentence_start=sentence_start)
+    if party_word is None or not person_words:
+        return False
+
+    person_word_indices = {word.index for word in person_words}
+
+    # 1. Direct link: party depends on person or vice versa
+    if party_word.head in person_word_indices:
+        return True
+    if any(word.head == party_word.index for word in person_words):
+        return True
+
+    # 2. Linked via a joining head (preposition "z", bracket, or appositive)
+    context_head = next((word for word in parsed_words if word.index == party_word.head), None)
+    if context_head is not None:
+        # Check if the join is valid (e.g. "z", "w", or a role like "posłanka")
+        is_valid_join = context_head.upos in {
+            "ADP",
+            "PUNCT",
+            "NOUN",
+        } or context_head.lemma.casefold() in {"z", "w", "za", "od"}
+        if is_valid_join:
+            if context_head.head in person_word_indices:
+                return True
+            if any(word.head == context_head.index for word in person_words):
+                return True
+
+            # 3. Path search: Razem -> partii -> posłanka -> Zawisza
+            grand_head = next(
+                (word for word in parsed_words if word.index == context_head.head), None
+            )
+            if grand_head is not None:
+                if (
+                    grand_head.index in person_word_indices
+                    or grand_head.head in person_word_indices
+                ):
+                    return True
+
+    return False
+
+
 def resolve_political_role_attributions(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
     *,
     governance_signal: bool,
 ) -> list[ResolvedRoleAttribution]:
     if person.is_proxy_person:
         return []
 
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    positions = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.POSITION})
+    persons = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
+
     attributed: list[ResolvedRoleAttribution] = []
-    for role in context.outgoing("person-has-role", person.candidate_id):
-        if role.normalized_name.lower() not in POLITICAL_ROLE_NAMES:
+    for role in positions:
+        # Precision: ignore very generic roles if they don't have enough context
+        generic_roles = {"prezes", "dyrektor", "kierownik", "członek", "pracownik"}
+        if role.normalized_name.lower() in generic_roles:
+            # Check for linked organization in same sentence
+            orgs = context.mention_views_in_sentence(
+                sentence.sentence_index, {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            )
+            has_org_link = any(
+                _supports_descriptive_tail_link(
+                    parsed_words, role, org, sentence_start=sentence.start_char
+                )
+                for org in orgs
+            )
+            if not (governance_signal or has_org_link):
+                continue
+
+        if not supports_person_role_link(
+            parsed_words=parsed_words,
+            sentence_text=sentence.text,
+            person=person,
+            role=role,
+            sentence_persons=persons,
+            sentence_start=sentence.start_char,
+        ):
             continue
-        score = _political_office_score(context, person, role, governance_signal=governance_signal)
+        score = _political_office_score(
+            parsed_words,
+            lowered_text,
+            persons,
+            person,
+            role,
+            sentence_start=sentence.start_char,
+            governance_signal=governance_signal,
+        )
         if score is None:
             continue
         attributed.append(ResolvedRoleAttribution(person=person, role=role, score=score))
@@ -104,41 +206,48 @@ def resolve_political_role_attributions(
 
 
 def resolve_candidacy_score(
-    context: SentenceContext,
-    person: EntityCandidate,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
 ) -> SecondaryFactScore | None:
     if person.is_proxy_person:
         return None
-    lemmas = {word.lemma for word in context.parsed_words}
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
+    lowered_text = sentence.text.lower()
+    lemmas = {word.lemma for word in parsed_words}
     if not (
         OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
-        or "kandydat" in context.lowered_text
-        or "wybory" in context.lowered_text
+        or "kandydat" in lowered_text
+        or "wybory" in lowered_text
     ):
         return None
     governing_words = [
         word
-        for word in context.parsed_words
+        for word in parsed_words
         if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
     ]
-    if "wybory" not in context.lowered_text and "kandydat" not in context.lowered_text:
+    if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
-    if any(abs(person.start_char - word.start) <= 28 for word in governing_words):
+    if any(
+        abs(person.start_char - (sentence.start_char + word.start)) <= 28
+        for word in governing_words
+    ):
         return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
     return _score(0.55, "same_sentence", "same_sentence", "election_context")
 
 
 def resolve_public_employment_attribution(
-    document: ArticleDocument,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
     *,
     config: PipelineConfig,
 ) -> ResolvedPublicEmploymentAttribution | None:
-    employer = _resolve_public_employment_employer(document, clause, config=config)
-    employee = _resolve_public_employment_employee(document, clause)
+    employer = _resolve_public_employment_employer(context, sentence, clause, config=config)
+    employee = _resolve_public_employment_employee(context, sentence, clause)
     if employer is None or employee is None:
         return None
-    role_cluster = _resolve_public_employment_role_cluster(document, clause, employee)
+    role_cluster = _resolve_public_employment_role_cluster(context, sentence, clause, employee)
     return ResolvedPublicEmploymentAttribution(
         employee=employee,
         employer=employer,
@@ -147,47 +256,37 @@ def resolve_public_employment_attribution(
 
 
 def _party_membership_score(
-    context: SentenceContext,
-    person: EntityCandidate,
-    party: EntityCandidate,
+    parsed_words: list[ParsedWord],
+    # Original sentence text for token/dependency-level heuristics.
+    sentence_text: str,
+    # Lowercased sentence reused for substring/window checks.
+    lowered_text: str,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
     *,
+    sentence_start: int,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
-    edge_confidence = context.edge_confidence(
-        "person-affiliated-party",
-        person.candidate_id,
-        party.candidate_id,
-    )
     syntactic_signal = party_syntactic_signal(
-        parsed_words=context.parsed_words,
-        sentence_text=context.sentence.text,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        sentence_text=sentence_text,
+        lowered_text=lowered_text,
         person=person,
         party=party,
+        sentence_start=sentence_start,
     )
     distance = abs(person.start_char - party.start_char)
 
     if syntactic_signal == "syntactic_direct":
-        return _score(
-            max(0.85, edge_confidence or 0.0),
-            syntactic_signal,
-            "same_sentence",
-            "direct_party_edge",
-        )
+        return _score(0.85, syntactic_signal, "same_sentence", "direct_party_edge")
     if syntactic_signal == "appositive_context":
-        return _score(
-            max(0.78, edge_confidence or 0.0), syntactic_signal, "same_sentence", "party_apposition"
-        )
-    if edge_confidence is not None:
-        confidence = max(0.72, edge_confidence)
-        if governance_signal:
-            confidence -= 0.12
-        return _score(confidence, "dependency_edge", "same_sentence", "candidate_graph_party_edge")
+        return _score(0.78, syntactic_signal, "same_sentence", "party_apposition")
     if distance <= 40 and party_context_window_supports(
-        parsed_words=context.parsed_words,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
         person=person,
         party=party,
+        sentence_start=sentence_start,
     ):
         return _score(
             0.55 - (0.1 if governance_signal else 0.0),
@@ -199,281 +298,118 @@ def _party_membership_score(
 
 
 def _political_office_score(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate,
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+    persons: list[ClusterMentionView],
+    person: ClusterMentionView,
+    role: ClusterMentionView,
     *,
+    sentence_start: int,
     governance_signal: bool,
 ) -> SecondaryFactScore | None:
-    edge_confidence = context.edge_confidence(
-        "person-has-role",
-        person.candidate_id,
-        role.candidate_id,
-    )
     syntactic_signal = person_role_syntactic_signal(
-        parsed_words=context.parsed_words,
-        lowered_text=context.lowered_text,
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
         person=person,
         role=role,
-        sentence_persons=context.persons,
+        sentence_persons=persons,
+        sentence_start=sentence_start,
     )
     distance = abs(person.start_char - role.start_char)
 
     if syntactic_signal == "syntactic_direct":
-        confidence = max(0.85, edge_confidence or 0.0)
+        confidence = 0.85
         if governance_signal:
             confidence -= 0.08
         return _score(confidence, syntactic_signal, "same_sentence", "direct_office_role")
     if syntactic_signal == "appositive_context":
-        confidence = max(0.78, edge_confidence or 0.0)
+        confidence = 0.78
         if governance_signal:
             confidence -= 0.08
         return _score(confidence, syntactic_signal, "same_sentence", "office_apposition")
-    if edge_confidence is not None and edge_confidence >= 0.72:
-        confidence = max(0.72, edge_confidence)
-        if governance_signal:
-            confidence -= 0.1
-        return _score(confidence, "dependency_edge", "same_sentence", "person_role_edge")
     if distance <= 20 and not governance_signal:
         return _score(0.51, "same_sentence", "same_sentence", "near_title")
     return None
 
 
-def _candidate_organization_pool(
-    context: SentenceContext,
-    person: EntityCandidate,
-    role: EntityCandidate | None,
-) -> list[EntityCandidate]:
-    pooled: dict[str, EntityCandidate] = {}
-    if role is not None:
-        for candidate in context.outgoing("role-at-organization", role.candidate_id):
-            if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-                pooled[candidate.candidate_id] = candidate
-    for candidate in context.outgoing("person-org-context", person.candidate_id):
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-            pooled[candidate.candidate_id] = candidate
-    for candidate in context.paragraph_organizations:
-        if candidate.candidate_type != CandidateType.POLITICAL_PARTY:
-            pooled[candidate.candidate_id] = candidate
-    return list(pooled.values())
-
-
-def _organization_priority(candidate: EntityCandidate) -> float:
-    normalized = candidate.normalized_name.lower()
-    kind = candidate.organization_kind
-    if kind == OrganizationKind.PUBLIC_INSTITUTION:
-        base = 0.9
-    elif kind == OrganizationKind.COMPANY:
-        base = 1.0
-    elif kind == OrganizationKind.GOVERNING_BODY:
-        base = 0.25
-    else:
-        base = 0.5
-    if normalized.startswith("zarząd") or normalized.startswith("rada"):
-        base -= 0.35
-    if "skarbu państwa" in normalized:
-        base -= 0.65
-    if any(term in normalized for term in OWNER_CONTEXT_TERMS):
-        base -= 0.25
-    if normalized.isupper() and len(normalized) <= 6:
-        base -= 0.2
-    if len(normalized.split()) == 1 and normalized.isalpha() and normalized.isupper():
-        base -= 0.1
-    return base + min(len(candidate.canonical_name), 40) / 200
-
-
-def _organization_resolution_score(
-    *,
-    context: SentenceContext,
-    candidate: EntityCandidate,
-    role: EntityCandidate | None,
-    person: EntityCandidate,
-) -> tuple[float, float, int]:
-    reference_start = role.start_char if role is not None else person.start_char
-    role_edge = (
-        context.edge_confidence("role-at-organization", role.candidate_id, candidate.candidate_id)
-        if role is not None
-        else None
-    )
-    person_edge = context.edge_confidence(
-        "person-org-context",
-        person.candidate_id,
-        candidate.candidate_id,
-    )
-    confidence = max(role_edge or 0.0, person_edge or 0.0)
-    priority = _organization_priority(candidate)
-    distance = abs(reference_start - candidate.start_char)
-    clause_bonus = _organization_clause_bonus(context, candidate, role, person)
-    if _is_target_like_org(candidate):
-        priority += 0.14
-    if _is_owner_like_org(candidate):
-        priority -= 0.2
-    if role is not None and candidate.start_char >= role.start_char:
-        priority += 0.06
-    if candidate.sentence_index != person.sentence_index:
-        priority -= 0.08
-    priority += clause_bonus
-    return (confidence * 0.65 + priority * 0.35, priority, -distance)
-
-
-def _role_priority(candidate: EntityCandidate) -> float:
-    role_name = candidate.normalized_name.lower()
-    if role_name in POLITICAL_ROLE_NAMES:
-        return 0.2
-    if role_name in {role.value for role in BOARD_ROLE_KINDS}:
-        return 1.0 + min(len(role_name), 32) / 200
-    return 0.8 + min(len(role_name), 32) / 300
-
-
-def _is_target_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    if _is_body_like_org(candidate) or _is_owner_like_org(candidate):
-        return False
-    if candidate.organization_kind == OrganizationKind.COMPANY:
-        return True
-    return any(
-        term in normalized
-        for term in ("stadnin", "rewita", "tour", "wodociąg", "hotel", "port", "centrum", "spółk")
-    )
-
-
-def _is_owner_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    if "skarbu państwa" in normalized:
-        return True
-    if candidate.organization_kind == OrganizationKind.PUBLIC_INSTITUTION and any(
-        term in normalized for term in OWNER_CONTEXT_TERMS
-    ):
-        return True
-    return False
-
-
-def _is_body_like_org(candidate: EntityCandidate) -> bool:
-    normalized = candidate.normalized_name.lower()
-    kind = candidate.organization_kind
-    return kind == OrganizationKind.GOVERNING_BODY or any(
-        normalized.startswith(term) for term in BODY_CONTEXT_TERMS
-    )
-
-
-def _organization_clause_bonus(
-    context: SentenceContext,
-    candidate: EntityCandidate,
-    role: EntityCandidate | None,
-    person: EntityCandidate,
-) -> float:
-    reference = role or person
-    if candidate.sentence_index != reference.sentence_index:
-        return -0.06
-
-    local_start = min(reference.end_char, candidate.end_char)
-    local_end = max(reference.start_char, candidate.start_char)
-    between_text = context.lowered_text[local_start:local_end]
-    bonus = 0.0
-
-    if role is not None and candidate.start_char >= role.end_char:
-        bonus += 0.08
-    if between_text and "," not in between_text and len(between_text) <= 24:
-        bonus += 0.08
-    if any(term in candidate.normalized_name.lower() for term in TARGET_CONTEXT_TERMS):
-        bonus += 0.08
-    if any(term in between_text for term in OWNER_CONTEXT_TERMS):
-        bonus -= 0.14
-    if any(term in between_text for term in BODY_CONTEXT_TERMS):
-        bonus -= 0.1
-    return bonus
-
-
-def _other_person_between(
-    left: EntityCandidate,
-    right: EntityCandidate,
-    persons: list[EntityCandidate],
-) -> bool:
-    between_start = min(left.end_char, right.end_char)
-    between_end = max(left.start_char, right.start_char)
-    return any(
-        candidate.candidate_id not in {left.candidate_id, right.candidate_id}
-        and candidate.start_char >= between_start
-        and candidate.end_char <= between_end
-        for candidate in persons
-    )
-
-
 def _resolve_public_employment_employer(
-    document: ArticleDocument,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
     *,
     config: PipelineConfig,
-) -> EntityCluster | None:
+) -> ClusterMentionView | None:
+    # 1. Look in the current sentence
+    sentence_views = context.mention_views_in_sentence(
+        sentence.sentence_index, {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+    )
     current = [
-        cluster
-        for cluster in _clusters_for_clause(document, clause)
-        if _is_public_employer_cluster(cluster) and not _is_party_cluster(cluster, config)
+        view
+        for view in sentence_views
+        if _is_public_employer_cluster(view.cluster) and not _is_party_cluster(view.cluster, config)
     ]
     if current:
-        return min(current, key=lambda cluster: _cluster_clause_distance(cluster, clause))
+        return min(current, key=lambda view: abs(view.start_char - clause.start_char))
 
+    # 2. Look in the paragraph context (proximity within 2 sentences)
+    paragraph_views = context.mention_views_in_paragraph(
+        sentence.paragraph_index, {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+    )
     adjacent = [
-        cluster
-        for cluster in document.clusters
-        if cluster.entity_type.name in {"ORGANIZATION", "PUBLIC_INSTITUTION"}
-        and _is_public_employer_cluster(cluster)
-        and not _is_party_cluster(cluster, config)
-        and any(
-            mention.paragraph_index == clause.paragraph_index
-            and abs(mention.sentence_index - clause.sentence_index) <= 2
-            for mention in cluster.mentions
-        )
+        view
+        for view in paragraph_views
+        if _is_public_employer_cluster(view.cluster)
+        and not _is_party_cluster(view.cluster, config)
+        and abs(view.sentence_index - sentence.sentence_index) <= 2
     ]
-    fallback = adjacent or _document_level_employer_candidates(
-        document,
-        clause,
-        config=config,
-    )
-    return min(
-        fallback,
-        key=lambda cluster: _cluster_clause_distance(cluster, clause),
-        default=None,
-    )
+    if adjacent:
+        return min(adjacent, key=lambda view: abs(view.sentence_index - sentence.sentence_index))
+
+    # 3. Document-level fallback
+    fallback_clusters = _document_level_employer_candidates(context.document, clause, config=config)
+    if fallback_clusters:
+        best_cluster = min(
+            fallback_clusters,
+            key=lambda cluster: _cluster_clause_distance(cluster, clause),
+        )
+        return _cluster_to_view(best_cluster)
+
+    return None
 
 
 def _resolve_public_employment_employee(
-    document: ArticleDocument,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
-) -> EntityCluster | None:
-    patient = _employment_patient_cluster(document, clause)
+) -> ClusterMentionView | None:
+    patient = _employment_patient_view(context, sentence, clause)
     if patient is not None:
         return patient
-    subject = _subject_cluster(document, clause)
+    subject = _subject_view(context, sentence, clause)
     if subject is not None:
-        return _proxy_cluster_for_anchor(document, clause, subject) or subject
-    return min(
-        (
-            cluster
-            for cluster in _clusters_for_clause(document, clause)
-            if cluster.entity_type.name == "PERSON"
-        ),
-        key=lambda cluster: _cluster_clause_distance(cluster, clause),
-        default=None,
-    )
+        # Check if subject is an anchor for a proxy person
+        proxy_view = _proxy_view_for_anchor(context, sentence, clause, subject)
+        return proxy_view or subject
+
+    # Fallback: nearest person in sentence
+    persons = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
+    if persons:
+        return min(persons, key=lambda view: abs(view.start_char - clause.start_char))
+
+    return None
 
 
 def _resolve_public_employment_role_cluster(
-    document: ArticleDocument,
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
-    employee: EntityCluster,
-) -> EntityCluster | None:
-    roles = [
-        cluster
-        for cluster in _clusters_for_clause(document, clause)
-        if cluster.entity_type.name == "POSITION"
-    ]
-    employee_distance = _cluster_clause_distance(employee, clause)
-    return min(
-        roles,
-        key=lambda cluster: abs(_cluster_clause_distance(cluster, clause) - employee_distance),
-        default=None,
-    )
+    employee: ClusterMentionView,
+) -> ClusterMentionView | None:
+    roles = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.POSITION})
+    if not roles:
+        return None
+
+    return min(roles, key=lambda view: abs(view.start_char - employee.start_char))
 
 
 def _document_level_employer_candidates(
@@ -491,7 +427,7 @@ def _document_level_employer_candidates(
     return [
         cluster
         for cluster in document.clusters
-        if cluster.entity_type.name in {"ORGANIZATION", "PUBLIC_INSTITUTION"}
+        if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         and _is_public_employer_cluster(cluster)
         and not _is_party_cluster(cluster, config)
         and any(
@@ -501,11 +437,12 @@ def _document_level_employer_candidates(
     ]
 
 
-def _employment_patient_cluster(
-    document: ArticleDocument,
+def _employment_patient_view(
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
-) -> EntityCluster | None:
-    parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+) -> ClusterMentionView | None:
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
     for trigger_word in [word for word in parsed_words if word.lemma.casefold() == "zatrudnić"]:
         object_words = [
             word
@@ -514,131 +451,106 @@ def _employment_patient_cluster(
             and (word.deprel in {"obj", "iobj"} or word.deprel.startswith("nsubj:pass"))
         ]
         for object_word in object_words:
-            cluster = _person_cluster_overlapping_word(document, clause, object_word)
-            if cluster is not None:
-                return cluster
-            cluster = _person_cluster_in_subtree(document, clause, object_word.index)
-            if cluster is not None:
-                return cluster
+            view = _person_view_overlapping_word(context, sentence, object_word)
+            if view is not None:
+                return view
+            view = _person_view_in_subtree(context, sentence, object_word.index)
+            if view is not None:
+                return view
             if object_word.lemma.casefold() in KINSHIP_LEMMAS:
-                return _nearest_proxy_cluster(document, clause, object_word.start)
+                return _nearest_proxy_view(context, sentence, clause, object_word.start)
     return None
 
 
-def _subject_cluster(
-    document: ArticleDocument,
+def _subject_view(
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
-) -> EntityCluster | None:
-    parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+) -> ClusterMentionView | None:
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
     for word in [word for word in parsed_words if word.deprel.startswith("nsubj")]:
-        cluster = _person_cluster_overlapping_word(document, clause, word)
-        if cluster is not None:
-            return cluster
-        cluster = _person_cluster_in_subtree(document, clause, word.index)
-        if cluster is not None:
-            return cluster
+        view = _person_view_overlapping_word(context, sentence, word)
+        if view is not None:
+            return view
+        view = _person_view_in_subtree(context, sentence, word.index)
+        if view is not None:
+            return view
     return None
 
 
-def _person_cluster_in_subtree(
-    document: ArticleDocument,
-    clause: ClauseUnit,
+def _person_view_in_subtree(
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     head_index: int,
     *,
     seen: set[int] | None = None,
-) -> EntityCluster | None:
+) -> ClusterMentionView | None:
     if seen is None:
         seen = set()
     if head_index in seen:
         return None
     seen.add(head_index)
-    parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
+    parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
     for child in parsed_words:
         if child.head != head_index:
             continue
-        cluster = _person_cluster_overlapping_word(document, clause, child)
-        if cluster is not None:
-            return cluster
-        descendant = _person_cluster_in_subtree(document, clause, child.index, seen=seen)
+        view = _person_view_overlapping_word(context, sentence, child)
+        if view is not None:
+            return view
+        descendant = _person_view_in_subtree(context, sentence, child.index, seen=seen)
         if descendant is not None:
             return descendant
     return None
 
 
-def _person_cluster_overlapping_word(
-    document: ArticleDocument,
-    clause: ClauseUnit,
+def _person_view_overlapping_word(
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     word: ParsedWord,
-) -> EntityCluster | None:
-    for cluster in _clusters_for_clause(document, clause):
-        if cluster.entity_type.name != "PERSON":
-            continue
-        if any(
-            _mention_local_start(mention, clause)
-            <= word.start
-            < _mention_local_end(mention, clause)
-            for mention in cluster.mentions
-            if mention.sentence_index == clause.sentence_index
-        ):
-            return cluster
+) -> ClusterMentionView | None:
+    person_views = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
+    for view in person_views:
+        if view.start_char <= sentence.start_char + word.start < view.end_char:
+            return view
     return None
 
 
-def _nearest_proxy_cluster(
-    document: ArticleDocument,
+def _nearest_proxy_view(
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
-    local_start: int,
-) -> EntityCluster | None:
-    proxies = [
-        cluster
-        for cluster in _clusters_for_clause(document, clause)
-        if cluster.entity_type.name == "PERSON" and cluster.is_proxy_person
-    ]
-    return min(
-        proxies,
-        key=lambda cluster: _cluster_clause_distance(cluster, clause) + local_start,
-        default=None,
-    )
+    local_offset: int,
+) -> ClusterMentionView | None:
+    person_views = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
+    proxies = [view for view in person_views if view.is_proxy_person]
+    if not proxies:
+        return None
+    abs_offset = sentence.start_char + local_offset
+    return min(proxies, key=lambda view: abs(view.start_char - abs_offset))
 
 
-def _proxy_cluster_for_anchor(
-    document: ArticleDocument,
+def _proxy_view_for_anchor(
+    context: ExtractionContext,
+    sentence: SentenceFragment,
     clause: ClauseUnit,
-    subject: EntityCluster,
-) -> EntityCluster | None:
-    subject_entity_ids = {mention.entity_id for mention in subject.mentions if mention.entity_id}
+    subject: ClusterMentionView,
+) -> ClusterMentionView | None:
+    person_views = context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
+    subject_entity_ids = {
+        mention.entity_id for mention in subject.cluster.mentions if mention.entity_id
+    }
     return next(
         (
-            cluster
-            for cluster in document.clusters
-            if cluster.is_proxy_person
-            and cluster.proxy_anchor_entity_id in subject_entity_ids
-            and any(mention.sentence_index == clause.sentence_index for mention in cluster.mentions)
+            view
+            for view in person_views
+            if view.is_proxy_person and view.cluster.proxy_anchor_entity_id in subject_entity_ids
         ),
         None,
     )
 
 
-def _clusters_for_clause(
-    document: ArticleDocument,
-    clause: ClauseUnit,
-) -> list[EntityCluster]:
-    mention_keys = {
-        (mention.entity_id, mention.start_char, mention.end_char)
-        for mention in clause.cluster_mentions
-    }
-    return [
-        cluster
-        for cluster in document.clusters
-        if any(
-            (mention.entity_id, mention.start_char, mention.end_char) in mention_keys
-            for mention in cluster.mentions
-        )
-    ]
-
-
 def _is_public_employer_cluster(cluster: EntityCluster) -> bool:
-    if cluster.entity_type.name == "PUBLIC_INSTITUTION":
+    if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
         return True
     if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
         return True
@@ -649,23 +561,31 @@ def _is_party_cluster(cluster: EntityCluster, config: PipelineConfig) -> bool:
     return is_party_like_name(cluster.normalized_name, config)
 
 
-def _mention_local_start(mention: ClusterMention, clause: ClauseUnit) -> int:
-    return max(0, mention.start_char - clause.start_char)
-
-
-def _mention_local_end(mention: ClusterMention, clause: ClauseUnit) -> int:
-    return max(0, mention.end_char - clause.start_char)
-
-
 def _cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> int:
     return min(
         (
-            abs(_mention_local_start(mention, clause))
+            abs(mention.start_char - clause.start_char)
             for mention in cluster.mentions
             if mention.sentence_index == clause.sentence_index
         ),
         default=9999,
     )
+
+
+def _cluster_to_view(cluster: EntityCluster) -> ClusterMentionView:
+    mention = (
+        cluster.mentions[0]
+        if cluster.mentions
+        else ClusterMention(
+            text=cluster.canonical_name,
+            entity_type=cluster.entity_type,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=0,
+        )
+    )
+    return ClusterMentionView(cluster=cluster, mention=mention)
 
 
 def _score(

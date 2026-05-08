@@ -2,6 +2,31 @@
 
 This report consolidates the most relevant architectural findings, refactor results, and benchmark progress from previous specialized reports.
 
+## 0. Local Worktree Regression Fixes (2026-05-08)
+
+Investigation focused on the current local worktree for PR #27-style extraction changes, not just the pushed branch state.
+
+**What improved:**
+- Fixed a real kinship-resolution bug where dependency `word.index` was treated as a list position in `pipeline/domains/kinship.py`.
+- Fixed a broken local reference in `pipeline/attribution.py` and removed a shared-layer import from `pipeline.domains.kinship`, restoring the import boundary expected by `tests/test_import_boundaries.py`.
+- Reduced party-profile overfitting by removing narrow office lemmas from `PARTY_CONTEXT_LEMMAS` and using public-office `role_kind` context in `pipeline/domains/political_profile.py` for cross-sentence party attribution.
+- Added regression coverage for sparse dependency indices in kinship extraction and for cross-sentence party attribution driven by office-role context.
+
+**What regressed:**
+- No new regression was observed in the spot-checked benchmark outputs after the fixes.
+
+**Benchmark / validation checked:**
+- Full `uv run pytest -q`: passed.
+- Clean-registry warm benchmark run: `uv run python main.py --input-dir inputs --glob "*.html" --output-dir output` after deleting `output/entity_registry.sqlite3*`: passed.
+- Spot-checked benchmark outputs:
+  - `zona-posla-pis`: spouse ties, PiS party links, and appointment output still present.
+  - `dziennikpolski24...charsznicy...`: partner/father-in-law ties and local appointment output still present.
+  - `dziennikzachodni...bytomiu...`: spouse tie still present.
+  - `olsztyn.tvp.pl...jaroslaw-sloma...`: vice-president appointment plus party/office output still present.
+
+**Next bottleneck:**
+- Secondary-fact duplication remains visible in some outputs (notably repeated kinship and office/appointment facts in `zona-posla-pis` and the Jarosław Słoma article). The current fix preserved coverage but did not tackle deduplication quality.
+
 ## 1. Major Architectural Milestone: Dependency Frames (2026-05-05)
 
 A shared dependency-frame layer was added for clause-local extraction arguments. Governance and funding extraction now route through this layer before discourse fallbacks.

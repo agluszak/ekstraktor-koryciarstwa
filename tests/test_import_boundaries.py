@@ -80,9 +80,6 @@ def test_domain_registry_is_domain_facing_factory() -> None:
 
 
 def test_relations_modules_do_not_import_domains() -> None:
-    for relative_path in (
-        "pipeline/relations/candidate_graph.py",
-        "pipeline/relations/org_typing.py",
-    ):
+    for relative_path in ("pipeline/relations/org_typing.py",):
         imports = _imports_for(REPO_ROOT / relative_path)
         assert not any(module.startswith("pipeline.domains") for module in imports), relative_path

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from pipeline.models import EntityCandidate, ParsedWord
-from pipeline.nlp_rules import PARTY_CONTEXT_LEMMAS, PARTY_PROFILE_CONTEXT_LEMMAS
+from pipeline.models import ClusterMentionView, ParsedWord
 
 KINSHIP_CONTEXT_MARKERS = frozenset(
     {
@@ -27,21 +26,26 @@ KINSHIP_CONTEXT_MARKERS = frozenset(
 
 def candidate_words(
     parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
+    candidate: ClusterMentionView,
+    *,
+    sentence_start: int,
 ) -> list[ParsedWord]:
+    local_start = candidate.start_char - sentence_start
+    local_end = candidate.end_char - sentence_start
     return [
         word
         for word in parsed_words
-        if candidate.start_char <= word.start < candidate.end_char
-        or word.start <= candidate.start_char < word.end
+        if local_start <= word.start < local_end or word.start <= local_start < word.end
     ]
 
 
 def candidate_head_word(
     parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
+    candidate: ClusterMentionView,
+    *,
+    sentence_start: int,
 ) -> ParsedWord | None:
-    words = candidate_words(parsed_words, candidate)
+    words = candidate_words(parsed_words, candidate, sentence_start=sentence_start)
     if not words:
         return None
     word_indices = {word.index for word in words}
@@ -50,19 +54,23 @@ def candidate_head_word(
 
 def between_candidates_text(
     lowered_text: str,
-    left: EntityCandidate,
-    right: EntityCandidate,
+    left: ClusterMentionView,
+    right: ClusterMentionView,
+    *,
+    sentence_start: int,
 ) -> str:
-    between_start = min(left.end_char, right.end_char)
-    between_end = max(left.start_char, right.start_char)
+    between_start = min(left.end_char, right.end_char) - sentence_start
+    between_end = max(left.start_char, right.start_char) - sentence_start
     return lowered_text[between_start:between_end]
 
 
 def is_quote_speaker_risk(
     parsed_words: list[ParsedWord],
-    candidate: EntityCandidate,
+    candidate: ClusterMentionView,
+    *,
+    sentence_start: int,
 ) -> bool:
-    overlapping_words = candidate_words(parsed_words, candidate)
+    overlapping_words = candidate_words(parsed_words, candidate, sentence_start=sentence_start)
     if not overlapping_words:
         return False
     speech_roots = {
@@ -85,25 +93,50 @@ def party_syntactic_signal(
     parsed_words: list[ParsedWord],
     sentence_text: str,
     lowered_text: str,
-    person: EntityCandidate,
-    party: EntityCandidate,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
+    sentence_start: int,
 ) -> str | None:
-    party_word = candidate_head_word(parsed_words, party)
-    person_words = candidate_words(parsed_words, person)
+    party_word = candidate_head_word(parsed_words, party, sentence_start=sentence_start)
+    person_words = candidate_words(parsed_words, person, sentence_start=sentence_start)
     if party_word is None or not person_words:
         return None
 
-    head = next((word for word in parsed_words if word.index == party_word.head), None)
-    if head is not None and head.lemma.casefold() in PARTY_CONTEXT_LEMMAS:
-        if any(person_word.index == head.head for person_word in person_words):
-            return "syntactic_direct"
-        if any(person_word.head == head.index for person_word in person_words):
-            return "appositive_context"
-        between_text = between_candidates_text(lowered_text, person, party)
-        if any(marker in between_text for marker in (" z ", ",", "(", ")")):
-            return "appositive_context"
+    person_word_indices = {word.index for word in person_words}
 
-    preceding_text = sentence_text[max(0, party.start_char - 3) : party.start_char].lower()
+    # Direct link
+    if party_word.head in person_word_indices:
+        return "syntactic_direct"
+    if any(word.head == party_word.index for word in person_words):
+        return "syntactic_direct"
+
+    # Indirect link via context head (e.g. "z", "członek")
+    context_head = next((word for word in parsed_words if word.index == party_word.head), None)
+    if context_head is not None:
+        is_valid_join = context_head.upos in {
+            "ADP",
+            "PUNCT",
+            "NOUN",
+        } or context_head.lemma.casefold() in {"z", "w", "za", "od"}
+        if is_valid_join:
+            if context_head.head in person_word_indices or any(
+                word.head == context_head.index for word in person_words
+            ):
+                return "appositive_context"
+
+            # Grandhead check for deeper paths
+            grand_head = next(
+                (word for word in parsed_words if word.index == context_head.head), None
+            )
+            if grand_head is not None:
+                if (
+                    grand_head.index in person_word_indices
+                    or grand_head.head in person_word_indices
+                ):
+                    return "appositive_context"
+
+    party_start = party.start_char - sentence_start
+    preceding_text = sentence_text[max(0, party_start - 3) : party_start].lower()
     if preceding_text.endswith(" z "):
         return "syntactic_direct"
     return None
@@ -113,44 +146,51 @@ def party_context_window_supports(
     *,
     parsed_words: list[ParsedWord],
     lowered_text: str,
-    person: EntityCandidate,
-    party: EntityCandidate,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
     window_before: int = 8,
     window_after: int = 16,
+    sentence_start: int,
 ) -> bool:
-    window_start = max(0, min(person.start_char, party.start_char) - window_before)
-    window_end = max(person.end_char, party.end_char) + window_after
-    between_text = between_candidates_text(lowered_text, person, party)
-    party_context_words = [
-        word
-        for word in parsed_words
-        if word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS
-        and window_start <= word.start <= window_end
-    ]
-    if party_context_words:
+    between_text = between_candidates_text(
+        lowered_text,
+        person,
+        party,
+        sentence_start=sentence_start,
+    )
+
+    # If no specific context lemmas, we rely on proximity and "z" marker
+    if any(marker in between_text for marker in (" z ", " z ", " (", " [")):
         return True
-    if any(marker in between_text for marker in (" z ", " z ")):
+
+    # Generic window check: if they are very close and separated only by punctuation/spaces
+    if abs(person.start_char - party.start_char) <= 8 and between_text.strip(" \t,()[]\"'") == "":
         return True
-    if parsed_words:
-        return False
-    party_window = lowered_text[window_start:window_end]
-    return any(marker in party_window for marker in PARTY_PROFILE_CONTEXT_LEMMAS)
+
+    return False
 
 
 def supports_party_link(
     *,
     sentence_text: str,
     parsed_words: list[ParsedWord],
-    person: EntityCandidate,
-    party: EntityCandidate,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
+    sentence_start: int,
 ) -> bool:
     lowered_text = sentence_text.lower()
     distance = abs(person.start_char - party.start_char)
     if distance > 56:
-        if not _supports_descriptive_tail_link(lowered_text, person, party):
+        if not _supports_descriptive_tail_link(
+            parsed_words,
+            person,
+            party,
+            sentence_start=sentence_start,
+        ):
             return False
 
-    preceding_text = lowered_text[max(0, party.start_char - 3) : party.start_char]
+    party_start = party.start_char - sentence_start
+    preceding_text = lowered_text[max(0, party_start - 3) : party_start]
     if preceding_text.endswith(" z ") and distance <= 28:
         return True
 
@@ -161,8 +201,14 @@ def supports_party_link(
         party=party,
         window_before=24,
         window_after=24,
+        sentence_start=sentence_start,
     ):
-        if _supports_descriptive_tail_link(lowered_text, person, party):
+        if _supports_descriptive_tail_link(
+            parsed_words,
+            person,
+            party,
+            sentence_start=sentence_start,
+        ):
             return distance <= 180
         return distance <= 36
 
@@ -173,12 +219,18 @@ def supports_party_link(
             lowered_text=lowered_text,
             person=person,
             party=party,
+            sentence_start=sentence_start,
         )
         is not None
     ):
         return distance <= 40
 
-    if _supports_descriptive_tail_link(lowered_text, person, party):
+    if _supports_descriptive_tail_link(
+        parsed_words,
+        person,
+        party,
+        sentence_start=sentence_start,
+    ):
         return distance <= 180
 
     return False
@@ -188,18 +240,29 @@ def person_role_syntactic_signal(
     *,
     parsed_words: list[ParsedWord],
     lowered_text: str,
-    person: EntityCandidate,
-    role: EntityCandidate,
-    sentence_persons: list[EntityCandidate],
+    person: ClusterMentionView,
+    role: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
+    sentence_start: int,
 ) -> str | None:
     if person.is_proxy_person and _candidate_contains(person, role):
         return None
 
-    between_text = between_candidates_text(lowered_text, person, role)
+    between_text = between_candidates_text(
+        lowered_text,
+        person,
+        role,
+        sentence_start=sentence_start,
+    )
     if any(marker in between_text for marker in KINSHIP_CONTEXT_MARKERS):
         return None
 
-    if _supports_descriptive_tail_link(lowered_text, person, role):
+    if _supports_descriptive_tail_link(
+        parsed_words,
+        person,
+        role,
+        sentence_start=sentence_start,
+    ):
         return "appositive_context"
 
     if _other_person_between(person, role, sentence_persons):
@@ -209,8 +272,8 @@ def person_role_syntactic_signal(
     if compact_between == "":
         return "appositive_context"
 
-    person_head = candidate_head_word(parsed_words, person)
-    role_head = candidate_head_word(parsed_words, role)
+    person_head = candidate_head_word(parsed_words, person, sentence_start=sentence_start)
+    role_head = candidate_head_word(parsed_words, role, sentence_start=sentence_start)
     if person_head is None or role_head is None:
         return None
 
@@ -229,9 +292,10 @@ def supports_person_role_link(
     *,
     parsed_words: list[ParsedWord],
     sentence_text: str,
-    person: EntityCandidate,
-    role: EntityCandidate,
-    sentence_persons: list[EntityCandidate],
+    person: ClusterMentionView,
+    role: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
+    sentence_start: int,
 ) -> bool:
     lowered_text = sentence_text.casefold()
     signal = person_role_syntactic_signal(
@@ -240,6 +304,7 @@ def supports_person_role_link(
         person=person,
         role=role,
         sentence_persons=sentence_persons,
+        sentence_start=sentence_start,
     )
     if signal is not None:
         return True
@@ -248,13 +313,23 @@ def supports_person_role_link(
     if person.is_proxy_person:
         return False
 
-    if _supports_descriptive_tail_link(lowered_text, person, role):
+    if _supports_descriptive_tail_link(
+        parsed_words,
+        person,
+        role,
+        sentence_start=sentence_start,
+    ):
         return distance <= 180
 
     if distance > 32:
         return False
 
-    between_text = between_candidates_text(lowered_text, person, role)
+    between_text = between_candidates_text(
+        lowered_text,
+        person,
+        role,
+        sentence_start=sentence_start,
+    )
     if any(marker in between_text for marker in KINSHIP_CONTEXT_MARKERS):
         return False
     if _other_person_between(person, role, sentence_persons):
@@ -262,19 +337,19 @@ def supports_person_role_link(
     return between_text.strip(" \t,:;()[]\"'") == ""
 
 
-def _candidate_contains(container: EntityCandidate, inner: EntityCandidate) -> bool:
+def _candidate_contains(container: ClusterMentionView, inner: ClusterMentionView) -> bool:
     return container.start_char <= inner.start_char and inner.end_char <= container.end_char
 
 
 def _other_person_between(
-    left: EntityCandidate,
-    right: EntityCandidate,
-    sentence_persons: list[EntityCandidate],
+    left: ClusterMentionView,
+    right: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
 ) -> bool:
     between_start = min(left.end_char, right.end_char)
     between_end = max(left.start_char, right.start_char)
     return any(
-        candidate.candidate_id not in {left.candidate_id, right.candidate_id}
+        candidate.cluster_id not in {left.cluster_id, right.cluster_id}
         and candidate.start_char >= between_start
         and candidate.end_char <= between_end
         for candidate in sentence_persons
@@ -282,18 +357,32 @@ def _other_person_between(
 
 
 def _supports_descriptive_tail_link(
-    lowered_text: str,
-    person: EntityCandidate,
-    target: EntityCandidate,
+    parsed_words: list[ParsedWord],
+    person: ClusterMentionView,
+    target: ClusterMentionView,
+    *,
+    sentence_start: int,
 ) -> bool:
-    if target.start_char <= person.end_char:
+    """Check if the target is a descriptive appositive of the person.
+
+    Replaces brittle string heuristics with dependency paths.
+    """
+    person_head = candidate_head_word(parsed_words, person, sentence_start=sentence_start)
+    target_head = candidate_head_word(parsed_words, target, sentence_start=sentence_start)
+
+    if person_head is None or target_head is None:
         return False
-    prefix = lowered_text[: person.start_char].strip(" \t\"'([")
-    if prefix not in {"", "to"}:
-        return False
-    between_text = between_candidates_text(lowered_text, person, target)
-    if any(marker in between_text for marker in KINSHIP_CONTEXT_MARKERS):
-        return False
-    if not any(marker in between_text for marker in (" - ", " – ", " — ", ",")):
-        return False
-    return not any(marker in between_text for marker in (".", ";", "?", "!"))
+
+    # Apposition link
+    if target_head.head == person_head.index and target_head.deprel == "appos":
+        return True
+
+    # Nmod link (e.g. "Jan Kowalski, dyrektor...")
+    if target_head.head == person_head.index and target_head.deprel.startswith("nmod"):
+        return True
+
+    # Subject complement / Copula (e.g. "Jan Kowalski to dyrektor...")
+    if person_head.head == target_head.index and person_head.deprel.startswith("nsubj"):
+        return True
+
+    return False
