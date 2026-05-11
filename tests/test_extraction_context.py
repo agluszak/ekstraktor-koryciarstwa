@@ -274,6 +274,54 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
     ] == [ClusterID("cluster-org"), ClusterID("cluster-person")]
 
 
+def test_cluster_metadata_helpers_read_current_entity_identity() -> None:
+    entity_id = EntityID("entity-org")
+    mention = ClusterMention(
+        text="Stare Przedsiębiorstwo",
+        entity_type=EntityType.ORGANIZATION,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=22,
+        entity_id=entity_id,
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=[],
+        entities=[
+            Entity(
+                entity_id=entity_id,
+                entity_type=EntityType.PUBLIC_INSTITUTION,
+                canonical_name="Nowy Urząd",
+                normalized_name="nowy urząd",
+            )
+        ],
+        clusters=[
+            EntityCluster(
+                cluster_id=ClusterID("cluster-org"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Stare Przedsiębiorstwo",
+                normalized_name="stare przedsiębiorstwo",
+                mentions=[mention],
+                primary_entity_id=entity_id,
+                member_entity_ids=[entity_id],
+            )
+        ],
+    )
+
+    context = ExtractionContext.build(document)
+    cluster = document.clusters[0]
+
+    assert context.entity_for_cluster(cluster) == document.entities[0]
+    assert context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION
+    assert context.canonical_name_for_cluster(cluster) == "Nowy Urząd"
+
+
 def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:
     from pipeline.temporal import resolve_event_date
 

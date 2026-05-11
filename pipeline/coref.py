@@ -8,7 +8,7 @@ from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityID, EntityType
+from pipeline.domain_types import EntityID, EntityType, MentionKind
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_entity_name
@@ -108,11 +108,13 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     # representative text is not a bare generic noun (too ambiguous).
                     representative_entity = self._match_org_entity(org_by_name, representative_text)
                     if representative_entity is not None:
-                        mention_type = "ResolvedOrgReference"
+                        entity_type = representative_entity.entity_type
+                        mention_kind = MentionKind.COREF_REFERENCE
                     else:
                         continue
                 else:
-                    mention_type = "ResolvedPersonReference"
+                    entity_type = EntityType.PERSON
+                    mention_kind = MentionKind.COREF_REFERENCE
 
                 for mention in chain.mentions:
                     sentence_index = mention.sentence
@@ -127,7 +129,8 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     resolved = Mention(
                         text=mention_text,
                         normalized_text=normalize_entity_name(mention_text),
-                        mention_type=mention_type,
+                        entity_type=entity_type,
+                        mention_kind=mention_kind,
                         sentence_index=sentence_index,
                         paragraph_index=0 if sentence is None else sentence.paragraph_index,
                         start_char=0 if start_char is None else start_char,
@@ -217,7 +220,8 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     Mention(
                         text=sentence.text[start_idx : start_idx + len(marker)],
                         normalized_text=normalize_entity_name(marker),
-                        mention_type="ResolvedOrgAnaphor",
+                        entity_type=EntityType.ORGANIZATION,
+                        mention_kind=MentionKind.COREF_ANAPHOR,
                         sentence_index=sentence.sentence_index,
                         paragraph_index=sentence.paragraph_index,
                         start_char=abs_start,
