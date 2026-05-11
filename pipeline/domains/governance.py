@@ -80,6 +80,23 @@ PLACE_CONTEXT_TARGETS = frozenset(
         "kraj",
     }
 )
+LIST_APPOINTMENT_CONTEXT_PATTERNS = (
+    r"rad\w*\s+nadzorcz\w*",
+    r"zarząd\w*",
+    r"nadz[oó]r\w*",
+    r"spół\w*",
+)
+LIST_DISMISSAL_CONTEXT_PATTERNS = (
+    r"rad\w*\s+nadzorcz\w*",
+    r"zarząd\w*",
+    r"stanowisk\w*",
+    r"funkcj\w*",
+    r"nadz[oó]r\w*",
+)
+LIST_ROLE_PATTERNS = (
+    r"rad\w*\s+nadzorcz\w*",
+    r"nadz[oó]r\w*",
+)
 
 
 def infer_list_event_time_scope(
@@ -553,17 +570,19 @@ class GovernanceFactBuilder:
         if not has_list_cue:
             return None
         governance_context = f"{lowered} {paragraph_lowered}"
-        if "powoł" in lowered and any(
-            marker in governance_context
-            for marker in ("rada nadzorc", "zarząd", "nadzór", "nadzor", "spół")
+        if "powoł" in lowered and GovernanceFactBuilder._contains_any_pattern(
+            governance_context, LIST_APPOINTMENT_CONTEXT_PATTERNS
         ):
             return GovernanceSignal.APPOINTMENT
-        if "odwoł" in lowered and any(
-            marker in governance_context
-            for marker in ("rada nadzorc", "zarząd", "stanowisk", "funkcj", "nadzór", "nadzor")
+        if "odwoł" in lowered and GovernanceFactBuilder._contains_any_pattern(
+            governance_context, LIST_DISMISSAL_CONTEXT_PATTERNS
         ):
             return GovernanceSignal.DISMISSAL
         return None
+
+    @staticmethod
+    def _contains_any_pattern(text: str, patterns: tuple[str, ...]) -> bool:
+        return any(re.search(pattern, text) is not None for pattern in patterns)
 
     @staticmethod
     def _paragraph_text(document: ArticleDocument, paragraph_index: int) -> str:
@@ -646,7 +665,7 @@ class GovernanceFactBuilder:
     @staticmethod
     def _list_role_text(text: str) -> str | None:
         lowered = text.casefold()
-        if any(marker in lowered for marker in ("rada nadzorc", "nadzór", "nadzor")):
+        if GovernanceFactBuilder._contains_any_pattern(lowered, LIST_ROLE_PATTERNS):
             return "rada nadzorcza"
         if "zarząd" in lowered:
             return "zarząd"
