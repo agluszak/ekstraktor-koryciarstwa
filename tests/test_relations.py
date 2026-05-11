@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from pipeline.attribution import (
+    resolve_candidacy_score,
     resolve_party_attributions,
     resolve_political_role_attributions,
     resolve_public_employment_attribution,
@@ -2291,6 +2292,34 @@ def test_candidacy_requires_explicit_election_context() -> None:
     )
 
     assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
+
+
+def test_candidacy_not_emitted_for_completed_governance_decision() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Jan Kowalski, kandydat, został powołany do rady nadzorczej spółki Alfa."
+    document = prepared_single_clause_document(
+        document_id="doc-candidacy-decision",
+        text=text,
+        entities=[
+            ("Jan Kowalski", EntityType.PERSON, "Jan Kowalski"),
+            ("spółki Alfa", EntityType.ORGANIZATION, "Spółka Alfa"),
+        ],
+        parsed_words=[
+            word(1, "Jan", "Jan", 0, head=2, deprel="flat", upos="PROPN"),
+            word(2, "Kowalski", "Kowalski", 4, head=6, deprel="nsubj", upos="PROPN"),
+            word(3, "kandydat", "kandydat", text.index("kandydat"), head=2, deprel="appos"),
+            word(4, "został", "zostać", text.index("został"), head=6, deprel="aux", upos="AUX"),
+            word(5, "powołany", "powołać", text.index("powołany"), head=6, deprel="root"),
+            word(6, "rady", "rada", text.index("rady"), head=5, deprel="obl"),
+        ],
+    )
+    document = PolishEntityClusterer(config).run(document)
+    context = ExtractionContext.build(document)
+    person = context.mention_views_in_sentence(0, {EntityType.PERSON})[0]
+
+    candidacy_score = resolve_candidacy_score(context, document.sentences[0], person)
+
+    assert candidacy_score is None
 
 
 def test_party_membership_does_not_cross_attach_between_multiple_people() -> None:

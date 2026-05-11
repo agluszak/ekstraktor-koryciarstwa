@@ -228,6 +228,12 @@ def resolve_candidacy_score(
     ]
     if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
+    governance_decision_lemmas = {"powołać", "odwołać", "mianować", "objąć", "wybrać"}
+    governance_target_markers = ("rada", "zarząd", "nadzór", "nadzor", "spół")
+    if governance_decision_lemmas.intersection(lemmas) and any(
+        marker in lowered_text for marker in governance_target_markers
+    ):
+        return None
     if any(
         abs(person.start_char - (sentence.start_char + word.start)) <= 28
         for word in governing_words
