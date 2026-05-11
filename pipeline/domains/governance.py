@@ -80,6 +80,23 @@ PLACE_CONTEXT_TARGETS = frozenset(
         "kraj",
     }
 )
+LIST_APPOINTMENT_CONTEXT_PATTERNS = (
+    r"rad\w*\s+nadzorcz\w*",
+    r"zarząd\w*",
+    r"nadz[oó]r\w*",
+    r"spół\w*",
+)
+LIST_DISMISSAL_CONTEXT_PATTERNS = (
+    r"rad\w*\s+nadzorcz\w*",
+    r"zarząd\w*",
+    r"stanowisk\w*",
+    r"funkcj\w*",
+    r"nadz[oó]r\w*",
+)
+LIST_ROLE_PATTERNS = (
+    r"rad\w*\s+nadzorcz\w*",
+    r"nadz[oó]r\w*",
+)
 
 
 def infer_list_event_time_scope(
@@ -513,15 +530,17 @@ class GovernanceFactBuilder:
     ) -> list[Fact]:
         output: list[Fact] = []
         for sentence in document.sentences:
-            signal = self._list_signal(sentence.text)
+            paragraph_text = self._paragraph_text(document, sentence.paragraph_index)
+            signal = self._list_signal(sentence.text, paragraph_text)
             if signal is None:
                 continue
             people = self._person_clusters_for_list_sentence(document, sentence)
-            if len(people) < 2:
+            if not people:
                 continue
             exceptions = self._exception_person_ids(document, sentence, people)
             people = [cluster for cluster in people if cluster.cluster_id not in exceptions]
-            if len(people) < 2:
+            # "wszyscy ... z wyjątkiem X" can legitimately leave exactly one person to emit.
+            if not people:
                 continue
             target = self._target_cluster_for_list_sentence(document, sentence)
             if target is None:
@@ -542,23 +561,32 @@ class GovernanceFactBuilder:
         return output
 
     @staticmethod
-    def _list_signal(text: str) -> GovernanceSignal | None:
+    def _list_signal(text: str, paragraph_text: str) -> GovernanceSignal | None:
         lowered = text.casefold()
-        has_list_cue = bool(
-            re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered)
-            or lowered.count(",") >= 1
-        )
+        paragraph_lowered = paragraph_text.casefold()
+        has_list_cue = bool(re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered))
         if not has_list_cue:
             return None
-        if "powoł" in lowered and any(
-            marker in lowered for marker in ("rada nadzorcza", "zarząd", "nadzór", "spół")
+        governance_context = f"{lowered} {paragraph_lowered}"
+        if "powoł" in lowered and GovernanceFactBuilder._contains_any_pattern(
+            governance_context, LIST_APPOINTMENT_CONTEXT_PATTERNS
         ):
             return GovernanceSignal.APPOINTMENT
-        if "odwoł" in lowered and any(
-            marker in lowered for marker in ("rada nadzorcza", "zarząd", "stanowisk", "funkcj")
+        if "odwoł" in lowered and GovernanceFactBuilder._contains_any_pattern(
+            governance_context, LIST_DISMISSAL_CONTEXT_PATTERNS
         ):
             return GovernanceSignal.DISMISSAL
         return None
+
+    @staticmethod
+    def _contains_any_pattern(text: str, patterns: tuple[str, ...]) -> bool:
+        return any(re.search(pattern, text) is not None for pattern in patterns)
+
+    @staticmethod
+    def _paragraph_text(document: ArticleDocument, paragraph_index: int) -> str:
+        if 0 <= paragraph_index < len(document.paragraphs):
+            return document.paragraphs[paragraph_index]
+        return ""
 
     @staticmethod
     def _person_clusters_for_list_sentence(
@@ -586,11 +614,23 @@ class GovernanceFactBuilder:
         exception_match = re.search(r"\bz wyjątkiem\b", paragraph, re.IGNORECASE)
         if exception_match is None:
             return set()
-        exception_start = sentence.start_char + exception_match.start()
+        paragraph_start = min(
+            (
+                fragment.start_char
+                for fragment in document.sentences
+                if fragment.paragraph_index == sentence.paragraph_index
+            ),
+            default=sentence.start_char,
+        )
+        exception_start = paragraph_start + exception_match.start()
         return {
             cluster.cluster_id
             for cluster in people
-            if any(mention.start_char >= exception_start for mention in cluster.mentions)
+            if any(
+                mention.paragraph_index == sentence.paragraph_index
+                and mention.start_char >= exception_start
+                for mention in cluster.mentions
+            )
         }
 
     @staticmethod
@@ -623,7 +663,7 @@ class GovernanceFactBuilder:
     @staticmethod
     def _list_role_text(text: str) -> str | None:
         lowered = text.casefold()
-        if "rada nadzorcza" in lowered or "rady nadzorczej" in lowered or "nadzór" in lowered:
+        if GovernanceFactBuilder._contains_any_pattern(lowered, LIST_ROLE_PATTERNS):
             return "rada nadzorcza"
         if "zarząd" in lowered:
             return "zarząd"

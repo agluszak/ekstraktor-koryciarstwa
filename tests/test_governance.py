@@ -241,6 +241,131 @@ def test_governance_fact_builder_expands_list_appointments_with_exception() -> N
     assert all(fact.role == "rada nadzorcza" for fact in facts)
 
 
+def test_governance_fact_builder_expands_universal_dismissal_with_exception() -> None:
+    sentence1 = "W skład rady nadzorczej PZU wchodzili Jan Kowalski i Marcin Kubicza."
+    sentence2 = (
+        "Spośród dotychczasowej rady nadzorczej odwołano wszystkich z wyjątkiem Marcina Kubiczy."
+    )
+    text = f"{sentence1} {sentence2}"
+    target = cluster(
+        "cluster-target",
+        "PZU",
+        start_char=text.index("PZU"),
+        organization_kind=OrganizationKind.COMPANY,
+    )
+    jan = cluster(
+        "cluster-jan",
+        "Jan Kowalski",
+        EntityType.PERSON,
+        start_char=text.index("Jan Kowalski"),
+        entity_id="entity-jan",
+    )
+    marcin = cluster(
+        "cluster-marcin",
+        "Marcin Kubicza",
+        EntityType.PERSON,
+        start_char=text.index("Marcina Kubiczy"),
+        end_char=text.index("Marcina Kubiczy") + len("Marcina Kubiczy"),
+        entity_id="entity-marcin",
+    )
+    doc = ArticleDocument(
+        document_id=DocumentID("doc-list-dismissal"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=sentence1,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(sentence1),
+            ),
+            SentenceFragment(
+                text=sentence2,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=len(sentence1) + 1,
+                end_char=len(text),
+            ),
+        ],
+        clusters=[target, jan, marcin],
+    )
+
+    facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
+
+    assert len(facts) == 1
+    assert facts[0].fact_type == FactType.DISMISSAL
+    assert facts[0].subject_entity_id == EntityID("entity-jan")
+    assert facts[0].object_entity_id == EntityID("entity-target")
+    assert facts[0].role == "rada nadzorcza"
+
+
+def test_governance_fact_builder_uses_paragraph_context_for_list_appointment_signal() -> None:
+    sentence1 = "Do organów PZU zgłoszono Jana Kowalskiego i Piotra Lisa."
+    sentence2 = "Wszyscy kandydaci zostali powołani do nadzoru PZU z wyjątkiem nominata OFE."
+    text = f"{sentence1} {sentence2}"
+    target = cluster(
+        "cluster-target",
+        "PZU",
+        start_char=text.index("PZU"),
+        organization_kind=OrganizationKind.COMPANY,
+    )
+    jan = cluster(
+        "cluster-jan",
+        "Jan Kowalski",
+        EntityType.PERSON,
+        start_char=text.index("Jana Kowalskiego"),
+        entity_id="entity-jan",
+    )
+    piotr = cluster(
+        "cluster-piotr",
+        "Piotr Lis",
+        EntityType.PERSON,
+        start_char=text.index("Piotra Lisa"),
+        entity_id="entity-piotr",
+    )
+    doc = ArticleDocument(
+        document_id=DocumentID("doc-list-appointment"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=sentence1,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(sentence1),
+            ),
+            SentenceFragment(
+                text=sentence2,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=len(sentence1) + 1,
+                end_char=len(text),
+            ),
+        ],
+        clusters=[target, jan, piotr],
+    )
+
+    facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
+
+    assert {fact.subject_entity_id for fact in facts} == {
+        EntityID("entity-jan"),
+        EntityID("entity-piotr"),
+    }
+    assert all(fact.fact_type == FactType.APPOINTMENT for fact in facts)
+    assert all(fact.object_entity_id == EntityID("entity-target") for fact in facts)
+    assert all(fact.role == "rada nadzorcza" for fact in facts)
+
+
 def test_governance_event_detection_handles_stanza_copular_role_root() -> None:
     config = PipelineConfig.from_file("config.yaml")
     extractor = PolishGovernanceFrameExtractor(config)

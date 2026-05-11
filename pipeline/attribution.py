@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
@@ -30,6 +31,14 @@ from pipeline.relation_signals import (
     supports_person_role_link,
 )
 from pipeline.secondary_fact_helpers import SecondaryFactScore
+
+GOVERNANCE_DECISION_LEMMAS = frozenset({"powołać", "odwołać", "mianować", "objąć", "wybrać"})
+GOVERNANCE_TARGET_PATTERNS = (
+    r"rad\w*",
+    r"zarząd\w*",
+    r"nadz[oó]r\w*",
+    r"spół\w*",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +236,10 @@ def resolve_candidacy_score(
         if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
     ]
     if "wybory" not in lowered_text and "kandydat" not in lowered_text:
+        return None
+    if GOVERNANCE_DECISION_LEMMAS.intersection(lemmas) and any(
+        re.search(pattern, lowered_text) is not None for pattern in GOVERNANCE_TARGET_PATTERNS
+    ):
         return None
     if any(
         abs(person.start_char - (sentence.start_char + word.start)) <= 28
