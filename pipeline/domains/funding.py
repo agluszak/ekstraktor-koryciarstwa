@@ -455,13 +455,14 @@ class FundingFactBuilder:
 
     @staticmethod
     def _deduplicate_funding_facts(facts: list[Fact]) -> list[Fact]:
-        deduplicated: dict[tuple[str, str | None, str | None, str], Fact] = {}
+        deduplicated: dict[tuple[str, str | None, str | None, int | None, int | None], Fact] = {}
         for fact in facts:
             key = (
                 fact.subject_entity_id,
                 fact.object_entity_id,
                 fact.value_normalized,
-                fact.evidence.text,
+                fact.evidence.sentence_index,
+                fact.evidence.paragraph_index,
             )
             if key not in deduplicated or deduplicated[key].confidence < fact.confidence:
                 deduplicated[key] = fact
