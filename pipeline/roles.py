@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import DocumentStage
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType
+from pipeline.domain_types import EntityType, MentionKind
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
 from pipeline.role_matching import match_role_mentions
 from pipeline.utils import stable_id
@@ -69,7 +69,8 @@ class PolishPositionExtractor(DocumentStage):
                             match.start - sentence.start_char : match.end - sentence.start_char
                         ],
                         normalized_text=canonical_name,
-                        mention_type=EntityType.POSITION,
+                        entity_type=EntityType.POSITION,
+                        mention_kind=MentionKind.DERIVED_ENTITY,
                         sentence_index=sentence.sentence_index,
                         paragraph_index=sentence.paragraph_index,
                         start_char=match.start,

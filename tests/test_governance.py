@@ -825,7 +825,7 @@ def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
             Mention(
                 text="Stadninę Koni Iwno",
                 normalized_text="Stadnina Koni Iwno",
-                mention_type="Organization",
+                entity_type=EntityType.ORGANIZATION,
                 sentence_index=1,
                 paragraph_index=1,
                 start_char=start,

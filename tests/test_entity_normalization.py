@@ -36,7 +36,7 @@ def test_party_aliases_expand_to_canonical_name() -> None:
             Mention(
                 text="PSL",
                 normalized_text="PSL",
-                mention_type=EntityType.POLITICAL_PARTY,
+                entity_type=EntityType.POLITICAL_PARTY,
                 sentence_index=0,
                 entity_id=EntityID("party-1"),
             )
@@ -105,14 +105,14 @@ def test_wfosigw_acronym_and_full_name_are_deduplicated() -> None:
             Mention(
                 text="WFOŚiGW",
                 normalized_text="WFOŚiGW",
-                mention_type=EntityType.ORGANIZATION,
+                entity_type=EntityType.ORGANIZATION,
                 sentence_index=0,
                 entity_id=EntityID("org-1"),
             ),
             Mention(
                 text=full_surface,
                 normalized_text=full_normalized,
-                mention_type=EntityType.ORGANIZATION,
+                entity_type=EntityType.ORGANIZATION,
                 sentence_index=0,
                 entity_id=EntityID("org-2"),
             ),
@@ -253,14 +253,14 @@ def test_location_aliases_are_deduplicated_by_lemma_form() -> None:
             Mention(
                 text="Lublinie",
                 normalized_text="Lublinie",
-                mention_type=EntityType.LOCATION,
+                entity_type=EntityType.LOCATION,
                 sentence_index=0,
                 entity_id=EntityID("loc-1"),
             ),
             Mention(
                 text="Lublin",
                 normalized_text="Lublin",
-                mention_type=EntityType.LOCATION,
+                entity_type=EntityType.LOCATION,
                 sentence_index=0,
                 entity_id=EntityID("loc-2"),
             ),

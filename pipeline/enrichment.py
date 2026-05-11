@@ -14,6 +14,7 @@ from pipeline.domain_types import (
     ClusterID,
     EntityID,
     EntityType,
+    MentionKind,
     OrganizationKind,
     RoleKind,
     RoleModifier,
@@ -227,7 +228,8 @@ class SharedEntityEnricher(EntityEnricher):
         mention = Mention(
             text=derived.surface,
             normalized_text=derived.canonical_name,
-            mention_type=derived.entity_type,
+            entity_type=derived.entity_type,
+            mention_kind=MentionKind.DERIVED_ENTITY,
             sentence_index=derived.sentence_index,
             paragraph_index=derived.paragraph_index,
             start_char=derived.start_char,
@@ -249,6 +251,8 @@ class SharedEntityEnricher(EntityEnricher):
             canonical_name=derived.canonical_name,
             normalized_name=derived.canonical_name,
             mentions=[cluster_mention],
+            primary_entity_id=entity_id,
+            member_entity_ids=[entity_id],
             aliases=[derived.surface],
             organization_kind=derived.organization_kind,
         )
@@ -439,7 +443,8 @@ class SharedEntityEnricher(EntityEnricher):
         mention = Mention(
             text=surface,
             normalized_text=canonical_name,
-            mention_type=entity_type,
+            entity_type=entity_type,
+            mention_kind=MentionKind.DERIVED_ENTITY,
             sentence_index=sentence.sentence_index,
             paragraph_index=sentence.paragraph_index,
             start_char=start_char,
@@ -473,12 +478,16 @@ class SharedEntityEnricher(EntityEnricher):
                 canonical_name=canonical_name,
                 normalized_name=canonical_name,
                 mentions=[cluster_mention],
+                primary_entity_id=entity.entity_id,
+                member_entity_ids=[entity.entity_id],
                 aliases=[surface],
                 organization_kind=organization_kind,
             )
             document.clusters.append(cluster)
         else:
             cluster.mentions.append(cluster_mention)
+            if entity.entity_id not in cluster.member_entity_ids:
+                cluster.member_entity_ids.append(entity.entity_id)
             if surface not in cluster.aliases:
                 cluster.aliases.append(surface)
             if organization_kind is not None:
@@ -527,7 +536,7 @@ class SharedEntityEnricher(EntityEnricher):
                 if mention.start_char <= start_char and end_char <= mention.end_char:
                     return mention.start_char != start_char or mention.end_char != end_char
         for mention in document.mentions:
-            if mention.mention_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            if mention.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
                 continue
             if mention.sentence_index != sentence_index:
                 continue

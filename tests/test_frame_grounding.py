@@ -84,7 +84,7 @@ def _document(
             Mention(
                 text=surface,
                 normalized_text=canonical_name,
-                mention_type=entity_type,
+                entity_type=entity_type,
                 sentence_index=0,
                 paragraph_index=0,
                 start_char=start,

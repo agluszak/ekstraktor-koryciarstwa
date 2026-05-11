@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import EntityType, NERLabel
+from pipeline.domain_types import EntityType, MentionKind, NERLabel
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention, TemporalExpression
 from pipeline.nlp_services import MorphologyAnalyzer, StanzaPolishMorphologyAnalyzer
 from pipeline.normalization import DocumentEntityCanonicalizer
@@ -129,7 +129,8 @@ class SpacyPolishNERExtractor(NERExtractor):
                 Mention(
                     text=ent.text,
                     normalized_text=display_name,
-                    mention_type=entity_type,
+                    entity_type=entity_type,
+                    mention_kind=MentionKind.NAMED_ENTITY,
                     sentence_index=sentence.sentence_index if sentence is not None else 0,
                     paragraph_index=sentence.paragraph_index if sentence is not None else 0,
                     start_char=ent.start_char,

@@ -86,11 +86,12 @@ class PolishEntityClusterer(EntityClusterer):
                     cluster.mentions.append(
                         ClusterMention(
                             text=mention.text,
-                            entity_type=cluster.entity_type,
+                            entity_type=mention.entity_type,
                             sentence_index=mention.sentence_index,
                             paragraph_index=m_para,
                             start_char=m_start,
                             end_char=m_end,
+                            mention_kind=mention.mention_kind,
                             entity_id=mention.entity_id,
                             ner_label=mention.ner_label,
                         )
@@ -170,6 +171,8 @@ class PolishEntityClusterer(EntityClusterer):
             canonical_name=entity.canonical_name,
             normalized_name=entity.normalized_name,
             mentions=mentions,
+            primary_entity_id=entity.entity_id,
+            member_entity_ids=[entity.entity_id],
             aliases=list(entity.aliases),
             lemmas=list(entity.lemmas),
             organization_kind=entity.organization_kind,
@@ -214,6 +217,8 @@ class PolishEntityClusterer(EntityClusterer):
                     )
                 )
         cluster.mentions.extend(new_mentions)
+        if entity.entity_id not in cluster.member_entity_ids:
+            cluster.member_entity_ids.append(entity.entity_id)
         cluster.aliases = all_names
 
         # Create a representative entity for naming policy
