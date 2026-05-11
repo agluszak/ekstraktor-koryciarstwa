@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
@@ -229,9 +230,14 @@ def resolve_candidacy_score(
     if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
     governance_decision_lemmas = {"powołać", "odwołać", "mianować", "objąć", "wybrać"}
-    governance_target_markers = ("rada", "zarząd", "nadzór", "nadzor", "spół")
+    governance_target_patterns = (
+        r"rad\w*",
+        r"zarząd\w*",
+        r"nadz[oó]r\w*",
+        r"spół\w*",
+    )
     if governance_decision_lemmas.intersection(lemmas) and any(
-        marker in lowered_text for marker in governance_target_markers
+        re.search(pattern, lowered_text) is not None for pattern in governance_target_patterns
     ):
         return None
     if any(

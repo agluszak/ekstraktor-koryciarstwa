@@ -563,10 +563,8 @@ class GovernanceFactBuilder:
     def _list_signal(text: str, paragraph_text: str) -> GovernanceSignal | None:
         lowered = text.casefold()
         paragraph_lowered = paragraph_text.casefold()
-        has_list_cue = bool(
-            re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered)
-            or "z wyjątkiem" in lowered
-        )
+        has_list_cue = re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered)
+        has_list_cue = has_list_cue is not None
         if not has_list_cue:
             return None
         governance_context = f"{lowered} {paragraph_lowered}"
