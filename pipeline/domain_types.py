@@ -11,21 +11,11 @@ EntityID = NewType("EntityID", str)
 FactID = NewType("FactID", str)
 ClusterID = NewType("ClusterID", str)
 DocumentID = NewType("DocumentID", str)
-CandidateID = NewType("CandidateID", str)
 ClauseID = NewType("ClauseID", str)
 FrameID = NewType("FrameID", str)
 
 
 class EntityType(StrEnum):
-    PERSON = "Person"
-    ORGANIZATION = "Organization"
-    POLITICAL_PARTY = "PoliticalParty"
-    POSITION = "Position"
-    PUBLIC_INSTITUTION = "PublicInstitution"
-    LOCATION = "Location"
-
-
-class CandidateType(StrEnum):
     PERSON = "Person"
     ORGANIZATION = "Organization"
     POLITICAL_PARTY = "PoliticalParty"

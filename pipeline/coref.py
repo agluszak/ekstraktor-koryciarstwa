@@ -211,7 +211,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                     continue
 
                 # Closest by sentence distance
-                best_eid = max(candidates, key=lambda x: (x[1], x[0]))[0]
+                best_eid = EntityID(max(candidates, key=lambda x: (x[1], x[0]))[0])
 
                 resolved.append(
                     Mention(

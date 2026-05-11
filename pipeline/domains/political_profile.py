@@ -5,17 +5,22 @@ from pipeline.attribution import (
     resolve_party_attributions,
     resolve_political_role_attributions,
 )
+from pipeline.domain_lexicons import PUBLIC_OFFICE_ROLE_KINDS
 from pipeline.domain_types import (
-    CandidateType,
     EntityID,
+    EntityType,
     FactID,
     FactType,
     TimeScope,
 )
-from pipeline.extraction_context import ExtractionContext, FactExtractionContext, SentenceContext
+from pipeline.extraction_context import (
+    ALL_ENTITY_TYPES,
+    ExtractionContext,
+    clusters_to_mention_views,
+)
 from pipeline.models import (
     ArticleDocument,
-    EntityCandidate,
+    ClusterMentionView,
     EvidenceSpan,
     Fact,
     ParsedWord,
@@ -31,6 +36,7 @@ from pipeline.nlp_rules import (
 from pipeline.secondary_fact_helpers import (
     _has_signal,
     build_secondary_fact,
+    build_secondary_sentence_metadata,
 )
 from pipeline.utils import stable_id
 
@@ -45,33 +51,82 @@ OMITTED_SUBJECT_PARTY_MARKERS = (
     "startowała",
 )
 
+_PERSON_TYPES = {EntityType.PERSON}
+_PARTY_TYPES = {EntityType.POLITICAL_PARTY}
+_POSITION_TYPES = {EntityType.POSITION}
+_ORG_TYPES = {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+_LOCATION_TYPES = {EntityType.LOCATION}
+_PARTY_CONTEXT_FALLBACK_MARKERS = ("działacz", "polityk", "lider", "członk", "parti")
+
+
+def _has_party_profile_context(
+    sentence_views: list[ClusterMentionView],
+    parsed_words: list[ParsedWord],
+    lowered_text: str,
+) -> bool:
+    if any(
+        view.entity_type == EntityType.POSITION and view.role_kind in PUBLIC_OFFICE_ROLE_KINDS
+        for view in sentence_views
+    ):
+        return True
+    if parsed_words:
+        return any(word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS for word in parsed_words)
+    return any(marker in lowered_text for marker in _PARTY_CONTEXT_FALLBACK_MARKERS)
+
 
 class PoliticalProfileFactExtractor:
-    def extract(self, context: SentenceContext) -> list[Fact]:
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         facts: list[Fact] = []
+        for sentence in document.sentences:
+            sentence_views = context.mention_views_in_sentence(
+                sentence.sentence_index, ALL_ENTITY_TYPES
+            )
+            if not any(v.entity_type == EntityType.PERSON for v in sentence_views):
+                continue
+            facts.extend(self._extract_sentence(document, context, sentence))
+        return facts
+
+    def _extract_sentence(
+        self,
+        document: ArticleDocument,
+        context: ExtractionContext,
+        sentence: SentenceFragment,
+    ) -> list[Fact]:
+        facts: list[Fact] = []
+        parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
+        sentence_metadata = build_secondary_sentence_metadata(
+            document=document,
+            sentence=sentence,
+            parsed_words=parsed_words,
+        )
+        lowered_text = sentence.text.lower()
         governance_signal = _has_signal(
-            context.parsed_words,
-            context.lowered_text,
+            parsed_words,
+            lowered_text,
             APPOINTMENT_TRIGGER_LEMMAS | DISMISSAL_TRIGGER_LEMMAS,
             APPOINTMENT_TRIGGER_TEXTS | DISMISSAL_TRIGGER_TEXTS,
         )
-        for person in context.persons:
-            if person.is_proxy_person:
-                continue
+        persons = [
+            v
+            for v in context.mention_views_in_sentence(sentence.sentence_index, {EntityType.PERSON})
+            if not v.is_proxy_person
+        ]
+        for person in persons:
             for attribution in resolve_party_attributions(
                 context,
+                sentence,
                 person,
                 governance_signal=governance_signal,
             ):
                 fact_type = (
                     FactType.FORMER_PARTY_MEMBERSHIP
-                    if context.time_scope == TimeScope.FORMER
+                    if sentence_metadata.time_scope == TimeScope.FORMER
                     else FactType.PARTY_MEMBERSHIP
                 )
                 facts.append(
                     build_secondary_fact(
-                        document=context.document,
-                        sentence_context=context,
+                        document=document,
+                        sentence=sentence,
                         fact_type=fact_type,
                         subject=attribution.person,
                         object_candidate=attribution.party,
@@ -81,18 +136,20 @@ class PoliticalProfileFactExtractor:
                         score=attribution.score,
                         source_extractor="political_profile",
                         party=attribution.party.canonical_name,
+                        sentence_metadata=sentence_metadata,
                     )
                 )
 
             for attribution in resolve_political_role_attributions(
                 context,
+                sentence,
                 person,
                 governance_signal=governance_signal,
             ):
                 facts.append(
                     build_secondary_fact(
-                        document=context.document,
-                        sentence_context=context,
+                        document=document,
+                        sentence=sentence,
                         fact_type=FactType.POLITICAL_OFFICE,
                         subject=attribution.person,
                         object_candidate=attribution.role,
@@ -102,15 +159,16 @@ class PoliticalProfileFactExtractor:
                         score=attribution.score,
                         source_extractor="political_profile",
                         office_type=attribution.role.canonical_name,
+                        sentence_metadata=sentence_metadata,
                     )
                 )
 
-            candidacy_score = resolve_candidacy_score(context, person)
+            candidacy_score = resolve_candidacy_score(context, sentence, person)
             if candidacy_score is not None:
                 facts.append(
                     build_secondary_fact(
-                        document=context.document,
-                        sentence_context=context,
+                        document=document,
+                        sentence=sentence,
                         fact_type=FactType.ELECTION_CANDIDACY,
                         subject=person,
                         object_candidate=None,
@@ -120,73 +178,66 @@ class PoliticalProfileFactExtractor:
                         score=candidacy_score,
                         source_extractor="political_profile",
                         candidacy_scope="mentioned",
+                        sentence_metadata=sentence_metadata,
                     )
                 )
         return facts
 
 
 class CrossSentencePartyFactBuilder:
-    def build(
-        self,
-        document: ArticleDocument,
-        context: ExtractionContext,
-        fact_context: FactExtractionContext,
-    ) -> list[Fact]:
+    def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
         facts: list[Fact] = []
         for sentence in document.sentences:
-            sentence_candidates = fact_context.sentence_candidates(sentence.sentence_index)
+            sentence_views = context.mention_views_in_sentence(
+                sentence.sentence_index, ALL_ENTITY_TYPES
+            )
             parties = [
-                candidate
-                for candidate in sentence_candidates
-                if candidate.candidate_type == CandidateType.POLITICAL_PARTY
-                and candidate.entity_id is not None
+                v
+                for v in sentence_views
+                if v.entity_type == EntityType.POLITICAL_PARTY and v.entity_id is not None
             ]
             if not parties:
                 continue
             lowered = sentence.text.lower()
             parsed_words = document.parsed_sentences.get(sentence.sentence_index, [])
-            if parsed_words:
-                has_party_context = any(
-                    word.lemma.casefold() in PARTY_PROFILE_CONTEXT_LEMMAS for word in parsed_words
-                )
-            else:
-                has_party_context = any(
-                    marker in lowered
-                    for marker in ("działacz", "polityk", "radn", "lider", "członk")
-                )
+            has_party_context = _has_party_profile_context(sentence_views, parsed_words, lowered)
             has_omitted_subject_trigger = self._has_omitted_subject_party_trigger(
                 parsed_words, lowered
             )
             if not has_party_context and not has_omitted_subject_trigger:
                 continue
-            if any(
-                candidate.candidate_type == CandidateType.PERSON
-                for candidate in sentence_candidates
-            ):
+            if any(v.entity_type == EntityType.PERSON for v in sentence_views):
                 continue
             previous_persons = [
-                candidate
+                v
                 for previous_sentence in document.sentences
                 if previous_sentence.paragraph_index == sentence.paragraph_index
                 and previous_sentence.sentence_index < sentence.sentence_index
-                for candidate in fact_context.sentence_candidates(previous_sentence.sentence_index)
-                if candidate.candidate_type == CandidateType.PERSON
-                and candidate.entity_id is not None
+                for v in clusters_to_mention_views(
+                    context.clusters_in_sentence(
+                        previous_sentence.sentence_index, ALL_ENTITY_TYPES
+                    ),
+                    previous_sentence.sentence_index,
+                )
+                if v.entity_type == EntityType.PERSON and v.entity_id is not None
             ]
-            unique_previous_people: dict[EntityID, EntityCandidate] = {}
-            for person_candidate in previous_persons:
-                assert person_candidate.entity_id is not None
-                unique_previous_people.setdefault(person_candidate.entity_id, person_candidate)
+            unique_previous_people: dict[EntityID, ClusterMentionView] = {}
+            for person_view in previous_persons:
+                assert person_view.entity_id is not None
+                unique_previous_people.setdefault(person_view.entity_id, person_view)
             recent_persons = [
-                candidate
-                for candidate in fact_context.sentence_candidates(sentence.sentence_index - 1)
-                if candidate.candidate_type == CandidateType.PERSON
-                and candidate.entity_id is not None
-                and candidate.paragraph_index == sentence.paragraph_index
+                v
+                for v in clusters_to_mention_views(
+                    context.clusters_in_sentence(sentence.sentence_index - 1, ALL_ENTITY_TYPES),
+                    sentence.sentence_index - 1,
+                )
+                if v.entity_type == EntityType.PERSON
+                and v.entity_id is not None
+                and v.paragraph_index == sentence.paragraph_index
             ]
             if has_omitted_subject_trigger and (recent_persons or len(unique_previous_people) == 1):
                 person = (
-                    max(recent_persons, key=lambda candidate: candidate.end_char)
+                    max(recent_persons, key=lambda v: v.end_char)
                     if recent_persons
                     else next(iter(unique_previous_people.values()))
                 )
@@ -216,15 +267,18 @@ class CrossSentencePartyFactBuilder:
             ):
                 continue
             persons = [
-                candidate
-                for candidate in fact_context.sentence_candidates(next_sentence.sentence_index)
-                if candidate.candidate_type == CandidateType.PERSON
-                and candidate.entity_id is not None
-                and candidate.start_char <= 20
+                v
+                for v in clusters_to_mention_views(
+                    context.clusters_in_sentence(next_sentence.sentence_index, ALL_ENTITY_TYPES),
+                    next_sentence.sentence_index,
+                )
+                if v.entity_type == EntityType.PERSON
+                and v.entity_id is not None
+                and v.start_char - next_sentence.start_char <= 20
             ]
             if not persons:
                 continue
-            person = min(persons, key=lambda candidate: candidate.start_char)
+            person = min(persons, key=lambda v: v.start_char)
             for party in parties:
                 facts.append(
                     self._party_fact(
@@ -255,8 +309,8 @@ class CrossSentencePartyFactBuilder:
         *,
         document: ArticleDocument,
         sentence: SentenceFragment,
-        person: EntityCandidate,
-        party: EntityCandidate,
+        person: ClusterMentionView,
+        party: ClusterMentionView,
         confidence: float,
         evidence_scope: str,
     ) -> Fact:

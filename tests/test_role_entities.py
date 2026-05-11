@@ -13,7 +13,7 @@ def test_roles_extracted_as_first_class_entities():
     # Text with a clear role and a person
     content = "Jan Kowalski został prezesem spółki Orlen. To bardzo ważna informacja dla rynku." * 5
     html = (
-        f"<html><head><title>Ważna zmiana w Orlenie</title></head>"
+        "<html><head><title>Ważna zmiana w Orlenie</title></head>"
         f"<body><article><p>{content}</p></article></body></html>"
     )
     data = PipelineInput(raw_html=html)
@@ -30,8 +30,7 @@ def test_roles_extracted_as_first_class_entities():
     assert len(appointment_facts) >= 1
     fact = appointment_facts[0]
     assert fact.position_entity_id is not None
-    assert fact.role is not None
-    assert "prezes" in fact.role.lower()
+    assert fact.role and "prezes" in fact.role.lower()
 
 
 def test_roles_clustered_across_sentences():
@@ -41,10 +40,10 @@ def test_roles_clustered_across_sentences():
     # Text where the role is mentioned twice
     content = (
         "Jan Kowalski objął stanowisko prezesa. Jako prezes będzie zarządzał spółką Orlen. "
-        "To nowa era dla firmy." * 3
-    )
+        "To nowa era dla firmy."
+    ) * 3
     html = (
-        f"<html><head><title>Nowy prezes Orlenu</title></head>"
+        "<html><head><title>Nowy prezes Orlenu</title></head>"
         f"<body><article><p>{content}</p></article></body></html>"
     )
     data = PipelineInput(raw_html=html)
