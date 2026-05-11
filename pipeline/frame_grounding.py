@@ -15,7 +15,7 @@ from pipeline.domain_lexicons import (
     PUBLIC_EMPLOYER_TERMS,
     PUBLIC_OFFICE_ROLE_KINDS,
 )
-from pipeline.domain_types import ClusterID, EntityID, EntityType, OrganizationKind
+from pipeline.domain_types import ClusterID, EntityID, EntityType, MentionKind, OrganizationKind
 from pipeline.entity_naming import org_token_base
 from pipeline.lemma_signals import word_by_index
 from pipeline.models import (
@@ -774,7 +774,8 @@ class FrameSlotGrounder:
         mention = Mention(
             text=grounded.surface,
             normalized_text=grounded.canonical_name,
-            mention_type=grounded.entity_type,
+            entity_type=grounded.entity_type,
+            mention_kind=MentionKind.DERIVED_ENTITY,
             sentence_index=grounded.evidence.sentence_index,
             paragraph_index=grounded.evidence.paragraph_index,
             start_char=grounded.evidence.start_char,
@@ -796,6 +797,8 @@ class FrameSlotGrounder:
             canonical_name=grounded.canonical_name,
             normalized_name=grounded.canonical_name,
             mentions=[cluster_mention],
+            primary_entity_id=entity_id,
+            member_entity_ids=[entity_id],
             aliases=[grounded.surface],
             organization_kind=grounded.organization_kind,
         )
@@ -866,7 +869,7 @@ class FrameSlotGrounder:
                     and document_mention.end_char == mention.end_char
                     and document_mention.sentence_index == mention.sentence_index
                 ):
-                    document_mention.mention_type = grounded.entity_type
+                    document_mention.entity_type = grounded.entity_type
             entity = next(
                 (item for item in document.entities if item.entity_id == mention.entity_id),
                 None,
@@ -908,6 +911,8 @@ class FrameSlotGrounder:
                 entity_id=entity_id,
             )
         )
+        if entity_id is not None and entity_id not in cluster.member_entity_ids:
+            cluster.member_entity_ids.append(entity_id)
         if grounded.surface not in cluster.aliases:
             cluster.aliases.append(grounded.surface)
         entity = next(
@@ -923,7 +928,8 @@ class FrameSlotGrounder:
             Mention(
                 text=grounded.surface,
                 normalized_text=cluster.canonical_name,
-                mention_type=cluster.entity_type,
+                entity_type=cluster.entity_type,
+                mention_kind=MentionKind.DERIVED_ENTITY,
                 sentence_index=grounded.evidence.sentence_index,
                 paragraph_index=grounded.evidence.paragraph_index,
                 start_char=grounded.evidence.start_char,

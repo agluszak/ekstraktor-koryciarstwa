@@ -27,6 +27,18 @@ class EntityGraphRemapper:
             key = (mention.entity_id, mention.sentence_index, mention.text)
             deduplicated_mentions[key] = mention
         document.mentions = list(deduplicated_mentions.values())
+        for cluster in document.clusters:
+            if cluster.primary_entity_id is not None:
+                cluster.primary_entity_id = remap.get(
+                    cluster.primary_entity_id,
+                    cluster.primary_entity_id,
+                )
+            cluster.member_entity_ids = [
+                remap.get(entity_id, entity_id) for entity_id in cluster.member_entity_ids
+            ]
+            for mention in cluster.mentions:
+                if mention.entity_id:
+                    mention.entity_id = remap.get(mention.entity_id, mention.entity_id)
 
     @staticmethod
     def remap_fact_graph(document: ArticleDocument, remap: dict[EntityID, EntityID]) -> None:

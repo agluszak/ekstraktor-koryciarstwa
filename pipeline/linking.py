@@ -7,6 +7,7 @@ import numpy as np
 from pipeline.base import EntityLinker
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import EntityID, EntityType
+from pipeline.entity_graph_remapper import EntityGraphRemapper
 from pipeline.entity_naming import org_token_base
 from pipeline.models import ArticleDocument, Entity
 from pipeline.normalization import DocumentEntityCanonicalizer
@@ -76,21 +77,9 @@ class InMemoryEntityLinker(EntityLinker):
         )
         id_remap.update(exact_name_remap)
 
-        # Remap entity references in extracted facts
         if id_remap:
-            for fact in document.facts:
-                fact.subject_entity_id = id_remap.get(
-                    fact.subject_entity_id,
-                    fact.subject_entity_id,
-                )
-                if fact.object_entity_id:
-                    fact.object_entity_id = id_remap.get(
-                        fact.object_entity_id,
-                        fact.object_entity_id,
-                    )
-            for mention in document.mentions:
-                if mention.entity_id:
-                    mention.entity_id = id_remap.get(mention.entity_id, mention.entity_id)
+            EntityGraphRemapper.remap_mentions(document, id_remap)
+            EntityGraphRemapper.remap_fact_graph(document, id_remap)
 
         return self.canonicalizer.run(document)
 

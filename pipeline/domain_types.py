@@ -24,6 +24,13 @@ class EntityType(StrEnum):
     LOCATION = "Location"
 
 
+class MentionKind(StrEnum):
+    NAMED_ENTITY = "named_entity"
+    COREF_REFERENCE = "coref_reference"
+    COREF_ANAPHOR = "coref_anaphor"
+    DERIVED_ENTITY = "derived_entity"
+
+
 class FactType(StrEnum):
     APPOINTMENT = "APPOINTMENT"
     DISMISSAL = "DISMISSAL"

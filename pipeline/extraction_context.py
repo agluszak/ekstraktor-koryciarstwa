@@ -11,6 +11,7 @@ from pipeline.domain_types import (
     ClusterID,
     EntityID,
     EntityType,
+    OrganizationKind,
     TimeScope,
 )
 from pipeline.grammar_signals import (
@@ -69,6 +70,19 @@ class ExtractionContext:
         self.dependency_frames_by_clause_id = {}
 
         for cluster in self.document.clusters:
+            if cluster.primary_entity_id is None:
+                cluster.primary_entity_id = self.entity_id_for_cluster(cluster)
+            if not cluster.member_entity_ids:
+                cluster.member_entity_ids = [
+                    entity_id
+                    for entity_id in dict.fromkeys(
+                        mention.entity_id for mention in cluster.mentions if mention.entity_id
+                    )
+                    if entity_id is not None
+                ]
+            for entity_id in [cluster.primary_entity_id, *cluster.member_entity_ids]:
+                if entity_id is not None and entity_id not in self.cluster_by_entity_id_index:
+                    self.cluster_by_entity_id_index[entity_id] = cluster
             for mention in cluster.mentions:
                 if (
                     mention.entity_id is not None
@@ -191,12 +205,44 @@ class ExtractionContext:
             return None
         return self.entities_by_id.get(entity_id)
 
+    def entity_for_cluster(self, cluster: EntityCluster) -> Entity | None:
+        if cluster.primary_entity_id is not None:
+            entity = self.entities_by_id.get(cluster.primary_entity_id)
+            if entity is not None:
+                return entity
+        for entity_id in cluster.member_entity_ids:
+            entity = self.entities_by_id.get(entity_id)
+            if entity is not None:
+                return entity
+        return next(
+            (
+                self.entities_by_id[mention.entity_id]
+                for mention in cluster.mentions
+                if mention.entity_id in self.entities_by_id
+            ),
+            None,
+        )
+
+    def entity_type_for_cluster(self, cluster: EntityCluster) -> EntityType:
+        entity = self.entity_for_cluster(cluster)
+        return entity.entity_type if entity is not None else cluster.entity_type
+
+    def canonical_name_for_cluster(self, cluster: EntityCluster) -> str:
+        entity = self.entity_for_cluster(cluster)
+        return entity.canonical_name if entity is not None else cluster.canonical_name
+
+    def organization_kind_for_cluster(self, cluster: EntityCluster) -> OrganizationKind | None:
+        entity = self.entity_for_cluster(cluster)
+        return entity.organization_kind if entity is not None else cluster.organization_kind
+
     def entity_id_for_cluster_id(self, cluster_id: ClusterID | None) -> EntityID | None:
         cluster = self.cluster_by_id(cluster_id)
         return self.entity_id_for_cluster(cluster) if cluster is not None else None
 
     @staticmethod
     def entity_id_for_cluster(cluster: EntityCluster) -> EntityID:
+        if cluster.primary_entity_id is not None:
+            return cluster.primary_entity_id
         entity_ids = [mention.entity_id for mention in cluster.mentions if mention.entity_id]
         if entity_ids:
             return Counter(entity_ids).most_common(1)[0][0]

@@ -16,6 +16,7 @@ from pipeline.domain_types import (
     IdentityHypothesisReason,
     IdentityHypothesisStatus,
     KinshipDetail,
+    MentionKind,
     NERLabel,
     OrganizationKind,
     ProxyKind,
@@ -170,8 +171,9 @@ class ParsedSentence:
 class Mention:
     text: str
     normalized_text: str
-    mention_type: EntityType | str
+    entity_type: EntityType
     sentence_index: int
+    mention_kind: MentionKind = MentionKind.NAMED_ENTITY
     paragraph_index: int = 0
     start_char: int = 0
     end_char: int = 0
@@ -190,6 +192,7 @@ class ClusterMention:
     paragraph_index: int
     start_char: int
     end_char: int
+    mention_kind: MentionKind = MentionKind.NAMED_ENTITY
     entity_id: EntityID | None = None
     ner_label: NERLabel | None = None
 
@@ -201,6 +204,8 @@ class EntityCluster:
     canonical_name: str
     normalized_name: str
     mentions: list[ClusterMention]
+    primary_entity_id: EntityID | None = None
+    member_entity_ids: list[EntityID] = field(default_factory=list)
 
     # Inlined attributes
     aliases: list[str] = field(default_factory=list)

@@ -76,7 +76,7 @@ def _document() -> ArticleDocument:
             Mention(
                 text="Jan Kowalski",
                 normalized_text="jan kowalski",
-                mention_type=EntityType.PERSON,
+                entity_type=EntityType.PERSON,
                 sentence_index=0,
                 paragraph_index=0,
                 start_char=0,

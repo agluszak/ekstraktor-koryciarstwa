@@ -15,6 +15,7 @@ from pipeline.domain_types import (
     IdentityHypothesisReason,
     IdentityHypothesisStatus,
     KinshipDetail,
+    MentionKind,
     ProxyKind,
     RelationshipType,
     TimeScope,
@@ -198,7 +199,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 Mention(
                     text=surface,
                     normalized_text=canonical_name,
-                    mention_type=EntityType.PERSON.value,
+                    entity_type=EntityType.PERSON,
+                    mention_kind=MentionKind.DERIVED_ENTITY,
                     sentence_index=sentence_index,
                     paragraph_index=paragraph_index,
                     start_char=start_char,
@@ -264,6 +266,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 canonical_name=entity.canonical_name,
                 normalized_name=entity.normalized_name,
                 mentions=[mention],
+                primary_entity_id=entity.entity_id,
+                member_entity_ids=[entity.entity_id],
                 aliases=list(entity.aliases),
                 is_proxy_person=True,
                 proxy_entity_id=entity.entity_id,
@@ -476,7 +480,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             Mention(
                 text=surface,
                 normalized_text=canonical,
-                mention_type=EntityType.PERSON.value,
+                entity_type=EntityType.PERSON,
+                mention_kind=MentionKind.DERIVED_ENTITY,
                 sentence_index=sentence_index,
                 paragraph_index=paragraph_index,
                 start_char=start_char,
@@ -501,6 +506,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                         entity_id=EntityID(entity_id),
                     )
                 ],
+                primary_entity_id=EntityID(entity_id),
+                member_entity_ids=[EntityID(entity_id)],
                 aliases=[surface],
             )
         )
