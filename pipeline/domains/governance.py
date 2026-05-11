@@ -539,6 +539,7 @@ class GovernanceFactBuilder:
                 continue
             exceptions = self._exception_person_ids(document, sentence, people)
             people = [cluster for cluster in people if cluster.cluster_id not in exceptions]
+            # "wszyscy ... z wyjątkiem X" can legitimately leave exactly one person to emit.
             if not people:
                 continue
             target = self._target_cluster_for_list_sentence(document, sentence)
@@ -563,8 +564,7 @@ class GovernanceFactBuilder:
     def _list_signal(text: str, paragraph_text: str) -> GovernanceSignal | None:
         lowered = text.casefold()
         paragraph_lowered = paragraph_text.casefold()
-        has_list_cue = re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered)
-        has_list_cue = has_list_cue is not None
+        has_list_cue = bool(re.search(r"\b(?:wszyscy|wszystkich|kandydaci|członkowie)\b", lowered))
         if not has_list_cue:
             return None
         governance_context = f"{lowered} {paragraph_lowered}"

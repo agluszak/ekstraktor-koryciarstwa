@@ -32,6 +32,14 @@ from pipeline.relation_signals import (
 )
 from pipeline.secondary_fact_helpers import SecondaryFactScore
 
+GOVERNANCE_DECISION_LEMMAS = frozenset({"powołać", "odwołać", "mianować", "objąć", "wybrać"})
+GOVERNANCE_TARGET_PATTERNS = (
+    r"rad\w*",
+    r"zarząd\w*",
+    r"nadz[oó]r\w*",
+    r"spół\w*",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class ResolvedPartyAttribution:
@@ -229,15 +237,8 @@ def resolve_candidacy_score(
     ]
     if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
-    governance_decision_lemmas = {"powołać", "odwołać", "mianować", "objąć", "wybrać"}
-    governance_target_patterns = (
-        r"rad\w*",
-        r"zarząd\w*",
-        r"nadz[oó]r\w*",
-        r"spół\w*",
-    )
-    if governance_decision_lemmas.intersection(lemmas) and any(
-        re.search(pattern, lowered_text) is not None for pattern in governance_target_patterns
+    if GOVERNANCE_DECISION_LEMMAS.intersection(lemmas) and any(
+        re.search(pattern, lowered_text) is not None for pattern in GOVERNANCE_TARGET_PATTERNS
     ):
         return None
     if any(
