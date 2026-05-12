@@ -307,6 +307,51 @@ def test_cluster_metadata_helpers_read_current_entity_identity() -> None:
     assert context.canonical_name_for_cluster(cluster) == "Nowy Urząd"
 
 
+def test_extraction_context_build_does_not_backfill_cluster_identity_fields() -> None:
+    entity_id = EntityID("entity-org")
+    mention = ClusterMention(
+        text="Urząd Miasta",
+        entity_type=EntityType.PUBLIC_INSTITUTION,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=11,
+        entity_id=entity_id,
+    )
+    cluster = EntityCluster(
+        cluster_id=ClusterID("cluster-org"),
+        mentions=[mention],
+        primary_entity_id=None,
+        member_entity_ids=[],
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=[],
+        entities=[
+            Entity(
+                entity_id=entity_id,
+                entity_type=EntityType.PUBLIC_INSTITUTION,
+                canonical_name="Urząd Miasta",
+                normalized_name="urząd miasta",
+            )
+        ],
+        clusters=[cluster],
+    )
+
+    context = ExtractionContext.build(document)
+
+    assert cluster.primary_entity_id is None
+    assert cluster.member_entity_ids == []
+    assert context.primary_entity_id_for_cluster(cluster) == entity_id
+    assert context.member_entity_ids_for_cluster(cluster) == [entity_id]
+    assert context.cluster_by_entity_id(entity_id) == cluster
+
+
 def test_mention_view_identity_properties_read_current_entity_metadata() -> None:
     entity_id = EntityID("entity-proxy-role")
     anchor_id = EntityID("entity-anchor")
