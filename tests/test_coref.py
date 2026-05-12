@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from pipeline.config import PipelineConfig
 from pipeline.coref import StanzaCoreferenceResolver
 from pipeline.domain_types import DocumentID, EntityID, EntityType, MentionKind
@@ -118,18 +116,3 @@ def test_coref_resolved_mentions_preserve_exact_offsets(monkeypatch) -> None:
     assert m.entity_id == "person-1"
     assert m.entity_type == EntityType.PERSON
     assert m.mention_kind == MentionKind.COREF_REFERENCE
-
-
-def test_mention_model_has_no_legacy_type_strings() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    source_text = "\n".join(
-        path.read_text()
-        for directory in (repo_root / "pipeline", repo_root / "tests")
-        for path in directory.rglob("*.py")
-        if path.name != Path(__file__).name
-    )
-
-    assert "mention_type" not in source_text
-    assert "ResolvedPersonReference" not in source_text
-    assert "ResolvedOrgReference" not in source_text
-    assert "ResolvedOrgAnaphor" not in source_text

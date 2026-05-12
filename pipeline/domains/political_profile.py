@@ -16,7 +16,6 @@ from pipeline.domain_types import (
 from pipeline.extraction_context import (
     ALL_ENTITY_TYPES,
     ExtractionContext,
-    clusters_to_mention_views,
 )
 from pipeline.models import (
     ArticleDocument,
@@ -213,7 +212,7 @@ class CrossSentencePartyFactBuilder:
                 for previous_sentence in document.sentences
                 if previous_sentence.paragraph_index == sentence.paragraph_index
                 and previous_sentence.sentence_index < sentence.sentence_index
-                for v in clusters_to_mention_views(
+                for v in context.mention_views_for_clusters(
                     context.clusters_in_sentence(
                         previous_sentence.sentence_index, ALL_ENTITY_TYPES
                     ),
@@ -227,7 +226,7 @@ class CrossSentencePartyFactBuilder:
                 unique_previous_people.setdefault(person_view.entity_id, person_view)
             recent_persons = [
                 v
-                for v in clusters_to_mention_views(
+                for v in context.mention_views_for_clusters(
                     context.clusters_in_sentence(sentence.sentence_index - 1, ALL_ENTITY_TYPES),
                     sentence.sentence_index - 1,
                 )
@@ -268,7 +267,7 @@ class CrossSentencePartyFactBuilder:
                 continue
             persons = [
                 v
-                for v in clusters_to_mention_views(
+                for v in context.mention_views_for_clusters(
                     context.clusters_in_sentence(next_sentence.sentence_index, ALL_ENTITY_TYPES),
                     next_sentence.sentence_index,
                 )

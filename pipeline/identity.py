@@ -246,7 +246,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             (
                 cluster
                 for cluster in document.clusters
-                if cluster.proxy_entity_id == entity.entity_id
+                if cluster.primary_entity_id == entity.entity_id
+                or entity.entity_id in cluster.member_entity_ids
             ),
             None,
         )
@@ -262,18 +263,9 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         if existing is None:
             cluster = EntityCluster(
                 cluster_id=ClusterID(f"cluster-proxy-{uuid.uuid4().hex[:8]}"),
-                entity_type=EntityType.PERSON,
-                canonical_name=entity.canonical_name,
-                normalized_name=entity.normalized_name,
                 mentions=[mention],
                 primary_entity_id=entity.entity_id,
                 member_entity_ids=[entity.entity_id],
-                aliases=list(entity.aliases),
-                is_proxy_person=True,
-                proxy_entity_id=entity.entity_id,
-                proxy_kind=ProxyKind.FAMILY,
-                kinship_detail=entity.kinship_detail,
-                proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
             )
             document.clusters.append(cluster)
             return cluster
@@ -492,9 +484,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         document.clusters.append(
             EntityCluster(
                 cluster_id=ClusterID(f"cluster-ref-{uuid.uuid4().hex[:8]}"),
-                entity_type=EntityType.PERSON,
-                canonical_name=canonical,
-                normalized_name=canonical,
                 mentions=[
                     ClusterMention(
                         text=surface,
@@ -508,7 +497,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 ],
                 primary_entity_id=EntityID(entity_id),
                 member_entity_ids=[EntityID(entity_id)],
-                aliases=[surface],
             )
         )
         return entity

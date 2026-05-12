@@ -200,24 +200,9 @@ class ClusterMention:
 @dataclass(slots=True)
 class EntityCluster:
     cluster_id: ClusterID
-    entity_type: EntityType
-    canonical_name: str
-    normalized_name: str
     mentions: list[ClusterMention]
     primary_entity_id: EntityID | None = None
     member_entity_ids: list[EntityID] = field(default_factory=list)
-
-    # Inlined attributes
-    aliases: list[str] = field(default_factory=list)
-    lemmas: list[str] = field(default_factory=list)
-    organization_kind: OrganizationKind | None = None
-    is_proxy_person: bool = False
-    proxy_entity_id: EntityID | None = None
-    proxy_kind: ProxyKind | None = None
-    kinship_detail: KinshipDetail | None = None
-    proxy_anchor_entity_id: EntityID | None = None
-    role_kind: RoleKind | None = None
-    role_modifier: RoleModifier | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,6 +215,7 @@ class ClusterMentionView:
 
     cluster: EntityCluster
     mention: ClusterMention
+    entity: Entity | None = None
 
     @property
     def cluster_id(self) -> ClusterID:
@@ -237,21 +223,29 @@ class ClusterMentionView:
 
     @property
     def entity_id(self) -> EntityID | None:
+        if self.entity is not None:
+            return self.entity.entity_id
         if self.mention.entity_id is not None:
             return self.mention.entity_id
         return next((m.entity_id for m in self.cluster.mentions if m.entity_id), None)
 
     @property
     def entity_type(self) -> EntityType:
-        return self.cluster.entity_type
+        if self.entity is not None:
+            return self.entity.entity_type
+        return self.mention.entity_type
 
     @property
     def canonical_name(self) -> str:
-        return self.cluster.canonical_name
+        if self.entity is not None:
+            return self.entity.canonical_name
+        return self.mention.text
 
     @property
     def normalized_name(self) -> str:
-        return self.cluster.normalized_name
+        if self.entity is not None:
+            return self.entity.normalized_name
+        return self.mention.text
 
     @property
     def start_char(self) -> int:
@@ -271,23 +265,45 @@ class ClusterMentionView:
 
     @property
     def is_proxy_person(self) -> bool:
-        return self.cluster.is_proxy_person
+        if self.entity is not None:
+            return self.entity.is_proxy_person
+        return False
+
+    @property
+    def proxy_kind(self) -> ProxyKind | None:
+        if self.entity is not None:
+            return self.entity.proxy_kind
+        return None
 
     @property
     def kinship_detail(self) -> KinshipDetail | None:
-        return self.cluster.kinship_detail
+        if self.entity is not None:
+            return self.entity.kinship_detail
+        return None
+
+    @property
+    def proxy_anchor_entity_id(self) -> EntityID | None:
+        if self.entity is not None:
+            return self.entity.proxy_anchor_entity_id
+        return None
 
     @property
     def organization_kind(self) -> OrganizationKind | None:
-        return self.cluster.organization_kind
+        if self.entity is not None:
+            return self.entity.organization_kind
+        return None
 
     @property
     def role_kind(self) -> RoleKind | None:
-        return self.cluster.role_kind
+        if self.entity is not None:
+            return self.entity.role_kind
+        return None
 
     @property
     def role_modifier(self) -> RoleModifier | None:
-        return self.cluster.role_modifier
+        if self.entity is not None:
+            return self.entity.role_modifier
+        return None
 
     @property
     def ner_label(self) -> NERLabel | None:

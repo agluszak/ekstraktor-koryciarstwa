@@ -11,7 +11,11 @@ from pipeline.domain_types import (
     ClusterID,
     EntityID,
     EntityType,
+    KinshipDetail,
     OrganizationKind,
+    ProxyKind,
+    RoleKind,
+    RoleModifier,
     TimeScope,
 )
 from pipeline.grammar_signals import (
@@ -25,6 +29,7 @@ from pipeline.models import (
     Entity,
     EntityCluster,
     EvidenceSpan,
+    SentenceFragment,
 )
 
 ALL_ENTITY_TYPES: frozenset[EntityType] = frozenset(
@@ -70,20 +75,20 @@ class ExtractionContext:
         self.dependency_frames_by_clause_id = {}
 
         for cluster in self.document.clusters:
-            if cluster.primary_entity_id is None:
-                cluster.primary_entity_id = self.entity_id_for_cluster(cluster)
-            if not cluster.member_entity_ids:
-                cluster.member_entity_ids = [
-                    entity_id
-                    for entity_id in dict.fromkeys(
-                        mention.entity_id for mention in cluster.mentions if mention.entity_id
-                    )
-                    if entity_id is not None
-                ]
-            for entity_id in [cluster.primary_entity_id, *cluster.member_entity_ids]:
+            primary_entity_id = self.primary_entity_id_for_cluster(cluster)
+            if cluster.primary_entity_id is None and primary_entity_id is not None:
+                cluster.primary_entity_id = primary_entity_id
+            member_entity_ids = self.member_entity_ids_for_cluster(cluster)
+            if not cluster.member_entity_ids and member_entity_ids:
+                cluster.member_entity_ids = member_entity_ids
+            for entity_id in self.entity_ids_for_cluster(cluster):
                 if entity_id is not None and entity_id not in self.cluster_by_entity_id_index:
                     self.cluster_by_entity_id_index[entity_id] = cluster
             for mention in cluster.mentions:
+                mention_entity = self.entity_by_id(mention.entity_id)
+                indexed_entity_types = {mention.entity_type}
+                if mention_entity is not None:
+                    indexed_entity_types.add(mention_entity.entity_type)
                 if (
                     mention.entity_id is not None
                     and mention.entity_id not in self.cluster_by_entity_id_index
@@ -107,16 +112,17 @@ class ExtractionContext:
                     ),
                     [],
                 ).append(cluster)
-                self._append_unique_cluster(
-                    self.clusters_by_sentence_type,
-                    (mention.sentence_index, mention.entity_type),
-                    cluster,
-                )
-                self._append_unique_cluster(
-                    self.clusters_by_paragraph_type,
-                    (mention.paragraph_index, mention.entity_type),
-                    cluster,
-                )
+                for entity_type in indexed_entity_types:
+                    self._append_unique_cluster(
+                        self.clusters_by_sentence_type,
+                        (mention.sentence_index, entity_type),
+                        cluster,
+                    )
+                    self._append_unique_cluster(
+                        self.clusters_by_paragraph_type,
+                        (mention.paragraph_index, entity_type),
+                        cluster,
+                    )
         self.dependency_frames_by_clause_id = DependencyFrameBuilder().build(self.document, self)
 
     def dependency_frame_for_clause(self, clause: ClauseUnit) -> TriggerArgumentFrame | None:
@@ -206,38 +212,180 @@ class ExtractionContext:
         return self.entities_by_id.get(entity_id)
 
     def entity_for_cluster(self, cluster: EntityCluster) -> Entity | None:
-        if cluster.primary_entity_id is not None:
-            entity = self.entities_by_id.get(cluster.primary_entity_id)
-            if entity is not None:
-                return entity
-        for entity_id in cluster.member_entity_ids:
+        for entity_id in self.entity_ids_for_cluster(cluster):
             entity = self.entities_by_id.get(entity_id)
             if entity is not None:
                 return entity
-        return next(
-            (
-                self.entities_by_id[mention.entity_id]
-                for mention in cluster.mentions
-                if mention.entity_id in self.entities_by_id
+        return None
+
+    def entity_for_mention_view(
+        self,
+        cluster: EntityCluster,
+        mention: ClusterMention,
+    ) -> Entity | None:
+        if mention.entity_id is not None:
+            entity = self.entities_by_id.get(mention.entity_id)
+            if entity is not None:
+                return entity
+        return self.entity_for_cluster(cluster)
+
+    def mention_view(
+        self,
+        cluster: EntityCluster,
+        mention: ClusterMention | None = None,
+    ) -> ClusterMentionView:
+        if mention is None:
+            mention = self._sentinel_mention_for_cluster(cluster)
+        return ClusterMentionView(
+            cluster=cluster,
+            mention=mention,
+            entity=self.entity_for_mention_view(cluster, mention),
+        )
+
+    def mention_views_for_clusters(
+        self,
+        clusters: Iterable[EntityCluster],
+        sentence_index: int,
+    ) -> list[ClusterMentionView]:
+        views: list[ClusterMentionView] = []
+        seen_cluster_ids: set[ClusterID] = set()
+        for cluster in clusters:
+            if cluster.cluster_id in seen_cluster_ids:
+                continue
+            sentence_mentions = [
+                mention for mention in cluster.mentions if mention.sentence_index == sentence_index
+            ]
+            if not sentence_mentions:
+                continue
+            seen_cluster_ids.add(cluster.cluster_id)
+            mention = min(sentence_mentions, key=lambda item: item.start_char)
+            views.append(self.mention_view(cluster, mention))
+        return views
+
+    def mention_view_closest_to_sentence(
+        self,
+        cluster: EntityCluster,
+        sentence: SentenceFragment,
+    ) -> ClusterMentionView | None:
+        if not cluster.mentions:
+            return None
+        mention = min(
+            cluster.mentions,
+            key=lambda candidate: (
+                candidate.sentence_index != sentence.sentence_index,
+                candidate.paragraph_index != sentence.paragraph_index,
+                abs(candidate.start_char - sentence.start_char),
             ),
-            None,
+        )
+        return self.mention_view(cluster, mention)
+
+    @staticmethod
+    def _sentinel_mention_for_cluster(cluster: EntityCluster) -> ClusterMention:
+        mention = cluster.mentions[0] if cluster.mentions else None
+        text = mention.text if mention is not None else str(cluster.cluster_id)
+        entity_type = mention.entity_type if mention is not None else EntityType.ORGANIZATION
+        return ClusterMention(
+            text=text,
+            entity_type=entity_type,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=0,
         )
 
     def entity_type_for_cluster(self, cluster: EntityCluster) -> EntityType:
         entity = self.entity_for_cluster(cluster)
-        return entity.entity_type if entity is not None else cluster.entity_type
+        if entity is not None:
+            return entity.entity_type
+        return cluster.mentions[0].entity_type if cluster.mentions else EntityType.ORGANIZATION
 
     def canonical_name_for_cluster(self, cluster: EntityCluster) -> str:
         entity = self.entity_for_cluster(cluster)
-        return entity.canonical_name if entity is not None else cluster.canonical_name
+        if entity is not None:
+            return entity.canonical_name
+        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+
+    def normalized_name_for_cluster(self, cluster: EntityCluster) -> str:
+        entity = self.entity_for_cluster(cluster)
+        if entity is not None:
+            return entity.normalized_name
+        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+
+    def aliases_for_cluster(self, cluster: EntityCluster) -> list[str]:
+        entity = self.entity_for_cluster(cluster)
+        aliases = list(entity.aliases) if entity is not None else []
+        for mention in cluster.mentions:
+            if mention.text not in aliases:
+                aliases.append(mention.text)
+        return aliases
+
+    def lemmas_for_cluster(self, cluster: EntityCluster) -> list[str]:
+        entity = self.entity_for_cluster(cluster)
+        return list(entity.lemmas) if entity is not None else []
 
     def organization_kind_for_cluster(self, cluster: EntityCluster) -> OrganizationKind | None:
         entity = self.entity_for_cluster(cluster)
-        return entity.organization_kind if entity is not None else cluster.organization_kind
+        return entity.organization_kind if entity is not None else None
+
+    def is_proxy_person_cluster(self, cluster: EntityCluster) -> bool:
+        entity = self.entity_for_cluster(cluster)
+        return entity.is_proxy_person if entity is not None else False
+
+    def proxy_kind_for_cluster(self, cluster: EntityCluster) -> ProxyKind | None:
+        entity = self.entity_for_cluster(cluster)
+        return entity.proxy_kind if entity is not None else None
+
+    def kinship_detail_for_cluster(self, cluster: EntityCluster) -> KinshipDetail | None:
+        entity = self.entity_for_cluster(cluster)
+        return entity.kinship_detail if entity is not None else None
+
+    def proxy_anchor_entity_id_for_cluster(self, cluster: EntityCluster) -> EntityID | None:
+        entity = self.entity_for_cluster(cluster)
+        return entity.proxy_anchor_entity_id if entity is not None else None
+
+    def role_kind_for_cluster(self, cluster: EntityCluster) -> RoleKind | None:
+        entity = self.entity_for_cluster(cluster)
+        return entity.role_kind if entity is not None else None
+
+    def role_modifier_for_cluster(self, cluster: EntityCluster) -> RoleModifier | None:
+        entity = self.entity_for_cluster(cluster)
+        return entity.role_modifier if entity is not None else None
 
     def entity_id_for_cluster_id(self, cluster_id: ClusterID | None) -> EntityID | None:
         cluster = self.cluster_by_id(cluster_id)
         return self.entity_id_for_cluster(cluster) if cluster is not None else None
+
+    def primary_entity_id_for_cluster(self, cluster: EntityCluster) -> EntityID | None:
+        if cluster.primary_entity_id is not None:
+            return cluster.primary_entity_id
+        mention_entity_ids = self.mention_entity_ids_for_cluster(cluster)
+        return mention_entity_ids[0] if mention_entity_ids else None
+
+    def member_entity_ids_for_cluster(self, cluster: EntityCluster) -> list[EntityID]:
+        if cluster.member_entity_ids:
+            return list(dict.fromkeys(cluster.member_entity_ids))
+        return self.mention_entity_ids_for_cluster(cluster)
+
+    @staticmethod
+    def mention_entity_ids_for_cluster(cluster: EntityCluster) -> list[EntityID]:
+        return [
+            entity_id
+            for entity_id in dict.fromkeys(mention.entity_id for mention in cluster.mentions)
+            if entity_id is not None
+        ]
+
+    def entity_ids_for_cluster(self, cluster: EntityCluster) -> list[EntityID]:
+        entity_ids: list[EntityID] = []
+        primary_entity_id = self.primary_entity_id_for_cluster(cluster)
+        if primary_entity_id is not None:
+            entity_ids.append(primary_entity_id)
+        for entity_id in self.member_entity_ids_for_cluster(cluster):
+            if entity_id not in entity_ids:
+                entity_ids.append(entity_id)
+        for entity_id in self.mention_entity_ids_for_cluster(cluster):
+            if entity_id not in entity_ids:
+                entity_ids.append(entity_id)
+        return entity_ids
 
     @staticmethod
     def entity_id_for_cluster(cluster: EntityCluster) -> EntityID:
@@ -256,7 +404,7 @@ class ExtractionContext:
 
     def cluster_name(self, cluster_id: ClusterID | None) -> str | None:
         cluster = self.cluster_by_id(cluster_id)
-        return cluster.canonical_name if cluster is not None else None
+        return self.canonical_name_for_cluster(cluster) if cluster is not None else None
 
     def cluster_by_entity_id(self, entity_id: EntityID | None) -> EntityCluster | None:
         if entity_id is None:
@@ -452,7 +600,10 @@ class ExtractionContext:
         seen: set[ClusterID] = set()
         clusters: list[EntityCluster] = []
         for cluster in self.document.clusters:
-            if cluster.entity_type not in entity_types or cluster.cluster_id in seen:
+            if (
+                self.entity_type_for_cluster(cluster) not in entity_types
+                or cluster.cluster_id in seen
+            ):
                 continue
             if not any(predicate(mention) for mention in cluster.mentions):
                 continue
@@ -493,7 +644,7 @@ class ExtractionContext:
     ) -> list[ClusterMentionView]:
         """Return one ClusterMentionView per cluster that has a mention in this sentence."""
         clusters = self.clusters_in_sentence(sentence_index, entity_types)
-        return clusters_to_mention_views(clusters, sentence_index)
+        return self.mention_views_for_clusters(clusters, sentence_index)
 
     def mention_views_in_paragraph(
         self,
@@ -518,28 +669,5 @@ class ExtractionContext:
             )
             if not para_mentions:
                 continue
-            views.append(ClusterMentionView(cluster=cluster, mention=para_mentions[0]))
+            views.append(self.mention_view(cluster, para_mentions[0]))
         return views
-
-
-def clusters_to_mention_views(
-    clusters: list[EntityCluster],
-    sentence_index: int,
-) -> list[ClusterMentionView]:
-    """Build ClusterMentionView objects from EntityClusters for a given sentence.
-
-    For each cluster that has a mention in the target sentence, one representative
-    ClusterMentionView is produced using the earliest mention in that sentence.
-    """
-    views: list[ClusterMentionView] = []
-    seen_cluster_ids: set[ClusterID] = set()
-    for cluster in clusters:
-        if cluster.cluster_id in seen_cluster_ids:
-            continue
-        sentence_mentions = [m for m in cluster.mentions if m.sentence_index == sentence_index]
-        if not sentence_mentions:
-            continue
-        seen_cluster_ids.add(cluster.cluster_id)
-        mention = min(sentence_mentions, key=lambda m: m.start_char)
-        views.append(ClusterMentionView(cluster=cluster, mention=mention))
-    return views

@@ -4,7 +4,12 @@ from pipeline.domain_types import (
     DocumentID,
     EntityID,
     EntityType,
+    KinshipDetail,
     NERLabel,
+    OrganizationKind,
+    ProxyKind,
+    RoleKind,
+    RoleModifier,
 )
 from pipeline.extraction_context import ExtractionContext
 from pipeline.grammar_signals import infer_time_scope_with_temporal_context
@@ -18,6 +23,33 @@ from pipeline.models import (
     SentenceFragment,
     TemporalExpression,
 )
+
+
+def _cluster(
+    cluster_id: str,
+    mentions: list[ClusterMention],
+    *,
+    primary_entity_id: EntityID | None = None,
+    member_entity_ids: list[EntityID] | None = None,
+) -> EntityCluster:
+    resolved_primary = primary_entity_id or next(
+        (mention.entity_id for mention in mentions if mention.entity_id is not None),
+        None,
+    )
+    resolved_members = member_entity_ids
+    if resolved_members is None:
+        resolved_members = []
+        if resolved_primary is not None:
+            resolved_members.append(resolved_primary)
+        for mention in mentions:
+            if mention.entity_id is not None and mention.entity_id not in resolved_members:
+                resolved_members.append(mention.entity_id)
+    return EntityCluster(
+        cluster_id=ClusterID(cluster_id),
+        mentions=mentions,
+        primary_entity_id=resolved_primary,
+        member_entity_ids=resolved_members,
+    )
 
 
 def test_cluster_for_mention_does_not_fallback_when_exact_span_is_present() -> None:
@@ -48,20 +80,8 @@ def test_cluster_for_mention_does_not_fallback_when_exact_span_is_present() -> N
         cleaned_text="",
         paragraphs=[],
         clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-person"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Jan Kowalski",
-                normalized_name="jan kowalski",
-                mentions=[person_mention],
-            ),
-            EntityCluster(
-                cluster_id=ClusterID("cluster-org"),
-                entity_type=EntityType.PUBLIC_INSTITUTION,
-                canonical_name="Urząd Gminy",
-                normalized_name="urząd gminy",
-                mentions=[organization_mention],
-            ),
+            _cluster("cluster-person", [person_mention]),
+            _cluster("cluster-org", [organization_mention]),
         ],
     )
     clause_mention = ClusterMention(
@@ -97,15 +117,7 @@ def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions()
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-person"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Jan Kowalski",
-                normalized_name="jan kowalski",
-                mentions=[person_mention],
-            )
-        ],
+        clusters=[_cluster("cluster-person", [person_mention])],
     )
     anchorless_mention = ClusterMention(
         text="Jan Kowalski",
@@ -149,20 +161,8 @@ def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
         cleaned_text="",
         paragraphs=[],
         clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("far"),
-                entity_type=EntityType.ORGANIZATION,
-                canonical_name="Fundusz",
-                normalized_name="fundusz",
-                mentions=[far],
-            ),
-            EntityCluster(
-                cluster_id=ClusterID("near"),
-                entity_type=EntityType.ORGANIZATION,
-                canonical_name="Spółka",
-                normalized_name="spółka",
-                mentions=[near],
-            ),
+            _cluster("far", [far]),
+            _cluster("near", [near]),
         ],
     )
     clause = ClauseUnit(
@@ -220,20 +220,8 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
             )
         ],
         clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-person"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Jan Kowalski",
-                normalized_name="jan kowalski",
-                mentions=[person_mention],
-            ),
-            EntityCluster(
-                cluster_id=ClusterID("cluster-org"),
-                entity_type=EntityType.PUBLIC_INSTITUTION,
-                canonical_name="Urząd Miasta",
-                normalized_name="urząd miasta",
-                mentions=[org_mention],
-            ),
+            _cluster("cluster-person", [person_mention]),
+            _cluster("cluster-org", [org_mention]),
         ],
     )
     context = ExtractionContext.build(document)
@@ -248,7 +236,7 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
     assert entity is not None
     assert entity_cluster is not None
     assert mention_cluster.cluster_id == ClusterID("cluster-person")
-    assert id_cluster.canonical_name == "Jan Kowalski"
+    assert context.canonical_name_for_cluster(id_cluster) == "Jan Kowalski"
     assert entity.canonical_name == "Jan Kowalski"
     assert entity_cluster.cluster_id == ClusterID("cluster-person")
     sentence_cluster_ids = [
@@ -302,12 +290,9 @@ def test_cluster_metadata_helpers_read_current_entity_identity() -> None:
             )
         ],
         clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-org"),
-                entity_type=EntityType.ORGANIZATION,
-                canonical_name="Stare Przedsiębiorstwo",
-                normalized_name="stare przedsiębiorstwo",
-                mentions=[mention],
+            _cluster(
+                "cluster-org",
+                [mention],
                 primary_entity_id=entity_id,
                 member_entity_ids=[entity_id],
             )
@@ -320,6 +305,103 @@ def test_cluster_metadata_helpers_read_current_entity_identity() -> None:
     assert context.entity_for_cluster(cluster) == document.entities[0]
     assert context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION
     assert context.canonical_name_for_cluster(cluster) == "Nowy Urząd"
+
+
+def test_mention_view_identity_properties_read_current_entity_metadata() -> None:
+    entity_id = EntityID("entity-proxy-role")
+    anchor_id = EntityID("entity-anchor")
+    mention = ClusterMention(
+        text="żona",
+        entity_type=EntityType.POSITION,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=5,
+        end_char=9,
+        entity_id=entity_id,
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=[],
+        entities=[
+            Entity(
+                entity_id=entity_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="proxy spouse",
+                normalized_name="proxy spouse",
+                organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
+                is_proxy_person=True,
+                proxy_kind=ProxyKind.FAMILY,
+                kinship_detail=KinshipDetail.SPOUSE,
+                proxy_anchor_entity_id=anchor_id,
+                role_kind=RoleKind.MINISTER,
+                role_modifier=RoleModifier.DEPUTY,
+            )
+        ],
+        clusters=[
+            _cluster(
+                "cluster-stale",
+                [mention],
+                primary_entity_id=entity_id,
+                member_entity_ids=[entity_id],
+            )
+        ],
+    )
+
+    view = ExtractionContext.build(document).mention_views_in_sentence(
+        0,
+        {EntityType.PERSON},
+    )[0]
+
+    assert view.entity_id == entity_id
+    assert view.entity_type == EntityType.PERSON
+    assert view.canonical_name == "proxy spouse"
+    assert view.normalized_name == "proxy spouse"
+    assert view.organization_kind == OrganizationKind.PUBLIC_INSTITUTION
+    assert view.is_proxy_person is True
+    assert view.proxy_kind == ProxyKind.FAMILY
+    assert view.kinship_detail == KinshipDetail.SPOUSE
+    assert view.proxy_anchor_entity_id == anchor_id
+    assert view.role_kind == RoleKind.MINISTER
+    assert view.role_modifier == RoleModifier.DEPUTY
+
+
+def test_orphan_mention_view_falls_back_to_mention_surface() -> None:
+    cluster = _cluster(
+        "cluster-orphan",
+        [
+            ClusterMention(
+                text="Orphan Org",
+                entity_type=EntityType.ORGANIZATION,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=len("Orphan Org"),
+            )
+        ],
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=[],
+        clusters=[cluster],
+    )
+
+    view = ExtractionContext.build(document).mention_view(cluster)
+
+    assert view.entity_id is None
+    assert view.entity_type == EntityType.ORGANIZATION
+    assert view.canonical_name == "Orphan Org"
+    assert view.normalized_name == "Orphan Org"
+    assert view.organization_kind is None
 
 
 def test_sentence_context_event_date_prefers_local_polish_month_date() -> None:

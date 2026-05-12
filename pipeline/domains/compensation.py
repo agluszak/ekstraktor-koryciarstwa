@@ -127,7 +127,9 @@ class PolishCompensationFrameExtractor:
 
         local_person_cluster = self._best_local_cluster(person_clusters, clause, amount_start)
         local_role_cluster = self._best_local_cluster(role_clusters, clause, amount_start)
-        local_org_cluster = self._best_local_org_cluster(org_clusters, clause, amount_start)
+        local_org_cluster = self._best_local_org_cluster(
+            org_clusters, context, clause, amount_start
+        )
 
         if (
             amount_rank > 0
@@ -145,14 +147,16 @@ class PolishCompensationFrameExtractor:
             role_clusters, amount_start
         )
         if role_cluster is None:
-            role_cluster = self._find_role_from_text(document, clause)
-        org_cluster = local_org_cluster or self._best_valid_org_cluster(org_clusters, amount_start)
+            role_cluster = self._find_role_from_text(document, clause, context)
+        org_cluster = local_org_cluster or self._best_valid_org_cluster(
+            org_clusters, context, amount_start
+        )
         local_org_selected = local_org_cluster is not None
 
         context_reason = "same_clause"
         if person_cluster is None:
             person_cluster = self._paragraph_context_cluster(
-                document,
+                context,
                 clause,
                 {EntityType.PERSON},
                 amount_start,
@@ -161,7 +165,7 @@ class PolishCompensationFrameExtractor:
                 context_reason = "paragraph_carryover"
         if org_cluster is None:
             org_cluster = self._paragraph_context_cluster(
-                document,
+                context,
                 clause,
                 {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
                 amount_start,
@@ -170,7 +174,7 @@ class PolishCompensationFrameExtractor:
                 context_reason = "paragraph_org"
         if person_cluster is None and self._has_public_remuneration_context(clause.text):
             person_cluster = self._extended_context_cluster(
-                document,
+                context,
                 clause,
                 {EntityType.PERSON},
                 amount_start,
@@ -180,14 +184,14 @@ class PolishCompensationFrameExtractor:
                 context_reason = "cross_paragraph_person"
         if role_cluster is None and self._has_public_remuneration_context(clause.text):
             role_cluster = self._extended_context_cluster(
-                document,
+                context,
                 clause,
                 {EntityType.POSITION},
                 amount_start,
             )
         if org_cluster is None and self._has_public_remuneration_context(clause.text):
             org_cluster = self._extended_context_cluster(
-                document,
+                context,
                 clause,
                 {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
                 amount_start,
@@ -273,16 +277,16 @@ class PolishCompensationFrameExtractor:
     @classmethod
     def _paragraph_context_cluster(
         cls,
-        document: ArticleDocument,
+        context: ExtractionContext,
         clause: ClauseUnit,
         entity_types: set[EntityType],
         offset: int,
     ) -> EntityCluster | None:
         candidates = [
             cluster
-            for cluster in document.clusters
-            if cluster.entity_type in entity_types
-            and cls._cluster_is_valid_compensation_anchor(cluster)
+            for cluster in context.document.clusters
+            if context.entity_type_for_cluster(cluster) in entity_types
+            and cls._cluster_is_valid_compensation_anchor(context, cluster)
             and any(
                 mention.paragraph_index == clause.paragraph_index
                 and mention.sentence_index <= clause.sentence_index
@@ -294,7 +298,7 @@ class PolishCompensationFrameExtractor:
     @classmethod
     def _extended_context_cluster(
         cls,
-        document: ArticleDocument,
+        context: ExtractionContext,
         clause: ClauseUnit,
         entity_types: set[EntityType],
         offset: int,
@@ -303,9 +307,9 @@ class PolishCompensationFrameExtractor:
     ) -> EntityCluster | None:
         candidates = [
             cluster
-            for cluster in document.clusters
-            if cluster.entity_type in entity_types
-            and cls._cluster_is_valid_compensation_anchor(cluster)
+            for cluster in context.document.clusters
+            if context.entity_type_for_cluster(cluster) in entity_types
+            and cls._cluster_is_valid_compensation_anchor(context, cluster)
             and any(
                 mention.sentence_index < clause.sentence_index
                 and clause.sentence_index - mention.sentence_index <= max_sentence_distance
@@ -318,14 +322,15 @@ class PolishCompensationFrameExtractor:
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
+        context: ExtractionContext,
     ) -> EntityCluster | None:
         role_text = find_role_text(document, clause)
         if role_text is None:
             return None
         for cluster in document.clusters:
-            if cluster.entity_type != EntityType.POSITION:
+            if context.entity_type_for_cluster(cluster) != EntityType.POSITION:
                 continue
-            if cluster.canonical_name.lower() == role_text.lower():
+            if context.canonical_name_for_cluster(cluster).lower() == role_text.lower():
                 return cluster
         return None
 
@@ -390,22 +395,29 @@ class PolishCompensationFrameExtractor:
         return any(marker in lowered for marker in PUBLIC_REMUNERATION_MARKERS)
 
     @classmethod
-    def _cluster_is_valid_compensation_anchor(cls, cluster: EntityCluster) -> bool:
-        if cluster.entity_type != EntityType.ORGANIZATION:
+    def _cluster_is_valid_compensation_anchor(
+        cls,
+        context: ExtractionContext,
+        cluster: EntityCluster,
+    ) -> bool:
+        if context.entity_type_for_cluster(cluster) != EntityType.ORGANIZATION:
             return True
-        if is_employer_like_name(cluster.normalized_name):
+        if is_employer_like_name(context.normalized_name_for_cluster(cluster)):
             return True
-        stripped = cluster.canonical_name.strip()
+        stripped = context.canonical_name_for_cluster(cluster).strip()
         return stripped.isupper() and 2 <= len(stripped) <= 8
 
     @classmethod
     def _best_valid_org_cluster(
         cls,
         clusters: list[EntityCluster],
+        context: ExtractionContext,
         offset: int,
     ) -> EntityCluster | None:
         valid_clusters = [
-            cluster for cluster in clusters if cls._cluster_is_valid_compensation_anchor(cluster)
+            cluster
+            for cluster in clusters
+            if cls._cluster_is_valid_compensation_anchor(context, cluster)
         ]
         return ExtractionContext.best_cluster_near_offset(valid_clusters, offset)
 
@@ -435,11 +447,14 @@ class PolishCompensationFrameExtractor:
     def _best_local_org_cluster(
         cls,
         clusters: list[EntityCluster],
+        context: ExtractionContext,
         clause: ClauseUnit,
         offset: int,
     ) -> EntityCluster | None:
         valid_clusters = [
-            cluster for cluster in clusters if cls._cluster_is_valid_compensation_anchor(cluster)
+            cluster
+            for cluster in clusters
+            if cls._cluster_is_valid_compensation_anchor(context, cluster)
         ]
         before_amount = cls._best_local_cluster(valid_clusters, clause, offset)
         if before_amount is not None:
@@ -488,7 +503,8 @@ class CompensationFactBuilder:
         subject_cluster = context.cluster_by_entity_id(subject_id)
         object_id = (
             org_id
-            if subject_cluster is None or subject_cluster.entity_type != EntityType.ORGANIZATION
+            if subject_cluster is None
+            or context.entity_type_for_cluster(subject_cluster) != EntityType.ORGANIZATION
             else None
         )
         role_text = context.cluster_name(frame.role_cluster_id)
@@ -501,6 +517,11 @@ class CompensationFactBuilder:
                 if cluster.cluster_id == frame.organization_cluster_id
             ),
             None,
+        )
+        organization_kind = (
+            context.organization_kind_for_cluster(organization)
+            if organization is not None
+            else None
         )
 
         return Fact(
@@ -535,7 +556,7 @@ class CompensationFactBuilder:
             period=frame.period,
             position_entity_id=role_id,
             role=role_text,
-            organization_kind=organization.organization_kind if organization is not None else None,
+            organization_kind=organization_kind,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             overlaps_governance=False,

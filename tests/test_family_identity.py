@@ -72,9 +72,6 @@ def _person_cluster(
     )
     cluster = EntityCluster(
         cluster_id=ClusterID(f"cluster-{entity_id}"),
-        entity_type=EntityType.PERSON,
-        canonical_name=name,
-        normalized_name=name,
         mentions=[
             ClusterMention(
                 text=name,
@@ -86,6 +83,8 @@ def _person_cluster(
                 entity_id=EntityID(entity_id),
             )
         ],
+        primary_entity_id=EntityID(entity_id),
+        member_entity_ids=[EntityID(entity_id)],
     )
     return entity, cluster
 
@@ -594,9 +593,6 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
     )
     org_cluster = EntityCluster(
         cluster_id=ClusterID("cluster-mup"),
-        entity_type=EntityType.PUBLIC_INSTITUTION,
-        canonical_name="Miejski Urząd Pracy",
-        normalized_name="Miejski Urząd Pracy",
         mentions=[
             ClusterMention(
                 text="Miejskiego Urzędu Pracy",
@@ -608,6 +604,8 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
                 entity_id=EntityID("org-mup"),
             )
         ],
+        primary_entity_id=EntityID("org-mup"),
+        member_entity_ids=[EntityID("org-mup")],
     )
     doc.entities.extend([karol, org])
     doc.clusters.extend([karol_cluster, org_cluster])
@@ -620,10 +618,11 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
     framed = PolishGovernanceFrameExtractor(config).run(resolved, ExtractionContext.build(resolved))
 
     frame = framed.governance_frames[0]
+    context = ExtractionContext.build(framed)
     proxy_cluster_ids = {
         cluster.cluster_id
         for cluster in framed.clusters
-        if cluster.kinship_detail == KinshipDetail.SIBLING_SISTER
+        if context.kinship_detail_for_cluster(cluster) == KinshipDetail.SIBLING_SISTER
     }
     assert frame.person_cluster_id in proxy_cluster_ids
     assert frame.person_cluster_id != "cluster-person-karol"

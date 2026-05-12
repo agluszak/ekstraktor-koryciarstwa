@@ -59,7 +59,7 @@ class KinshipTieBuilder:
                     sentence_views=sentence_views,
                 )
             )
-        views_by_entity_id = _build_views_by_entity_id(document.clusters)
+        views_by_entity_id = _build_views_by_entity_id(context, document.clusters)
         evidence_items.extend(self._identity_backed_proxy_ties(document, views_by_entity_id))
         return [self._fact(document, evidence) for evidence in evidence_items]
 
@@ -488,35 +488,23 @@ class KinshipTieBuilder:
         )
 
 
-def _cluster_to_view(cluster: EntityCluster) -> ClusterMentionView:
+def _cluster_to_view(context: ExtractionContext, cluster: EntityCluster) -> ClusterMentionView:
     """Build a ClusterMentionView for identity-resolution lookups where positional info is
     not required (only canonical_name, entity_id, and entity_type are accessed downstream).
     Uses the first real mention when available, or a zero-position sentinel when
     ``cluster.mentions`` is empty. Callers must not rely on start/end offsets from the
     sentinel view."""
-    from pipeline.models import ClusterMention
-
-    mention = (
-        cluster.mentions[0]
-        if cluster.mentions
-        else ClusterMention(
-            text=cluster.canonical_name,
-            entity_type=cluster.entity_type,
-            sentence_index=0,
-            paragraph_index=0,
-            start_char=0,
-            end_char=0,
-        )
-    )
-    return ClusterMentionView(cluster=cluster, mention=mention)
+    mention = cluster.mentions[0] if cluster.mentions else None
+    return context.mention_view(cluster, mention)
 
 
 def _build_views_by_entity_id(
+    context: ExtractionContext,
     clusters: list[EntityCluster],
 ) -> dict[EntityID, ClusterMentionView]:
     result: dict[EntityID, ClusterMentionView] = {}
     for cluster in clusters:
         entity_id = next((m.entity_id for m in cluster.mentions if m.entity_id), None)
         if entity_id is not None and entity_id not in result:
-            result[entity_id] = _cluster_to_view(cluster)
+            result[entity_id] = _cluster_to_view(context, cluster)
     return result

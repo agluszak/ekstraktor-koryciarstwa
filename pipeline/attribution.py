@@ -8,9 +8,7 @@ from pipeline.domain_types import EntityType, OrganizationKind
 from pipeline.entity_classifiers import is_party_like_name, is_public_employer_name
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
-    ArticleDocument,
     ClauseUnit,
-    ClusterMention,
     ClusterMentionView,
     EntityCluster,
     ParsedWord,
@@ -346,7 +344,8 @@ def _resolve_public_employment_employer(
     current = [
         view
         for view in sentence_views
-        if _is_public_employer_cluster(view.cluster) and not _is_party_cluster(view.cluster, config)
+        if _is_public_employer_cluster(context, view.cluster)
+        and not _is_party_cluster(context, view.cluster, config)
     ]
     if current:
         return min(current, key=lambda view: abs(view.start_char - clause.start_char))
@@ -358,21 +357,21 @@ def _resolve_public_employment_employer(
     adjacent = [
         view
         for view in paragraph_views
-        if _is_public_employer_cluster(view.cluster)
-        and not _is_party_cluster(view.cluster, config)
+        if _is_public_employer_cluster(context, view.cluster)
+        and not _is_party_cluster(context, view.cluster, config)
         and abs(view.sentence_index - sentence.sentence_index) <= 2
     ]
     if adjacent:
         return min(adjacent, key=lambda view: abs(view.sentence_index - sentence.sentence_index))
 
     # 3. Document-level fallback
-    fallback_clusters = _document_level_employer_candidates(context.document, clause, config=config)
+    fallback_clusters = _document_level_employer_candidates(context, clause, config=config)
     if fallback_clusters:
         best_cluster = min(
             fallback_clusters,
             key=lambda cluster: _cluster_clause_distance(cluster, clause),
         )
-        return _cluster_to_view(best_cluster)
+        return context.mention_view(best_cluster)
 
     return None
 
@@ -413,7 +412,7 @@ def _resolve_public_employment_role_cluster(
 
 
 def _document_level_employer_candidates(
-    document: ArticleDocument,
+    context: ExtractionContext,
     clause: ClauseUnit,
     *,
     config: PipelineConfig,
@@ -426,12 +425,13 @@ def _document_level_employer_candidates(
         return []
     return [
         cluster
-        for cluster in document.clusters
-        if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
-        and _is_public_employer_cluster(cluster)
-        and not _is_party_cluster(cluster, config)
+        for cluster in context.document.clusters
+        if context.entity_type_for_cluster(cluster)
+        in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+        and _is_public_employer_cluster(context, cluster)
+        and not _is_party_cluster(context, cluster, config)
         and any(
-            marker in cluster.normalized_name.casefold()
+            marker in context.normalized_name_for_cluster(cluster).casefold()
             for marker in ("urząd gmin", "gmin", "starostw", "powiatow")
         )
     ]
@@ -543,22 +543,26 @@ def _proxy_view_for_anchor(
         (
             view
             for view in person_views
-            if view.is_proxy_person and view.cluster.proxy_anchor_entity_id in subject_entity_ids
+            if view.is_proxy_person and view.proxy_anchor_entity_id in subject_entity_ids
         ),
         None,
     )
 
 
-def _is_public_employer_cluster(cluster: EntityCluster) -> bool:
-    if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
+def _is_public_employer_cluster(context: ExtractionContext, cluster: EntityCluster) -> bool:
+    if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION:
         return True
-    if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
+    if context.organization_kind_for_cluster(cluster) == OrganizationKind.PUBLIC_INSTITUTION:
         return True
-    return is_public_employer_name(cluster.normalized_name.casefold())
+    return is_public_employer_name(context.normalized_name_for_cluster(cluster).casefold())
 
 
-def _is_party_cluster(cluster: EntityCluster, config: PipelineConfig) -> bool:
-    return is_party_like_name(cluster.normalized_name, config)
+def _is_party_cluster(
+    context: ExtractionContext,
+    cluster: EntityCluster,
+    config: PipelineConfig,
+) -> bool:
+    return is_party_like_name(context.normalized_name_for_cluster(cluster), config)
 
 
 def _cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> int:
@@ -570,22 +574,6 @@ def _cluster_clause_distance(cluster: EntityCluster, clause: ClauseUnit) -> int:
         ),
         default=9999,
     )
-
-
-def _cluster_to_view(cluster: EntityCluster) -> ClusterMentionView:
-    mention = (
-        cluster.mentions[0]
-        if cluster.mentions
-        else ClusterMention(
-            text=cluster.canonical_name,
-            entity_type=cluster.entity_type,
-            sentence_index=0,
-            paragraph_index=0,
-            start_char=0,
-            end_char=0,
-        )
-    )
-    return ClusterMentionView(cluster=cluster, mention=mention)
 
 
 def _score(

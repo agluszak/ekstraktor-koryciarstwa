@@ -116,27 +116,32 @@ class GovernanceTargetResolver:
         self,
         *,
         document: ArticleDocument,
+        context: ExtractionContext,
         clause: ClauseUnit,
         org_clusters: list[EntityCluster],
         role_cluster: EntityCluster | None,
     ) -> GovernanceTargetResolution:
         role_evidence = {
-            cluster.cluster_id: self._role_evidence(document, clause, cluster, role_cluster)
+            cluster.cluster_id: self._role_evidence(
+                document, context, clause, cluster, role_cluster
+            )
             for cluster in org_clusters
         }
         owner_context = self._best_context_cluster(
+            context,
             org_clusters,
             lambda cluster: (
-                self._is_owner_like_cluster(cluster)
+                self._is_owner_like_cluster(context, cluster)
                 or role_evidence[cluster.cluster_id].owner_context > 0.0
             ),
             role_evidence=role_evidence,
             score_attr="owner_context",
         )
         governing_body = self._best_context_cluster(
+            context,
             org_clusters,
             lambda cluster: (
-                self._is_body_like_cluster(cluster)
+                self._is_body_like_cluster(context, cluster)
                 or role_evidence[cluster.cluster_id].governing_body > 0.0
             ),
             role_evidence=role_evidence,
@@ -145,8 +150,12 @@ class GovernanceTargetResolver:
         candidates = [
             cluster
             for cluster in org_clusters
-            if not self._is_rejected_target(cluster)
-            and not self._is_context_only_cluster(cluster, role_evidence[cluster.cluster_id])
+            if not self._is_rejected_target(context, cluster)
+            and not self._is_context_only_cluster(
+                context,
+                cluster,
+                role_evidence[cluster.cluster_id],
+            )
         ]
         if not candidates:
             return GovernanceTargetResolution(
@@ -161,6 +170,7 @@ class GovernanceTargetResolver:
             candidates,
             key=lambda cluster: self._target_score(
                 document,
+                context,
                 clause,
                 cluster,
                 role_cluster,
@@ -169,6 +179,7 @@ class GovernanceTargetResolver:
         )
         score, reason = self._target_score(
             document,
+            context,
             clause,
             target,
             role_cluster,
@@ -183,11 +194,11 @@ class GovernanceTargetResolver:
             reason=reason,
         )
 
-    def is_party_like_cluster(self, cluster: EntityCluster) -> bool:
+    def is_party_like_cluster(self, context: ExtractionContext, cluster: EntityCluster) -> bool:
         aliases = [
-            cluster.canonical_name,
-            cluster.normalized_name,
-            *[alias for alias in cluster.aliases if isinstance(alias, str)],
+            context.canonical_name_for_cluster(cluster),
+            context.normalized_name_for_cluster(cluster),
+            *context.aliases_for_cluster(cluster),
         ]
         if any(is_party_like_name(alias, self.config) for alias in aliases):
             return True
@@ -203,6 +214,7 @@ class GovernanceTargetResolver:
     def _target_score(
         self,
         document: ArticleDocument,
+        context: ExtractionContext,
         clause: ClauseUnit,
         cluster: EntityCluster,
         role_cluster: EntityCluster | None,
@@ -219,10 +231,10 @@ class GovernanceTargetResolver:
         if role_cluster is not None and self._cluster_near_role(cluster, role_cluster):
             score += 2.0
             reasons.append("near_role")
-        if self._is_target_like_cluster(cluster):
+        if self._is_target_like_cluster(context, cluster):
             score += 1.5
             reasons.append("target_like")
-        if self._is_expanded_name(cluster):
+        if self._is_expanded_name(context, cluster):
             score += 0.8
             reasons.append("expanded_name")
         if self._is_paragraph_continuation(cluster, clause):
@@ -237,13 +249,13 @@ class GovernanceTargetResolver:
         if role_evidence.appointing_authority:
             score -= role_evidence.appointing_authority
             reasons.append("appointing_authority")
-        if self._is_generic_fragment(cluster):
+        if self._is_generic_fragment(context, cluster):
             score -= 3.0
             reasons.append("generic_fragment")
-        if self._is_place_context_cluster(cluster):
+        if self._is_place_context_cluster(context, cluster):
             score -= 4.0
             reasons.append("place_context")
-        if self._is_media_like_cluster(cluster):
+        if self._is_media_like_cluster(context, cluster):
             score -= 4.0
             reasons.append("media_like")
 
@@ -256,6 +268,7 @@ class GovernanceTargetResolver:
 
     @staticmethod
     def _best_context_cluster(
+        context: ExtractionContext,
         clusters: list[EntityCluster],
         predicate: Callable[[EntityCluster], bool],
         *,
@@ -266,31 +279,43 @@ class GovernanceTargetResolver:
         if not matches:
             return None
         if role_evidence is None or score_attr is None:
-            return max(matches, key=lambda cluster: len(cluster.canonical_name))
+            return max(
+                matches,
+                key=lambda cluster: len(context.canonical_name_for_cluster(cluster)),
+            )
         return max(
             matches,
             key=lambda cluster: (
                 getattr(role_evidence[cluster.cluster_id], score_attr),
-                len(cluster.canonical_name),
+                len(context.canonical_name_for_cluster(cluster)),
             ),
         )
 
-    def _is_rejected_target(self, cluster: EntityCluster) -> bool:
-        if cluster.organization_kind == OrganizationKind.COMPANY:
-            return self._is_generic_fragment(cluster) or self._is_media_like_cluster(cluster)
+    def _is_rejected_target(
+        self,
+        context: ExtractionContext,
+        cluster: EntityCluster,
+    ) -> bool:
+        if context.organization_kind_for_cluster(cluster) == OrganizationKind.COMPANY:
+            return self._is_generic_fragment(context, cluster) or self._is_media_like_cluster(
+                context, cluster
+            )
         return (
-            self.is_party_like_cluster(cluster)
-            or self._is_generic_fragment(cluster)
-            or self._is_place_context_cluster(cluster)
-            or self._is_media_like_cluster(cluster)
+            self.is_party_like_cluster(context, cluster)
+            or self._is_generic_fragment(context, cluster)
+            or self._is_place_context_cluster(context, cluster)
+            or self._is_media_like_cluster(context, cluster)
         )
 
     def _is_context_only_cluster(
         self,
+        context: ExtractionContext,
         cluster: EntityCluster,
         role_evidence: GovernanceOrgRoleEvidence,
     ) -> bool:
-        if self._is_owner_like_cluster(cluster) or self._is_body_like_cluster(cluster):
+        if self._is_owner_like_cluster(context, cluster) or self._is_body_like_cluster(
+            context, cluster
+        ):
             return True
         context_score = (
             role_evidence.owner_context
@@ -300,22 +325,22 @@ class GovernanceTargetResolver:
         return (
             context_score > 0.0
             and role_evidence.staffed_target == 0.0
-            and not self._is_target_like_cluster(cluster)
+            and not self._is_target_like_cluster(context, cluster)
         )
 
     @staticmethod
-    def _is_owner_like_cluster(cluster: EntityCluster) -> bool:
-        normalized = cluster.normalized_name.lower()
+    def _is_owner_like_cluster(context: ExtractionContext, cluster: EntityCluster) -> bool:
+        normalized = context.normalized_name_for_cluster(cluster).lower()
         if "skarbu państwa" in normalized:
             return True
-        if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
+        if context.organization_kind_for_cluster(cluster) == OrganizationKind.PUBLIC_INSTITUTION:
             return any(term in normalized for term in OWNER_CONTEXT_TERMS)
         return any(term in normalized for term in OWNER_CONTEXT_TERMS)
 
     @staticmethod
-    def _is_body_like_cluster(cluster: EntityCluster) -> bool:
-        normalized = cluster.normalized_name.lower()
-        kind = cluster.organization_kind
+    def _is_body_like_cluster(context: ExtractionContext, cluster: EntityCluster) -> bool:
+        normalized = context.normalized_name_for_cluster(cluster).lower()
+        kind = context.organization_kind_for_cluster(cluster)
         if kind == OrganizationKind.GOVERNING_BODY:
             return True
         if normalized in BODY_CONTEXT_TERMS:
@@ -323,15 +348,16 @@ class GovernanceTargetResolver:
         return normalized.startswith("rada nadzorcza")
 
     @staticmethod
-    def _is_target_like_cluster(cluster: EntityCluster) -> bool:
-        normalized = cluster.normalized_name.lower()
-        if cluster.organization_kind == OrganizationKind.COMPANY:
+    def _is_target_like_cluster(context: ExtractionContext, cluster: EntityCluster) -> bool:
+        normalized = context.normalized_name_for_cluster(cluster).lower()
+        if context.organization_kind_for_cluster(cluster) == OrganizationKind.COMPANY:
             return True
         return is_target_organization_name(normalized)
 
     def _role_evidence(
         self,
         document: ArticleDocument,
+        context: ExtractionContext,
         clause: ClauseUnit,
         cluster: EntityCluster,
         role_cluster: EntityCluster | None,
@@ -342,9 +368,9 @@ class GovernanceTargetResolver:
         appointing_authority = 0.0
         reasons: list[str] = []
 
-        if self._is_owner_like_cluster(cluster):
+        if self._is_owner_like_cluster(context, cluster):
             owner_context += 3.0
-        if self._is_body_like_cluster(cluster):
+        if self._is_body_like_cluster(context, cluster):
             governing_body += 3.0
 
         for mention in cluster.mentions:
@@ -356,7 +382,9 @@ class GovernanceTargetResolver:
             if self._has_staffed_target_phrase(before, local):
                 staffed_target += 5.0
                 reasons.append("staffed_target_phrase")
-            if self._is_body_like_cluster(cluster) or self._surface_is_governing_body(mention.text):
+            if self._is_body_like_cluster(context, cluster) or self._surface_is_governing_body(
+                mention.text
+            ):
                 governing_body += 2.0
             if self._has_owner_context_phrase(local):
                 owner_context += 2.0
@@ -426,28 +454,28 @@ class GovernanceTargetResolver:
         return any(trigger in between for trigger in (" powoła", " wskaza", " wybra", " mianowa"))
 
     @staticmethod
-    def _is_generic_fragment(cluster: EntityCluster) -> bool:
-        normalized = cluster.normalized_name.lower().strip(" .,:;")
+    def _is_generic_fragment(context: ExtractionContext, cluster: EntityCluster) -> bool:
+        normalized = context.normalized_name_for_cluster(cluster).lower().strip(" .,:;")
         return normalized in {"państwo", "państwa", "rzeczpospolita"}
 
     @staticmethod
-    def _is_place_context_cluster(cluster: EntityCluster) -> bool:
-        if cluster.entity_type == EntityType.LOCATION:
+    def _is_place_context_cluster(context: ExtractionContext, cluster: EntityCluster) -> bool:
+        if context.entity_type_for_cluster(cluster) == EntityType.LOCATION:
             return True
-        normalized = cluster.normalized_name.lower().strip(" .,:;")
+        normalized = context.normalized_name_for_cluster(cluster).lower().strip(" .,:;")
         if normalized in PLACE_CONTEXT_TARGETS:
             return True
-        if cluster.organization_kind == OrganizationKind.COMPANY:
+        if context.organization_kind_for_cluster(cluster) == OrganizationKind.COMPANY:
             return False
         return normalized in {f"miasto {place}" for place in PLACE_CONTEXT_TARGETS}
 
     @staticmethod
-    def _is_media_like_cluster(cluster: EntityCluster) -> bool:
-        return is_media_like_name(cluster.normalized_name)
+    def _is_media_like_cluster(context: ExtractionContext, cluster: EntityCluster) -> bool:
+        return is_media_like_name(context.normalized_name_for_cluster(cluster))
 
     @staticmethod
-    def _is_expanded_name(cluster: EntityCluster) -> bool:
-        return len(cluster.canonical_name.split()) >= 2
+    def _is_expanded_name(context: ExtractionContext, cluster: EntityCluster) -> bool:
+        return len(context.canonical_name_for_cluster(cluster).split()) >= 2
 
     @staticmethod
     def _cluster_in_clause(cluster: EntityCluster, clause: ClauseUnit) -> bool:
@@ -503,12 +531,13 @@ class GovernanceFactBuilder:
             if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
             is not None
         ]
-        facts.extend(self._list_governance_facts(document, cluster_to_entity_id))
+        facts.extend(self._list_governance_facts(document, context, cluster_to_entity_id))
         return self._deduplicate_governance_facts(facts)
 
     def _list_governance_facts(
         self,
         document: ArticleDocument,
+        context: ExtractionContext,
         cluster_to_entity_id: dict[ClusterID, EntityID],
     ) -> list[Fact]:
         output: list[Fact] = []
@@ -516,14 +545,14 @@ class GovernanceFactBuilder:
             signal = self._list_signal(sentence.text)
             if signal is None:
                 continue
-            people = self._person_clusters_for_list_sentence(document, sentence)
+            people = self._person_clusters_for_list_sentence(document, context, sentence)
             if len(people) < 2:
                 continue
             exceptions = self._exception_person_ids(document, sentence, people)
             people = [cluster for cluster in people if cluster.cluster_id not in exceptions]
             if len(people) < 2:
                 continue
-            target = self._target_cluster_for_list_sentence(document, sentence)
+            target = self._target_cluster_for_list_sentence(document, context, sentence)
             if target is None:
                 continue
             role_text = self._list_role_text(sentence.text)
@@ -563,12 +592,13 @@ class GovernanceFactBuilder:
     @staticmethod
     def _person_clusters_for_list_sentence(
         document: ArticleDocument,
+        context: ExtractionContext,
         sentence: SentenceFragment,
     ) -> list[EntityCluster]:
         return [
             cluster
             for cluster in document.clusters
-            if cluster.entity_type == EntityType.PERSON
+            if context.entity_type_for_cluster(cluster) == EntityType.PERSON
             and any(
                 mention.paragraph_index == sentence.paragraph_index for mention in cluster.mentions
             )
@@ -596,18 +626,20 @@ class GovernanceFactBuilder:
     @staticmethod
     def _target_cluster_for_list_sentence(
         document: ArticleDocument,
+        context: ExtractionContext,
         sentence: SentenceFragment,
     ) -> EntityCluster | None:
         candidates = [
             cluster
             for cluster in document.clusters
-            if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            if context.entity_type_for_cluster(cluster)
+            in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
             and any(
                 mention.paragraph_index == sentence.paragraph_index for mention in cluster.mentions
             )
             and (
-                cluster.organization_kind == OrganizationKind.COMPANY
-                or is_target_organization_name(cluster.normalized_name)
+                context.organization_kind_for_cluster(cluster) == OrganizationKind.COMPANY
+                or is_target_organization_name(context.normalized_name_for_cluster(cluster))
             )
         ]
         if not candidates:
@@ -615,8 +647,8 @@ class GovernanceFactBuilder:
         return max(
             candidates,
             key=lambda cluster: (
-                cluster.organization_kind == OrganizationKind.COMPANY,
-                len(cluster.canonical_name),
+                context.organization_kind_for_cluster(cluster) == OrganizationKind.COMPANY,
+                len(context.canonical_name_for_cluster(cluster)),
             ),
         )
 
@@ -711,13 +743,13 @@ class GovernanceFactBuilder:
             ),
             None,
         )
-        if self._looks_like_parliamentary_remuneration_fact(target_cluster, evidence.text):
+        if self._looks_like_parliamentary_remuneration_fact(context, target_cluster, evidence.text):
             return None
 
         role_id = context.entity_id_for_cluster_id(frame.role_cluster_id)
         role_name = next(
             (
-                cluster.canonical_name
+                context.canonical_name_for_cluster(cluster)
                 for cluster in document.clusters
                 if cluster.cluster_id == frame.role_cluster_id
             ),
@@ -736,7 +768,9 @@ class GovernanceFactBuilder:
         appointing_authority_entity_id = (
             context.entity_id_for_cluster_id(frame.appointing_authority_cluster_id)
             if frame.appointing_authority_cluster_id
-            else self._recover_appointing_authority_entity_id(document, frame, cluster_to_entity_id)
+            else self._recover_appointing_authority_entity_id(
+                document, frame, cluster_to_entity_id, context
+            )
         )
 
         fact = Fact(
@@ -786,12 +820,13 @@ class GovernanceFactBuilder:
 
     @staticmethod
     def _looks_like_parliamentary_remuneration_fact(
+        context: ExtractionContext,
         target_cluster: EntityCluster | None,
         evidence_text: str,
     ) -> bool:
         if target_cluster is None:
             return False
-        target_name = target_cluster.normalized_name.casefold()
+        target_name = context.normalized_name_for_cluster(target_cluster).casefold()
         if not any(marker in target_name for marker in ("sejm", "senat", "kancelari")):
             return False
         lowered_evidence = evidence_text.casefold()
@@ -816,6 +851,7 @@ class GovernanceFactBuilder:
         document: ArticleDocument,
         frame: GovernanceFrame,
         cluster_to_entity_id: dict[ClusterID, EntityID],
+        context: ExtractionContext,
     ) -> EntityID | None:
         if frame.signal != GovernanceSignal.APPOINTMENT:
             return None
@@ -840,7 +876,7 @@ class GovernanceFactBuilder:
             )
             for cluster in document.clusters:
                 if (
-                    cluster.entity_type != EntityType.PERSON
+                    context.entity_type_for_cluster(cluster) != EntityType.PERSON
                     or cluster.cluster_id == frame.person_cluster_id
                 ):
                     continue

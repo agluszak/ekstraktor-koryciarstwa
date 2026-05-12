@@ -21,7 +21,6 @@ from pipeline.extraction_context import (
 from pipeline.models import (
     ArticleDocument,
     ClusterMentionView,
-    EntityCluster,
     Fact,
     ParsedWord,
     SentenceFragment,
@@ -553,27 +552,10 @@ def _document_owner_person_candidates(
         cluster = context.cluster_by_entity_id(entity.entity_id)
         if cluster is None:
             continue
-        view = _cluster_view_closest_to_sentence(cluster, sentence)
+        view = context.mention_view_closest_to_sentence(cluster, sentence)
         if view is not None:
             views.append(view)
     return views
-
-
-def _cluster_view_closest_to_sentence(
-    cluster: EntityCluster,
-    sentence: SentenceFragment,
-) -> ClusterMentionView | None:
-    if not cluster.mentions:
-        return None
-    mention = min(
-        cluster.mentions,
-        key=lambda candidate: (
-            candidate.sentence_index != sentence.sentence_index,
-            candidate.paragraph_index != sentence.paragraph_index,
-            abs(candidate.start_char - sentence.start_char),
-        ),
-    )
-    return ClusterMentionView(cluster=cluster, mention=mention)
 
 
 def _quote_speaker_risk_in_sentence(

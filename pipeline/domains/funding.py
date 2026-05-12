@@ -127,14 +127,15 @@ class PolishFundingFrameExtractor:
             context,
             dependency_funder,
         )
-        funder = dependency_funder or self._best_funder(document, clause, org_clusters)
+        funder = dependency_funder or self._best_funder(document, clause, org_clusters, context)
         recipient = dependency_recipient or self._best_recipient(
             document,
             clause,
             org_clusters,
             funder,
+            context,
         )
-        project = self._best_project(document, clause, org_clusters, funder, recipient)
+        project = self._best_project(context, clause, org_clusters, funder, recipient)
         if recipient is None and project is not None:
             recipient = project
             project = None
@@ -223,6 +224,7 @@ class PolishFundingFrameExtractor:
         document: ArticleDocument,
         clause: ClauseUnit,
         org_clusters: list[EntityCluster],
+        context: ExtractionContext,
     ) -> EntityCluster | None:
         if not org_clusters:
             return None
@@ -234,14 +236,14 @@ class PolishFundingFrameExtractor:
                 if self._cluster_after_offset_in_clause(cluster, trigger_index, clause)
             ]
             if after_trigger:
-                return max(after_trigger, key=lambda cluster: self._funder_score(cluster))
+                return max(after_trigger, key=lambda cluster: self._funder_score(cluster, context))
         before_trigger = [
             cluster
             for cluster in org_clusters
             if self._cluster_before_offset(cluster, trigger_index)
         ]
         candidates = before_trigger or org_clusters
-        return max(candidates, key=lambda cluster: self._funder_score(cluster))
+        return max(candidates, key=lambda cluster: self._funder_score(cluster, context))
 
     def _best_recipient(
         self,
@@ -249,6 +251,7 @@ class PolishFundingFrameExtractor:
         clause: ClauseUnit,
         org_clusters: list[EntityCluster],
         funder: EntityCluster | None,
+        context: ExtractionContext,
     ) -> EntityCluster | None:
         candidates = [cluster for cluster in org_clusters if cluster != funder]
         if not candidates:
@@ -260,17 +263,16 @@ class PolishFundingFrameExtractor:
             if not self._cluster_before_offset(cluster, trigger_index)
         ]
         candidates = after_trigger or candidates
-        return max(candidates, key=lambda cluster: self._recipient_score(cluster))
+        return max(candidates, key=lambda cluster: self._recipient_score(cluster, context))
 
     @staticmethod
     def _best_project(
-        document: ArticleDocument,
+        context: ExtractionContext,
         clause: ClauseUnit,
         org_clusters: list[EntityCluster],
         funder: EntityCluster | None,
         recipient: EntityCluster | None,
     ) -> EntityCluster | None:
-        _ = document
         project_markers = ("projekt", "park", "program", "inwestyc", "budow")
         excluded_ids = {
             cluster.cluster_id for cluster in (funder, recipient) if cluster is not None
@@ -279,7 +281,10 @@ class PolishFundingFrameExtractor:
             cluster
             for cluster in org_clusters
             if cluster.cluster_id not in excluded_ids
-            and any(marker in cluster.normalized_name.lower() for marker in project_markers)
+            and any(
+                marker in context.normalized_name_for_cluster(cluster).lower()
+                for marker in project_markers
+            )
         ]
         if not candidates:
             return None
@@ -289,26 +294,36 @@ class PolishFundingFrameExtractor:
         )
 
     @staticmethod
-    def _funder_score(cluster: EntityCluster) -> tuple[int, int, int]:
-        normalized = cluster.normalized_name.lower()
-        public_bonus = 2 if cluster.entity_type == EntityType.PUBLIC_INSTITUTION else 0
+    def _funder_score(
+        cluster: EntityCluster,
+        context: ExtractionContext,
+    ) -> tuple[int, int, int]:
+        normalized = context.normalized_name_for_cluster(cluster).lower()
+        canonical = context.canonical_name_for_cluster(cluster)
+        public_bonus = (
+            2 if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION else 0
+        )
         if is_public_funder_name(normalized):
             public_bonus += 2
         if any(term in normalized for term in ("spółka", "agencja", "krajowy")):
             public_bonus += 1
-        return (public_bonus, len(cluster.canonical_name.split()), len(cluster.canonical_name))
+        return (public_bonus, len(canonical.split()), len(canonical))
 
     @staticmethod
-    def _recipient_score(cluster: EntityCluster) -> tuple[int, int, int]:
-        normalized = cluster.normalized_name.lower()
+    def _recipient_score(
+        cluster: EntityCluster,
+        context: ExtractionContext,
+    ) -> tuple[int, int, int]:
+        normalized = context.normalized_name_for_cluster(cluster).lower()
+        canonical = context.canonical_name_for_cluster(cluster)
         recipient_bonus = 0
         if any(term in normalized for term in ("fundacja", "stowarzyszenie", "instytut")):
             recipient_bonus += 3
         if any(term in normalized for term in ("projekt", "park", "program")):
             recipient_bonus += 2
-        if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
+        if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION:
             recipient_bonus -= 1
-        return (recipient_bonus, len(cluster.canonical_name.split()), len(cluster.canonical_name))
+        return (recipient_bonus, len(canonical.split()), len(canonical))
 
     @staticmethod
     def _funding_trigger_index(document: ArticleDocument, clause: ClauseUnit) -> int:
@@ -407,14 +422,7 @@ class FundingFactBuilder:
             return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
 
-        funder = next(
-            (
-                cluster
-                for cluster in document.clusters
-                if cluster.cluster_id == frame.funder_cluster_id
-            ),
-            None,
-        )
+        funder = context.cluster_by_id(frame.funder_cluster_id)
 
         return Fact(
             fact_id=FactID(
@@ -444,7 +452,9 @@ class FundingFactBuilder:
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,
-            organization_kind=funder.organization_kind if funder is not None else None,
+            organization_kind=(
+                context.organization_kind_for_cluster(funder) if funder is not None else None
+            ),
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             overlaps_governance=False,

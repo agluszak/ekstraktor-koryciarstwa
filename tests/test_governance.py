@@ -32,6 +32,8 @@ from pipeline.models import (
     TemporalExpression,
 )
 
+_CLUSTER_ENTITIES: dict[ClusterID, Entity] = {}
+
 
 def cluster(
     cluster_id: str,
@@ -44,11 +46,28 @@ def cluster(
     entity_id: str | None = None,
     organization_kind: OrganizationKind | None = None,
 ) -> EntityCluster:
-    return EntityCluster(
-        cluster_id=ClusterID(cluster_id),
+    resolved_entity_id = (
+        EntityID(entity_id) if entity_id else EntityID(cluster_id.replace("cluster-", "entity-"))
+    )
+    cluster_key = ClusterID(cluster_id)
+    _CLUSTER_ENTITIES[cluster_key] = Entity(
+        entity_id=resolved_entity_id,
         entity_type=entity_type,
         canonical_name=name,
         normalized_name=name,
+        organization_kind=organization_kind,
+        evidence=[
+            EvidenceSpan(
+                text=name,
+                sentence_index=sentence_index,
+                paragraph_index=0,
+                start_char=start_char,
+                end_char=end_char if end_char is not None else start_char + len(name),
+            )
+        ],
+    )
+    return EntityCluster(
+        cluster_id=cluster_key,
         mentions=[
             ClusterMention(
                 text=name,
@@ -57,13 +76,11 @@ def cluster(
                 paragraph_index=0,
                 start_char=start_char,
                 end_char=end_char if end_char is not None else start_char + len(name),
-                entity_id=EntityID(entity_id)
-                if entity_id
-                else EntityID(cluster_id.replace("cluster-", "entity-")),
+                entity_id=resolved_entity_id,
             )
         ],
-        aliases=[name],
-        organization_kind=organization_kind,
+        primary_entity_id=resolved_entity_id,
+        member_entity_ids=[resolved_entity_id],
     )
 
 
@@ -111,6 +128,11 @@ def document(clusters: list[EntityCluster]) -> ArticleDocument:
         publication_date="2026-04-15",
         cleaned_text="",
         paragraphs=[],
+        entities=[
+            _CLUSTER_ENTITIES[cluster.cluster_id]
+            for cluster in clusters
+            if cluster.cluster_id in _CLUSTER_ENTITIES
+        ],
         clusters=clusters,
     )
 
@@ -120,9 +142,11 @@ def test_target_resolver_prefers_stadnina_over_skarb_panstwa() -> None:
     resolver = GovernanceTargetResolver(config)
     target = cluster("cluster-target", "Stadnina Koni Iwno", start_char=20)
     owner = cluster("cluster-owner", "Skarbu Państwa", start_char=50)
+    doc = document([target, owner])
 
     result = resolver.resolve(
-        document=document([target, owner]),
+        document=doc,
+        context=ExtractionContext.build(doc),
         clause=clause("A. Góralczyk została prezeską Stadniny Koni Iwno, spółki Skarbu Państwa."),
         org_clusters=[target, owner],
         role_cluster=None,
@@ -142,9 +166,11 @@ def test_target_resolver_rejects_city_context_when_company_target_is_present() -
         organization_kind=OrganizationKind.COMPANY,
     )
     city = cluster("cluster-city", "Warszawy", start_char=18)
+    doc = document([target, city])
 
     result = resolver.resolve(
-        document=document([target, city]),
+        document=doc,
+        context=ExtractionContext.build(doc),
         clause=clause(
             "Marcin Kopania z Warszawy został wicedyrektorem w Polskim Holdingu Nieruchomości."
         ),
@@ -159,9 +185,11 @@ def test_target_resolver_rejects_ner_location_targets() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
     location = cluster("cluster-location", "Poznań", EntityType.LOCATION, start_char=30)
+    doc = document([location])
 
     result = resolver.resolve(
-        document=document([location]),
+        document=doc,
+        context=ExtractionContext.build(doc),
         clause=clause("Jan Kowalski z Poznania został dyrektorem."),
         org_clusters=[location],
         role_cluster=None,
@@ -423,6 +451,7 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
         clause,
         document,
+        ExtractionContext.build(document),
         [appointee],
         GovernanceSignal.APPOINTMENT,
     )
@@ -524,6 +553,7 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
         clause,
         document,
+        ExtractionContext.build(document),
         [appointee],
         GovernanceSignal.APPOINTMENT,
     )
@@ -537,9 +567,11 @@ def test_target_resolver_prefers_company_over_ministry_owner() -> None:
     resolver = GovernanceTargetResolver(config)
     target = cluster("cluster-target", "Rewita Hoteli", start_char=30)
     owner = cluster("cluster-owner", "Ministerstwo Obrony Narodowej", start_char=60)
+    doc = document([target, owner])
 
     result = resolver.resolve(
-        document=document([target, owner]),
+        document=doc,
+        context=ExtractionContext.build(doc),
         clause=clause("Marcin Horyń został dyrektorem Rewita Hoteli, spółki podległej MON."),
         org_clusters=[target, owner],
         role_cluster=None,
@@ -554,9 +586,11 @@ def test_target_resolver_rejects_generic_polska_for_totalizator() -> None:
     resolver = GovernanceTargetResolver(config)
     totalizator = cluster("cluster-target", "Totalizator Sportowy", start_char=20)
     polska = cluster("cluster-polska", "Polska", start_char=45)
+    doc = document([totalizator, polska])
 
     result = resolver.resolve(
-        document=document([totalizator, polska]),
+        document=doc,
+        context=ExtractionContext.build(doc),
         clause=clause("Adam Sekuła został dyrektorem Totalizatora Sportowego w Polsce."),
         org_clusters=[polska, totalizator],
         role_cluster=None,
@@ -569,9 +603,11 @@ def test_target_resolver_does_not_use_party_as_target() -> None:
     config = PipelineConfig.from_file("config.yaml")
     resolver = GovernanceTargetResolver(config)
     party = cluster("cluster-party", "Polskie Stronnictwo Ludowe", start_char=20)
+    doc = document([party])
 
     result = resolver.resolve(
-        document=document([party]),
+        document=doc,
+        context=ExtractionContext.build(doc),
         clause=clause("Jan Kowalski z PSL został powołany."),
         org_clusters=[party],
         role_cluster=None,
@@ -617,6 +653,7 @@ def test_target_resolver_prefers_lubelskie_koleje_over_wojewodztwo_context() -> 
 
     result = resolver.resolve(
         document=doc,
+        context=ExtractionContext.build(doc),
         clause=clause(text),
         org_clusters=[owner, body, target],
         role_cluster=None,
@@ -1390,12 +1427,14 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
         publication_date=None,
         cleaned_text=text,
         paragraphs=[text],
+        entities=[_CLUSTER_ENTITIES[appointee.cluster_id]],
         clusters=[appointee],
     )
 
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
         clause_unit,
         doc,
+        ExtractionContext.build(doc),
         [appointee],
         GovernanceSignal.APPOINTMENT,
     )

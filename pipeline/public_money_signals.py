@@ -7,6 +7,7 @@ from pipeline.entity_classifiers import (
     is_company_like_name,
     is_public_counterparty_name,
 )
+from pipeline.extraction_context import ExtractionContext
 from pipeline.models import ClauseUnit, EntityCluster
 from pipeline.semantic_signals import CONTRACTOR_CONTEXT_MARKERS, PUBLIC_COUNTERPARTY_MARKERS
 
@@ -53,10 +54,14 @@ def cluster_has_context_marker(
     return False
 
 
-def is_company_like_contractor(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-    if cluster.organization_kind == OrganizationKind.COMPANY:
+def is_company_like_contractor(
+    context: ExtractionContext,
+    clause: ClauseUnit,
+    cluster: EntityCluster,
+) -> bool:
+    if context.organization_kind_for_cluster(cluster) == OrganizationKind.COMPANY:
         return True
-    if is_company_like_name(cluster.normalized_name):
+    if is_company_like_name(context.normalized_name_for_cluster(cluster)):
         return True
     return cluster_has_context_marker(
         clause,
@@ -67,12 +72,16 @@ def is_company_like_contractor(clause: ClauseUnit, cluster: EntityCluster) -> bo
     )
 
 
-def is_public_counterparty(clause: ClauseUnit, cluster: EntityCluster) -> bool:
-    if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
+def is_public_counterparty(
+    context: ExtractionContext,
+    clause: ClauseUnit,
+    cluster: EntityCluster,
+) -> bool:
+    if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION:
         return True
-    if cluster.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
+    if context.organization_kind_for_cluster(cluster) == OrganizationKind.PUBLIC_INSTITUTION:
         return True
-    if is_public_counterparty_name(cluster.normalized_name):
+    if is_public_counterparty_name(context.normalized_name_for_cluster(cluster)):
         return True
     if any(marker in clause.text.lower() for marker in ("miast", "gmin", "komunal")) and (
         cluster_has_context_marker(

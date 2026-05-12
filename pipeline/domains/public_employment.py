@@ -92,6 +92,7 @@ class PolishPublicEmploymentFrameExtractor:
             role_cluster = attribution.role_cluster
             grounded_role = self.slot_grounder.ground_public_employment_role(
                 document,
+                context,
                 clause,
                 employee=employee,
                 role_cluster=role_cluster,
@@ -265,9 +266,15 @@ class PublicEmploymentFactBuilder:
             if role_cluster
             else None,
             role=frame.role_label,
-            role_kind=role_cluster.role_kind if role_cluster is not None else None,
-            role_modifier=role_cluster.role_modifier if role_cluster is not None else None,
-            organization_kind=employer.organization_kind if employer is not None else None,
+            role_kind=context.role_kind_for_cluster(role_cluster)
+            if role_cluster is not None
+            else None,
+            role_modifier=context.role_modifier_for_cluster(role_cluster)
+            if role_cluster is not None
+            else None,
+            organization_kind=context.organization_kind_for_cluster(employer)
+            if employer is not None
+            else None,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             source_extractor="public_employment_frame",

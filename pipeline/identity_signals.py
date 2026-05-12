@@ -263,12 +263,12 @@ def resolve_anchor(
     candidates = [
         cluster
         for cluster in document.clusters
-        if cluster.entity_type == EntityType.PERSON
-        and not cluster.is_proxy_person
+        if _cluster_entity_type(document, cluster) == EntityType.PERSON
+        and not _cluster_is_proxy_person(document, cluster)
         and (
-            cluster.canonical_name == normalized
-            or normalized in cluster.aliases
-            or surnames_compatible(cluster.canonical_name, normalized)
+            _cluster_canonical_name(document, cluster) == normalized
+            or normalized in _cluster_aliases(document, cluster)
+            or surnames_compatible(_cluster_canonical_name(document, cluster), normalized)
         )
     ]
     if not candidates:
@@ -299,7 +299,9 @@ def subject_person_cluster(
     if sentence is None:
         return None
     for cluster in document.clusters:
-        if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
+        if _cluster_entity_type(document, cluster) != EntityType.PERSON or _cluster_is_proxy_person(
+            document, cluster
+        ):
             continue
         for mention in cluster.mentions:
             if mention.sentence_index != sentence_index:
@@ -334,7 +336,9 @@ def person_cluster_with_role_context(
     candidates: list[tuple[int, int, EntityCluster]] = []
     role_markers = tuple(role_lemmas)
     for cluster in document.clusters:
-        if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
+        if _cluster_entity_type(document, cluster) != EntityType.PERSON or _cluster_is_proxy_person(
+            document, cluster
+        ):
             continue
         for mention in cluster.mentions:
             if not sentence_index - 3 <= mention.sentence_index <= sentence_index:
@@ -402,7 +406,9 @@ def speaker_cluster_raw(
         word for word in parsed if word.head in speech_heads and word.deprel.startswith("nsubj")
     ]
     for cluster in document.clusters:
-        if cluster.entity_type != EntityType.PERSON or cluster.is_proxy_person:
+        if _cluster_entity_type(document, cluster) != EntityType.PERSON or _cluster_is_proxy_person(
+            document, cluster
+        ):
             continue
         for mention in cluster.mentions:
             if mention.sentence_index != sentence_index:
@@ -424,8 +430,8 @@ def nearest_person_cluster(
     candidates = [
         cluster
         for cluster in document.clusters
-        if cluster.entity_type == EntityType.PERSON
-        and not cluster.is_proxy_person
+        if _cluster_entity_type(document, cluster) == EntityType.PERSON
+        and not _cluster_is_proxy_person(document, cluster)
         and any(
             sentence_index - before <= mention.sentence_index <= sentence_index + after
             for mention in cluster.mentions
@@ -473,3 +479,51 @@ def surname_tokens_compatible(left: str, right: str) -> bool:
         and len(right_key) >= 4
         and (left_key.startswith(right_key) or right_key.startswith(left_key))
     )
+
+
+def _entity_for_cluster(document: ArticleDocument, cluster: EntityCluster):
+    entities_by_id = {entity.entity_id: entity for entity in document.entities}
+    if cluster.primary_entity_id is not None:
+        entity = entities_by_id.get(cluster.primary_entity_id)
+        if entity is not None:
+            return entity
+    for entity_id in cluster.member_entity_ids:
+        entity = entities_by_id.get(entity_id)
+        if entity is not None:
+            return entity
+    return next(
+        (
+            entities_by_id[mention.entity_id]
+            for mention in cluster.mentions
+            if mention.entity_id in entities_by_id
+        ),
+        None,
+    )
+
+
+def _cluster_entity_type(document: ArticleDocument, cluster: EntityCluster) -> EntityType:
+    entity = _entity_for_cluster(document, cluster)
+    if entity is not None:
+        return entity.entity_type
+    return cluster.mentions[0].entity_type if cluster.mentions else EntityType.ORGANIZATION
+
+
+def _cluster_canonical_name(document: ArticleDocument, cluster: EntityCluster) -> str:
+    entity = _entity_for_cluster(document, cluster)
+    if entity is not None:
+        return entity.canonical_name
+    return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+
+
+def _cluster_aliases(document: ArticleDocument, cluster: EntityCluster) -> list[str]:
+    entity = _entity_for_cluster(document, cluster)
+    aliases = list(entity.aliases) if entity is not None else []
+    for mention in cluster.mentions:
+        if mention.text not in aliases:
+            aliases.append(mention.text)
+    return aliases
+
+
+def _cluster_is_proxy_person(document: ArticleDocument, cluster: EntityCluster) -> bool:
+    entity = _entity_for_cluster(document, cluster)
+    return entity.is_proxy_person if entity is not None else False

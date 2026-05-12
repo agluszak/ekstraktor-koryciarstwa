@@ -70,6 +70,47 @@ class SharedEntityEnricher(EntityEnricher):
         self._refresh_clause_mentions(document)
         return document
 
+    @staticmethod
+    def _entity_for_cluster(document: ArticleDocument, cluster: EntityCluster) -> Entity | None:
+        entities_by_id = {entity.entity_id: entity for entity in document.entities}
+        if cluster.primary_entity_id is not None:
+            entity = entities_by_id.get(cluster.primary_entity_id)
+            if entity is not None:
+                return entity
+        for entity_id in cluster.member_entity_ids:
+            entity = entities_by_id.get(entity_id)
+            if entity is not None:
+                return entity
+        return next(
+            (
+                entities_by_id[mention.entity_id]
+                for mention in cluster.mentions
+                if mention.entity_id in entities_by_id
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _cluster_entity_type(document: ArticleDocument, cluster: EntityCluster) -> EntityType:
+        entity = SharedEntityEnricher._entity_for_cluster(document, cluster)
+        if entity is not None:
+            return entity.entity_type
+        return cluster.mentions[0].entity_type if cluster.mentions else EntityType.ORGANIZATION
+
+    @staticmethod
+    def _cluster_canonical_name(document: ArticleDocument, cluster: EntityCluster) -> str:
+        entity = SharedEntityEnricher._entity_for_cluster(document, cluster)
+        if entity is not None:
+            return entity.canonical_name
+        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+
+    @staticmethod
+    def _cluster_normalized_name(document: ArticleDocument, cluster: EntityCluster) -> str:
+        entity = SharedEntityEnricher._entity_for_cluster(document, cluster)
+        if entity is not None:
+            return entity.normalized_name
+        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+
     def _derive_missing_organizations(self, document: ArticleDocument) -> None:
         self.slot_grounder.ensure_document_organizations(document)
 
@@ -186,7 +227,7 @@ class SharedEntityEnricher(EntityEnricher):
         person_mentions = [
             mention
             for cluster in document.clusters
-            if cluster.entity_type == EntityType.PERSON
+            if SharedEntityEnricher._cluster_entity_type(document, cluster) == EntityType.PERSON
             for mention in cluster.mentions
             if mention.paragraph_index == sentence.paragraph_index
         ]
@@ -247,14 +288,9 @@ class SharedEntityEnricher(EntityEnricher):
         )
         cluster = EntityCluster(
             cluster_id=ClusterID(stable_id("cluster", document.document_id, entity_id)),
-            entity_type=derived.entity_type,
-            canonical_name=derived.canonical_name,
-            normalized_name=derived.canonical_name,
             mentions=[cluster_mention],
             primary_entity_id=entity_id,
             member_entity_ids=[entity_id],
-            aliases=[derived.surface],
-            organization_kind=derived.organization_kind,
         )
         document.entities.append(entity)
         document.mentions.append(mention)
@@ -298,20 +334,20 @@ class SharedEntityEnricher(EntityEnricher):
             person_views = [
                 (cluster, mention)
                 for cluster in document.clusters
-                if cluster.entity_type == EntityType.PERSON
+                if self._cluster_entity_type(document, cluster) == EntityType.PERSON
                 for mention in cluster.mentions
                 if mention.sentence_index == sentence.sentence_index
             ]
             initials = [
                 (cluster, mention)
                 for cluster, mention in person_views
-                if len(cluster.canonical_name.rstrip(".")) == 1
+                if len(self._cluster_canonical_name(document, cluster).rstrip(".")) == 1
             ]
             surnames = [
                 (cluster, mention)
                 for cluster, mention in person_views
-                if len(cluster.canonical_name.split()) == 1
-                and len(cluster.canonical_name.rstrip(".")) > 1
+                if len(self._cluster_canonical_name(document, cluster).split()) == 1
+                and len(self._cluster_canonical_name(document, cluster).rstrip(".")) > 1
             ]
             for initial_cluster, initial_mention in initials:
                 for surname_cluster, surname_mention in surnames:
@@ -322,8 +358,10 @@ class SharedEntityEnricher(EntityEnricher):
                     ]
                     if between not in {". ", ".\u00a0"}:
                         continue
-                    first = initial_cluster.canonical_name.rstrip(".")
-                    canonical_name = f"{first}. {surname_cluster.canonical_name}"
+                    first = self._cluster_canonical_name(document, initial_cluster).rstrip(".")
+                    canonical_name = (
+                        f"{first}. {self._cluster_canonical_name(document, surname_cluster)}"
+                    )
                     if any(
                         entity.entity_type == EntityType.PERSON
                         and entity.canonical_name == canonical_name
@@ -466,36 +504,26 @@ class SharedEntityEnricher(EntityEnricher):
             (
                 existing
                 for existing in document.clusters
-                if existing.entity_type == entity_type
-                and existing.normalized_name.casefold() == canonical_name.casefold()
+                if SharedEntityEnricher._cluster_entity_type(document, existing) == entity_type
+                and SharedEntityEnricher._cluster_normalized_name(document, existing).casefold()
+                == canonical_name.casefold()
             ),
             None,
         )
         if cluster is None:
             cluster = EntityCluster(
                 cluster_id=ClusterID(stable_id("cluster", document.document_id, entity.entity_id)),
-                entity_type=entity_type,
-                canonical_name=canonical_name,
-                normalized_name=canonical_name,
                 mentions=[cluster_mention],
                 primary_entity_id=entity.entity_id,
                 member_entity_ids=[entity.entity_id],
-                aliases=[surface],
-                organization_kind=organization_kind,
             )
             document.clusters.append(cluster)
         else:
             cluster.mentions.append(cluster_mention)
             if entity.entity_id not in cluster.member_entity_ids:
                 cluster.member_entity_ids.append(entity.entity_id)
-            if surface not in cluster.aliases:
-                cluster.aliases.append(surface)
             if organization_kind is not None:
-                cluster.organization_kind = organization_kind
-        if role_kind is not None:
-            cluster.role_kind = role_kind
-        if role_modifier is not None:
-            cluster.role_modifier = role_modifier
+                entity.organization_kind = organization_kind
 
     @staticmethod
     def _has_existing_view(
@@ -508,8 +536,9 @@ class SharedEntityEnricher(EntityEnricher):
         end_char: int,
     ) -> bool:
         return any(
-            cluster.entity_type == entity_type
-            and cluster.normalized_name.casefold() == canonical_name.casefold()
+            SharedEntityEnricher._cluster_entity_type(document, cluster) == entity_type
+            and SharedEntityEnricher._cluster_normalized_name(document, cluster).casefold()
+            == canonical_name.casefold()
             and any(
                 mention.sentence_index == sentence_index
                 and mention.start_char == start_char
@@ -528,7 +557,10 @@ class SharedEntityEnricher(EntityEnricher):
         end_char: int,
     ) -> bool:
         for cluster in document.clusters:
-            if cluster.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            if SharedEntityEnricher._cluster_entity_type(document, cluster) not in {
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            }:
                 continue
             for mention in cluster.mentions:
                 if mention.sentence_index != sentence_index:
@@ -547,7 +579,13 @@ class SharedEntityEnricher(EntityEnricher):
     def _enrich_public_institutions(self, document: ArticleDocument) -> None:
         entity_by_id = {entity.entity_id: entity for entity in document.entities}
         for cluster in document.clusters:
-            if cluster.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            cluster_entity = self._entity_for_cluster(document, cluster)
+            if cluster_entity is None:
+                continue
+            if cluster_entity.entity_type not in {
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            }:
                 continue
             best_mention = cluster.mentions[0] if cluster.mentions else None
             parsed_words = (
@@ -556,45 +594,45 @@ class SharedEntityEnricher(EntityEnricher):
                 else []
             )
             typing_result = self.organization_classifier.classify(
-                surface_text=cluster.canonical_name,
-                normalized_text=cluster.normalized_name,
+                surface_text=cluster_entity.canonical_name,
+                normalized_text=cluster_entity.normalized_name,
                 parsed_words=parsed_words,
                 start_char=best_mention.start_char if best_mention is not None else 0,
                 end_char=best_mention.end_char if best_mention is not None else 0,
             )
             if typing_result.organization_kind is not None:
-                cluster.organization_kind = typing_result.organization_kind
+                cluster_entity.organization_kind = typing_result.organization_kind
             if typing_result.candidate_type in {
                 EntityType.PUBLIC_INSTITUTION,
                 EntityType.POLITICAL_PARTY,
             }:
                 if (
                     typing_result.candidate_type == EntityType.POLITICAL_PARTY
-                    and _has_non_party_organization_head(cluster.normalized_name)
+                    and _has_non_party_organization_head(cluster_entity.normalized_name)
                 ):
                     continue
-                cluster.entity_type = typing_result.candidate_type
+                cluster_entity.entity_type = typing_result.candidate_type
                 if typing_result.candidate_type == EntityType.PUBLIC_INSTITUTION:
-                    cluster.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
+                    cluster_entity.organization_kind = OrganizationKind.PUBLIC_INSTITUTION
                 if typing_result.canonical_name is not None:
-                    cluster.canonical_name = typing_result.canonical_name
-                    cluster.normalized_name = typing_result.canonical_name
+                    cluster_entity.canonical_name = typing_result.canonical_name
+                    cluster_entity.normalized_name = typing_result.canonical_name
             for mention in cluster.mentions:
                 if mention.entity_id is None:
                     continue
                 entity = entity_by_id.get(mention.entity_id)
                 if entity is None:
                     continue
-                entity.organization_kind = cluster.organization_kind
-                if cluster.entity_type in {
+                entity.organization_kind = cluster_entity.organization_kind
+                if cluster_entity.entity_type in {
                     EntityType.PUBLIC_INSTITUTION,
                     EntityType.POLITICAL_PARTY,
                 }:
-                    entity.entity_type = cluster.entity_type
+                    entity.entity_type = cluster_entity.entity_type
                     if typing_result.canonical_name is not None:
                         entity.canonical_name = typing_result.canonical_name
                         entity.normalized_name = typing_result.canonical_name
-                    mention.entity_type = cluster.entity_type
+                    mention.entity_type = cluster_entity.entity_type
 
     @staticmethod
     def _refresh_clause_mentions(document: ArticleDocument) -> None:
