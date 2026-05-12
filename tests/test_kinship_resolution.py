@@ -11,7 +11,7 @@ from pipeline.domain_types import (
     RelationshipType,
     TimeScope,
 )
-from pipeline.domains.kinship import KinshipTieBuilder
+from pipeline.domains.kinship import KinshipTieBuilder, _build_views_by_entity_id
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
@@ -51,6 +51,49 @@ def _cluster(
         primary_entity_id=resolved_primary,
         member_entity_ids=resolved_members,
     )
+
+
+def test_build_views_by_entity_id_uses_cluster_identity_when_mentions_are_unlinked() -> None:
+    entity_id = EntityID("entity-proxy")
+    cluster = _cluster(
+        "cluster-proxy",
+        [
+            ClusterMention(
+                text="żona burmistrza",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=15,
+                entity_id=None,
+            )
+        ],
+        primary_entity_id=entity_id,
+        member_entity_ids=[entity_id],
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc-kinship-index"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="żona burmistrza",
+        paragraphs=["żona burmistrza"],
+        entities=[
+            Entity(
+                entity_id=entity_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="proxy spouse",
+                normalized_name="proxy spouse",
+            )
+        ],
+        clusters=[cluster],
+    )
+
+    views = _build_views_by_entity_id(ExtractionContext.build(document), document.clusters)
+
+    assert views[entity_id].cluster_id == cluster.cluster_id
+    assert views[entity_id].canonical_name == "proxy spouse"
 
 
 def test_kinship_apposition_emits_spouse_tie() -> None:

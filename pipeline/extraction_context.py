@@ -75,12 +75,6 @@ class ExtractionContext:
         self.dependency_frames_by_clause_id = {}
 
         for cluster in self.document.clusters:
-            primary_entity_id = self.primary_entity_id_for_cluster(cluster)
-            if cluster.primary_entity_id is None and primary_entity_id is not None:
-                cluster.primary_entity_id = primary_entity_id
-            member_entity_ids = self.member_entity_ids_for_cluster(cluster)
-            if not cluster.member_entity_ids and member_entity_ids:
-                cluster.member_entity_ids = member_entity_ids
             for entity_id in self.entity_ids_for_cluster(cluster):
                 if entity_id is not None and entity_id not in self.cluster_by_entity_id_index:
                     self.cluster_by_entity_id_index[entity_id] = cluster
