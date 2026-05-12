@@ -1,3 +1,4 @@
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -44,6 +45,10 @@ def _cluster(
     )
 
 
+def _flatten_cluster_mentions(clusters: list[EntityCluster]) -> list[ClusterMention]:
+    return [mention for cluster in clusters for mention in cluster.mentions]
+
+
 def test_cluster_for_mention_does_not_fallback_when_exact_span_is_present() -> None:
     person_mention = ClusterMention(
         text="Jan Kowalski",
@@ -71,10 +76,12 @@ def test_cluster_for_mention_does_not_fallback_when_exact_span_is_present() -> N
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[
-            _cluster("cluster-person", [person_mention]),
-            _cluster("cluster-org", [organization_mention]),
-        ],
+        mentions=_flatten_cluster_mentions(
+            [
+                _cluster("cluster-person", [person_mention]),
+                _cluster("cluster-org", [organization_mention]),
+            ]
+        ),
     )
     clause_mention = ClusterMention(
         text="Jan Kowalski",
@@ -109,7 +116,7 @@ def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions()
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[_cluster("cluster-person", [person_mention])],
+        mentions=_flatten_cluster_mentions([_cluster("cluster-person", [person_mention])]),
     )
     anchorless_mention = ClusterMention(
         text="Jan Kowalski",
@@ -124,7 +131,7 @@ def test_cluster_for_mention_uses_unique_text_fallback_for_anchorless_mentions()
     cluster = ExtractionContext.build(document).cluster_for_mention(anchorless_mention)
 
     assert cluster is not None
-    assert cluster.cluster_id == ClusterID("cluster-person")
+    assert cluster.primary_entity_id == EntityID("entity-person")
 
 
 def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
@@ -152,10 +159,7 @@ def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[
-            _cluster("far", [far]),
-            _cluster("near", [near]),
-        ],
+        mentions=_flatten_cluster_mentions([_cluster("far", [far]), _cluster("near", [near])]),
     )
     clause = ClauseUnit(
         clause_id=ClauseID("clause"),
@@ -173,7 +177,7 @@ def test_paragraph_context_clusters_are_sorted_by_clause_distance() -> None:
         {EntityType.ORGANIZATION},
     )
 
-    assert [cluster.cluster_id for cluster in clusters] == [ClusterID("near"), ClusterID("far")]
+    assert [cluster.mentions[0].text for cluster in clusters] == ["Spółka", "Fundusz"]
 
 
 def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_indexes() -> None:
@@ -211,30 +215,27 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
                 normalized_name="jan kowalski",
             )
         ],
-        clusters=[
-            _cluster("cluster-person", [person_mention]),
-            _cluster("cluster-org", [org_mention]),
-        ],
+        mentions=_flatten_cluster_mentions(
+            [_cluster("cluster-person", [person_mention]), _cluster("cluster-org", [org_mention])]
+        ),
     )
     context = ExtractionContext.build(document)
 
     mention_cluster = context.cluster_for_mention(person_mention)
-    id_cluster = context.cluster_by_id(ClusterID("cluster-person"))
     entity = context.entity_by_id(EntityID("entity-person"))
     entity_cluster = context.cluster_by_entity_id(EntityID("entity-person"))
 
     assert mention_cluster is not None
-    assert id_cluster is not None
     assert entity is not None
     assert entity_cluster is not None
-    assert mention_cluster.cluster_id == ClusterID("cluster-person")
-    assert context.canonical_name_for_cluster(id_cluster) == "Jan Kowalski"
+    assert mention_cluster.cluster_id == entity_cluster.cluster_id
+    assert context.canonical_name_for_cluster(entity_cluster) == "Jan Kowalski"
     assert entity.canonical_name == "Jan Kowalski"
-    assert entity_cluster.cluster_id == ClusterID("cluster-person")
+    assert entity_cluster.primary_entity_id == EntityID("entity-person")
     sentence_cluster_ids = [
         cluster.cluster_id for cluster in context.clusters_in_sentence(1, {EntityType.PERSON})
     ]
-    assert sentence_cluster_ids == [ClusterID("cluster-person")]
+    assert sentence_cluster_ids == [entity_cluster.cluster_id]
     clause = ClauseUnit(
         clause_id=ClauseID("clause"),
         text="",
@@ -246,12 +247,12 @@ def test_extraction_context_precomputes_entity_cluster_sentence_and_paragraph_in
         end_char=70,
     )
     assert [
-        cluster.cluster_id
+        cluster.primary_entity_id
         for cluster in context.paragraph_context_clusters(
             clause,
             {EntityType.PERSON, EntityType.PUBLIC_INSTITUTION},
         )
-    ] == [ClusterID("cluster-org"), ClusterID("cluster-person")]
+    ] == [EntityID("entity-org"), EntityID("entity-person")]
 
 
 def test_cluster_metadata_helpers_read_current_entity_identity() -> None:
@@ -281,18 +282,20 @@ def test_cluster_metadata_helpers_read_current_entity_identity() -> None:
                 normalized_name="nowy urząd",
             )
         ],
-        clusters=[
-            _cluster(
-                "cluster-org",
-                [mention],
-                primary_entity_id=entity_id,
-                member_entity_ids=[entity_id],
-            )
-        ],
+        mentions=_flatten_cluster_mentions(
+            [
+                _cluster(
+                    "cluster-org",
+                    [mention],
+                    primary_entity_id=entity_id,
+                    member_entity_ids=[entity_id],
+                )
+            ]
+        ),
     )
 
     context = ExtractionContext.build(document)
-    cluster = document.clusters[0]
+    cluster = derived_clusters(document)[0]
 
     assert context.entity_for_cluster(cluster) == document.entities[0]
     assert context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION
@@ -331,7 +334,7 @@ def test_extraction_context_build_does_not_backfill_cluster_identity_fields() ->
                 normalized_name="urząd miasta",
             )
         ],
-        clusters=[cluster],
+        mentions=cluster.mentions,
     )
 
     context = ExtractionContext.build(document)
@@ -339,7 +342,9 @@ def test_extraction_context_build_does_not_backfill_cluster_identity_fields() ->
     assert cluster.primary_entity_id is None
     assert context.primary_entity_id_for_cluster(cluster) == entity_id
     assert context.member_entity_ids_for_cluster(cluster) == [entity_id]
-    assert context.cluster_by_entity_id(entity_id) == cluster
+    resolved_cluster = context.cluster_by_entity_id(entity_id)
+    assert resolved_cluster is not None
+    assert resolved_cluster.primary_entity_id == entity_id
 
 
 def test_mention_view_identity_properties_read_current_entity_metadata() -> None:
@@ -377,14 +382,16 @@ def test_mention_view_identity_properties_read_current_entity_metadata() -> None
                 role_modifier=RoleModifier.DEPUTY,
             )
         ],
-        clusters=[
-            _cluster(
-                "cluster-stale",
-                [mention],
-                primary_entity_id=entity_id,
-                member_entity_ids=[entity_id],
-            )
-        ],
+        mentions=_flatten_cluster_mentions(
+            [
+                _cluster(
+                    "cluster-stale",
+                    [mention],
+                    primary_entity_id=entity_id,
+                    member_entity_ids=[entity_id],
+                )
+            ]
+        ),
     )
 
     view = ExtractionContext.build(document).mention_views_in_sentence(
@@ -427,10 +434,11 @@ def test_orphan_mention_view_falls_back_to_mention_surface() -> None:
         publication_date=None,
         cleaned_text="",
         paragraphs=[],
-        clusters=[cluster],
+        mentions=cluster.mentions,
     )
 
-    view = ExtractionContext.build(document).mention_view(cluster)
+    derived_cluster = derived_clusters(document)[0]
+    view = ExtractionContext.build(document).mention_view(derived_cluster)
 
     assert view.entity_id is None
     assert view.entity_type == EntityType.ORGANIZATION

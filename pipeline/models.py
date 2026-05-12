@@ -490,7 +490,6 @@ class ArticleDocument:
     temporal_expressions: list[TemporalExpression] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
     score: ScoreResult | None = None
-    clusters: list[EntityCluster] = field(default_factory=list)
     parsed_sentences: dict[int, list[ParsedWord]] = field(default_factory=dict)
     clause_units: list[ClauseUnit] = field(default_factory=list)
     governance_frames: list[GovernanceFrame] = field(default_factory=list)

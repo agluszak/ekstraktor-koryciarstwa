@@ -8,6 +8,7 @@ from pipeline.attribution import (
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.document_graph import clause_mentions as live_clause_mentions
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -190,22 +191,15 @@ def prepared_single_clause_document(
                 entity_id=entity_id,
             )
         )
-        cluster_mention = ClusterMention(
-            text=surface,
-            entity_type=entity_type,
-            sentence_index=0,
-            paragraph_index=0,
-            start_char=start,
-            end_char=end,
-            entity_id=entity_id,
-        )
-        cluster_mentions.append(cluster_mention)
-        document.clusters.append(
-            cluster(
-                f"cluster-{index}",
-                [cluster_mention],
-                primary_entity_id=entity_id,
-                member_entity_ids=[entity_id],
+        cluster_mentions.append(
+            ClusterMention(
+                text=surface,
+                entity_type=entity_type,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=start,
+                end_char=end,
+                entity_id=entity_id,
             )
         )
     document.parsed_sentences = {0: parsed_words or []}
@@ -312,7 +306,7 @@ def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
     context = ExtractionContext.build(document)
     position_clusters = [
         candidate
-        for candidate in document.clusters
+        for candidate in derived_clusters(document)
         if context.entity_type_for_cluster(candidate) == EntityType.POSITION
     ]
     assert len(position_clusters) == 1
@@ -452,8 +446,9 @@ def test_shared_enrichment_marks_public_institution_clusters() -> None:
     SharedEntityEnricher(config).run(document)
 
     context = ExtractionContext.build(document)
-    assert context.entity_type_for_cluster(document.clusters[0]) == EntityType.PUBLIC_INSTITUTION
-    organization_entity = context.entity_for_cluster(document.clusters[0])
+    organization_cluster = derived_clusters(document)[0]
+    assert context.entity_type_for_cluster(organization_cluster) == EntityType.PUBLIC_INSTITUTION
+    organization_entity = context.entity_for_cluster(organization_cluster)
     assert organization_entity is not None
     assert organization_entity.organization_kind == OrganizationKind.PUBLIC_INSTITUTION
     assert document.entities[0].entity_type == EntityType.PUBLIC_INSTITUTION
@@ -485,12 +480,12 @@ def test_shared_enrichment_adds_grounded_foundation_and_marshal_office() -> None
     context = ExtractionContext.build(document)
     assert any(
         context.canonical_name_for_cluster(candidate) == "Fundacja Karola Bielskiego"
-        for candidate in document.clusters
+        for candidate in derived_clusters(document)
     )
     assert any(
         context.canonical_name_for_cluster(candidate) == "Urząd Marszałkowski"
         and context.entity_type_for_cluster(candidate) == EntityType.PUBLIC_INSTITUTION
-        for candidate in document.clusters
+        for candidate in derived_clusters(document)
     )
 
 
@@ -664,22 +659,15 @@ def test_omitted_subject_party_membership_attaches_to_previous_unique_person() -
             entity_id=person_id,
         )
     )
-    document.clusters.append(
-        cluster(
-            "cluster-person",
-            [
-                ClusterMention(
-                    text="Karol Bielski",
-                    entity_type=EntityType.PERSON,
-                    sentence_index=0,
-                    paragraph_index=0,
-                    start_char=0,
-                    end_char=len("Karol Bielski"),
-                    entity_id=person_id,
-                )
-            ],
-            primary_entity_id=person_id,
-            member_entity_ids=[person_id],
+    document.mentions.append(
+        ClusterMention(
+            text="Karol Bielski",
+            entity_type=EntityType.PERSON,
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len("Karol Bielski"),
+            entity_id=person_id,
         )
     )
     document.parsed_sentences = {
@@ -1349,39 +1337,23 @@ def test_cross_sentence_party_context_uses_public_office_role_kind() -> None:
                 end_char=text.index("Jan Kowalski") + len("Jan Kowalski"),
                 entity_id=EntityID("person-role-kind"),
             ),
-        ],
-        clusters=[
-            cluster(
-                "cluster-party-role-kind",
-                [
-                    ClusterMention(
-                        text="Polskiego Stronnictwa Ludowego",
-                        entity_type=EntityType.POLITICAL_PARTY,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=sentence0.index("Polskiego"),
-                        end_char=len(sentence0),
-                        entity_id=EntityID("party-role-kind"),
-                    )
-                ],
-                primary_entity_id=EntityID("party-role-kind"),
-                member_entity_ids=[EntityID("party-role-kind")],
+            ClusterMention(
+                text="Polskiego Stronnictwa Ludowego",
+                entity_type=EntityType.POLITICAL_PARTY,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=sentence0.index("Polskiego"),
+                end_char=len(sentence0),
+                entity_id=EntityID("party-role-kind"),
             ),
-            cluster(
-                "cluster-person-role-kind",
-                [
-                    ClusterMention(
-                        text="Jan Kowalski",
-                        entity_type=EntityType.PERSON,
-                        sentence_index=1,
-                        paragraph_index=1,
-                        start_char=text.index("Jan Kowalski"),
-                        end_char=text.index("Jan Kowalski") + len("Jan Kowalski"),
-                        entity_id=EntityID("person-role-kind"),
-                    )
-                ],
-                primary_entity_id=EntityID("person-role-kind"),
-                member_entity_ids=[EntityID("person-role-kind")],
+            ClusterMention(
+                text="Jan Kowalski",
+                entity_type=EntityType.PERSON,
+                sentence_index=1,
+                paragraph_index=1,
+                start_char=text.index("Jan Kowalski"),
+                end_char=text.index("Jan Kowalski") + len("Jan Kowalski"),
+                entity_id=EntityID("person-role-kind"),
             ),
         ],
         parsed_sentences={
@@ -1549,7 +1521,7 @@ def test_inflected_public_institution_is_typed_from_lemmas() -> None:
     context = ExtractionContext.build(extracted)
     assert any(
         context.entity_type_for_cluster(candidate) == EntityType.PUBLIC_INSTITUTION
-        for candidate in extracted.clusters
+        for candidate in derived_clusters(extracted)
     )
 
 
@@ -1615,7 +1587,7 @@ def test_party_like_organization_can_be_detected_without_alias_lookup() -> None:
     assert any(
         context.entity_type_for_cluster(candidate) == EntityType.POLITICAL_PARTY
         and "Koalic" in context.canonical_name_for_cluster(candidate)
-        for candidate in extracted.clusters
+        for candidate in derived_clusters(extracted)
     )
 
 
@@ -1765,7 +1737,7 @@ def test_institution_alias_candidate_is_typed_as_public_institution() -> None:
     context = ExtractionContext.build(extracted)
     public_institutions = {
         context.canonical_name_for_cluster(candidate)
-        for candidate in extracted.clusters
+        for candidate in derived_clusters(extracted)
         if context.entity_type_for_cluster(candidate) == EntityType.PUBLIC_INSTITUTION
     }
     assert "Agencja Mienia Wojskowego" in public_institutions
@@ -2618,40 +2590,6 @@ def test_cross_sentence_party_context_uses_profile_lemma() -> None:
                 entity_id=EntityID("person-1"),
             ),
         ],
-        clusters=[
-            cluster(
-                "cluster-party-1",
-                [
-                    ClusterMention(
-                        text="PSL",
-                        entity_type=EntityType.POLITICAL_PARTY,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=party_start,
-                        end_char=party_start + len("PSL"),
-                        entity_id=EntityID("party-1"),
-                    )
-                ],
-                primary_entity_id=EntityID("party-1"),
-                member_entity_ids=[EntityID("party-1")],
-            ),
-            cluster(
-                "cluster-person-1",
-                [
-                    ClusterMention(
-                        text="Anna Nowak",
-                        entity_type=EntityType.PERSON,
-                        sentence_index=1,
-                        paragraph_index=0,
-                        start_char=person_start,
-                        end_char=person_start + len("Anna Nowak"),
-                        entity_id=EntityID("person-1"),
-                    )
-                ],
-                primary_entity_id=EntityID("person-1"),
-                member_entity_ids=[EntityID("person-1")],
-            ),
-        ],
     )
     document.parsed_sentences = {
         0: [
@@ -2776,20 +2714,7 @@ def test_public_employment_uses_adjacent_public_employer_context() -> None:
         end_char=org_start + len("Urząd Gminy Poczesna"),
         entity_id=org_id,
     )
-    document.clusters = [
-        cluster(
-            "cluster-person",
-            [person_mention],
-            primary_entity_id=person_id,
-            member_entity_ids=[person_id],
-        ),
-        cluster(
-            "cluster-org",
-            [org_mention],
-            primary_entity_id=org_id,
-            member_entity_ids=[org_id],
-        ),
-    ]
+    document.mentions.extend([person_mention, org_mention])
     document.clause_units = [
         ClauseUnit(
             clause_id=ClauseID("clause-public-employment-adjacent"),
@@ -3037,10 +2962,10 @@ def test_public_employment_attribution_resolves_proxy_employee_and_role_cluster(
     )
 
     assert attribution is not None
-    assert attribution.employee.cluster_id == ClusterID("cluster-0")
+    assert attribution.employee.entity_id == EntityID("entity-0")
     assert attribution.role_cluster is not None
-    assert attribution.role_cluster.cluster_id == ClusterID("cluster-1")
-    assert attribution.employer.cluster_id == ClusterID("cluster-2")
+    assert attribution.role_cluster.entity_id == EntityID("entity-1")
+    assert attribution.employer.entity_id == EntityID("entity-2")
 
 
 def test_public_employment_frame_extracts_copular_director_status() -> None:
@@ -3155,20 +3080,7 @@ def test_public_employment_frame_ignores_wojewoda_decision_as_role_label() -> No
             organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
         ),
     ]
-    document.clusters = [
-        cluster(
-            "cluster-person",
-            [person_mention],
-            primary_entity_id=person,
-            member_entity_ids=[person],
-        ),
-        cluster(
-            "cluster-org",
-            [org_mention],
-            primary_entity_id=org,
-            member_entity_ids=[org],
-        ),
-    ]
+    document.mentions.extend([person_mention, org_mention])
     document.clause_units = [
         ClauseUnit(
             clause_id=ClauseID("clause-negative-role-label"),

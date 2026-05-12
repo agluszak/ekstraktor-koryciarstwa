@@ -4,6 +4,7 @@ import uuid
 
 from pipeline.config import PipelineConfig
 from pipeline.dependency_frames import DependencyArgumentRole, TriggerArgumentFrame
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_lexicons import ATTRIBUTION_SPEECH_LEMMAS, KINSHIP_LEMMAS
 from pipeline.domain_types import ClusterID, EntityType, FrameID, GovernanceSignal
 from pipeline.domains.governance import GovernanceTargetResolver
@@ -640,7 +641,7 @@ class PolishGovernanceFrameExtractor:
         role_text = self._find_role_text(document, clause)
         if role_text is None:
             return None
-        for cluster in document.clusters:
+        for cluster in derived_clusters(document):
             if context.entity_type_for_cluster(cluster) != EntityType.POSITION:
                 continue
             if context.canonical_name_for_cluster(cluster).lower() == role_text.lower():
@@ -729,7 +730,7 @@ class PolishGovernanceFrameExtractor:
             return None
         candidates = [
             cluster
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
             if context.entity_type_for_cluster(cluster) == EntityType.PERSON
             and cluster.cluster_id not in excluded_cluster_ids
             and self._cluster_has_sentence_word_indices(
@@ -839,7 +840,7 @@ class PolishGovernanceFrameExtractor:
                 continue
             for title_word in title_words:
                 title_start = sentence.start_char + title_word.start
-                for cluster in document.clusters:
+                for cluster in derived_clusters(document):
                     if context.entity_type_for_cluster(cluster) != EntityType.PERSON:
                         continue
                     if cluster.cluster_id in excluded_cluster_ids:

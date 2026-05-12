@@ -17,7 +17,7 @@ from pipeline.cluster_reads import (
     normalized_name_for_cluster as read_normalized_name_for_cluster,
 )
 from pipeline.config import PipelineConfig
-from pipeline.document_graph import ensure_entity, ensure_entity_view
+from pipeline.document_graph import derived_clusters, ensure_entity, ensure_entity_view
 from pipeline.domain_lexicons import (
     DERIVED_ORGANIZATION_HEADS,
     DERIVED_ORGANIZATION_PATTERN,
@@ -193,7 +193,7 @@ class SharedEntityEnricher(EntityEnricher):
         entities_by_id = {entity.entity_id: entity for entity in document.entities}
         person_mentions = [
             mention
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
             if read_entity_type_for_cluster(cluster, entities_by_id) == EntityType.PERSON
             for mention in cluster.mentions
             if mention.paragraph_index == sentence.paragraph_index
@@ -240,7 +240,7 @@ class SharedEntityEnricher(EntityEnricher):
             entities_by_id = {entity.entity_id: entity for entity in document.entities}
             person_views = [
                 (cluster, mention)
-                for cluster in document.clusters
+                for cluster in derived_clusters(document)
                 if read_entity_type_for_cluster(cluster, entities_by_id) == EntityType.PERSON
                 for mention in cluster.mentions
                 if mention.sentence_index == sentence.sentence_index
@@ -407,7 +407,7 @@ class SharedEntityEnricher(EntityEnricher):
                 and mention.end_char == end_char
                 for mention in cluster.mentions
             )
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
         )
 
     @staticmethod
@@ -419,7 +419,7 @@ class SharedEntityEnricher(EntityEnricher):
         end_char: int,
     ) -> bool:
         entities_by_id = {entity.entity_id: entity for entity in document.entities}
-        for cluster in document.clusters:
+        for cluster in derived_clusters(document):
             if read_entity_type_for_cluster(cluster, entities_by_id) not in {
                 EntityType.ORGANIZATION,
                 EntityType.PUBLIC_INSTITUTION,
@@ -441,7 +441,7 @@ class SharedEntityEnricher(EntityEnricher):
 
     def _enrich_public_institutions(self, document: ArticleDocument) -> None:
         entity_by_id = {entity.entity_id: entity for entity in document.entities}
-        for cluster in document.clusters:
+        for cluster in derived_clusters(document):
             cluster_entity = read_entity_for_cluster(cluster, entity_by_id)
             if cluster_entity is None:
                 continue

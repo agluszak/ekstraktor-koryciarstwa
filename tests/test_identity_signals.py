@@ -1,3 +1,4 @@
+from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -194,9 +195,10 @@ def test_resolve_possessive_anchor_uses_split_quote_speaker_context() -> None:
         start_char=len(sentences[0]) + 1 + 5,
     )
     doc.entities.append(entity)
-    doc.clusters.append(cluster)
+    doc.mentions.extend(cluster.mentions)
+    sync_entity_mentions(doc)
 
     anchor = resolve_possessive_anchor(doc, 0)
 
     assert anchor is not None
-    assert anchor.cluster_id == cluster.cluster_id
+    assert anchor.primary_entity_id == entity.entity_id

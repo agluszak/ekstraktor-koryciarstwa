@@ -2,7 +2,55 @@
 
 This report consolidates the most relevant architectural findings, refactor results, and benchmark progress from previous specialized reports.
 
-## 0. Local Worktree Regression Fixes (2026-05-08)
+## 0. Entity Graph Simplification / Persistent Cluster Removal (2026-05-13)
+
+The entity/mention/cluster architecture was simplified so `ArticleDocument` no longer stores durable
+`EntityCluster` state. Clusters are now derived transiently from the canonical mention/entity graph,
+and entity merge/remap logic is owned by `pipeline.document_graph` instead of separate document-wide
+cleanup passes.
+
+**What improved:**
+- Removed persistent `ArticleDocument.clusters`; production code now reads derived clusters through
+  `DocumentGraph` / `ExtractionContext`.
+- `PolishEntityClusterer` now performs real entity merges instead of creating a second stored cluster
+  graph.
+- Normalization and linking now apply entity remaps through the graph-owned merge path.
+- Mention span/paragraph normalization that previously happened as a side effect of cluster creation is
+  now restored directly on canonical mentions during clustering.
+- Mention identity now refreshes from the backing entity after normalization, so canonicalized party and
+  organization names propagate to linked mentions.
+
+**What regressed:**
+- No production regression was found in the full validation run.
+- Test fallout from deleted persistent clusters was resolved by migrating stale fixtures and assertions
+  to the derived-cluster model.
+
+**Benchmark / validation checked:**
+- Full validation passed:
+  - `uv run python scripts/setup_models.py`
+  - `uv run ruff check . --fix`
+  - `uv run ruff format .`
+  - `uv run ruff check .`
+  - `uv run ty check`
+  - `uv run pytest -q`
+- Clean-registry warm benchmark run passed:
+  - deleted `output/entity_registry.sqlite3*`
+  - ran `uv run python main.py --input-dir inputs --glob "*.html" --output-dir output`
+- Spot-checked benchmark outputs:
+  - `onet_totalizator`: still emits many appointments, party links, and compensation facts.
+  - `olsztyn_wodkan`: still emits compensation output.
+  - `zona-posla-pis`: still emits kinship, dismissal, appointment, and party facts.
+  - `rp_tk_negative`: still emits no facts.
+  - `oko_miliony_pajeczyna_rydzyka`: still emits funding output.
+  - `onet_wfosigw_lublin`: now emits governance / party output instead of disappearing as a strong positive.
+  - `pleszew...stadniny-koni`: now emits appointment, dismissal, and PSL party output instead of staying fact-empty.
+
+**Next bottleneck:**
+- The durable graph is now much simpler, but several read paths still go through a broad
+  `ExtractionContext` facade. The next cleanup should prune stale context helpers and continue moving
+  semantic reads toward direct entity-backed graph access.
+
+## 1. Local Worktree Regression Fixes (2026-05-08)
 
 Investigation focused on the current local worktree for PR #27-style extraction changes, not just the pushed branch state.
 
@@ -27,7 +75,7 @@ Investigation focused on the current local worktree for PR #27-style extraction 
 **Next bottleneck:**
 - Secondary-fact duplication remains visible in some outputs (notably repeated kinship and office/appointment facts in `zona-posla-pis` and the Jarosław Słoma article). The current fix preserved coverage but did not tackle deduplication quality.
 
-## 1. Major Architectural Milestone: Dependency Frames (2026-05-05)
+## 2. Major Architectural Milestone: Dependency Frames (2026-05-05)
 
 A shared dependency-frame layer was added for clause-local extraction arguments. Governance and funding extraction now route through this layer before discourse fallbacks.
 
@@ -41,7 +89,7 @@ A shared dependency-frame layer was added for clause-local extraction arguments.
 - Full test suite: 225 passed.
 - Benchmark batch: Success for all `inputs/*.html`.
 
-## 2. Tech Debt Cleanup (2026-05-05)
+## 3. Tech Debt Cleanup (2026-05-05)
 
 Stale compatibility shims and runtime role-regex fallbacks were removed while preserving the CLI contract and JSON output shape.
 
@@ -50,7 +98,7 @@ Stale compatibility shims and runtime role-regex fallbacks were removed while pr
 - Removed runtime `ROLE_PATTERNS` usage for role extraction (now parser-backed).
 - Preservation of `ClusterID -> EntityID` mappings through fact builders.
 
-## 3. New Website Extraction Analysis (2026-05-04)
+## 4. New Website Extraction Analysis (2026-05-04)
 
 Evaluation of new articles (Onet Totalizator, Business Insider PZU, PHN) compared Rules/NLP vs. LLM engines.
 
@@ -64,7 +112,7 @@ Evaluation of new articles (Onet Totalizator, Business Insider PZU, PHN) compare
 3. Improve person-name preservation for Polish inflection.
 4. Add public-contract extractor for specific remuneration patterns.
 
-## 4. Extraction Context & Domain Split (2026-04-25)
+## 5. Extraction Context & Domain Split (2026-04-25)
 
 The pipeline was refactored into domain-oriented packages to improve maintainability.
 
@@ -78,11 +126,11 @@ The pipeline was refactored into domain-oriented packages to improve maintainabi
 
 Shared typed cluster and evidence helpers were moved to `pipeline/extraction_context.py`.
 
-## 5. Summary of Recent Benchmark Results (2026-05-06)
+## 6. Summary of Recent Benchmark Results (2026-05-06)
 
 **Aggregate Score:** 25 passed, 12 xfailed (target improvements), 29 subtests passed.
 
-## 6. Refactor Plan Status (2026-05-06)
+## 7. Refactor Plan Status (2026-05-06)
 
 The **Frame-First Refactor Plan (2026-04-14)** has been fully executed and is now considered completed. 
 

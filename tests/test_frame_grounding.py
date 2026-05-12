@@ -5,7 +5,8 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType
+from pipeline.document_graph import derived_clusters
+from pipeline.domain_types import ClauseID, DocumentID, EntityID, EntityType
 from pipeline.enrichment import SharedEntityEnricher
 from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder
@@ -15,7 +16,6 @@ from pipeline.models import (
     ClusterMention,
     ClusterMentionView,
     Entity,
-    EntityCluster,
     Mention,
     ParsedWord,
     SentenceFragment,
@@ -93,21 +93,15 @@ def _document(
                 entity_id=entity_id,
             )
         )
-        cluster_mention = ClusterMention(
-            text=surface,
-            entity_type=entity_type,
-            sentence_index=0,
-            paragraph_index=0,
-            start_char=start,
-            end_char=end,
-            entity_id=entity_id,
-        )
-        cluster_mentions.append(cluster_mention)
-        document.clusters.append(
-            EntityCluster(
-                cluster_id=ClusterID(f"cluster-{index}"),
-                mentions=[cluster_mention],
-                primary_entity_id=entity_id,
+        cluster_mentions.append(
+            ClusterMention(
+                text=surface,
+                entity_type=entity_type,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=start,
+                end_char=end,
+                entity_id=entity_id,
             )
         )
     document.clause_units = [
@@ -160,11 +154,11 @@ def test_shared_grounding_recovers_person_grounded_foundation_from_money_context
 
     assert any(
         context.canonical_name_for_cluster(cluster) == "Fundacja Karola Bielskiego"
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
     )
     assert any(
         context.canonical_name_for_cluster(cluster) == "Urząd Marszałkowski"
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
     )
 
 
@@ -202,7 +196,7 @@ def test_shared_grounding_normalizes_wojewodzki_office_name() -> None:
 
     assert any(
         context.canonical_name_for_cluster(cluster) == "Opolski Urząd Wojewódzki"
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
     )
 
 
@@ -227,13 +221,12 @@ def test_role_grounder_rejects_person_name_role_phrase() -> None:
     )
     grounder = FrameSlotGrounder(config)
 
+    clusters = derived_clusters(document)
     grounded = grounder.ground_public_employment_role(
         document,
         ExtractionContext.build(document),
         document.clause_units[0],
-        employee=ClusterMentionView(
-            cluster=document.clusters[0], mention=document.clusters[0].mentions[0]
-        ),
+        employee=ClusterMentionView(cluster=clusters[0], mention=clusters[0].mentions[0]),
         role_cluster=None,
     )
 
@@ -261,13 +254,12 @@ def test_role_grounder_rejects_generic_date_dominated_phrase() -> None:
     )
     grounder = FrameSlotGrounder(config)
 
+    clusters = derived_clusters(document)
     grounded = grounder.ground_public_employment_role(
         document,
         ExtractionContext.build(document),
         document.clause_units[0],
-        employee=ClusterMentionView(
-            cluster=document.clusters[0], mention=document.clusters[0].mentions[0]
-        ),
+        employee=ClusterMentionView(cluster=clusters[0], mention=clusters[0].mentions[0]),
         role_cluster=None,
     )
 
@@ -321,7 +313,7 @@ def test_shared_grounding_retypes_compact_company_alias_to_existing_organization
 
     company_clusters = [
         cluster
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
         if context.entity_type_for_cluster(cluster) == EntityType.ORGANIZATION
         and context.canonical_name_for_cluster(cluster)
         == "Przedsiębiorstwo Wodociągów i Kanalizacji"
@@ -332,7 +324,7 @@ def test_shared_grounding_retypes_compact_company_alias_to_existing_organization
     assert not any(
         context.entity_type_for_cluster(cluster) == EntityType.PERSON
         and context.canonical_name_for_cluster(cluster) == "WodKan"
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
     )
 
 
@@ -408,7 +400,7 @@ def test_shared_grounding_uses_embedding_fallback_for_compact_org_alias() -> Non
 
     office_clusters = [
         cluster
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
         if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION
         and context.canonical_name_for_cluster(cluster)
         == "Urząd Marszałkowski Województwa Mazowieckiego"
@@ -419,5 +411,5 @@ def test_shared_grounding_uses_embedding_fallback_for_compact_org_alias() -> Non
     assert not any(
         context.entity_type_for_cluster(cluster) == EntityType.PERSON
         and context.canonical_name_for_cluster(cluster) == "MarszałkowskiMazowsze"
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
     )

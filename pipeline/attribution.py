@@ -425,7 +425,7 @@ def _document_level_employer_candidates(
         return []
     return [
         cluster
-        for cluster in context.document.clusters
+        for cluster in context.clusters
         if context.entity_type_for_cluster(cluster)
         in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         and _is_public_employer_cluster(context, cluster)

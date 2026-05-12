@@ -23,6 +23,7 @@ from pipeline.cluster_reads import (
 from pipeline.config import PipelineConfig
 from pipeline.document_graph import (
     clause_mentions,
+    derived_clusters,
     ensure_entity,
     ensure_entity_view,
 )
@@ -232,7 +233,7 @@ class FrameSlotGrounder:
             for mention in clause_mentions(document, clause)
             if mention.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         }
-        for cluster in document.clusters:
+        for cluster in derived_clusters(document):
             entity_type = self._cluster_entity_type(document, cluster, entities_by_id)
             if entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
                 continue
@@ -586,7 +587,7 @@ class FrameSlotGrounder:
         entities_by_id = self._entities_by_id(document)
         candidates = [
             self._cluster_canonical_name(document, cluster, entities_by_id)
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
             if self._cluster_entity_type(document, cluster, entities_by_id)
             in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         ]
@@ -607,7 +608,7 @@ class FrameSlotGrounder:
         entities_by_id = self._entities_by_id(document)
         candidates = [
             cluster
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
             if self._cluster_entity_type(document, cluster, entities_by_id)
             in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
             and any(
@@ -792,7 +793,7 @@ class FrameSlotGrounder:
         entities_by_id = self._entities_by_id(document)
         person_mentions = [
             mention
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
             if self._cluster_entity_type(document, cluster, entities_by_id) == EntityType.PERSON
             for mention in cluster.mentions
             if mention.paragraph_index == sentence.paragraph_index
@@ -810,7 +811,7 @@ class FrameSlotGrounder:
         overlapping = next(
             (
                 cluster
-                for cluster in document.clusters
+                for cluster in derived_clusters(document)
                 if any(
                     mention.sentence_index == grounded.evidence.sentence_index
                     and mention.start_char == grounded.evidence.start_char
@@ -823,7 +824,7 @@ class FrameSlotGrounder:
         existing = next(
             (
                 cluster
-                for cluster in document.clusters
+                for cluster in derived_clusters(document)
                 if self._cluster_entity_type(document, cluster, entities_by_id)
                 == grounded.entity_type
                 and self._cluster_normalized_name(document, cluster, entities_by_id).casefold()
@@ -856,7 +857,7 @@ class FrameSlotGrounder:
         noisy_match = next(
             (
                 cluster
-                for cluster in document.clusters
+                for cluster in derived_clusters(document)
                 if self._cluster_entity_type(document, cluster, entities_by_id)
                 in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
                 and self._cluster_canonical_name(document, cluster, entities_by_id)
@@ -940,9 +941,6 @@ class FrameSlotGrounder:
         entity_ids = {
             mention.entity_id for mention in cluster.mentions if mention.entity_id is not None
         }
-        document.clusters = [
-            item for item in document.clusters if item.cluster_id != cluster.cluster_id
-        ]
         document.entities = [item for item in document.entities if item.entity_id not in entity_ids]
         document.mentions = [item for item in document.mentions if item.entity_id not in entity_ids]
 
@@ -1332,7 +1330,7 @@ class FrameSlotGrounder:
         if any(word.upos == "PROPN" for word in candidate.words):
             person_tokens = {
                 token.casefold()
-                for cluster in document.clusters
+                for cluster in derived_clusters(document)
                 if context.entity_type_for_cluster(cluster) == EntityType.PERSON
                 for mention in cluster.mentions
                 if mention.sentence_index == clause.sentence_index
@@ -1346,7 +1344,7 @@ class FrameSlotGrounder:
             context.entity_type_for_cluster(cluster) == EntityType.POSITION
             and self._is_public_office_role(context, cluster)
             and context.canonical_name_for_cluster(cluster).casefold() == label.casefold()
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
         ):
             return True
         return False

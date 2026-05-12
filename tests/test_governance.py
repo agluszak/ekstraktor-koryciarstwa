@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pipeline.config import PipelineConfig
-from pipeline.document_graph import sync_entity_mentions
+from pipeline.document_graph import derived_clusters, sync_entity_mentions
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -144,7 +144,7 @@ def _entities(fixtures: list[ClusterFixture]) -> list[Entity]:
     return [fixture.entity for fixture in fixtures]
 
 
-def document(clusters: list[ClusterFixture]) -> ArticleDocument:
+def document(fixtures: list[ClusterFixture]) -> ArticleDocument:
     document = ArticleDocument(
         document_id=DocumentID("doc-1"),
         source_url=None,
@@ -153,9 +153,8 @@ def document(clusters: list[ClusterFixture]) -> ArticleDocument:
         publication_date="2026-04-15",
         cleaned_text="",
         paragraphs=[],
-        entities=_entities(clusters),
-        mentions=[mention for cluster in _clusters(clusters) for mention in cluster.mentions],
-        clusters=_clusters(clusters),
+        entities=_entities(fixtures),
+        mentions=[mention for cluster in _clusters(fixtures) for mention in cluster.mentions],
     )
     sync_entity_mentions(document)
     return document
@@ -279,8 +278,13 @@ def test_governance_fact_builder_expands_list_appointments_with_exception() -> N
             )
         ],
         entities=_entities([target, anna, piotr, ewa, marek]),
-        clusters=_clusters([target, anna, piotr, ewa, marek]),
+        mentions=[
+            mention
+            for cluster in _clusters([target, anna, piotr, ewa, marek])
+            for mention in cluster.mentions
+        ],
     )
+    sync_entity_mentions(doc)
 
     facts = GovernanceFactBuilder().build(doc, ExtractionContext.build(doc))
 
@@ -447,7 +451,9 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
             ),
         ],
         entities=_entities([authority, appointee]),
-        clusters=_clusters([authority, appointee]),
+        mentions=[
+            mention for cluster in _clusters([authority, appointee]) for mention in cluster.mentions
+        ],
         parsed_sentences={
             0: [
                 parsed_word(1, "Piotr", "Piotr", 0, head=3, deprel="nsubj", upos="PROPN"),
@@ -473,16 +479,20 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
         end_char=sentence_break + len(clause_text),
     )
 
+    context = ExtractionContext.build(document)
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
         clause,
         document,
-        ExtractionContext.build(document),
+        context,
         [appointee.cluster],
         GovernanceSignal.APPOINTMENT,
     )
 
     assert person_cluster_id == appointee.cluster_id
-    assert appointing_authority_id == authority.cluster_id
+    assert appointing_authority_id is not None
+    authority_cluster = context.cluster_by_entity_id(authority.entity.entity_id)
+    assert authority_cluster is not None
+    assert appointing_authority_id == authority_cluster.cluster_id
 
 
 def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> None:
@@ -541,7 +551,9 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
             ),
         ],
         entities=_entities([authority, appointee]),
-        clusters=_clusters([authority, appointee]),
+        mentions=[
+            mention for cluster in _clusters([authority, appointee]) for mention in cluster.mentions
+        ],
         parsed_sentences={
             0: [
                 parsed_word(1, "Prezydent", "prezydent", 0, head=4, deprel="nsubj"),
@@ -575,16 +587,20 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
         end_char=second_break + len(clause_text),
     )
 
+    context = ExtractionContext.build(document)
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
         clause,
         document,
-        ExtractionContext.build(document),
+        context,
         [appointee.cluster],
         GovernanceSignal.APPOINTMENT,
     )
 
     assert person_cluster_id == appointee.cluster_id
-    assert appointing_authority_id == authority.cluster_id
+    assert appointing_authority_id is not None
+    authority_cluster = context.cluster_by_entity_id(authority.entity.entity_id)
+    assert authority_cluster is not None
+    assert appointing_authority_id == authority_cluster.cluster_id
 
 
 def test_target_resolver_prefers_company_over_ministry_owner() -> None:
@@ -900,7 +916,7 @@ def test_clusterer_preserves_mention_span_and_paragraph_provenance() -> None:
 
     clustered = PolishEntityClusterer(config).run(doc)
 
-    mention = clustered.clusters[0].mentions[0]
+    mention = derived_clusters(clustered)[0].mentions[0]
     assert mention.paragraph_index == 1
     assert mention.start_char == start
     assert mention.end_char == start + len("Stadninę Koni Iwno")
@@ -1454,7 +1470,7 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
         cleaned_text=text,
         paragraphs=[text],
         entities=_entities([appointee]),
-        clusters=_clusters([appointee]),
+        mentions=[mention for cluster in _clusters([appointee]) for mention in cluster.mentions],
     )
 
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
