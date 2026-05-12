@@ -27,7 +27,9 @@ class EntityGraphRemapper:
             if mention.entity_id:
                 mention.entity_id = remap.get(mention.entity_id, mention.entity_id)
             if mention.entity_id and mention.entity_id in entity_by_id:
-                mention.normalized_text = entity_by_id[mention.entity_id].canonical_name
+                target_entity = entity_by_id[mention.entity_id]
+                mention.normalized_text = target_entity.canonical_name
+                mention.entity_type = target_entity.entity_type
             key = (
                 mention.entity_id,
                 mention.sentence_index,
@@ -55,6 +57,8 @@ class EntityGraphRemapper:
             for mention in cluster.mentions:
                 if mention.entity_id:
                     mention.entity_id = remap.get(mention.entity_id, mention.entity_id)
+                if mention.entity_id and mention.entity_id in entity_by_id:
+                    mention.entity_type = entity_by_id[mention.entity_id].entity_type
         sync_entity_mentions(document)
 
     @staticmethod
