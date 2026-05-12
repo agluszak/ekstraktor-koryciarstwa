@@ -552,7 +552,8 @@ def _proxy_view_for_anchor(
 def _is_public_employer_cluster(context: ExtractionContext, cluster: EntityCluster) -> bool:
     if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION:
         return True
-    if context.organization_kind_for_cluster(cluster) == OrganizationKind.PUBLIC_INSTITUTION:
+    entity = context.entity_for_cluster(cluster)
+    if entity is not None and entity.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
         return True
     return is_public_employer_name(context.normalized_name_for_cluster(cluster).casefold())
 

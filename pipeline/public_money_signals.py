@@ -59,7 +59,8 @@ def is_company_like_contractor(
     clause: ClauseUnit,
     cluster: EntityCluster,
 ) -> bool:
-    if context.organization_kind_for_cluster(cluster) == OrganizationKind.COMPANY:
+    entity = context.entity_for_cluster(cluster)
+    if entity is not None and entity.organization_kind == OrganizationKind.COMPANY:
         return True
     if is_company_like_name(context.normalized_name_for_cluster(cluster)):
         return True
@@ -79,7 +80,8 @@ def is_public_counterparty(
 ) -> bool:
     if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION:
         return True
-    if context.organization_kind_for_cluster(cluster) == OrganizationKind.PUBLIC_INSTITUTION:
+    entity = context.entity_for_cluster(cluster)
+    if entity is not None and entity.organization_kind == OrganizationKind.PUBLIC_INSTITUTION:
         return True
     if is_public_counterparty_name(context.normalized_name_for_cluster(cluster)):
         return True

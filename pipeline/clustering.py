@@ -169,18 +169,6 @@ class PolishEntityClusterer(EntityClusterer):
                 *entity.aliases,
             ]
         )
-
-        if (
-            cluster.primary_entity_id is not None
-            and cluster.primary_entity_id != entity.entity_id
-            and cluster.primary_entity_id not in cluster.member_entity_ids
-        ):
-            cluster.member_entity_ids.append(cluster.primary_entity_id)
-        if (
-            cluster.primary_entity_id != entity.entity_id
-            and entity.entity_id not in cluster.member_entity_ids
-        ):
-            cluster.member_entity_ids.append(entity.entity_id)
         representative.aliases = all_names
 
         # Create a representative entity for naming policy

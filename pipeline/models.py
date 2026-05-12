@@ -198,7 +198,6 @@ class EntityCluster:
     cluster_id: ClusterID
     mentions: list[ClusterMention]
     primary_entity_id: EntityID | None = None
-    member_entity_ids: list[EntityID] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,17 +321,18 @@ class ClauseUnit:
 class GovernanceFrame:
     frame_id: FrameID
     signal: GovernanceSignal
-    person_cluster_id: ClusterID | None = None
-    role_cluster_id: ClusterID | None = None
-    target_org_cluster_id: ClusterID | None = None
-    owner_context_cluster_id: ClusterID | None = None
-    governing_body_cluster_id: ClusterID | None = None
-    appointing_authority_cluster_id: ClusterID | None = None
+    person_entity_id: EntityID | None = None
+    role_entity_id: EntityID | None = None
+    target_org_entity_id: EntityID | None = None
+    owner_context_entity_id: EntityID | None = None
+    governing_body_entity_id: EntityID | None = None
+    appointing_authority_entity_id: EntityID | None = None
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
     # Inlined attributes
     target_resolution: str | None = None
+    target_org_normalized_name: str | None = None
     found_role: str | None = None
     role_modifier: RoleModifier | None = None
     evidence_scope: str | None = None
@@ -344,9 +344,11 @@ class CompensationFrame:
     amount_text: str
     amount_normalized: str
     period: str | None = None
-    person_cluster_id: ClusterID | None = None
-    role_cluster_id: ClusterID | None = None
-    organization_cluster_id: ClusterID | None = None
+    person_entity_id: EntityID | None = None
+    role_entity_id: EntityID | None = None
+    organization_entity_id: EntityID | None = None
+    role_label: str | None = None
+    organization_kind: OrganizationKind | None = None
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
@@ -362,9 +364,10 @@ class FundingFrame:
     frame_id: FrameID
     amount_text: str | None = None
     amount_normalized: str | None = None
-    funder_cluster_id: ClusterID | None = None
-    recipient_cluster_id: ClusterID | None = None
-    project_cluster_id: ClusterID | None = None
+    funder_entity_id: EntityID | None = None
+    recipient_entity_id: EntityID | None = None
+    project_entity_id: EntityID | None = None
+    funder_organization_kind: OrganizationKind | None = None
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
@@ -377,8 +380,9 @@ class FundingFrame:
 @dataclass(slots=True)
 class PublicContractFrame:
     frame_id: FrameID
-    contractor_cluster_id: ClusterID
-    counterparty_cluster_id: ClusterID
+    contractor_entity_id: EntityID
+    counterparty_entity_id: EntityID
+    counterparty_organization_kind: OrganizationKind | None = None
     amount_text: str | None = None
     amount_normalized: str | None = None
     confidence: float = 0.0
@@ -393,8 +397,11 @@ class PublicContractFrame:
 @dataclass(slots=True)
 class AntiCorruptionReferralFrame:
     frame_id: FrameID
-    complainant_cluster_id: ClusterID
-    target_cluster_id: ClusterID
+    complainant_entity_id: EntityID
+    target_entity_id: EntityID
+    target_name: str | None = None
+    target_normalized_name: str | None = None
+    target_organization_kind: OrganizationKind | None = None
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
@@ -407,8 +414,11 @@ class AntiCorruptionReferralFrame:
 @dataclass(slots=True)
 class AntiCorruptionInvestigationFrame:
     frame_id: FrameID
-    institution_cluster_id: ClusterID
-    target_cluster_id: ClusterID
+    institution_entity_id: EntityID
+    target_entity_id: EntityID
+    target_name: str | None = None
+    target_normalized_name: str | None = None
+    target_organization_kind: OrganizationKind | None = None
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 
@@ -421,8 +431,9 @@ class AntiCorruptionInvestigationFrame:
 @dataclass(slots=True)
 class PublicProcurementAbuseFrame:
     frame_id: FrameID
-    actor_cluster_id: ClusterID
-    public_context_cluster_id: ClusterID | None = None
+    actor_entity_id: EntityID
+    public_context_entity_id: EntityID | None = None
+    public_context_organization_kind: OrganizationKind | None = None
     amount_text: str | None = None
     amount_normalized: str | None = None
     confidence: float = 0.0
@@ -438,10 +449,13 @@ class PublicProcurementAbuseFrame:
 class PublicEmploymentFrame:
     frame_id: FrameID
     signal: PublicEmploymentSignal
-    employee_cluster_id: ClusterID
-    employer_cluster_id: ClusterID
+    employee_entity_id: EntityID
+    employer_entity_id: EntityID
     role_label: str | None = None
-    role_cluster_id: ClusterID | None = None
+    role_entity_id: EntityID | None = None
+    employer_organization_kind: OrganizationKind | None = None
+    role_kind: RoleKind | None = None
+    role_modifier: RoleModifier | None = None
     confidence: float = 0.0
     evidence: list[EvidenceSpan] = field(default_factory=list)
 

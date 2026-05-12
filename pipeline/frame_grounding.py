@@ -20,12 +20,6 @@ from pipeline.cluster_reads import (
 from pipeline.cluster_reads import (
     normalized_name_for_cluster as read_normalized_name_for_cluster,
 )
-from pipeline.cluster_reads import (
-    organization_kind_for_cluster as read_organization_kind_for_cluster,
-)
-from pipeline.cluster_reads import (
-    role_kind_for_cluster as read_role_kind_for_cluster,
-)
 from pipeline.config import PipelineConfig
 from pipeline.document_graph import (
     clause_mentions,
@@ -118,7 +112,7 @@ class GroundedRoleLabel:
     head_lemma: str
     evidence: SlotEvidence
     source: str
-    role_cluster_id: ClusterID | None = None
+    role_entity_id: EntityID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +133,7 @@ class _RoleLabelCandidate:
     head_lemma: str
     words: tuple[ParsedWord, ...]
     source: str
-    role_cluster_id: ClusterID | None = None
+    role_entity_id: EntityID | None = None
 
 
 class FrameSlotGrounder:
@@ -173,7 +167,7 @@ class FrameSlotGrounder:
                     head_lemma=role_cluster.normalized_name.split()[0].casefold(),
                     evidence=evidence,
                     source="role_cluster",
-                    role_cluster_id=role_cluster.cluster_id,
+                    role_entity_id=role_cluster.entity_id,
                 )
 
         candidate = None
@@ -190,7 +184,7 @@ class FrameSlotGrounder:
             head_lemma=candidate.head_lemma,
             evidence=self._slot_evidence_for_words(clause, candidate.words),
             source=candidate.source,
-            role_cluster_id=candidate.role_cluster_id,
+            role_entity_id=candidate.role_entity_id,
         )
 
     def ensure_document_organizations(self, document: ArticleDocument) -> None:
@@ -260,11 +254,7 @@ class FrameSlotGrounder:
                     surface=mention.text,
                     canonical_name=self._cluster_canonical_name(document, cluster, entities_by_id),
                     entity_type=entity_type,
-                    organization_kind=self._cluster_organization_kind(
-                        document,
-                        cluster,
-                        entities_by_id,
-                    )
+                    organization_kind=(entity.organization_kind if entity is not None else None)
                     or OrganizationKind.ORGANIZATION,
                     evidence=SlotEvidence(
                         text=mention.text,
@@ -336,28 +326,6 @@ class FrameSlotGrounder:
         if entities_by_id is None:
             entities_by_id = cls._entities_by_id(document)
         return read_aliases_for_cluster(cluster, entities_by_id)
-
-    @classmethod
-    def _cluster_organization_kind(
-        cls,
-        document: ArticleDocument,
-        cluster: EntityCluster,
-        entities_by_id: dict[EntityID, Entity] | None = None,
-    ) -> OrganizationKind | None:
-        if entities_by_id is None:
-            entities_by_id = cls._entities_by_id(document)
-        return read_organization_kind_for_cluster(cluster, entities_by_id)
-
-    @classmethod
-    def _cluster_role_kind(
-        cls,
-        document: ArticleDocument,
-        cluster: EntityCluster,
-        entities_by_id: dict[EntityID, Entity] | None = None,
-    ):
-        if entities_by_id is None:
-            entities_by_id = cls._entities_by_id(document)
-        return read_role_kind_for_cluster(cluster, entities_by_id)
 
     def _sentence_grounded_organization_mentions(
         self,
@@ -577,12 +545,21 @@ class FrameSlotGrounder:
             surface=alias,
             canonical_name=self._cluster_canonical_name(document, existing_cluster, entities_by_id),
             entity_type=self._cluster_entity_type(document, existing_cluster, entities_by_id),
-            organization_kind=self._cluster_organization_kind(
-                document,
-                existing_cluster,
-                entities_by_id,
-            )
-            or OrganizationKind.ORGANIZATION,
+            organization_kind=(
+                (
+                    entity.organization_kind
+                    if (
+                        entity := self._entity_for_cluster(
+                            document,
+                            existing_cluster,
+                            entities_by_id,
+                        )
+                    )
+                    is not None
+                    else None
+                )
+                or OrganizationKind.ORGANIZATION
+            ),
             evidence=SlotEvidence(
                 text=alias,
                 sentence_index=sentence.sentence_index,
@@ -1066,8 +1043,18 @@ class FrameSlotGrounder:
             return 0
         kind_bonus = (
             1
-            if FrameSlotGrounder._cluster_organization_kind(document, cluster, entities_by_id)
-            in {OrganizationKind.COMPANY, OrganizationKind.PUBLIC_INSTITUTION}
+            if (
+                (
+                    entity := FrameSlotGrounder._entity_for_cluster(
+                        document,
+                        cluster,
+                        entities_by_id,
+                    )
+                )
+                is not None
+                and entity.organization_kind
+                in {OrganizationKind.COMPANY, OrganizationKind.PUBLIC_INSTITUTION}
+            )
             else 0
         )
         return matched_tokens + kind_bonus
@@ -1483,7 +1470,8 @@ class FrameSlotGrounder:
 
     @staticmethod
     def _is_public_office_role(context: ExtractionContext, cluster: EntityCluster) -> bool:
-        role_kind: RoleKind | None = context.role_kind_for_cluster(cluster)
+        entity = context.entity_for_cluster(cluster)
+        role_kind: RoleKind | None = entity.role_kind if entity is not None else None
         if role_kind in PUBLIC_OFFICE_ROLE_KINDS:
             return True
         normalized = context.normalized_name_for_cluster(cluster).casefold()

@@ -14,9 +14,6 @@ from pipeline.cluster_reads import (
 from pipeline.cluster_reads import (
     entity_type_for_cluster as read_entity_type_for_cluster,
 )
-from pipeline.cluster_reads import (
-    is_proxy_person_cluster as read_is_proxy_person_cluster,
-)
 from pipeline.domain_lexicons import (
     ATTRIBUTION_SPEECH_LEMMAS,
     KINSHIP_BY_LEMMA,
@@ -582,4 +579,5 @@ def _cluster_is_proxy_person(
     entities_by_id: dict[EntityID, Entity],
 ) -> bool:
     _ = document
-    return read_is_proxy_person_cluster(cluster, entities_by_id)
+    entity = read_entity_for_cluster(cluster, entities_by_id)
+    return entity.is_proxy_person if entity is not None else False

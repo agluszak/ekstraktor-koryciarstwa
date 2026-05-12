@@ -13,12 +13,12 @@ from pipeline.domain_lexicons import (
     REFERRAL_TRIGGER_LEMMAS,
 )
 from pipeline.domain_types import (
-    ClusterID,
     EntityID,
     EntityType,
     FactID,
     FactType,
     FrameID,
+    OrganizationKind,
     TimeScope,
 )
 from pipeline.extraction_context import ExtractionContext
@@ -81,8 +81,15 @@ class PolishAntiCorruptionReferralFrameExtractor:
 
         return AntiCorruptionReferralFrame(
             frame_id=FrameID(f"referral-frame-{uuid.uuid4().hex[:8]}"),
-            complainant_cluster_id=complainant.cluster_id,
-            target_cluster_id=target.cluster_id,
+            complainant_entity_id=context.entity_id_for_cluster(complainant),
+            target_entity_id=context.entity_id_for_cluster(target),
+            target_name=context.canonical_name_for_cluster(target),
+            target_normalized_name=context.normalized_name_for_cluster(target),
+            target_organization_kind=(
+                entity.organization_kind
+                if (entity := context.entity_for_cluster(target)) is not None
+                else None
+            ),
             confidence=0.82
             if context.entity_type_for_cluster(complainant) == EntityType.PERSON
             else 0.74,
@@ -323,8 +330,15 @@ class PolishAntiCorruptionAbuseFrameExtractor:
             return None
         return AntiCorruptionInvestigationFrame(
             frame_id=FrameID(f"investigation-frame-{uuid.uuid4().hex[:8]}"),
-            institution_cluster_id=institution.cluster_id,
-            target_cluster_id=target.cluster_id,
+            institution_entity_id=context.entity_id_for_cluster(institution),
+            target_entity_id=context.entity_id_for_cluster(target),
+            target_name=context.canonical_name_for_cluster(target),
+            target_normalized_name=context.normalized_name_for_cluster(target),
+            target_organization_kind=(
+                entity.organization_kind
+                if (entity := context.entity_for_cluster(target)) is not None
+                else None
+            ),
             confidence=0.78,
             evidence=[self._evidence(clause)],
             extraction_signal="dependency_edge",
@@ -350,9 +364,17 @@ class PolishAntiCorruptionAbuseFrameExtractor:
         amount_text = amount_match.group("amount") if amount_match else None
         return PublicProcurementAbuseFrame(
             frame_id=FrameID(f"procurement-abuse-frame-{uuid.uuid4().hex[:8]}"),
-            actor_cluster_id=actor.cluster_id,
-            public_context_cluster_id=(
-                public_context.cluster_id if public_context is not None else None
+            actor_entity_id=context.entity_id_for_cluster(actor),
+            public_context_entity_id=(
+                context.entity_id_for_cluster(public_context)
+                if public_context is not None
+                else None
+            ),
+            public_context_organization_kind=(
+                entity.organization_kind
+                if public_context is not None
+                and (entity := context.entity_for_cluster(public_context)) is not None
+                else None
             ),
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()) if amount_text else None,
@@ -461,14 +483,63 @@ def _ac_deduplicate_facts(facts: list[Fact]) -> list[Fact]:
     return list(deduplicated.values())
 
 
+def _binary_anti_corruption_fact(
+    *,
+    document: ArticleDocument,
+    fact_type: FactType,
+    source_extractor: str,
+    subject_entity_id: EntityID,
+    object_entity_id: EntityID,
+    value_text: str | None,
+    value_normalized: str | None,
+    organization_kind: OrganizationKind | None,
+    evidence: EvidenceSpan,
+    confidence: float,
+    extraction_signal: str | None,
+    evidence_scope: str | None,
+    score_reason: str | None,
+) -> Fact:
+    return Fact(
+        fact_id=FactID(
+            stable_id(
+                "fact",
+                str(document.document_id),
+                fact_type.value,
+                str(subject_entity_id),
+                str(object_entity_id),
+                str(evidence.start_char or ""),
+            )
+        ),
+        fact_type=fact_type,
+        subject_entity_id=subject_entity_id,
+        object_entity_id=object_entity_id,
+        value_text=value_text,
+        value_normalized=value_normalized,
+        time_scope=TimeScope.UNKNOWN,
+        event_date=resolve_event_date(
+            document,
+            sentence_index=evidence.sentence_index,
+            text=evidence.text,
+            start_char=evidence.start_char,
+            end_char=evidence.end_char,
+        ),
+        confidence=round(confidence, 3),
+        evidence=evidence,
+        organization_kind=organization_kind,
+        extraction_signal=extraction_signal,
+        evidence_scope=evidence_scope,
+        source_extractor=source_extractor,
+        score_reason=score_reason,
+    )
+
+
 class AntiCorruptionReferralFactBuilder:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
-        cluster_to_entity_id = context.cluster_entity_id_map()
+        _ = context
         facts = [
             fact
             for frame in document.anti_corruption_referral_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
-            is not None
+            if (fact := self._fact_for_frame(document, frame)) is not None
         ]
         return _ac_deduplicate_facts(facts)
 
@@ -476,61 +547,32 @@ class AntiCorruptionReferralFactBuilder:
     def _fact_for_frame(
         document: ArticleDocument,
         frame: AntiCorruptionReferralFrame,
-        cluster_to_entity_id: dict[ClusterID, EntityID],
-        context: ExtractionContext,
     ) -> Fact | None:
-        complainant_id = cluster_to_entity_id.get(frame.complainant_cluster_id)
-        target_id = cluster_to_entity_id.get(frame.target_cluster_id)
-        if complainant_id is None or target_id is None:
-            return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-        target = context.cluster_by_id(frame.target_cluster_id)
-        return Fact(
-            fact_id=FactID(
-                stable_id(
-                    "fact",
-                    str(document.document_id),
-                    FactType.ANTI_CORRUPTION_REFERRAL.value,
-                    str(complainant_id),
-                    str(target_id),
-                    str(evidence.start_char or ""),
-                )
-            ),
+        return _binary_anti_corruption_fact(
+            document=document,
             fact_type=FactType.ANTI_CORRUPTION_REFERRAL,
-            subject_entity_id=complainant_id,
-            object_entity_id=target_id,
-            value_text=context.canonical_name_for_cluster(target) if target is not None else None,
-            value_normalized=(
-                context.normalized_name_for_cluster(target) if target is not None else None
-            ),
-            time_scope=TimeScope.UNKNOWN,
-            event_date=resolve_event_date(
-                document,
-                sentence_index=evidence.sentence_index,
-                text=evidence.text,
-                start_char=evidence.start_char,
-                end_char=evidence.end_char,
-            ),
-            confidence=round(frame.confidence, 3),
+            source_extractor="anti_corruption_referral_frame",
+            subject_entity_id=frame.complainant_entity_id,
+            object_entity_id=frame.target_entity_id,
+            value_text=frame.target_name,
+            value_normalized=frame.target_normalized_name,
+            organization_kind=frame.target_organization_kind,
             evidence=evidence,
-            organization_kind=(
-                context.organization_kind_for_cluster(target) if target is not None else None
-            ),
+            confidence=frame.confidence,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
-            source_extractor="anti_corruption_referral_frame",
             score_reason=frame.score_reason,
         )
 
 
 class AntiCorruptionInvestigationFactBuilder:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
-        cluster_to_entity_id = context.cluster_entity_id_map()
+        _ = context
         facts = [
             fact
             for frame in document.anti_corruption_investigation_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
-            is not None
+            if (fact := self._fact_for_frame(document, frame)) is not None
         ]
         return _ac_deduplicate_facts(facts)
 
@@ -538,61 +580,32 @@ class AntiCorruptionInvestigationFactBuilder:
     def _fact_for_frame(
         document: ArticleDocument,
         frame: AntiCorruptionInvestigationFrame,
-        cluster_to_entity_id: dict[ClusterID, EntityID],
-        context: ExtractionContext,
     ) -> Fact | None:
-        institution_id = cluster_to_entity_id.get(frame.institution_cluster_id)
-        target_id = cluster_to_entity_id.get(frame.target_cluster_id)
-        if institution_id is None or target_id is None:
-            return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-        target = context.cluster_by_id(frame.target_cluster_id)
-        return Fact(
-            fact_id=FactID(
-                stable_id(
-                    "fact",
-                    str(document.document_id),
-                    FactType.ANTI_CORRUPTION_INVESTIGATION.value,
-                    str(institution_id),
-                    str(target_id),
-                    str(evidence.start_char or ""),
-                )
-            ),
+        return _binary_anti_corruption_fact(
+            document=document,
             fact_type=FactType.ANTI_CORRUPTION_INVESTIGATION,
-            subject_entity_id=institution_id,
-            object_entity_id=target_id,
-            value_text=context.canonical_name_for_cluster(target) if target is not None else None,
-            value_normalized=(
-                context.normalized_name_for_cluster(target) if target is not None else None
-            ),
-            time_scope=TimeScope.UNKNOWN,
-            event_date=resolve_event_date(
-                document,
-                sentence_index=evidence.sentence_index,
-                text=evidence.text,
-                start_char=evidence.start_char,
-                end_char=evidence.end_char,
-            ),
-            confidence=round(frame.confidence, 3),
+            source_extractor="anti_corruption_investigation_frame",
+            subject_entity_id=frame.institution_entity_id,
+            object_entity_id=frame.target_entity_id,
+            value_text=frame.target_name,
+            value_normalized=frame.target_normalized_name,
+            organization_kind=frame.target_organization_kind,
             evidence=evidence,
-            organization_kind=(
-                context.organization_kind_for_cluster(target) if target is not None else None
-            ),
+            confidence=frame.confidence,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
-            source_extractor="anti_corruption_investigation_frame",
             score_reason=frame.score_reason,
         )
 
 
 class PublicProcurementAbuseFactBuilder:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
-        cluster_to_entity_id = context.cluster_entity_id_map()
+        _ = context
         facts = [
             fact
             for frame in document.public_procurement_abuse_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
-            is not None
+            if (fact := self._fact_for_frame(document, frame)) is not None
         ]
         return _ac_deduplicate_facts(facts)
 
@@ -600,38 +613,23 @@ class PublicProcurementAbuseFactBuilder:
     def _fact_for_frame(
         document: ArticleDocument,
         frame: PublicProcurementAbuseFrame,
-        cluster_to_entity_id: dict[ClusterID, EntityID],
-        extraction_context: ExtractionContext,
     ) -> Fact | None:
-        actor_id = cluster_to_entity_id.get(frame.actor_cluster_id)
-        context_id = (
-            cluster_to_entity_id.get(frame.public_context_cluster_id)
-            if frame.public_context_cluster_id is not None
-            else None
-        )
-        if actor_id is None:
-            return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-        public_context = (
-            extraction_context.cluster_by_id(frame.public_context_cluster_id)
-            if frame.public_context_cluster_id is not None
-            else None
-        )
         return Fact(
             fact_id=FactID(
                 stable_id(
                     "fact",
                     str(document.document_id),
                     FactType.PUBLIC_PROCUREMENT_ABUSE.value,
-                    str(actor_id),
-                    str(context_id) if context_id else "",
+                    str(frame.actor_entity_id),
+                    str(frame.public_context_entity_id) if frame.public_context_entity_id else "",
                     frame.amount_normalized or "",
                     str(evidence.start_char or ""),
                 )
             ),
             fact_type=FactType.PUBLIC_PROCUREMENT_ABUSE,
-            subject_entity_id=actor_id,
-            object_entity_id=context_id,
+            subject_entity_id=frame.actor_entity_id,
+            object_entity_id=frame.public_context_entity_id,
             value_text=frame.amount_text,
             value_normalized=frame.amount_normalized,
             time_scope=TimeScope.UNKNOWN,
@@ -645,11 +643,7 @@ class PublicProcurementAbuseFactBuilder:
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,
-            organization_kind=(
-                extraction_context.organization_kind_for_cluster(public_context)
-                if public_context is not None
-                else None
-            ),
+            organization_kind=frame.public_context_organization_kind,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             source_extractor="public_procurement_abuse_frame",

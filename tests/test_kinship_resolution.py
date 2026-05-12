@@ -33,23 +33,15 @@ def _cluster(
     primary_entity_id: EntityID | None = None,
     member_entity_ids: list[EntityID] | None = None,
 ) -> EntityCluster:
+    _ = member_entity_ids
     resolved_primary = primary_entity_id or next(
         (mention.entity_id for mention in mentions if mention.entity_id is not None),
         None,
     )
-    resolved_members = member_entity_ids
-    if resolved_members is None:
-        resolved_members = []
-        if resolved_primary is not None:
-            resolved_members.append(resolved_primary)
-        for mention in mentions:
-            if mention.entity_id is not None and mention.entity_id not in resolved_members:
-                resolved_members.append(mention.entity_id)
     return EntityCluster(
         cluster_id=ClusterID(cluster_id),
         mentions=mentions,
         primary_entity_id=resolved_primary,
-        member_entity_ids=resolved_members,
     )
 
 
@@ -122,7 +114,6 @@ def test_build_views_by_entity_id_returns_view_bound_to_each_entity_id() -> None
             ),
         ],
         primary_entity_id=first_id,
-        member_entity_ids=[first_id, second_id],
     )
     document = ArticleDocument(
         document_id=DocumentID("doc-kinship-multi"),

@@ -96,7 +96,6 @@ def cluster(
                 )
             ],
             primary_entity_id=resolved_entity_id,
-            member_entity_ids=[resolved_entity_id],
         ),
         entity=entity,
     )
@@ -763,9 +762,9 @@ def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
 
     assert len(extracted.governance_frames) == 1
     frame = extracted.governance_frames[0]
-    assert frame.person_cluster_id == "cluster-person"
-    assert frame.target_org_cluster_id == "cluster-target"
-    assert frame.owner_context_cluster_id == "cluster-owner"
+    assert frame.person_entity_id == "entity-person"
+    assert frame.target_org_entity_id == "entity-target"
+    assert frame.owner_context_entity_id == "entity-owner"
     assert frame.found_role == "Prezes"
     assert frame.evidence_scope == "discourse_window"
     assert {evidence.sentence_index for evidence in frame.evidence} == {0, 1, 2}
@@ -841,8 +840,8 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
     assert len(extracted.governance_frames) == 1
     frame = extracted.governance_frames[0]
     assert frame.signal == GovernanceSignal.DISMISSAL
-    assert frame.person_cluster_id == "cluster-person"
-    assert frame.target_org_cluster_id == "cluster-target"
+    assert frame.person_entity_id == "entity-person"
+    assert frame.target_org_entity_id == "entity-target"
     assert frame.found_role == "Prezes"
 
 
@@ -927,18 +926,20 @@ def test_governance_fact_builder_merges_duplicate_roleless_fact() -> None:
         GovernanceFrame(
             frame_id=FrameID("frame-roleless"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_entity_id=EntityID("person-1"),
+            target_org_entity_id=EntityID("org-1"),
             confidence=0.7,
             evidence=[EvidenceSpan(text="Jan trafił do AMW Rewita.", paragraph_index=0)],
         ),
         GovernanceFrame(
             frame_id=FrameID("frame-role"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_entity_id=EntityID("person-1"),
+            role_entity_id=EntityID("position-1"),
+            target_org_entity_id=EntityID("org-1"),
             confidence=0.8,
+            found_role="Wiceprezes",
+            target_org_normalized_name="AMW Rewita",
             evidence=[
                 EvidenceSpan(
                     text="Jan został wiceprezesem AMW Rewita.",
@@ -976,10 +977,12 @@ def test_governance_fact_builder_prefers_local_event_date_from_evidence() -> Non
         GovernanceFrame(
             frame_id=FrameID("frame-date"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_entity_id=EntityID("person-1"),
+            role_entity_id=EntityID("position-1"),
+            target_org_entity_id=EntityID("org-1"),
             confidence=0.9,
+            found_role="Wiceprezes",
+            target_org_normalized_name="PWiK Olsztyn",
             evidence=[
                 EvidenceSpan(
                     text="Jarosław Słoma od 25 lutego zajął funkcję wiceprezesa PWiK Olsztyn.",
@@ -1060,10 +1063,12 @@ def test_governance_fact_builder_recovers_titled_appointing_authority_from_evide
         GovernanceFrame(
             frame_id=FrameID("frame-authority"),
             signal=GovernanceSignal.APPOINTMENT,
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            target_org_cluster_id=organization.cluster_id,
+            person_entity_id=EntityID("person-1"),
+            role_entity_id=EntityID("position-1"),
+            target_org_entity_id=EntityID("org-1"),
             confidence=0.9,
+            found_role="Wiceprezes",
+            target_org_normalized_name="PWiK Olsztyn",
             evidence=[
                 EvidenceSpan(
                     text="Jarosław Słoma od 25 lutego zajął funkcję wiceprezesa PWiK Olsztyn.",
@@ -1108,9 +1113,11 @@ def test_compensation_fact_builder_emits_person_org_salary_fact() -> None:
             amount_text="31 tys. zł brutto",
             amount_normalized="31 Tys. Zł Brutto",
             period="Miesięcznie",
-            person_cluster_id=person.cluster_id,
-            role_cluster_id=role.cluster_id,
-            organization_cluster_id=organization.cluster_id,
+            person_entity_id=EntityID("person-1"),
+            role_entity_id=EntityID("position-1"),
+            organization_entity_id=EntityID("org-1"),
+            role_label="Prezes",
+            organization_kind=OrganizationKind.ORGANIZATION,
             confidence=0.85,
             evidence=[
                 EvidenceSpan(
@@ -1161,8 +1168,9 @@ def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> No
             amount_text="31 tys. zł brutto",
             amount_normalized="31 Tys. Zł Brutto",
             period="Miesięcznie",
-            person_cluster_id=person.cluster_id,
-            organization_cluster_id=organization.cluster_id,
+            person_entity_id=EntityID("person-1"),
+            organization_entity_id=EntityID("org-1"),
+            organization_kind=OrganizationKind.ORGANIZATION,
             confidence=0.85,
             evidence=[
                 EvidenceSpan(
@@ -1232,8 +1240,8 @@ def test_compensation_frame_extractor_emits_role_only_salary_frame() -> None:
     extracted = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(extracted.compensation_frames) == 1
-    assert extracted.compensation_frames[0].role_cluster_id == "cluster-role"
-    assert extracted.compensation_frames[0].organization_cluster_id == "cluster-org"
+    assert extracted.compensation_frames[0].role_entity_id == "position-1"
+    assert extracted.compensation_frames[0].organization_entity_id == "org-1"
     assert extracted.compensation_frames[0].confidence == 0.66
 
 
@@ -1268,8 +1276,8 @@ def test_funding_frame_extractor_emits_grant_frame_without_compensation_frame() 
 
     assert doc.compensation_frames == []
     assert len(doc.funding_frames) == 1
-    assert doc.funding_frames[0].funder_cluster_id == "cluster-funder"
-    assert doc.funding_frames[0].recipient_cluster_id == "cluster-recipient"
+    assert doc.funding_frames[0].funder_entity_id == "org-funder"
+    assert doc.funding_frames[0].recipient_entity_id == "org-recipient"
     assert doc.funding_frames[0].amount_normalized == "300 Tys. Zł"
 
 
@@ -1366,8 +1374,8 @@ def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_of
     doc = PolishFundingFrameExtractor(config).run(doc, ExtractionContext.build(doc))
 
     assert len(doc.funding_frames) == 1
-    assert doc.funding_frames[0].funder_cluster_id == "cluster-funder"
-    assert doc.funding_frames[0].recipient_cluster_id == "cluster-recipient"
+    assert doc.funding_frames[0].funder_entity_id == "org-funder"
+    assert doc.funding_frames[0].recipient_entity_id == "org-recipient"
 
 
 def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
@@ -1386,8 +1394,9 @@ def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:
             frame_id=FrameID("funding-frame-1"),
             amount_text="300 tys. zł",
             amount_normalized="300 Tys. Zł",
-            funder_cluster_id=funder.cluster_id,
-            recipient_cluster_id=recipient.cluster_id,
+            funder_entity_id=EntityID("org-funder"),
+            recipient_entity_id=EntityID("org-recipient"),
+            funder_organization_kind=OrganizationKind.PUBLIC_INSTITUTION,
             confidence=0.82,
             evidence=[
                 EvidenceSpan(
