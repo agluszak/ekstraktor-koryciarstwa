@@ -8,6 +8,7 @@ from pydantic import JsonValue
 type Json = JsonValue
 
 EntityID = NewType("EntityID", str)
+MentionID = NewType("MentionID", str)
 FactID = NewType("FactID", str)
 ClusterID = NewType("ClusterID", str)
 DocumentID = NewType("DocumentID", str)

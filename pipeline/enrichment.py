@@ -17,7 +17,7 @@ from pipeline.cluster_reads import (
     normalized_name_for_cluster as read_normalized_name_for_cluster,
 )
 from pipeline.config import PipelineConfig
-from pipeline.document_graph import ensure_entity, ensure_entity_view, refresh_clause_mentions
+from pipeline.document_graph import ensure_entity, ensure_entity_view
 from pipeline.domain_lexicons import (
     DERIVED_ORGANIZATION_HEADS,
     DERIVED_ORGANIZATION_PATTERN,
@@ -75,7 +75,6 @@ class SharedEntityEnricher(EntityEnricher):
         self._derive_missing_party_mentions(document)
         self._derive_missing_role_mentions(document)
         self._enrich_public_institutions(document)
-        refresh_clause_mentions(document)
         return document
 
     def _derive_missing_organizations(self, document: ArticleDocument) -> None:

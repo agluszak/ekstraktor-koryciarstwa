@@ -45,8 +45,8 @@ from pipeline.cluster_reads import (
     role_modifier_for_cluster as read_role_modifier_for_cluster,
 )
 from pipeline.dependency_frames import DependencyFrameBuilder, TriggerArgumentFrame
+from pipeline.document_graph import DocumentGraph, mention_dependency_role
 from pipeline.document_graph import clause_mentions as live_clause_mentions
-from pipeline.document_graph import mention_dependency_role
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -88,6 +88,7 @@ ALL_ENTITY_TYPES: frozenset[EntityType] = frozenset(
 @dataclass(slots=True)
 class ExtractionContext:
     document: ArticleDocument
+    graph: DocumentGraph = field(init=False)
     clusters_by_id: dict[ClusterID, EntityCluster] = field(init=False)
     entities_by_id: dict[EntityID, Entity] = field(init=False)
     cluster_by_entity_id_index: dict[EntityID, EntityCluster] = field(init=False)
@@ -106,8 +107,9 @@ class ExtractionContext:
         return cls(document=document)
 
     def __post_init__(self) -> None:
+        self.graph = DocumentGraph(self.document)
         self.clusters_by_id = {cluster.cluster_id: cluster for cluster in self.document.clusters}
-        self.entities_by_id = {entity.entity_id: entity for entity in self.document.entities}
+        self.entities_by_id = self.graph.entities_by_id
         self.cluster_by_entity_id_index = {}
         self.exact_mention_index = {}
         self.text_mention_index = {}
@@ -284,7 +286,10 @@ class ExtractionContext:
     def entity_by_id(self, entity_id: EntityID | None) -> Entity | None:
         if entity_id is None:
             return None
-        return self.entities_by_id.get(entity_id)
+        return self.graph.entity_by_id(entity_id)
+
+    def mentions_for_entity(self, entity_id: EntityID) -> list[ClusterMention]:
+        return self.graph.mentions_for_entity(entity_id)
 
     def entity_for_cluster(self, cluster: EntityCluster) -> Entity | None:
         return read_entity_for_cluster(cluster, self.entities_by_id)

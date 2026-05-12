@@ -7,6 +7,7 @@ from pipeline.attribution import (
 )
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import clause_mentions as live_clause_mentions
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -230,7 +231,6 @@ def prepared_single_clause_document(
             paragraph_index=0,
             start_char=0,
             end_char=len(text),
-            cluster_mentions=cluster_mentions,
         )
     ]
     return document
@@ -328,7 +328,7 @@ def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
     assert any(
         mention.entity_type == EntityType.POSITION
         for clause in document.clause_units
-        for mention in clause.cluster_mentions
+        for mention in live_clause_mentions(document, clause)
     )
 
 
@@ -2807,7 +2807,6 @@ def test_public_employment_uses_adjacent_public_employer_context() -> None:
             paragraph_index=0,
             start_char=0,
             end_char=len(text_1),
-            cluster_mentions=[person_mention],
         )
     ]
     document = PolishFrameExtractor(config).run(document)
@@ -3187,7 +3186,6 @@ def test_public_employment_frame_ignores_wojewoda_decision_as_role_label() -> No
             paragraph_index=0,
             start_char=0,
             end_char=len(text),
-            cluster_mentions=[person_mention, org_mention],
         )
     ]
     document.parsed_sentences = {

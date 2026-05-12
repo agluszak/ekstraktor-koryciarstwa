@@ -9,7 +9,6 @@ from pipeline.domain_types import ClauseID
 from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
-    ClusterMention,
     ParsedSentence,
     ParsedWord,
     SentenceFragment,
@@ -42,28 +41,6 @@ class StanzaClauseParser(ClauseParser):
 
             for root in roots:
                 clause_id = ClauseID(f"clause-{uuid.uuid4().hex[:8]}")
-                clause_mentions: list[ClusterMention] = []
-                mention_roles: dict[str, str] = {}
-
-                sent_offset = sentence_fragment.start_char
-
-                for cluster in document.clusters:
-                    for mention in cluster.mentions:
-                        if mention.sentence_index != sentence_fragment.sentence_index:
-                            continue
-                        clause_mentions.append(mention)
-                        m_words = self._words_for_mention(
-                            mention,
-                            parsed_words,
-                            sent_offset,
-                        )
-                        if not m_words:
-                            continue
-                        main_word = next(
-                            (word for word in m_words if word.head == root.index),
-                            m_words[0],
-                        )
-                        mention_roles[mention.text] = main_word.deprel
 
                 clause_units.append(
                     ClauseUnit(
@@ -75,8 +52,6 @@ class StanzaClauseParser(ClauseParser):
                         paragraph_index=sentence_fragment.paragraph_index,
                         start_char=sentence_fragment.start_char,
                         end_char=sentence_fragment.end_char,
-                        cluster_mentions=clause_mentions,
-                        mention_roles=mention_roles,
                     )
                 )
 
@@ -150,26 +125,6 @@ class StanzaClauseParser(ClauseParser):
             min(sentence.end_char, parsed_sentence.end_char)
             - max(sentence.start_char, parsed_sentence.start_char),
         )
-
-    @staticmethod
-    def _words_for_mention(
-        mention: ClusterMention,
-        parsed_words: list[ParsedWord],
-        sent_offset: int,
-    ) -> list[ParsedWord]:
-        if mention.start_char == 0 and mention.end_char == 0:
-            mention_text = mention.text.lower()
-            return [
-                word
-                for word in parsed_words
-                if word.text.lower() in mention_text or mention_text in word.text.lower()
-            ]
-        return [
-            word
-            for word in parsed_words
-            if (word.start + sent_offset) >= mention.start_char
-            and (word.end + sent_offset) <= mention.end_char
-        ]
 
 
 def _parse_feats(raw_feats: str | None) -> dict[str, str]:

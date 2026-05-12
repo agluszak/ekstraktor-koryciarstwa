@@ -7,7 +7,6 @@ from pipeline.config import PipelineConfig
 from pipeline.document_graph import (
     ensure_entity,
     ensure_entity_view,
-    refresh_clause_mentions,
 )
 from pipeline.document_graph import (
     entity_by_id as lookup_entity_by_id,
@@ -81,7 +80,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         self._add_proxy_family_facts(document, proxies)
         self._add_proxy_identity_hypotheses(document, proxies)
         self._add_full_name_identity_hypotheses(document)
-        refresh_clause_mentions(document)
         return document
 
     def _collect_resolved_family_mentions(

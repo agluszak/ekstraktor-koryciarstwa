@@ -8,6 +8,7 @@ from stanza.pipeline.coref_processor import extract_text
 
 from pipeline.base import CoreferenceResolver
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_types import EntityID, EntityType, MentionKind
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.runtime import PipelineRuntime
@@ -166,6 +167,7 @@ class StanzaCoreferenceResolver(CoreferenceResolver):
                 if key not in existing_keys:
                     document.mentions.append(m)
                     existing_keys.add(key)
+            sync_entity_mentions(document)
         return document
 
     @staticmethod

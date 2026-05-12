@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_types import EntityType, MentionKind, NERLabel
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention, TemporalExpression
 from pipeline.nlp_services import MorphologyAnalyzer, StanzaPolishMorphologyAnalyzer
@@ -142,7 +143,9 @@ class SpacyPolishNERExtractor(NERExtractor):
             )
 
         document.entities = list(entity_index.values())
-        return self.canonicalizer.run(document)
+        document = self.canonicalizer.run(document)
+        sync_entity_mentions(document)
+        return document
 
     @staticmethod
     def _map_label(label: str) -> EntityType | None:

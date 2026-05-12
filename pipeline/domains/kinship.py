@@ -504,8 +504,17 @@ def _build_views_by_entity_id(
 ) -> dict[EntityID, ClusterMentionView]:
     result: dict[EntityID, ClusterMentionView] = {}
     for cluster in clusters:
-        view = _cluster_to_view(context, cluster)
+        base_view = _cluster_to_view(context, cluster)
         for entity_id in context.entity_ids_for_cluster(cluster):
+            mention = next(
+                (item for item in cluster.mentions if item.entity_id == entity_id),
+                base_view.mention,
+            )
+            view = ClusterMentionView(
+                cluster=cluster,
+                mention=mention,
+                entity=context.entity_by_id(entity_id),
+            )
             if entity_id not in result:
                 result[entity_id] = view
     return result

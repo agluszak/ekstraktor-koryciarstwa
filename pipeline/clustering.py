@@ -10,7 +10,6 @@ from pipeline.config import PipelineConfig
 from pipeline.domain_types import ClusterID, EntityID, EntityType
 from pipeline.models import (
     ArticleDocument,
-    ClusterMention,
     Entity,
     EntityCluster,
     EvidenceSpan,
@@ -65,12 +64,16 @@ class PolishEntityClusterer(EntityClusterer):
                 self._add_to_cluster(match, entity, entities_by_id)
                 entity_to_cluster_id[entity.entity_id] = match.cluster_id
 
+        clusters_by_id = {cluster.cluster_id: cluster for cluster in clusters}
         for mention in document.mentions:
             if mention.entity_id and mention.entity_id in entity_to_cluster_id:
                 cluster_id = entity_to_cluster_id[mention.entity_id]
-                cluster = next(c for c in clusters if c.cluster_id == cluster_id)
+                cluster = clusters_by_id[cluster_id]
 
                 m_start, m_end, m_para = self._mention_location(document, mention)
+                mention.start_char = m_start
+                mention.end_char = m_end
+                mention.paragraph_index = m_para
 
                 existing_mention = next(
                     (
@@ -89,19 +92,7 @@ class PolishEntityClusterer(EntityClusterer):
                     None,
                 )
                 if existing_mention is None:
-                    cluster.mentions.append(
-                        ClusterMention(
-                            text=mention.text,
-                            entity_type=mention.entity_type,
-                            sentence_index=mention.sentence_index,
-                            paragraph_index=m_para,
-                            start_char=m_start,
-                            end_char=m_end,
-                            mention_kind=mention.mention_kind,
-                            entity_id=mention.entity_id,
-                            ner_label=mention.ner_label,
-                        )
-                    )
+                    cluster.mentions.append(mention)
                 elif existing_mention.ner_label is None and mention.ner_label is not None:
                     existing_mention.ner_label = mention.ner_label
 
@@ -154,27 +145,9 @@ class PolishEntityClusterer(EntityClusterer):
         return float(np.dot(left, right))
 
     def _create_cluster(self, cluster_id: ClusterID, entity: Entity) -> EntityCluster:
-        mentions = []
-        # Add mentions from entity evidence
-        for evidence in entity.evidence:
-            mentions.append(
-                ClusterMention(
-                    text=evidence.text,
-                    entity_type=entity.entity_type,
-                    sentence_index=evidence.sentence_index or 0,
-                    paragraph_index=0
-                    if evidence.paragraph_index is None
-                    else evidence.paragraph_index,
-                    start_char=0 if evidence.start_char is None else evidence.start_char,
-                    end_char=0 if evidence.end_char is None else evidence.end_char,
-                    entity_id=entity.entity_id,
-                    ner_label=None,
-                )
-            )
-
         return EntityCluster(
             cluster_id=cluster_id,
-            mentions=mentions,
+            mentions=[],
             primary_entity_id=entity.entity_id,
         )
 
@@ -197,28 +170,6 @@ class PolishEntityClusterer(EntityClusterer):
             ]
         )
 
-        # Merge evidence/mentions first so naming considers everything
-        new_mentions = []
-        for evidence in entity.evidence:
-            if not any(
-                m.start_char == evidence.start_char and m.sentence_index == evidence.sentence_index
-                for m in cluster.mentions
-            ):
-                new_mentions.append(
-                    ClusterMention(
-                        text=evidence.text,
-                        entity_type=entity.entity_type,
-                        sentence_index=evidence.sentence_index or 0,
-                        paragraph_index=0
-                        if evidence.paragraph_index is None
-                        else evidence.paragraph_index,
-                        start_char=0 if evidence.start_char is None else evidence.start_char,
-                        end_char=0 if evidence.end_char is None else evidence.end_char,
-                        entity_id=entity.entity_id,
-                        ner_label=None,
-                    )
-                )
-        cluster.mentions.extend(new_mentions)
         if (
             cluster.primary_entity_id is not None
             and cluster.primary_entity_id != entity.entity_id
@@ -240,16 +191,7 @@ class PolishEntityClusterer(EntityClusterer):
             normalized_name=representative.normalized_name,
             aliases=all_names,
             lemmas=unique_preserve_order([*representative.lemmas, *entity.lemmas]),
-            evidence=[
-                EvidenceSpan(
-                    text=m.text,
-                    sentence_index=m.sentence_index,
-                    paragraph_index=m.paragraph_index,
-                    start_char=m.start_char,
-                    end_char=m.end_char,
-                )
-                for m in cluster.mentions
-            ],
+            evidence=self._merged_evidence(representative, entity),
         )
 
         if representative.entity_type == EntityType.PERSON:
@@ -270,6 +212,24 @@ class PolishEntityClusterer(EntityClusterer):
             representative.role_kind = entity.role_kind
         if representative.role_modifier is None:
             representative.role_modifier = entity.role_modifier
+
+    @staticmethod
+    def _merged_evidence(left: Entity, right: Entity) -> list[EvidenceSpan]:
+        merged: list[EvidenceSpan] = []
+        seen: set[tuple[str, int | None, int | None, int | None, int | None]] = set()
+        for evidence in [*left.evidence, *right.evidence]:
+            key = (
+                evidence.text,
+                evidence.sentence_index,
+                evidence.paragraph_index,
+                evidence.start_char,
+                evidence.end_char,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(evidence)
+        return merged
 
     @staticmethod
     def _representative_entity(

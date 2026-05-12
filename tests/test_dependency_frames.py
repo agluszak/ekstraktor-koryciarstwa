@@ -1,4 +1,5 @@
 from pipeline.dependency_frames import DependencyArgumentRole
+from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
@@ -61,7 +62,7 @@ def document(text: str, clusters: list[EntityCluster]) -> ArticleDocument:
         for cluster in clusters
         if cluster.mentions
     ]
-    return ArticleDocument(
+    document = ArticleDocument(
         document_id=DocumentID("doc"),
         source_url=None,
         raw_html="",
@@ -70,8 +71,11 @@ def document(text: str, clusters: list[EntityCluster]) -> ArticleDocument:
         cleaned_text=text,
         paragraphs=[text],
         entities=entities,
+        mentions=[mention for cluster in clusters for mention in cluster.mentions],
         clusters=clusters,
     )
+    sync_entity_mentions(document)
+    return document
 
 
 def clause(text: str, trigger: str, lemma: str) -> ClauseUnit:
@@ -104,11 +108,6 @@ def test_dependency_frame_extracts_active_appointment_arguments() -> None:
         ]
     }
     doc.clause_units = [clause(text, "powołał", "powołać")]
-    doc.clause_units[0].cluster_mentions = [
-        *authority.mentions,
-        *appointee.mentions,
-        *company.mentions,
-    ]
 
     frame = ExtractionContext.build(doc).dependency_frame_for_clause(doc.clause_units[0])
 
@@ -135,7 +134,6 @@ def test_dependency_frame_marks_passive_subject() -> None:
         ]
     }
     doc.clause_units = [clause(text, "powołana", "powołać")]
-    doc.clause_units[0].cluster_mentions = [*person.mentions]
 
     frame = ExtractionContext.build(doc).dependency_frame_for_clause(doc.clause_units[0])
 
@@ -165,7 +163,6 @@ def test_dependency_frame_extracts_funding_transfer_arguments_and_money() -> Non
         ]
     }
     doc.clause_units = [clause(text, "przekazał", "przekazać")]
-    doc.clause_units[0].cluster_mentions = [*funder.mentions, *recipient.mentions]
 
     frame = ExtractionContext.build(doc).dependency_frame_for_clause(doc.clause_units[0])
 
@@ -195,7 +192,6 @@ def test_dependency_frame_marks_reporting_przekazac() -> None:
         ]
     }
     doc.clause_units = [clause(text, "przekazało", "przekazać")]
-    doc.clause_units[0].cluster_mentions = [*source.mentions]
 
     frame = ExtractionContext.build(doc).dependency_frame_for_clause(doc.clause_units[0])
 

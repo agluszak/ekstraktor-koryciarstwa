@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_types import EntityID
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.utils import unique_preserve_order
@@ -18,13 +19,25 @@ class EntityGraphRemapper:
     @staticmethod
     def remap_mentions(document: ArticleDocument, remap: dict[EntityID, EntityID]) -> None:
         entity_by_id = {entity.entity_id: entity for entity in document.entities}
-        deduplicated_mentions: dict[tuple[EntityID | None, int, str], Mention] = {}
+        deduplicated_mentions: dict[
+            tuple[EntityID | None, int, int, int, int, str, str, str],
+            Mention,
+        ] = {}
         for mention in document.mentions:
             if mention.entity_id:
                 mention.entity_id = remap.get(mention.entity_id, mention.entity_id)
             if mention.entity_id and mention.entity_id in entity_by_id:
                 mention.normalized_text = entity_by_id[mention.entity_id].canonical_name
-            key = (mention.entity_id, mention.sentence_index, mention.text)
+            key = (
+                mention.entity_id,
+                mention.sentence_index,
+                mention.paragraph_index,
+                mention.start_char,
+                mention.end_char,
+                mention.text,
+                mention.mention_kind.value,
+                mention.entity_type.value,
+            )
             deduplicated_mentions[key] = mention
         document.mentions = list(deduplicated_mentions.values())
         for cluster in document.clusters:
@@ -42,6 +55,7 @@ class EntityGraphRemapper:
             for mention in cluster.mentions:
                 if mention.entity_id:
                     mention.entity_id = remap.get(mention.entity_id, mention.entity_id)
+        sync_entity_mentions(document)
 
     @staticmethod
     def remap_fact_graph(document: ArticleDocument, remap: dict[EntityID, EntityID]) -> None:

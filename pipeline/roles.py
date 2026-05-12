@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline.base import DocumentStage
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_types import EntityType, MentionKind
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention
 from pipeline.role_matching import match_role_mentions
@@ -83,4 +84,5 @@ class PolishPositionExtractor(DocumentStage):
 
         # Merge with existing entities
         document.entities.extend(entity_index.values())
+        sync_entity_mentions(document)
         return document
