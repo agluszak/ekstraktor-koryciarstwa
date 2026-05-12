@@ -18,31 +18,7 @@ from pipeline.cluster_reads import (
     entity_type_for_cluster as read_entity_type_for_cluster,
 )
 from pipeline.cluster_reads import (
-    is_proxy_person_cluster as read_is_proxy_person_cluster,
-)
-from pipeline.cluster_reads import (
-    kinship_detail_for_cluster as read_kinship_detail_for_cluster,
-)
-from pipeline.cluster_reads import (
-    lemmas_for_cluster as read_lemmas_for_cluster,
-)
-from pipeline.cluster_reads import (
     normalized_name_for_cluster as read_normalized_name_for_cluster,
-)
-from pipeline.cluster_reads import (
-    organization_kind_for_cluster as read_organization_kind_for_cluster,
-)
-from pipeline.cluster_reads import (
-    proxy_anchor_entity_id_for_cluster as read_proxy_anchor_entity_id_for_cluster,
-)
-from pipeline.cluster_reads import (
-    proxy_kind_for_cluster as read_proxy_kind_for_cluster,
-)
-from pipeline.cluster_reads import (
-    role_kind_for_cluster as read_role_kind_for_cluster,
-)
-from pipeline.cluster_reads import (
-    role_modifier_for_cluster as read_role_modifier_for_cluster,
 )
 from pipeline.dependency_frames import DependencyFrameBuilder, TriggerArgumentFrame
 from pipeline.document_graph import DocumentGraph, mention_dependency_role
@@ -52,11 +28,6 @@ from pipeline.domain_types import (
     ClusterID,
     EntityID,
     EntityType,
-    KinshipDetail,
-    OrganizationKind,
-    ProxyKind,
-    RoleKind,
-    RoleModifier,
     TimeScope,
 )
 from pipeline.grammar_signals import (
@@ -381,30 +352,6 @@ class ExtractionContext:
     def aliases_for_cluster(self, cluster: EntityCluster) -> list[str]:
         return read_aliases_for_cluster(cluster, self.entities_by_id)
 
-    def lemmas_for_cluster(self, cluster: EntityCluster) -> list[str]:
-        return read_lemmas_for_cluster(cluster, self.entities_by_id)
-
-    def organization_kind_for_cluster(self, cluster: EntityCluster) -> OrganizationKind | None:
-        return read_organization_kind_for_cluster(cluster, self.entities_by_id)
-
-    def is_proxy_person_cluster(self, cluster: EntityCluster) -> bool:
-        return read_is_proxy_person_cluster(cluster, self.entities_by_id)
-
-    def proxy_kind_for_cluster(self, cluster: EntityCluster) -> ProxyKind | None:
-        return read_proxy_kind_for_cluster(cluster, self.entities_by_id)
-
-    def kinship_detail_for_cluster(self, cluster: EntityCluster) -> KinshipDetail | None:
-        return read_kinship_detail_for_cluster(cluster, self.entities_by_id)
-
-    def proxy_anchor_entity_id_for_cluster(self, cluster: EntityCluster) -> EntityID | None:
-        return read_proxy_anchor_entity_id_for_cluster(cluster, self.entities_by_id)
-
-    def role_kind_for_cluster(self, cluster: EntityCluster) -> RoleKind | None:
-        return read_role_kind_for_cluster(cluster, self.entities_by_id)
-
-    def role_modifier_for_cluster(self, cluster: EntityCluster) -> RoleModifier | None:
-        return read_role_modifier_for_cluster(cluster, self.entities_by_id)
-
     def entity_id_for_cluster_id(self, cluster_id: ClusterID | None) -> EntityID | None:
         cluster = self.cluster_by_id(cluster_id)
         return self.entity_id_for_cluster(cluster) if cluster is not None else None
@@ -416,8 +363,6 @@ class ExtractionContext:
         return mention_entity_ids[0] if mention_entity_ids else None
 
     def member_entity_ids_for_cluster(self, cluster: EntityCluster) -> list[EntityID]:
-        if cluster.member_entity_ids:
-            return list(dict.fromkeys(cluster.member_entity_ids))
         return self.mention_entity_ids_for_cluster(cluster)
 
     @staticmethod

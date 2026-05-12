@@ -110,23 +110,15 @@ def cluster(
     primary_entity_id: EntityID | None = None,
     member_entity_ids: list[EntityID] | None = None,
 ) -> EntityCluster:
+    _ = member_entity_ids
     resolved_primary = primary_entity_id or next(
         (mention.entity_id for mention in mentions if mention.entity_id is not None),
         None,
     )
-    resolved_members = member_entity_ids
-    if resolved_members is None:
-        resolved_members = []
-        if resolved_primary is not None:
-            resolved_members.append(resolved_primary)
-        for mention in mentions:
-            if mention.entity_id is not None and mention.entity_id not in resolved_members:
-                resolved_members.append(mention.entity_id)
     return EntityCluster(
         cluster_id=ClusterID(cluster_id),
         mentions=mentions,
         primary_entity_id=resolved_primary,
-        member_entity_ids=resolved_members,
     )
 
 
@@ -324,7 +316,9 @@ def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
         if context.entity_type_for_cluster(candidate) == EntityType.POSITION
     ]
     assert len(position_clusters) == 1
-    assert context.role_kind_for_cluster(position_clusters[0]) == RoleKind.SEKRETARZ_POWIATU
+    position_entity = context.entity_for_cluster(position_clusters[0])
+    assert position_entity is not None
+    assert position_entity.role_kind == RoleKind.SEKRETARZ_POWIATU
     assert any(
         mention.entity_type == EntityType.POSITION
         for clause in document.clause_units
@@ -459,10 +453,9 @@ def test_shared_enrichment_marks_public_institution_clusters() -> None:
 
     context = ExtractionContext.build(document)
     assert context.entity_type_for_cluster(document.clusters[0]) == EntityType.PUBLIC_INSTITUTION
-    assert (
-        context.organization_kind_for_cluster(document.clusters[0])
-        == OrganizationKind.PUBLIC_INSTITUTION
-    )
+    organization_entity = context.entity_for_cluster(document.clusters[0])
+    assert organization_entity is not None
+    assert organization_entity.organization_kind == OrganizationKind.PUBLIC_INSTITUTION
     assert document.entities[0].entity_type == EntityType.PUBLIC_INSTITUTION
 
 
@@ -2975,7 +2968,7 @@ def test_public_employment_frame_extracts_passive_hiring_patient() -> None:
     document = PolishFrameExtractor(config).run(document)
 
     assert document.public_employment_frames
-    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("cluster-0")
+    assert document.public_employment_frames[0].employee_entity_id == EntityID("entity-0")
     assert document.public_employment_frames[0].role_label == "Pomocy Administracyjnej"
 
 
@@ -3006,7 +2999,7 @@ def test_public_employment_frame_uses_proxy_employee_for_partner_job() -> None:
     document = PolishFrameExtractor(config).run(document)
 
     assert document.public_employment_frames
-    assert document.public_employment_frames[0].employee_cluster_id == ClusterID("cluster-0")
+    assert document.public_employment_frames[0].employee_entity_id == EntityID("entity-0")
     assert document.public_employment_frames[0].role_label == "Ekodoradca"
 
 

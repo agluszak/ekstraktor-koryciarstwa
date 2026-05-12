@@ -195,9 +195,9 @@ class PolishCompensationFrameExtractor:
 
         governance_context = self._governance_context(document, clause, person_cluster)
         if role_cluster is None and governance_context is not None:
-            role_cluster = self._cluster_by_id(context, governance_context.role_cluster_id)
+            role_cluster = context.cluster_by_entity_id(governance_context.role_entity_id)
         if org_cluster is None and governance_context is not None:
-            org_cluster = self._cluster_by_id(context, governance_context.target_org_cluster_id)
+            org_cluster = context.cluster_by_entity_id(governance_context.target_org_entity_id)
             if org_cluster is not None and context_reason == "same_clause":
                 context_reason = "governance_context"
         if (
@@ -222,9 +222,20 @@ class PolishCompensationFrameExtractor:
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()),
             period=normalize_entity_name(period.lower()) if period else None,
-            person_cluster_id=person_cluster.cluster_id if person_cluster else None,
-            role_cluster_id=role_cluster.cluster_id if role_cluster else None,
-            organization_cluster_id=org_cluster.cluster_id if org_cluster else None,
+            person_entity_id=context.entity_id_for_cluster(person_cluster)
+            if person_cluster
+            else None,
+            role_entity_id=context.entity_id_for_cluster(role_cluster) if role_cluster else None,
+            organization_entity_id=context.entity_id_for_cluster(org_cluster)
+            if org_cluster
+            else None,
+            role_label=context.canonical_name_for_cluster(role_cluster) if role_cluster else None,
+            organization_kind=(
+                entity.organization_kind
+                if org_cluster is not None
+                and (entity := context.entity_for_cluster(org_cluster)) is not None
+                else None
+            ),
             confidence=confidence,
             evidence=[
                 EvidenceSpan(
@@ -339,7 +350,11 @@ class PolishCompensationFrameExtractor:
                 continue
             evidence = frame.evidence[0]
             same_paragraph = evidence.paragraph_index == clause.paragraph_index
-            same_person = person is not None and frame.person_cluster_id == person.cluster_id
+            same_person = (
+                person is not None
+                and frame.person_entity_id is not None
+                and frame.person_entity_id == ExtractionContext.entity_id_for_cluster(person)
+            )
             if same_paragraph and (same_person or person is None):
                 return frame
         return None
@@ -485,38 +500,19 @@ class CompensationFactBuilder:
         frame: CompensationFrame,
         context: ExtractionContext,
     ) -> Fact | None:
-        subject_id = (
-            context.entity_id_for_cluster_id(frame.person_cluster_id)
-            or context.entity_id_for_cluster_id(frame.role_cluster_id)
-            or context.entity_id_for_cluster_id(frame.organization_cluster_id)
-        )
+        subject_id = frame.person_entity_id or frame.role_entity_id or frame.organization_entity_id
         if subject_id is None:
             return None
-        org_id = context.entity_id_for_cluster_id(frame.organization_cluster_id)
-        role_id = context.entity_id_for_cluster_id(frame.role_cluster_id)
-        subject_cluster = context.cluster_by_entity_id(subject_id)
+        org_id = frame.organization_entity_id
+        role_id = frame.role_entity_id
+        subject_entity = context.entity_by_id(subject_id)
         object_id = (
             org_id
-            if subject_cluster is None
-            or context.entity_type_for_cluster(subject_cluster) != EntityType.ORGANIZATION
+            if subject_entity is None or subject_entity.entity_type != EntityType.ORGANIZATION
             else None
         )
-        role_text = context.cluster_name(frame.role_cluster_id)
+        role_text = frame.role_label
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-
-        organization = next(
-            (
-                cluster
-                for cluster in document.clusters
-                if cluster.cluster_id == frame.organization_cluster_id
-            ),
-            None,
-        )
-        organization_kind = (
-            context.organization_kind_for_cluster(organization)
-            if organization is not None
-            else None
-        )
 
         return Fact(
             fact_id=FactID(
@@ -550,7 +546,7 @@ class CompensationFactBuilder:
             period=frame.period,
             position_entity_id=role_id,
             role=role_text,
-            organization_kind=organization_kind,
+            organization_kind=frame.organization_kind,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             overlaps_governance=False,

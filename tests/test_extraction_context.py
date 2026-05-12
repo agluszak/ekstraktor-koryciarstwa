@@ -32,23 +32,15 @@ def _cluster(
     primary_entity_id: EntityID | None = None,
     member_entity_ids: list[EntityID] | None = None,
 ) -> EntityCluster:
+    _ = member_entity_ids
     resolved_primary = primary_entity_id or next(
         (mention.entity_id for mention in mentions if mention.entity_id is not None),
         None,
     )
-    resolved_members = member_entity_ids
-    if resolved_members is None:
-        resolved_members = []
-        if resolved_primary is not None:
-            resolved_members.append(resolved_primary)
-        for mention in mentions:
-            if mention.entity_id is not None and mention.entity_id not in resolved_members:
-                resolved_members.append(mention.entity_id)
     return EntityCluster(
         cluster_id=ClusterID(cluster_id),
         mentions=mentions,
         primary_entity_id=resolved_primary,
-        member_entity_ids=resolved_members,
     )
 
 
@@ -322,7 +314,6 @@ def test_extraction_context_build_does_not_backfill_cluster_identity_fields() ->
         cluster_id=ClusterID("cluster-org"),
         mentions=[mention],
         primary_entity_id=None,
-        member_entity_ids=[],
     )
     document = ArticleDocument(
         document_id=DocumentID("doc"),
@@ -346,7 +337,6 @@ def test_extraction_context_build_does_not_backfill_cluster_identity_fields() ->
     context = ExtractionContext.build(document)
 
     assert cluster.primary_entity_id is None
-    assert cluster.member_entity_ids == []
     assert context.primary_entity_id_for_cluster(cluster) == entity_id
     assert context.member_entity_ids_for_cluster(cluster) == [entity_id]
     assert context.cluster_by_entity_id(entity_id) == cluster

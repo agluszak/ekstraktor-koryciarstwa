@@ -5,7 +5,6 @@ import uuid
 from pipeline.attribution import resolve_public_employment_attribution
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
-    ClusterID,
     EntityID,
     FactID,
     FactType,
@@ -98,7 +97,9 @@ class PolishPublicEmploymentFrameExtractor:
                 role_cluster=role_cluster,
             )
             role_label = grounded_role.label if grounded_role is not None else None
-            role_cluster_id = grounded_role.role_cluster_id if grounded_role is not None else None
+            role_entity_id = grounded_role.role_entity_id if grounded_role is not None else None
+            role_entity = context.entity_by_id(role_entity_id)
+            employer_entity = employer.entity
             if (
                 signal == PublicEmploymentSignal.ENTRY
                 and role_label is None
@@ -109,10 +110,15 @@ class PolishPublicEmploymentFrameExtractor:
                 PublicEmploymentFrame(
                     frame_id=FrameID(f"public-employment-frame-{uuid.uuid4().hex[:8]}"),
                     signal=signal,
-                    employee_cluster_id=employee.cluster_id,
-                    employer_cluster_id=employer.cluster_id,
+                    employee_entity_id=employee.entity_id or EntityID(str(employee.cluster_id)),
+                    employer_entity_id=employer.entity_id or EntityID(str(employer.cluster_id)),
                     role_label=role_label,
-                    role_cluster_id=role_cluster_id,
+                    role_entity_id=role_entity_id,
+                    employer_organization_kind=(
+                        employer_entity.organization_kind if employer_entity is not None else None
+                    ),
+                    role_kind=role_entity.role_kind if role_entity is not None else None,
+                    role_modifier=role_entity.role_modifier if role_entity is not None else None,
                     confidence=0.78 if role_label is not None else 0.64,
                     evidence=[self._evidence(clause)],
                     extraction_signal=(
@@ -181,12 +187,11 @@ def _pe_deduplicate_facts(facts: list[Fact]) -> list[Fact]:
 
 class PublicEmploymentFactBuilder:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
-        cluster_to_entity_id = context.cluster_entity_id_map()
+        _ = context
         facts = [
             fact
             for frame in document.public_employment_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
-            is not None
+            if (fact := self._fact_for_frame(document, frame)) is not None
         ]
         return _pe_deduplicate_facts(facts)
 
@@ -194,20 +199,12 @@ class PublicEmploymentFactBuilder:
     def _fact_for_frame(
         document: ArticleDocument,
         frame: PublicEmploymentFrame,
-        cluster_to_entity_id: dict[ClusterID, EntityID],
-        context: ExtractionContext,
     ) -> Fact | None:
-        employee_id = cluster_to_entity_id.get(frame.employee_cluster_id)
-        employer_id = cluster_to_entity_id.get(frame.employer_cluster_id)
+        employee_id = frame.employee_entity_id
+        employer_id = frame.employer_entity_id
         if employee_id is None or employer_id is None:
             return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-        employer = context.cluster_by_id(frame.employer_cluster_id)
-        role_cluster = (
-            context.cluster_by_id(frame.role_cluster_id)
-            if frame.role_cluster_id is not None
-            else None
-        )
         fact_type = (
             FactType.APPOINTMENT
             if frame.signal == PublicEmploymentSignal.ENTRY
@@ -262,19 +259,11 @@ class PublicEmploymentFactBuilder:
                 if fact_type == FactType.ROLE_HELD
                 else None
             ),
-            position_entity_id=ExtractionContext.entity_id_for_cluster(role_cluster)
-            if role_cluster
-            else None,
+            position_entity_id=frame.role_entity_id,
             role=frame.role_label,
-            role_kind=context.role_kind_for_cluster(role_cluster)
-            if role_cluster is not None
-            else None,
-            role_modifier=context.role_modifier_for_cluster(role_cluster)
-            if role_cluster is not None
-            else None,
-            organization_kind=context.organization_kind_for_cluster(employer)
-            if employer is not None
-            else None,
+            role_kind=frame.role_kind,
+            role_modifier=frame.role_modifier,
+            organization_kind=frame.employer_organization_kind,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             source_extractor="public_employment_frame",

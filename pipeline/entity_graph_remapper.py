@@ -48,12 +48,6 @@ class EntityGraphRemapper:
                     cluster.primary_entity_id,
                     cluster.primary_entity_id,
                 )
-            remapped_member_entity_ids: list[EntityID] = []
-            for entity_id in cluster.member_entity_ids:
-                remapped_entity_id = remap.get(entity_id, entity_id)
-                if remapped_entity_id not in remapped_member_entity_ids:
-                    remapped_member_entity_ids.append(remapped_entity_id)
-            cluster.member_entity_ids = remapped_member_entity_ids
             for mention in cluster.mentions:
                 if mention.entity_id:
                     mention.entity_id = remap.get(mention.entity_id, mention.entity_id)

@@ -60,12 +60,19 @@ class PolishFundingFrameExtractor:
                         frame_id=FrameID(f"funding-frame-{uuid.uuid4().hex[:8]}"),
                         amount_text=signal.amount_text,
                         amount_normalized=signal.amount_normalized,
-                        funder_cluster_id=signal.payer_cluster.cluster_id
+                        funder_entity_id=context.entity_id_for_cluster(signal.payer_cluster)
                         if signal.payer_cluster is not None
                         else None,
-                        recipient_cluster_id=signal.recipient_cluster.cluster_id
+                        recipient_entity_id=context.entity_id_for_cluster(signal.recipient_cluster)
                         if signal.recipient_cluster is not None
                         else None,
+                        funder_organization_kind=(
+                            entity.organization_kind
+                            if signal.payer_cluster is not None
+                            and (entity := context.entity_for_cluster(signal.payer_cluster))
+                            is not None
+                            else None
+                        ),
                         confidence=signal.confidence,
                         evidence=[ExtractionContext.evidence_for_clause(clause)],
                         extraction_signal="public_money_flow",
@@ -159,9 +166,14 @@ class PolishFundingFrameExtractor:
             frame_id=FrameID(f"funding-frame-{uuid.uuid4().hex[:8]}"),
             amount_text=amount_text,
             amount_normalized=normalize_entity_name(amount_text.lower()) if amount_text else None,
-            funder_cluster_id=funder.cluster_id if funder else None,
-            recipient_cluster_id=recipient.cluster_id if recipient else None,
-            project_cluster_id=project.cluster_id if project else None,
+            funder_entity_id=context.entity_id_for_cluster(funder) if funder else None,
+            recipient_entity_id=context.entity_id_for_cluster(recipient) if recipient else None,
+            project_entity_id=context.entity_id_for_cluster(project) if project else None,
+            funder_organization_kind=(
+                entity.organization_kind
+                if funder is not None and (entity := context.entity_for_cluster(funder)) is not None
+                else None
+            ),
             confidence=confidence,
             evidence=[ExtractionContext.evidence_for_clause(clause)],
             extraction_signal=self._extraction_signal(score_reason),
@@ -414,15 +426,14 @@ class FundingFactBuilder:
         frame: FundingFrame,
         context: ExtractionContext,
     ) -> Fact | None:
-        recipient_id = context.entity_id_for_cluster_id(frame.recipient_cluster_id)
-        funder_id = context.entity_id_for_cluster_id(frame.funder_cluster_id)
-        project_id = context.entity_id_for_cluster_id(frame.project_cluster_id)
+        _ = context
+        recipient_id = frame.recipient_entity_id
+        funder_id = frame.funder_entity_id
+        project_id = frame.project_entity_id
         subject_id = recipient_id or project_id
         if subject_id is None:
             return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-
-        funder = context.cluster_by_id(frame.funder_cluster_id)
 
         return Fact(
             fact_id=FactID(
@@ -452,9 +463,7 @@ class FundingFactBuilder:
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,
-            organization_kind=(
-                context.organization_kind_for_cluster(funder) if funder is not None else None
-            ),
+            organization_kind=frame.funder_organization_kind,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             overlaps_governance=False,

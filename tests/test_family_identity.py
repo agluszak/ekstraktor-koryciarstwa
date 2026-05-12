@@ -84,7 +84,6 @@ def _person_cluster(
             )
         ],
         primary_entity_id=EntityID(entity_id),
-        member_entity_ids=[EntityID(entity_id)],
     )
     return entity, cluster
 
@@ -605,7 +604,6 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
             )
         ],
         primary_entity_id=EntityID("org-mup"),
-        member_entity_ids=[EntityID("org-mup")],
     )
     doc.entities.extend([karol, org])
     doc.clusters.extend([karol_cluster, org_cluster])
@@ -619,9 +617,12 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
     frame = framed.governance_frames[0]
     context = ExtractionContext.build(framed)
     proxy_cluster_ids = {
-        cluster.cluster_id
+        cluster.primary_entity_id
         for cluster in framed.clusters
-        if context.kinship_detail_for_cluster(cluster) == KinshipDetail.SIBLING_SISTER
+        if (
+            (entity := context.entity_for_cluster(cluster)) is not None
+            and entity.kinship_detail == KinshipDetail.SIBLING_SISTER
+        )
     }
-    assert frame.person_cluster_id in proxy_cluster_ids
-    assert frame.person_cluster_id != "cluster-person-karol"
+    assert frame.person_entity_id in proxy_cluster_ids
+    assert frame.person_entity_id != "entity-person-karol"

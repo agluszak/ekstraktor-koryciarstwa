@@ -315,22 +315,41 @@ class PolishGovernanceFrameExtractor:
                 *([role_cluster] if role_cluster is not None else []),
             ],
         )
+        person_cluster = context.cluster_by_id(ClusterID(person_cluster_id))
+        appointing_authority_cluster = (
+            context.cluster_by_id(ClusterID(appointing_authority_id))
+            if appointing_authority_id
+            else None
+        )
+        found_role = found_role or (
+            context.canonical_name_for_cluster(role_cluster) if role_cluster is not None else None
+        )
 
         return GovernanceFrame(
             frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
             signal=signal,
-            person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
-            role_cluster_id=role_cluster.cluster_id if role_cluster is not None else None,
-            target_org_cluster_id=target_resolution.target_org.cluster_id,
-            owner_context_cluster_id=target_resolution.owner_context.cluster_id
-            if target_resolution.owner_context
-            else None,
-            governing_body_cluster_id=target_resolution.governing_body.cluster_id
-            if target_resolution.governing_body
-            else None,
-            appointing_authority_cluster_id=ClusterID(appointing_authority_id)
-            if appointing_authority_id
-            else None,
+            person_entity_id=(
+                context.entity_id_for_cluster(person_cluster) if person_cluster else None
+            ),
+            role_entity_id=(
+                context.entity_id_for_cluster(role_cluster) if role_cluster is not None else None
+            ),
+            target_org_entity_id=context.entity_id_for_cluster(target_resolution.target_org),
+            owner_context_entity_id=(
+                context.entity_id_for_cluster(target_resolution.owner_context)
+                if target_resolution.owner_context
+                else None
+            ),
+            governing_body_entity_id=(
+                context.entity_id_for_cluster(target_resolution.governing_body)
+                if target_resolution.governing_body
+                else None
+            ),
+            appointing_authority_entity_id=(
+                context.entity_id_for_cluster(appointing_authority_cluster)
+                if appointing_authority_cluster is not None
+                else None
+            ),
             confidence=self._dependency_adjusted_confidence(
                 target_resolution.confidence,
                 dependency_frame,
@@ -338,6 +357,9 @@ class PolishGovernanceFrameExtractor:
             ),
             evidence=evidence,
             target_resolution=target_res_reason,
+            target_org_normalized_name=context.normalized_name_for_cluster(
+                target_resolution.target_org
+            ),
             found_role=found_role,
             evidence_scope=evidence_scope,
         )
@@ -536,7 +558,8 @@ class PolishGovernanceFrameExtractor:
             role = context.role_for_mention_in_clause(clause, mention)
             if role and (role.startswith("nsubj") or role.startswith("obj")):
                 return True
-            if context.is_proxy_person_cluster(cluster) and role == "det:poss":
+            entity = context.entity_for_cluster(cluster)
+            if entity is not None and entity.is_proxy_person and role == "det:poss":
                 return True
         return False
 

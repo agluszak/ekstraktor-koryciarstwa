@@ -122,7 +122,6 @@ def _person_cluster(
             )
         ],
         primary_entity_id=EntityID(entity_id),
-        member_entity_ids=[EntityID(entity_id)],
     )
     return entity, cluster
 

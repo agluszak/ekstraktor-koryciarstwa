@@ -34,7 +34,6 @@ def cluster(
             )
         ],
         primary_entity_id=entity_id,
-        member_entity_ids=[entity_id],
     )
 
 

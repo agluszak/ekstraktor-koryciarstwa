@@ -129,7 +129,6 @@ def cluster_for_entity(
             cluster
             for cluster in document.clusters
             if cluster.primary_entity_id == entity_id
-            or entity_id in cluster.member_entity_ids
             or any(mention.entity_id == entity_id for mention in cluster.mentions)
         ),
         None,
@@ -300,16 +299,6 @@ def ensure_entity_view(
 
     if target_cluster.primary_entity_id is None:
         target_cluster.primary_entity_id = entity.entity_id
-    elif (
-        target_cluster.primary_entity_id != entity.entity_id
-        and target_cluster.primary_entity_id not in target_cluster.member_entity_ids
-    ):
-        target_cluster.member_entity_ids.append(target_cluster.primary_entity_id)
-    if (
-        target_cluster.primary_entity_id != entity.entity_id
-        and entity.entity_id not in target_cluster.member_entity_ids
-    ):
-        target_cluster.member_entity_ids.append(entity.entity_id)
     if not any(
         mention.entity_id == entity.entity_id
         and mention.sentence_index == sentence_index

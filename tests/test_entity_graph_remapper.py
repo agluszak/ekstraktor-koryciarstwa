@@ -70,15 +70,13 @@ def test_remap_mentions_deduplicates_member_entity_ids_after_many_to_one_remap()
                     ),
                 ],
                 primary_entity_id=source_id,
-                member_entity_ids=[source_id, target_id],
             )
         ],
     )
-
     EntityGraphRemapper.remap_mentions(document, {source_id: target_id})
-
+    EntityGraphRemapper.remap_mentions(document, {source_id: target_id})
     assert document.clusters[0].primary_entity_id == target_id
-    assert document.clusters[0].member_entity_ids == [target_id]
+    assert document.clusters[0].primary_entity_id == target_id
     assert [mention.entity_id for mention in document.clusters[0].mentions] == [
         target_id,
         target_id,

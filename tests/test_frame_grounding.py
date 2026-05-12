@@ -108,7 +108,6 @@ def _document(
                 cluster_id=ClusterID(f"cluster-{index}"),
                 mentions=[cluster_mention],
                 primary_entity_id=entity_id,
-                member_entity_ids=[entity_id],
             )
         )
     document.clause_units = [

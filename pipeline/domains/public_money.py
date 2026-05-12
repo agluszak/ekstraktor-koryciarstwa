@@ -7,7 +7,6 @@ from enum import StrEnum
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
-    ClusterID,
     EntityID,
     EntityType,
     FactID,
@@ -140,8 +139,16 @@ class PolishPublicContractFrameExtractor:
                 document.public_contract_frames.append(
                     PublicContractFrame(
                         frame_id=FrameID(f"contract-frame-{uuid.uuid4().hex[:8]}"),
-                        contractor_cluster_id=signal.recipient_cluster.cluster_id,
-                        counterparty_cluster_id=signal.payer_cluster.cluster_id,
+                        contractor_entity_id=context.entity_id_for_cluster(
+                            signal.recipient_cluster
+                        ),
+                        counterparty_entity_id=context.entity_id_for_cluster(signal.payer_cluster),
+                        counterparty_organization_kind=(
+                            entity.organization_kind
+                            if (entity := context.entity_for_cluster(signal.payer_cluster))
+                            is not None
+                            else None
+                        ),
                         amount_text=signal.amount_text,
                         amount_normalized=signal.amount_normalized,
                         confidence=signal.confidence,
@@ -209,8 +216,13 @@ class PolishPublicContractFrameExtractor:
             frames.append(
                 PublicContractFrame(
                     frame_id=FrameID(f"contract-frame-{uuid.uuid4().hex[:8]}"),
-                    contractor_cluster_id=contractor.cluster_id,
-                    counterparty_cluster_id=counterparty.cluster_id,
+                    contractor_entity_id=context.entity_id_for_cluster(contractor),
+                    counterparty_entity_id=context.entity_id_for_cluster(counterparty),
+                    counterparty_organization_kind=(
+                        entity.organization_kind
+                        if (entity := context.entity_for_cluster(counterparty)) is not None
+                        else None
+                    ),
                     amount_text=amount_text,
                     amount_normalized=normalize_entity_name(amount_text.lower())
                     if amount_text
@@ -297,7 +309,10 @@ class PolishPublicContractFrameExtractor:
         if company_candidates:
             return max(
                 company_candidates,
-                key=lambda cluster: context.organization_kind_for_cluster(cluster) is not None,
+                key=lambda cluster: (
+                    (entity := context.entity_for_cluster(cluster)) is not None
+                    and entity.organization_kind is not None
+                ),
             )
 
         person_contractors = [
@@ -620,12 +635,11 @@ def _deduplicate_public_facts(facts: list[Fact]) -> list[Fact]:
 
 class PublicContractFactBuilder:
     def build(self, document: ArticleDocument, context: ExtractionContext) -> list[Fact]:
-        cluster_to_entity_id = context.cluster_entity_id_map()
+        _ = context
         facts = [
             fact
             for frame in document.public_contract_frames
-            if (fact := self._fact_for_frame(document, frame, cluster_to_entity_id, context))
-            is not None
+            if (fact := self._fact_for_frame(document, frame)) is not None
         ]
         return _deduplicate_public_facts(facts)
 
@@ -633,30 +647,23 @@ class PublicContractFactBuilder:
     def _fact_for_frame(
         document: ArticleDocument,
         frame: PublicContractFrame,
-        cluster_to_entity_id: dict[ClusterID, EntityID],
-        context: ExtractionContext,
     ) -> Fact | None:
-        contractor_id = cluster_to_entity_id.get(frame.contractor_cluster_id)
-        counterparty_id = cluster_to_entity_id.get(frame.counterparty_cluster_id)
-        if contractor_id is None or counterparty_id is None:
-            return None
         evidence = frame.evidence[0] if frame.evidence else EvidenceSpan(text="")
-        counterparty = context.cluster_by_id(frame.counterparty_cluster_id)
         return Fact(
             fact_id=FactID(
                 stable_id(
                     "fact",
                     str(document.document_id),
                     FactType.PUBLIC_CONTRACT.value,
-                    str(contractor_id),
-                    str(counterparty_id),
+                    str(frame.contractor_entity_id),
+                    str(frame.counterparty_entity_id),
                     frame.amount_normalized or "",
                     str(evidence.start_char or ""),
                 )
             ),
             fact_type=FactType.PUBLIC_CONTRACT,
-            subject_entity_id=contractor_id,
-            object_entity_id=counterparty_id,
+            subject_entity_id=frame.contractor_entity_id,
+            object_entity_id=frame.counterparty_entity_id,
             value_text=frame.amount_text,
             value_normalized=frame.amount_normalized,
             time_scope=TimeScope.UNKNOWN,
@@ -670,11 +677,7 @@ class PublicContractFactBuilder:
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,
-            organization_kind=(
-                context.organization_kind_for_cluster(counterparty)
-                if counterparty is not None
-                else None
-            ),
+            organization_kind=frame.counterparty_organization_kind,
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             source_extractor="public_contract_frame",
