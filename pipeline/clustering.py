@@ -43,10 +43,15 @@ class PolishEntityClusterer(EntityClusterer):
 
         clusters: list[EntityCluster] = []
         entity_to_cluster_id: dict[EntityID, ClusterID] = {}
+        entities_by_id = {entity.entity_id: entity for entity in document.entities}
 
         for entity in document.entities:
             match = next(
-                (cluster for cluster in clusters if self._entity_matches_cluster(entity, cluster)),
+                (
+                    cluster
+                    for cluster in clusters
+                    if self._entity_matches_cluster(entity, cluster, entities_by_id)
+                ),
                 None,
             )
 
@@ -56,7 +61,7 @@ class PolishEntityClusterer(EntityClusterer):
                 clusters.append(cluster)
                 entity_to_cluster_id[entity.entity_id] = cluster_id
             else:
-                self._add_to_cluster(match, entity)
+                self._add_to_cluster(match, entity, entities_by_id)
                 entity_to_cluster_id[entity.entity_id] = match.cluster_id
 
         for mention in document.mentions:
@@ -102,34 +107,35 @@ class PolishEntityClusterer(EntityClusterer):
         document.clusters = clusters
         return document
 
-    def _entity_matches_cluster(self, entity: Entity, cluster: EntityCluster) -> bool:
+    def _entity_matches_cluster(
+        self,
+        entity: Entity,
+        cluster: EntityCluster,
+        entities_by_id: dict[EntityID, Entity],
+    ) -> bool:
+        cluster_entity = self._representative_entity(cluster, entities_by_id)
+        if cluster_entity is None:
+            return False
         if (
-            entity.is_proxy_person or cluster.is_proxy_person or entity.is_honorific_person_ref
-            # Note: EntityCluster doesn't have is_honorific_person_ref,
-            # it was only in Entity.attributes before.
+            entity.is_proxy_person
+            or cluster_entity.is_proxy_person
+            or entity.is_honorific_person_ref
+            or cluster_entity.is_honorific_person_ref
         ):
-            return entity.entity_id == cluster.proxy_entity_id
+            return entity.entity_id == cluster_entity.entity_id
 
-        temp_entity = Entity(
-            entity_id=EntityID(str(cluster.cluster_id)),
-            entity_type=cluster.entity_type,
-            canonical_name=cluster.canonical_name,
-            normalized_name=cluster.normalized_name,
-            aliases=list(cluster.aliases),
-            lemmas=cluster.lemmas,
-            organization_kind=cluster.organization_kind,
-        )
-        if self.canonicalizer.entities_compatible(entity, temp_entity):
+        if self.canonicalizer.entities_compatible(entity, cluster_entity):
             return True
 
         # Embedding-based fallback for organizations/institutions
         if (
             self.runtime is not None
             and entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
-            and cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            and cluster_entity.entity_type
+            in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         ):
             left_emb = self._encode_text(entity.canonical_name)
-            right_emb = self._encode_text(cluster.canonical_name)
+            right_emb = self._encode_text(cluster_entity.canonical_name)
             if self._cosine_similarity(left_emb, right_emb) >= self._org_similarity_threshold:
                 return True
 
@@ -167,29 +173,25 @@ class PolishEntityClusterer(EntityClusterer):
 
         return EntityCluster(
             cluster_id=cluster_id,
-            entity_type=entity.entity_type,
-            canonical_name=entity.canonical_name,
-            normalized_name=entity.normalized_name,
             mentions=mentions,
             primary_entity_id=entity.entity_id,
             member_entity_ids=[entity.entity_id],
-            aliases=list(entity.aliases),
-            lemmas=list(entity.lemmas),
-            organization_kind=entity.organization_kind,
-            is_proxy_person=entity.is_proxy_person,
-            proxy_entity_id=entity.entity_id if entity.is_proxy_person else None,
-            proxy_kind=entity.proxy_kind,
-            kinship_detail=entity.kinship_detail,
-            proxy_anchor_entity_id=entity.proxy_anchor_entity_id,
-            role_kind=entity.role_kind,
-            role_modifier=entity.role_modifier,
         )
 
-    def _add_to_cluster(self, cluster: EntityCluster, entity: Entity) -> None:
+    def _add_to_cluster(
+        self,
+        cluster: EntityCluster,
+        entity: Entity,
+        entities_by_id: dict[EntityID, Entity],
+    ) -> None:
+        representative = self._representative_entity(cluster, entities_by_id)
+        if representative is None:
+            cluster.primary_entity_id = entity.entity_id
+            representative = entity
         all_names = unique_preserve_order(
             [
-                cluster.canonical_name,
-                *cluster.aliases,
+                representative.canonical_name,
+                *representative.aliases,
                 entity.canonical_name,
                 *entity.aliases,
             ]
@@ -219,16 +221,16 @@ class PolishEntityClusterer(EntityClusterer):
         cluster.mentions.extend(new_mentions)
         if entity.entity_id not in cluster.member_entity_ids:
             cluster.member_entity_ids.append(entity.entity_id)
-        cluster.aliases = all_names
+        representative.aliases = all_names
 
         # Create a representative entity for naming policy
         representative_entity = Entity(
             entity_id=EntityID(str(cluster.cluster_id)),
-            entity_type=cluster.entity_type,
-            canonical_name=cluster.canonical_name,
-            normalized_name=cluster.normalized_name,
+            entity_type=representative.entity_type,
+            canonical_name=representative.canonical_name,
+            normalized_name=representative.normalized_name,
             aliases=all_names,
-            lemmas=unique_preserve_order([*cluster.lemmas, *entity.lemmas]),
+            lemmas=unique_preserve_order([*representative.lemmas, *entity.lemmas]),
             evidence=[
                 EvidenceSpan(
                     text=m.text,
@@ -241,24 +243,46 @@ class PolishEntityClusterer(EntityClusterer):
             ],
         )
 
-        if cluster.entity_type == EntityType.PERSON:
-            cluster.canonical_name = self.canonicalizer.best_person_name(all_names)
-        elif cluster.entity_type == EntityType.LOCATION:
-            cluster.canonical_name = self.canonicalizer.location_naming.best_location_name(
+        if representative.entity_type == EntityType.PERSON:
+            representative.canonical_name = self.canonicalizer.best_person_name(all_names)
+        elif representative.entity_type == EntityType.LOCATION:
+            representative.canonical_name = self.canonicalizer.location_naming.best_location_name(
                 all_names
             )
-        elif cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
-            cluster.canonical_name = self.canonicalizer.best_organization_name(
+        elif representative.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            representative.canonical_name = self.canonicalizer.best_organization_name(
                 representative_entity, all_names
             )
 
-        cluster.normalized_name = cluster.canonical_name
-        cluster.lemmas = representative_entity.lemmas
+        representative.normalized_name = representative.canonical_name
+        representative.lemmas = representative_entity.lemmas
 
-        if cluster.role_kind is None:
-            cluster.role_kind = entity.role_kind
-        if cluster.role_modifier is None:
-            cluster.role_modifier = entity.role_modifier
+        if representative.role_kind is None:
+            representative.role_kind = entity.role_kind
+        if representative.role_modifier is None:
+            representative.role_modifier = entity.role_modifier
+
+    @staticmethod
+    def _representative_entity(
+        cluster: EntityCluster,
+        entities_by_id: dict[EntityID, Entity],
+    ) -> Entity | None:
+        if cluster.primary_entity_id is not None:
+            entity = entities_by_id.get(cluster.primary_entity_id)
+            if entity is not None:
+                return entity
+        for entity_id in cluster.member_entity_ids:
+            entity = entities_by_id.get(entity_id)
+            if entity is not None:
+                return entity
+        return next(
+            (
+                entities_by_id[mention.entity_id]
+                for mention in cluster.mentions
+                if mention.entity_id in entities_by_id
+            ),
+            None,
+        )
 
     @staticmethod
     def _mention_location(document: ArticleDocument, mention: Mention) -> tuple[int, int, int]:

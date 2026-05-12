@@ -3,18 +3,54 @@ from pipeline.domain_types import (
     DocumentID,
     EntityID,
     EntityType,
+    FactID,
     FactType,
+    IdentityHypothesisReason,
+    IdentityHypothesisStatus,
     KinshipDetail,
+    RelationshipType,
+    TimeScope,
 )
 from pipeline.domains.kinship import KinshipTieBuilder
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
     ClusterMention,
+    Entity,
     EntityCluster,
+    EvidenceSpan,
+    Fact,
+    IdentityHypothesis,
     ParsedWord,
     SentenceFragment,
 )
+
+
+def _cluster(
+    cluster_id: str,
+    mentions: list[ClusterMention],
+    *,
+    primary_entity_id: EntityID | None = None,
+    member_entity_ids: list[EntityID] | None = None,
+) -> EntityCluster:
+    resolved_primary = primary_entity_id or next(
+        (mention.entity_id for mention in mentions if mention.entity_id is not None),
+        None,
+    )
+    resolved_members = member_entity_ids
+    if resolved_members is None:
+        resolved_members = []
+        if resolved_primary is not None:
+            resolved_members.append(resolved_primary)
+        for mention in mentions:
+            if mention.entity_id is not None and mention.entity_id not in resolved_members:
+                resolved_members.append(mention.entity_id)
+    return EntityCluster(
+        cluster_id=ClusterID(cluster_id),
+        mentions=mentions,
+        primary_entity_id=resolved_primary,
+        member_entity_ids=resolved_members,
+    )
 
 
 def test_kinship_apposition_emits_spouse_tie() -> None:
@@ -101,12 +137,9 @@ def test_kinship_apposition_emits_spouse_tie() -> None:
             ]
         },
         clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-sylwia"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Sylwia Sobolewska",
-                normalized_name="sylwia sobolewska",
-                mentions=[
+            _cluster(
+                "cluster-sylwia",
+                [
                     ClusterMention(
                         text="Sylwię Sobolewską",
                         entity_id=EntityID("person-sylwia"),
@@ -118,12 +151,9 @@ def test_kinship_apposition_emits_spouse_tie() -> None:
                     )
                 ],
             ),
-            EntityCluster(
-                cluster_id=ClusterID("cluster-krzysztof"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Krzysztof Sobolewski",
-                normalized_name="krzysztof sobolewski",
-                mentions=[
+            _cluster(
+                "cluster-krzysztof",
+                [
                     ClusterMention(
                         text="Krzysztofa Sobolewskiego",
                         entity_id=EntityID("person-krzysztof"),
@@ -241,12 +271,9 @@ def test_kinship_apposition_handles_sparse_dependency_indices() -> None:
             ]
         },
         clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-sylwia-sparse"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Sylwia Sobolewska",
-                normalized_name="sylwia sobolewska",
-                mentions=[
+            _cluster(
+                "cluster-sylwia-sparse",
+                [
                     ClusterMention(
                         text="Sylwię Sobolewską",
                         entity_id=EntityID("person-sylwia-sparse"),
@@ -258,12 +285,9 @@ def test_kinship_apposition_handles_sparse_dependency_indices() -> None:
                     )
                 ],
             ),
-            EntityCluster(
-                cluster_id=ClusterID("cluster-krzysztof-sparse"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Krzysztof Sobolewski",
-                normalized_name="krzysztof sobolewski",
-                mentions=[
+            _cluster(
+                "cluster-krzysztof-sparse",
+                [
                     ClusterMention(
                         text="Krzysztofa Sobolewskiego",
                         entity_id=EntityID("person-krzysztof-sparse"),
@@ -321,12 +345,9 @@ def test_kinship_builder_does_not_pair_nearest_previous_people_without_evidence(
             ]
         },
         clusters=[
-            EntityCluster(
-                cluster_id=ClusterID("cluster-jan"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Jan Kowalski",
-                normalized_name="jan kowalski",
-                mentions=[
+            _cluster(
+                "cluster-jan",
+                [
                     ClusterMention(
                         text="Jan Kowalski",
                         entity_id=EntityID("person-jan"),
@@ -338,12 +359,9 @@ def test_kinship_builder_does_not_pair_nearest_previous_people_without_evidence(
                     )
                 ],
             ),
-            EntityCluster(
-                cluster_id=ClusterID("cluster-adam"),
-                entity_type=EntityType.PERSON,
-                canonical_name="Adam Nowak",
-                normalized_name="adam nowak",
-                mentions=[
+            _cluster(
+                "cluster-adam",
+                [
                     ClusterMention(
                         text="Adam Nowak",
                         entity_id=EntityID("person-adam"),
@@ -359,3 +377,140 @@ def test_kinship_builder_does_not_pair_nearest_previous_people_without_evidence(
     )
 
     assert KinshipTieBuilder().build(doc, ExtractionContext.build(doc)) == []
+
+
+def test_identity_backed_proxy_tie_uses_entity_backed_views_with_stale_cluster_metadata() -> None:
+    sentence_text = "Anna Nowak jest opisywana jako możliwa żona Jana Kowalskiego."
+    proxy_id = EntityID("entity-proxy-spouse")
+    anchor_id = EntityID("entity-jan")
+    matched_id = EntityID("entity-anna")
+    sentence = SentenceFragment(
+        text=sentence_text,
+        paragraph_index=0,
+        sentence_index=0,
+        start_char=0,
+        end_char=len(sentence_text),
+    )
+    evidence = EvidenceSpan(
+        text=sentence_text,
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+        end_char=len(sentence_text),
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc-identity-backed-proxy-stale-view"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date="2026-04-22",
+        cleaned_text=sentence_text,
+        paragraphs=[sentence_text],
+        sentences=[sentence],
+        entities=[
+            Entity(
+                entity_id=proxy_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="proxy spouse",
+                normalized_name="proxy spouse",
+                is_proxy_person=True,
+                kinship_detail=KinshipDetail.SPOUSE,
+                proxy_anchor_entity_id=anchor_id,
+            ),
+            Entity(
+                entity_id=anchor_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+            ),
+            Entity(
+                entity_id=matched_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Anna Nowak",
+                normalized_name="Anna Nowak",
+            ),
+        ],
+        clusters=[
+            _cluster(
+                "cluster-proxy-stale",
+                [
+                    ClusterMention(
+                        text="żona",
+                        entity_type=EntityType.POSITION,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=sentence_text.index("żona"),
+                        end_char=sentence_text.index("żona") + len("żona"),
+                        entity_id=proxy_id,
+                    )
+                ],
+                primary_entity_id=proxy_id,
+                member_entity_ids=[proxy_id],
+            ),
+            _cluster(
+                "cluster-jan-stale",
+                [
+                    ClusterMention(
+                        text="Jana Kowalskiego",
+                        entity_type=EntityType.POSITION,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=sentence_text.index("Jana"),
+                        end_char=sentence_text.index("Jana") + len("Jana Kowalskiego"),
+                        entity_id=anchor_id,
+                    )
+                ],
+                primary_entity_id=anchor_id,
+                member_entity_ids=[anchor_id],
+            ),
+            _cluster(
+                "cluster-anna-stale",
+                [
+                    ClusterMention(
+                        text="Anna Nowak",
+                        entity_type=EntityType.POSITION,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=0,
+                        end_char=len("Anna Nowak"),
+                        entity_id=matched_id,
+                    )
+                ],
+                primary_entity_id=matched_id,
+                member_entity_ids=[matched_id],
+            ),
+        ],
+        facts=[
+            Fact(
+                fact_id=FactID("fact-proxy-family"),
+                fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+                subject_entity_id=proxy_id,
+                object_entity_id=anchor_id,
+                value_text=KinshipDetail.SPOUSE.value,
+                value_normalized=KinshipDetail.SPOUSE.value,
+                time_scope=TimeScope.CURRENT,
+                event_date="2026-04-22",
+                confidence=0.8,
+                evidence=evidence,
+                relationship_type=RelationshipType.FAMILY,
+                kinship_detail=KinshipDetail.SPOUSE,
+            )
+        ],
+        identity_hypotheses=[
+            IdentityHypothesis(
+                left_entity_id=proxy_id,
+                right_entity_id=matched_id,
+                confidence=0.72,
+                reason=IdentityHypothesisReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY,
+                evidence=[evidence],
+                status=IdentityHypothesisStatus.PROBABLE,
+            )
+        ],
+    )
+
+    facts = KinshipTieBuilder().build(document, ExtractionContext.build(document))
+
+    assert len(facts) == 1
+    assert facts[0].subject_entity_id == proxy_id
+    assert facts[0].object_entity_id == anchor_id
+    assert facts[0].possible_identity_matches == [matched_id]

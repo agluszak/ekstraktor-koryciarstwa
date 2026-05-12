@@ -5,7 +5,9 @@ from pipeline.models import (
     ArticleDocument,
     ClauseUnit,
     ClusterMention,
+    Entity,
     EntityCluster,
+    EvidenceSpan,
     ParsedWord,
 )
 
@@ -16,11 +18,9 @@ def cluster(
     entity_type: EntityType,
     start_char: int,
 ) -> EntityCluster:
+    entity_id = EntityID(cluster_id.replace("cluster-", "entity-"))
     return EntityCluster(
         cluster_id=ClusterID(cluster_id),
-        entity_type=entity_type,
-        canonical_name=name,
-        normalized_name=name.casefold(),
         mentions=[
             ClusterMention(
                 text=name,
@@ -29,13 +29,38 @@ def cluster(
                 paragraph_index=0,
                 start_char=start_char,
                 end_char=start_char + len(name),
-                entity_id=EntityID(cluster_id.replace("cluster-", "entity-")),
+                entity_id=entity_id,
             )
         ],
+        primary_entity_id=entity_id,
+        member_entity_ids=[entity_id],
     )
 
 
 def document(text: str, clusters: list[EntityCluster]) -> ArticleDocument:
+    entities = [
+        Entity(
+            entity_id=(
+                cluster.primary_entity_id
+                or cluster.mentions[0].entity_id
+                or EntityID(str(cluster.cluster_id))
+            ),
+            entity_type=cluster.mentions[0].entity_type,
+            canonical_name=cluster.mentions[0].text,
+            normalized_name=cluster.mentions[0].text.casefold(),
+            evidence=[
+                EvidenceSpan(
+                    text=cluster.mentions[0].text,
+                    sentence_index=cluster.mentions[0].sentence_index,
+                    paragraph_index=cluster.mentions[0].paragraph_index,
+                    start_char=cluster.mentions[0].start_char,
+                    end_char=cluster.mentions[0].end_char,
+                )
+            ],
+        )
+        for cluster in clusters
+        if cluster.mentions
+    ]
     return ArticleDocument(
         document_id=DocumentID("doc"),
         source_url=None,
@@ -44,6 +69,7 @@ def document(text: str, clusters: list[EntityCluster]) -> ArticleDocument:
         publication_date=None,
         cleaned_text=text,
         paragraphs=[text],
+        entities=entities,
         clusters=clusters,
     )
 

@@ -110,9 +110,6 @@ def _person_cluster(
     )
     cluster = EntityCluster(
         cluster_id=ClusterID(f"cluster-{entity_id}"),
-        entity_type=EntityType.PERSON,
-        canonical_name=name,
-        normalized_name=name,
         mentions=[
             ClusterMention(
                 text=name,
@@ -124,6 +121,8 @@ def _person_cluster(
                 entity_id=EntityID(entity_id),
             )
         ],
+        primary_entity_id=EntityID(entity_id),
+        member_entity_ids=[EntityID(entity_id)],
     )
     return entity, cluster
 

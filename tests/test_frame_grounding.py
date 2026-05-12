@@ -7,6 +7,7 @@ import numpy as np
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import ClauseID, ClusterID, DocumentID, EntityID, EntityType
 from pipeline.enrichment import SharedEntityEnricher
+from pipeline.extraction_context import ExtractionContext
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
     ArticleDocument,
@@ -105,10 +106,9 @@ def _document(
         document.clusters.append(
             EntityCluster(
                 cluster_id=ClusterID(f"cluster-{index}"),
-                entity_type=entity_type,
-                canonical_name=canonical_name,
-                normalized_name=canonical_name,
                 mentions=[cluster_mention],
+                primary_entity_id=entity_id,
+                member_entity_ids=[entity_id],
             )
         )
     document.clause_units = [
@@ -158,11 +158,16 @@ def test_shared_grounding_recovers_person_grounded_foundation_from_money_context
     )
 
     SharedEntityEnricher(config).run(document)
+    context = ExtractionContext.build(document)
 
     assert any(
-        cluster.canonical_name == "Fundacja Karola Bielskiego" for cluster in document.clusters
+        context.canonical_name_for_cluster(cluster) == "Fundacja Karola Bielskiego"
+        for cluster in document.clusters
     )
-    assert any(cluster.canonical_name == "Urząd Marszałkowski" for cluster in document.clusters)
+    assert any(
+        context.canonical_name_for_cluster(cluster) == "Urząd Marszałkowski"
+        for cluster in document.clusters
+    )
 
 
 def test_shared_grounding_normalizes_wojewodzki_office_name() -> None:
@@ -195,9 +200,11 @@ def test_shared_grounding_normalizes_wojewodzki_office_name() -> None:
     )
 
     SharedEntityEnricher(config).run(document)
+    context = ExtractionContext.build(document)
 
     assert any(
-        cluster.canonical_name == "Opolski Urząd Wojewódzki" for cluster in document.clusters
+        context.canonical_name_for_cluster(cluster) == "Opolski Urząd Wojewódzki"
+        for cluster in document.clusters
     )
 
 
@@ -224,6 +231,7 @@ def test_role_grounder_rejects_person_name_role_phrase() -> None:
 
     grounded = grounder.ground_public_employment_role(
         document,
+        ExtractionContext.build(document),
         document.clause_units[0],
         employee=ClusterMentionView(
             cluster=document.clusters[0], mention=document.clusters[0].mentions[0]
@@ -257,6 +265,7 @@ def test_role_grounder_rejects_generic_date_dominated_phrase() -> None:
 
     grounded = grounder.ground_public_employment_role(
         document,
+        ExtractionContext.build(document),
         document.clause_units[0],
         employee=ClusterMentionView(
             cluster=document.clusters[0], mention=document.clusters[0].mentions[0]
@@ -310,18 +319,21 @@ def test_shared_grounding_retypes_compact_company_alias_to_existing_organization
     )
 
     SharedEntityEnricher(config).run(document)
+    context = ExtractionContext.build(document)
 
     company_clusters = [
         cluster
         for cluster in document.clusters
-        if cluster.entity_type == EntityType.ORGANIZATION
-        and cluster.canonical_name == "Przedsiębiorstwo Wodociągów i Kanalizacji"
+        if context.entity_type_for_cluster(cluster) == EntityType.ORGANIZATION
+        and context.canonical_name_for_cluster(cluster)
+        == "Przedsiębiorstwo Wodociągów i Kanalizacji"
     ]
 
     assert len(company_clusters) == 1
-    assert "WodKan" in company_clusters[0].aliases
+    assert "WodKan" in context.aliases_for_cluster(company_clusters[0])
     assert not any(
-        cluster.entity_type == EntityType.PERSON and cluster.canonical_name == "WodKan"
+        context.entity_type_for_cluster(cluster) == EntityType.PERSON
+        and context.canonical_name_for_cluster(cluster) == "WodKan"
         for cluster in document.clusters
     )
 
@@ -394,18 +406,20 @@ def test_shared_grounding_uses_embedding_fallback_for_compact_org_alias() -> Non
     runtime.get_sentence_transformer_model.return_value = model
 
     SharedEntityEnricher(config, runtime=runtime).run(document)
+    context = ExtractionContext.build(document)
 
     office_clusters = [
         cluster
         for cluster in document.clusters
-        if cluster.entity_type == EntityType.PUBLIC_INSTITUTION
-        and cluster.canonical_name == "Urząd Marszałkowski Województwa Mazowieckiego"
+        if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION
+        and context.canonical_name_for_cluster(cluster)
+        == "Urząd Marszałkowski Województwa Mazowieckiego"
     ]
 
     assert len(office_clusters) == 1
-    assert "MarszałkowskiMazowsze" in office_clusters[0].aliases
+    assert "MarszałkowskiMazowsze" in context.aliases_for_cluster(office_clusters[0])
     assert not any(
-        cluster.entity_type == EntityType.PERSON
-        and cluster.canonical_name == "MarszałkowskiMazowsze"
+        context.entity_type_for_cluster(cluster) == EntityType.PERSON
+        and context.canonical_name_for_cluster(cluster) == "MarszałkowskiMazowsze"
         for cluster in document.clusters
     )

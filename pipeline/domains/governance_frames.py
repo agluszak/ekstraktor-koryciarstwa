@@ -14,7 +14,6 @@ from pipeline.models import (
     ClauseUnit,
     ClusterMention,
     EntityCluster,
-    EvidenceSpan,
     GovernanceFrame,
     ParsedWord,
 )
@@ -230,7 +229,9 @@ class PolishGovernanceFrameExtractor:
             {EntityType.POSITION},
         )
         role_cluster = (
-            role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
+            role_clusters[0]
+            if role_clusters
+            else self._find_role_from_text(document, clause, context)
         )
         role_text = None if role_cluster is not None else self._find_role_text(document, clause)
 
@@ -263,6 +264,7 @@ class PolishGovernanceFrameExtractor:
         person_cluster_id, appointing_authority_id = self._resolve_people(
             clause,
             document,
+            context,
             person_clusters,
             signal,
         )
@@ -271,6 +273,7 @@ class PolishGovernanceFrameExtractor:
 
         target_resolution = self.target_resolver.resolve(
             document=document,
+            context=context,
             clause=clause,
             org_clusters=org_clusters,
             role_cluster=role_cluster,
@@ -411,104 +414,11 @@ class PolishGovernanceFrameExtractor:
             adjusted -= 0.03
         return max(0.45, round(adjusted, 3))
 
-    def _extract_frame_from_clause(
-        self,
-        clause: ClauseUnit,
-        document: ArticleDocument,
-        signal: GovernanceSignal,
-        context: ExtractionContext,
-    ) -> GovernanceFrame | None:
-        person_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
-            {EntityType.PERSON},
-        )
-        role_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
-            {EntityType.POSITION},
-        )
-        org_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
-            {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
-        )
-        if not person_clusters:
-            person_clusters = context.paragraph_context_clusters(
-                clause,
-                {EntityType.PERSON},
-            )
-        elif signal == GovernanceSignal.APPOINTMENT and self._has_object_pronoun(document, clause):
-            person_clusters = ExtractionContext.merge_clusters(
-                person_clusters,
-                context.paragraph_context_clusters(
-                    clause,
-                    {EntityType.PERSON},
-                ),
-            )
-        if not org_clusters:
-            org_clusters = context.paragraph_context_clusters(
-                clause,
-                {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
-            )
-
-        if not person_clusters:
-            return None
-
-        person_cluster_id, appointing_authority_id = self._resolve_people(
-            clause,
-            document,
-            person_clusters,
-            signal,
-        )
-        if person_cluster_id is None:
-            return None
-
-        role_cluster = (
-            role_clusters[0] if role_clusters else self._find_role_from_text(document, clause)
-        )
-        role_cluster_id = role_cluster.cluster_id if role_cluster is not None else None
-        role_text = None if role_cluster is not None else self._find_role_text(document, clause)
-
-        target_resolution = self.target_resolver.resolve(
-            document=document,
-            clause=clause,
-            org_clusters=org_clusters,
-            role_cluster=role_cluster,
-        )
-        if target_resolution.target_org is None:
-            return None
-
-        return GovernanceFrame(
-            frame_id=FrameID(f"frame-{uuid.uuid4().hex[:8]}"),
-            signal=signal,
-            person_cluster_id=ClusterID(person_cluster_id) if person_cluster_id else None,
-            role_cluster_id=role_cluster_id,
-            target_org_cluster_id=target_resolution.target_org.cluster_id,
-            owner_context_cluster_id=target_resolution.owner_context.cluster_id
-            if target_resolution.owner_context
-            else None,
-            governing_body_cluster_id=target_resolution.governing_body.cluster_id
-            if target_resolution.governing_body
-            else None,
-            appointing_authority_cluster_id=ClusterID(appointing_authority_id)
-            if appointing_authority_id
-            else None,
-            confidence=target_resolution.confidence,
-            evidence=[
-                EvidenceSpan(
-                    text=clause.text,
-                    sentence_index=clause.sentence_index,
-                    paragraph_index=clause.paragraph_index,
-                    start_char=clause.start_char,
-                    end_char=clause.end_char,
-                )
-            ],
-            target_resolution=target_resolution.reason,
-            found_role=role_text,
-        )
-
     def _resolve_people(
         self,
         clause: ClauseUnit,
         document: ArticleDocument,
+        context: ExtractionContext,
         person_clusters: list[EntityCluster],
         signal: GovernanceSignal,
     ) -> tuple[str | None, str | None]:
@@ -525,6 +435,7 @@ class PolishGovernanceFrameExtractor:
             self._recover_recent_appointing_authority(
                 clause,
                 document,
+                context,
                 excluded_cluster_ids=current_sentence_ids | speech_speaker_ids,
             )
             if signal == GovernanceSignal.APPOINTMENT
@@ -600,7 +511,7 @@ class PolishGovernanceFrameExtractor:
                 cluster
                 for cluster in person_clusters
                 if cluster.cluster_id not in speech_speaker_ids
-                and self._cluster_has_dismissal_subject_signal(clause, cluster)
+                and self._cluster_has_dismissal_subject_signal(context, clause, cluster)
             ]
             if signal == GovernanceSignal.DISMISSAL
             else person_clusters
@@ -621,6 +532,7 @@ class PolishGovernanceFrameExtractor:
 
     @staticmethod
     def _cluster_has_dismissal_subject_signal(
+        context: ExtractionContext,
         clause: ClauseUnit,
         cluster: EntityCluster,
     ) -> bool:
@@ -630,7 +542,7 @@ class PolishGovernanceFrameExtractor:
             role = clause.mention_roles.get(mention.text)
             if role and (role.startswith("nsubj") or role.startswith("obj")):
                 return True
-            if cluster.is_proxy_person and role == "det:poss":
+            if context.is_proxy_person_cluster(cluster) and role == "det:poss":
                 return True
         return False
 
@@ -706,14 +618,15 @@ class PolishGovernanceFrameExtractor:
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
+        context: ExtractionContext,
     ) -> EntityCluster | None:
         role_text = self._find_role_text(document, clause)
         if role_text is None:
             return None
         for cluster in document.clusters:
-            if cluster.entity_type != EntityType.POSITION:
+            if context.entity_type_for_cluster(cluster) != EntityType.POSITION:
                 continue
-            if cluster.canonical_name.lower() == role_text.lower():
+            if context.canonical_name_for_cluster(cluster).lower() == role_text.lower():
                 return cluster
         return None
 
@@ -764,6 +677,7 @@ class PolishGovernanceFrameExtractor:
         self,
         clause: ClauseUnit,
         document: ArticleDocument,
+        context: ExtractionContext,
         *,
         excluded_cluster_ids: set[ClusterID],
     ) -> ClusterID | None:
@@ -799,7 +713,7 @@ class PolishGovernanceFrameExtractor:
         candidates = [
             cluster
             for cluster in document.clusters
-            if cluster.entity_type == EntityType.PERSON
+            if context.entity_type_for_cluster(cluster) == EntityType.PERSON
             and cluster.cluster_id not in excluded_cluster_ids
             and self._cluster_has_sentence_word_indices(
                 previous_sentence.start_char,
@@ -811,18 +725,22 @@ class PolishGovernanceFrameExtractor:
         ]
         if not candidates:
             return None
-        return max(candidates, key=lambda cluster: len(cluster.canonical_name)).cluster_id
+        return max(
+            candidates, key=lambda cluster: len(context.canonical_name_for_cluster(cluster))
+        ).cluster_id
 
     def _recover_recent_appointing_authority(
         self,
         clause: ClauseUnit,
         document: ArticleDocument,
+        context: ExtractionContext,
         *,
         excluded_cluster_ids: set[ClusterID],
     ) -> ClusterID | None:
         previous_authority = self._previous_sentence_appointing_authority(
             clause,
             document,
+            context,
             excluded_cluster_ids=excluded_cluster_ids,
         )
         if previous_authority is not None:
@@ -838,6 +756,7 @@ class PolishGovernanceFrameExtractor:
         return self._recent_titled_appointing_authority(
             clause,
             document,
+            context,
             excluded_cluster_ids=excluded_cluster_ids,
             title_lemmas=title_lemmas,
         )
@@ -882,6 +801,7 @@ class PolishGovernanceFrameExtractor:
         self,
         clause: ClauseUnit,
         document: ArticleDocument,
+        context: ExtractionContext,
         *,
         excluded_cluster_ids: set[ClusterID],
         title_lemmas: set[str],
@@ -903,7 +823,7 @@ class PolishGovernanceFrameExtractor:
             for title_word in title_words:
                 title_start = sentence.start_char + title_word.start
                 for cluster in document.clusters:
-                    if cluster.entity_type != EntityType.PERSON:
+                    if context.entity_type_for_cluster(cluster) != EntityType.PERSON:
                         continue
                     if cluster.cluster_id in excluded_cluster_ids:
                         continue

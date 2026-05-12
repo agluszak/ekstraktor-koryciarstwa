@@ -187,16 +187,18 @@ class PolishPublicContractFrameExtractor:
             return []
 
         trigger_offset = self._contract_trigger_offset(document, clause)
-        contractor = self._best_contractor(clause, clusters, trigger_offset)
+        contractor = self._best_contractor(context, clause, clusters, trigger_offset)
         if contractor is None:
             return []
-        counterparties = self._public_counterparties(clause, clusters, contractor, trigger_offset)
+        counterparties = self._public_counterparties(
+            context, clause, clusters, contractor, trigger_offset
+        )
         if not counterparties:
             return []
 
         amount_text = amount_match.group("amount") if amount_match else None
         confidence = 0.82 if amount_text else 0.68
-        if contractor.entity_type == EntityType.PERSON:
+        if context.entity_type_for_cluster(contractor) == EntityType.PERSON:
             confidence -= 0.12
         if explicit_public_procurement:
             confidence += 0.04
@@ -271,6 +273,7 @@ class PolishPublicContractFrameExtractor:
 
     @staticmethod
     def _best_contractor(
+        context: ExtractionContext,
         clause: ClauseUnit,
         clusters: list[EntityCluster],
         trigger_offset: int,
@@ -278,7 +281,8 @@ class PolishPublicContractFrameExtractor:
         organizations = [
             cluster
             for cluster in clusters
-            if cluster.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            if context.entity_type_for_cluster(cluster)
+            in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         ]
         before_trigger = [
             cluster
@@ -288,17 +292,19 @@ class PolishPublicContractFrameExtractor:
         company_candidates = [
             cluster
             for cluster in before_trigger or organizations
-            if is_company_like_contractor(clause, cluster)
+            if is_company_like_contractor(context, clause, cluster)
         ]
         if company_candidates:
             return max(
-                company_candidates, key=lambda cluster: cluster.organization_kind is not None
+                company_candidates,
+                key=lambda cluster: context.organization_kind_for_cluster(cluster) is not None,
             )
 
         person_contractors = [
             cluster
             for cluster in clusters
-            if cluster.entity_type == EntityType.PERSON and has_person_firm_context(clause, cluster)
+            if context.entity_type_for_cluster(cluster) == EntityType.PERSON
+            and has_person_firm_context(clause, cluster)
         ]
         if person_contractors:
             return min(
@@ -309,6 +315,7 @@ class PolishPublicContractFrameExtractor:
 
     @staticmethod
     def _public_counterparties(
+        context: ExtractionContext,
         clause: ClauseUnit,
         clusters: list[EntityCluster],
         contractor: EntityCluster,
@@ -318,11 +325,14 @@ class PolishPublicContractFrameExtractor:
         for cluster in clusters:
             if cluster.cluster_id == contractor.cluster_id:
                 continue
-            if cluster.entity_type not in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            if context.entity_type_for_cluster(cluster) not in {
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            }:
                 continue
             if not cluster_after_or_near_trigger(cluster, trigger_offset, clause):
                 continue
-            if is_public_counterparty(clause, cluster):
+            if is_public_counterparty(context, clause, cluster):
                 counterparties.append(cluster)
         return counterparties
 
@@ -391,16 +401,20 @@ def _przekazac_has_numeric_dep_object(parsed_words: list[ParsedWord]) -> bool:
     return False
 
 
-def funding_recipient_score(cluster: EntityCluster) -> tuple[int, int, int]:
-    normalized = cluster.normalized_name.lower()
+def funding_recipient_score(
+    context: ExtractionContext,
+    cluster: EntityCluster,
+) -> tuple[int, int, int]:
+    normalized = context.normalized_name_for_cluster(cluster).lower()
+    canonical = context.canonical_name_for_cluster(cluster)
     recipient_bonus = 0
     if any(term in normalized for term in ("fundacja", "stowarzyszenie", "instytut")):
         recipient_bonus += 3
     if any(term in normalized for term in ("projekt", "park", "program")):
         recipient_bonus += 2
-    if cluster.entity_type == EntityType.PUBLIC_INSTITUTION:
+    if context.entity_type_for_cluster(cluster) == EntityType.PUBLIC_INSTITUTION:
         recipient_bonus -= 1
-    return (recipient_bonus, len(cluster.canonical_name.split()), len(cluster.canonical_name))
+    return (recipient_bonus, len(canonical.split()), len(canonical))
 
 
 def _public_money_flow_signal(
@@ -431,8 +445,8 @@ def _public_money_flow_signal(
     org_clusters = _public_money_clusters(document, clause, grounded_orgs, context)
     if len(org_clusters) < 2:
         return None
-    payer = _public_money_payer(clause, org_clusters)
-    recipient = _public_money_recipient(clause, org_clusters, payer)
+    payer = _public_money_payer(context, clause, org_clusters)
+    recipient = _public_money_recipient(context, clause, org_clusters, payer)
     if payer is None or recipient is None or payer.cluster_id == recipient.cluster_id:
         return None
     kind = (
@@ -540,10 +554,13 @@ def _public_money_clusters(
 
 
 def _public_money_payer(
+    context: ExtractionContext,
     clause: ClauseUnit,
     clusters: list[EntityCluster],
 ) -> EntityCluster | None:
-    candidates = [cluster for cluster in clusters if is_public_counterparty(clause, cluster)]
+    candidates = [
+        cluster for cluster in clusters if is_public_counterparty(context, clause, cluster)
+    ]
     if not candidates:
         return None
     z_context = [
@@ -564,6 +581,7 @@ def _public_money_payer(
 
 
 def _public_money_recipient(
+    context: ExtractionContext,
     clause: ClauseUnit,
     clusters: list[EntityCluster],
     payer: EntityCluster | None,
@@ -576,7 +594,8 @@ def _public_money_recipient(
     recipient_candidates = [
         cluster
         for cluster in candidates
-        if funding_recipient_score(cluster)[0] > 1 or not is_public_counterparty(clause, cluster)
+        if funding_recipient_score(context, cluster)[0] > 1
+        or not is_public_counterparty(context, clause, cluster)
     ]
     return min(
         recipient_candidates or candidates,
@@ -651,7 +670,11 @@ class PublicContractFactBuilder:
             confidence=round(frame.confidence, 3),
             evidence=evidence,
             amount_text=frame.amount_normalized,
-            organization_kind=counterparty.organization_kind if counterparty is not None else None,
+            organization_kind=(
+                context.organization_kind_for_cluster(counterparty)
+                if counterparty is not None
+                else None
+            ),
             extraction_signal=frame.extraction_signal,
             evidence_scope=frame.evidence_scope,
             source_extractor="public_contract_frame",

@@ -179,7 +179,7 @@ class DependencyFrameBuilder:
                     token_lemma=word.lemma,
                     deprel=word.deprel,
                     cluster_id=cluster.cluster_id if cluster else None,
-                    entity_type=cluster.entity_type if cluster else None,
+                    entity_type=context.entity_type_for_cluster(cluster) if cluster else None,
                 )
             )
         return arguments
@@ -241,7 +241,10 @@ class DependencyFrameBuilder:
             )
         ]
         if candidates:
-            return min(candidates, key=lambda cluster: len(cluster.canonical_name))
+            return min(
+                candidates,
+                key=lambda cluster: len(context.canonical_name_for_cluster(cluster)),
+            )
         return None
 
     def _money_spans(
