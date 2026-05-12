@@ -5,7 +5,48 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import AbstractSet
 
+from pipeline.cluster_reads import (
+    aliases_for_cluster as read_aliases_for_cluster,
+)
+from pipeline.cluster_reads import (
+    canonical_name_for_cluster as read_canonical_name_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_for_cluster as read_entity_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_type_for_cluster as read_entity_type_for_cluster,
+)
+from pipeline.cluster_reads import (
+    is_proxy_person_cluster as read_is_proxy_person_cluster,
+)
+from pipeline.cluster_reads import (
+    kinship_detail_for_cluster as read_kinship_detail_for_cluster,
+)
+from pipeline.cluster_reads import (
+    lemmas_for_cluster as read_lemmas_for_cluster,
+)
+from pipeline.cluster_reads import (
+    normalized_name_for_cluster as read_normalized_name_for_cluster,
+)
+from pipeline.cluster_reads import (
+    organization_kind_for_cluster as read_organization_kind_for_cluster,
+)
+from pipeline.cluster_reads import (
+    proxy_anchor_entity_id_for_cluster as read_proxy_anchor_entity_id_for_cluster,
+)
+from pipeline.cluster_reads import (
+    proxy_kind_for_cluster as read_proxy_kind_for_cluster,
+)
+from pipeline.cluster_reads import (
+    role_kind_for_cluster as read_role_kind_for_cluster,
+)
+from pipeline.cluster_reads import (
+    role_modifier_for_cluster as read_role_modifier_for_cluster,
+)
 from pipeline.dependency_frames import DependencyFrameBuilder, TriggerArgumentFrame
+from pipeline.document_graph import clause_mentions as live_clause_mentions
+from pipeline.document_graph import mention_dependency_role
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -127,7 +168,7 @@ class ExtractionContext:
         clause: ClauseUnit,
         entity_types: AbstractSet[EntityType],
     ) -> list[EntityCluster]:
-        return self.clusters_in_sentence(clause.sentence_index, entity_types)
+        return self.clusters_for_mentions(self.mentions_for_clause(clause), entity_types)
 
     def clusters_for_mentions(
         self,
@@ -137,7 +178,11 @@ class ExtractionContext:
         seen: set[ClusterID] = set()
         clusters: list[EntityCluster] = []
         for mention in mentions:
-            if mention.entity_type not in entity_types:
+            mention_entity = self.entity_by_id(mention.entity_id)
+            indexed_entity_types = {mention.entity_type}
+            if mention_entity is not None:
+                indexed_entity_types.add(mention_entity.entity_type)
+            if indexed_entity_types.isdisjoint(entity_types):
                 continue
             cluster = self.cluster_for_mention(mention)
             if cluster is None or cluster.cluster_id in seen:
@@ -145,6 +190,42 @@ class ExtractionContext:
             seen.add(cluster.cluster_id)
             clusters.append(cluster)
         return clusters
+
+    def mentions_for_clause(
+        self,
+        clause: ClauseUnit,
+        entity_types: AbstractSet[EntityType] | None = None,
+    ) -> list[ClusterMention]:
+        mentions = live_clause_mentions(self.document, clause)
+        if entity_types is None:
+            return mentions
+        return [
+            mention
+            for mention in mentions
+            if not {
+                mention.entity_type,
+                *(
+                    [entity.entity_type]
+                    if (entity := self.entity_by_id(mention.entity_id)) is not None
+                    else []
+                ),
+            }.isdisjoint(entity_types)
+        ]
+
+    def role_for_mention_in_clause(
+        self,
+        clause: ClauseUnit,
+        mention: ClusterMention,
+    ) -> str | None:
+        sentence = next(
+            (
+                item
+                for item in self.document.sentences
+                if item.sentence_index == clause.sentence_index
+            ),
+            None,
+        )
+        return mention_dependency_role(self.document, sentence, mention)
 
     def cluster_for_mention(self, mention_ref: ClusterMention) -> EntityCluster | None:
         exact_match = self.exact_mention_index.get(
@@ -206,11 +287,7 @@ class ExtractionContext:
         return self.entities_by_id.get(entity_id)
 
     def entity_for_cluster(self, cluster: EntityCluster) -> Entity | None:
-        for entity_id in self.entity_ids_for_cluster(cluster):
-            entity = self.entities_by_id.get(entity_id)
-            if entity is not None:
-                return entity
-        return None
+        return read_entity_for_cluster(cluster, self.entities_by_id)
 
     def entity_for_mention_view(
         self,
@@ -288,62 +365,40 @@ class ExtractionContext:
         )
 
     def entity_type_for_cluster(self, cluster: EntityCluster) -> EntityType:
-        entity = self.entity_for_cluster(cluster)
-        if entity is not None:
-            return entity.entity_type
-        return cluster.mentions[0].entity_type if cluster.mentions else EntityType.ORGANIZATION
+        return read_entity_type_for_cluster(cluster, self.entities_by_id)
 
     def canonical_name_for_cluster(self, cluster: EntityCluster) -> str:
-        entity = self.entity_for_cluster(cluster)
-        if entity is not None:
-            return entity.canonical_name
-        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+        return read_canonical_name_for_cluster(cluster, self.entities_by_id)
 
     def normalized_name_for_cluster(self, cluster: EntityCluster) -> str:
-        entity = self.entity_for_cluster(cluster)
-        if entity is not None:
-            return entity.normalized_name
-        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+        return read_normalized_name_for_cluster(cluster, self.entities_by_id)
 
     def aliases_for_cluster(self, cluster: EntityCluster) -> list[str]:
-        entity = self.entity_for_cluster(cluster)
-        aliases = list(entity.aliases) if entity is not None else []
-        for mention in cluster.mentions:
-            if mention.text not in aliases:
-                aliases.append(mention.text)
-        return aliases
+        return read_aliases_for_cluster(cluster, self.entities_by_id)
 
     def lemmas_for_cluster(self, cluster: EntityCluster) -> list[str]:
-        entity = self.entity_for_cluster(cluster)
-        return list(entity.lemmas) if entity is not None else []
+        return read_lemmas_for_cluster(cluster, self.entities_by_id)
 
     def organization_kind_for_cluster(self, cluster: EntityCluster) -> OrganizationKind | None:
-        entity = self.entity_for_cluster(cluster)
-        return entity.organization_kind if entity is not None else None
+        return read_organization_kind_for_cluster(cluster, self.entities_by_id)
 
     def is_proxy_person_cluster(self, cluster: EntityCluster) -> bool:
-        entity = self.entity_for_cluster(cluster)
-        return entity.is_proxy_person if entity is not None else False
+        return read_is_proxy_person_cluster(cluster, self.entities_by_id)
 
     def proxy_kind_for_cluster(self, cluster: EntityCluster) -> ProxyKind | None:
-        entity = self.entity_for_cluster(cluster)
-        return entity.proxy_kind if entity is not None else None
+        return read_proxy_kind_for_cluster(cluster, self.entities_by_id)
 
     def kinship_detail_for_cluster(self, cluster: EntityCluster) -> KinshipDetail | None:
-        entity = self.entity_for_cluster(cluster)
-        return entity.kinship_detail if entity is not None else None
+        return read_kinship_detail_for_cluster(cluster, self.entities_by_id)
 
     def proxy_anchor_entity_id_for_cluster(self, cluster: EntityCluster) -> EntityID | None:
-        entity = self.entity_for_cluster(cluster)
-        return entity.proxy_anchor_entity_id if entity is not None else None
+        return read_proxy_anchor_entity_id_for_cluster(cluster, self.entities_by_id)
 
     def role_kind_for_cluster(self, cluster: EntityCluster) -> RoleKind | None:
-        entity = self.entity_for_cluster(cluster)
-        return entity.role_kind if entity is not None else None
+        return read_role_kind_for_cluster(cluster, self.entities_by_id)
 
     def role_modifier_for_cluster(self, cluster: EntityCluster) -> RoleModifier | None:
-        entity = self.entity_for_cluster(cluster)
-        return entity.role_modifier if entity is not None else None
+        return read_role_modifier_for_cluster(cluster, self.entities_by_id)
 
     def entity_id_for_cluster_id(self, cluster_id: ClusterID | None) -> EntityID | None:
         cluster = self.cluster_by_id(cluster_id)

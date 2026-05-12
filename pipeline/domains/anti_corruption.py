@@ -63,8 +63,8 @@ class PolishAntiCorruptionReferralFrameExtractor:
         clause: ClauseUnit,
         context: ExtractionContext,
     ) -> AntiCorruptionReferralFrame | None:
-        clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
+        clusters = context.clusters_for_clause(
+            clause,
             {
                 EntityType.PERSON,
                 EntityType.POLITICAL_PARTY,
@@ -233,8 +233,8 @@ class PolishAntiCorruptionAbuseFrameExtractor:
         document.public_procurement_abuse_frames = []
         recent_public_actor: EntityCluster | None = None
         for clause in document.clause_units:
-            clusters = context.clusters_for_mentions(
-                clause.cluster_mentions,
+            clusters = context.clusters_for_clause(
+                clause,
                 {
                     EntityType.PERSON,
                     EntityType.POSITION,

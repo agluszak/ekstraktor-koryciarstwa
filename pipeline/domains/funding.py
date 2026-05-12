@@ -109,8 +109,8 @@ class PolishFundingFrameExtractor:
         context: ExtractionContext,
         dependency_frame: TriggerArgumentFrame | None,
     ) -> FundingFrame | None:
-        org_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
+        org_clusters = context.clusters_for_clause(
+            clause,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
         if not org_clusters:
