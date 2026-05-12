@@ -85,11 +85,21 @@ def clause_mentions(
 
 
 def entity_by_id(document: ArticleDocument, entity_id: EntityID) -> Entity | None:
-    return DocumentGraph(document).entity_by_id(entity_id)
+    return next((entity for entity in document.entities if entity.entity_id == entity_id), None)
 
 
 def mentions_for_entity(document: ArticleDocument, entity_id: EntityID) -> list[Mention]:
-    return DocumentGraph(document).mentions_for_entity(entity_id)
+    entity = entity_by_id(document, entity_id)
+    if entity is None:
+        return []
+    if not entity.mention_ids:
+        return [mention for mention in document.mentions if mention.entity_id == entity_id]
+    mentions_by_id = {mention.mention_id: mention for mention in document.mentions}
+    return [
+        mentions_by_id[mention_id]
+        for mention_id in entity.mention_ids
+        if mention_id in mentions_by_id
+    ]
 
 
 def attach_mention_to_entity(entity: Entity, mention: Mention) -> None:
@@ -265,13 +275,16 @@ def ensure_entity_view(
         )
         document.mentions.append(mention_record)
     else:
-        mention_record.entity_type = resolved_type
-        mention_record.mention_kind = mention_kind
         mention_record.normalized_text = normalized_text
         mention_record.paragraph_index = paragraph_index
         mention_record.start_char = start_char
         mention_record.end_char = end_char
         mention_record.entity_id = entity.entity_id
+        if mention_record.mention_kind == MentionKind.DERIVED_ENTITY:
+            mention_record.entity_type = resolved_type
+            mention_record.mention_kind = mention_kind
+        elif mention_kind != MentionKind.DERIVED_ENTITY:
+            mention_record.entity_type = resolved_type
     attach_mention_to_entity(entity, mention_record)
 
     target_cluster = cluster or cluster_for_entity(document, entity.entity_id)
