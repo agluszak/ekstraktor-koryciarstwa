@@ -224,8 +224,8 @@ class DependencyFrameBuilder:
         absolute_end = clause.start_char + word.end
         candidates = [
             cluster
-            for cluster in context.clusters_for_mentions(
-                clause.cluster_mentions,
+            for cluster in context.clusters_for_clause(
+                clause,
                 {
                     EntityType.PERSON,
                     EntityType.ORGANIZATION,

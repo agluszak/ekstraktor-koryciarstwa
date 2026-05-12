@@ -5,7 +5,34 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from pipeline.cluster_reads import (
+    aliases_for_cluster as read_aliases_for_cluster,
+)
+from pipeline.cluster_reads import (
+    canonical_name_for_cluster as read_canonical_name_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_for_cluster as read_entity_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_type_for_cluster as read_entity_type_for_cluster,
+)
+from pipeline.cluster_reads import (
+    normalized_name_for_cluster as read_normalized_name_for_cluster,
+)
+from pipeline.cluster_reads import (
+    organization_kind_for_cluster as read_organization_kind_for_cluster,
+)
+from pipeline.cluster_reads import (
+    role_kind_for_cluster as read_role_kind_for_cluster,
+)
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import (
+    clause_mentions,
+    ensure_entity,
+    ensure_entity_view,
+    refresh_clause_mentions,
+)
 from pipeline.domain_lexicons import (
     DERIVED_ORGANIZATION_HEADS,
     DERIVED_ORGANIZATION_PATTERN,
@@ -34,7 +61,6 @@ from pipeline.models import (
     Entity,
     EntityCluster,
     EvidenceSpan,
-    Mention,
     ParsedWord,
     SentenceFragment,
 )
@@ -180,7 +206,7 @@ class FrameSlotGrounder:
         grounded = self._sentence_grounded_organization_mentions(document, sentence)
         for mention in grounded:
             self._upsert_grounded_organization(document, mention)
-        self.refresh_clause_mentions(document)
+        refresh_clause_mentions(document)
         return grounded
 
     def ground_organization_mentions(
@@ -210,7 +236,7 @@ class FrameSlotGrounder:
         entities_by_id = self._entities_by_id(document)
         mention_keys = {
             (mention.entity_id, mention.start_char, mention.end_char)
-            for mention in clause.cluster_mentions
+            for mention in clause_mentions(document, clause)
             if mention.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         }
         for cluster in document.clusters:
@@ -266,22 +292,7 @@ class FrameSlotGrounder:
     ) -> Entity | None:
         if entities_by_id is None:
             entities_by_id = FrameSlotGrounder._entities_by_id(document)
-        if cluster.primary_entity_id is not None:
-            entity = entities_by_id.get(cluster.primary_entity_id)
-            if entity is not None:
-                return entity
-        for entity_id in cluster.member_entity_ids:
-            entity = entities_by_id.get(entity_id)
-            if entity is not None:
-                return entity
-        return next(
-            (
-                entities_by_id[mention.entity_id]
-                for mention in cluster.mentions
-                if mention.entity_id in entities_by_id
-            ),
-            None,
-        )
+        return read_entity_for_cluster(cluster, entities_by_id)
 
     @classmethod
     def _cluster_entity_type(
@@ -290,10 +301,9 @@ class FrameSlotGrounder:
         cluster: EntityCluster,
         entities_by_id: dict[EntityID, Entity] | None = None,
     ) -> EntityType:
-        entity = cls._entity_for_cluster(document, cluster, entities_by_id)
-        if entity is not None:
-            return entity.entity_type
-        return cluster.mentions[0].entity_type if cluster.mentions else EntityType.ORGANIZATION
+        if entities_by_id is None:
+            entities_by_id = cls._entities_by_id(document)
+        return read_entity_type_for_cluster(cluster, entities_by_id)
 
     @classmethod
     def _cluster_canonical_name(
@@ -302,10 +312,9 @@ class FrameSlotGrounder:
         cluster: EntityCluster,
         entities_by_id: dict[EntityID, Entity] | None = None,
     ) -> str:
-        entity = cls._entity_for_cluster(document, cluster, entities_by_id)
-        if entity is not None:
-            return entity.canonical_name
-        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+        if entities_by_id is None:
+            entities_by_id = cls._entities_by_id(document)
+        return read_canonical_name_for_cluster(cluster, entities_by_id)
 
     @classmethod
     def _cluster_normalized_name(
@@ -314,10 +323,9 @@ class FrameSlotGrounder:
         cluster: EntityCluster,
         entities_by_id: dict[EntityID, Entity] | None = None,
     ) -> str:
-        entity = cls._entity_for_cluster(document, cluster, entities_by_id)
-        if entity is not None:
-            return entity.normalized_name
-        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+        if entities_by_id is None:
+            entities_by_id = cls._entities_by_id(document)
+        return read_normalized_name_for_cluster(cluster, entities_by_id)
 
     @classmethod
     def _cluster_aliases(
@@ -326,12 +334,9 @@ class FrameSlotGrounder:
         cluster: EntityCluster,
         entities_by_id: dict[EntityID, Entity] | None = None,
     ) -> list[str]:
-        entity = cls._entity_for_cluster(document, cluster, entities_by_id)
-        aliases = list(entity.aliases) if entity is not None else []
-        for mention in cluster.mentions:
-            if mention.text not in aliases:
-                aliases.append(mention.text)
-        return aliases
+        if entities_by_id is None:
+            entities_by_id = cls._entities_by_id(document)
+        return read_aliases_for_cluster(cluster, entities_by_id)
 
     @classmethod
     def _cluster_organization_kind(
@@ -340,8 +345,9 @@ class FrameSlotGrounder:
         cluster: EntityCluster,
         entities_by_id: dict[EntityID, Entity] | None = None,
     ) -> OrganizationKind | None:
-        entity = cls._entity_for_cluster(document, cluster, entities_by_id)
-        return entity.organization_kind if entity is not None else None
+        if entities_by_id is None:
+            entities_by_id = cls._entities_by_id(document)
+        return read_organization_kind_for_cluster(cluster, entities_by_id)
 
     @classmethod
     def _cluster_role_kind(
@@ -350,26 +356,9 @@ class FrameSlotGrounder:
         cluster: EntityCluster,
         entities_by_id: dict[EntityID, Entity] | None = None,
     ):
-        entity = cls._entity_for_cluster(document, cluster, entities_by_id)
-        return entity.role_kind if entity is not None else None
-
-    @staticmethod
-    def refresh_clause_mentions(document: ArticleDocument) -> None:
-        by_sentence: dict[int, list[ClusterMention]] = {}
-        for cluster in document.clusters:
-            for mention in cluster.mentions:
-                by_sentence.setdefault(mention.sentence_index, []).append(mention)
-        for clause in document.clause_units:
-            seen = {
-                (mention.entity_id, mention.start_char, mention.end_char)
-                for mention in clause.cluster_mentions
-            }
-            for mention in by_sentence.get(clause.sentence_index, []):
-                key = (mention.entity_id, mention.start_char, mention.end_char)
-                if key in seen:
-                    continue
-                clause.cluster_mentions.append(mention)
-                seen.add(key)
+        if entities_by_id is None:
+            entities_by_id = cls._entities_by_id(document)
+        return read_role_kind_for_cluster(cluster, entities_by_id)
 
     def _sentence_grounded_organization_mentions(
         self,
@@ -921,44 +910,27 @@ class FrameSlotGrounder:
             )
         )
         evidence = grounded.evidence.to_evidence_span()
-        entity = Entity(
+        entity = ensure_entity(
+            document,
             entity_id=entity_id,
             entity_type=grounded.entity_type,
             canonical_name=grounded.canonical_name,
-            normalized_name=grounded.canonical_name,
             aliases=[grounded.surface],
-            evidence=[evidence],
+            evidence=evidence,
             organization_kind=grounded.organization_kind,
         )
-        mention = Mention(
-            text=grounded.surface,
+        ensure_entity_view(
+            document,
+            entity=entity,
+            surface=grounded.surface,
             normalized_text=grounded.canonical_name,
-            entity_type=grounded.entity_type,
+            sentence_index=grounded.evidence.sentence_index,
+            paragraph_index=grounded.evidence.paragraph_index,
+            start_char=grounded.evidence.start_char,
+            end_char=grounded.evidence.end_char,
             mention_kind=MentionKind.DERIVED_ENTITY,
-            sentence_index=grounded.evidence.sentence_index,
-            paragraph_index=grounded.evidence.paragraph_index,
-            start_char=grounded.evidence.start_char,
-            end_char=grounded.evidence.end_char,
-            entity_id=entity_id,
-        )
-        cluster_mention = ClusterMention(
-            text=grounded.surface,
             entity_type=grounded.entity_type,
-            sentence_index=grounded.evidence.sentence_index,
-            paragraph_index=grounded.evidence.paragraph_index,
-            start_char=grounded.evidence.start_char,
-            end_char=grounded.evidence.end_char,
-            entity_id=entity_id,
         )
-        cluster = EntityCluster(
-            cluster_id=ClusterID(stable_id("cluster", document.document_id, entity_id)),
-            mentions=[cluster_mention],
-            primary_entity_id=entity_id,
-            member_entity_ids=[entity_id],
-        )
-        document.entities.append(entity)
-        document.mentions.append(mention)
-        document.clusters.append(cluster)
 
     @classmethod
     def _grounding_beats_existing(
@@ -997,12 +969,6 @@ class FrameSlotGrounder:
         ]
         document.entities = [item for item in document.entities if item.entity_id not in entity_ids]
         document.mentions = [item for item in document.mentions if item.entity_id not in entity_ids]
-        for clause in document.clause_units:
-            clause.cluster_mentions = [
-                mention
-                for mention in clause.cluster_mentions
-                if mention.entity_id not in entity_ids
-            ]
 
     @staticmethod
     def _replace_cluster_canonical(
@@ -1050,49 +1016,25 @@ class FrameSlotGrounder:
         ):
             return
         entity = FrameSlotGrounder._entity_for_cluster(document, cluster, entities_by_id)
-        entity_id = (
-            entity.entity_id
-            if entity is not None
-            else next(
-                (mention.entity_id for mention in cluster.mentions if mention.entity_id),
-                None,
-            )
-        )
         entity_type = FrameSlotGrounder._cluster_entity_type(document, cluster, entities_by_id)
-        cluster.mentions.append(
-            ClusterMention(
-                text=grounded.surface,
-                entity_type=entity_type,
-                sentence_index=grounded.evidence.sentence_index,
-                paragraph_index=grounded.evidence.paragraph_index,
-                start_char=grounded.evidence.start_char,
-                end_char=grounded.evidence.end_char,
-                entity_id=entity_id,
-            )
-        )
-        if entity_id is not None and entity_id not in cluster.member_entity_ids:
-            cluster.member_entity_ids.append(entity_id)
         if entity is None:
             return
-        if grounded.surface not in entity.aliases:
-            entity.aliases.append(grounded.surface)
-        entity.evidence.append(grounded.evidence.to_evidence_span())
-        document.mentions.append(
-            Mention(
-                text=grounded.surface,
-                normalized_text=FrameSlotGrounder._cluster_canonical_name(
-                    document,
-                    cluster,
-                    entities_by_id,
-                ),
-                entity_type=entity_type,
-                mention_kind=MentionKind.DERIVED_ENTITY,
-                sentence_index=grounded.evidence.sentence_index,
-                paragraph_index=grounded.evidence.paragraph_index,
-                start_char=grounded.evidence.start_char,
-                end_char=grounded.evidence.end_char,
-                entity_id=entity_id,
-            )
+        ensure_entity_view(
+            document,
+            entity=entity,
+            surface=grounded.surface,
+            normalized_text=FrameSlotGrounder._cluster_canonical_name(
+                document,
+                cluster,
+                entities_by_id,
+            ),
+            sentence_index=grounded.evidence.sentence_index,
+            paragraph_index=grounded.evidence.paragraph_index,
+            start_char=grounded.evidence.start_char,
+            end_char=grounded.evidence.end_char,
+            mention_kind=MentionKind.DERIVED_ENTITY,
+            entity_type=entity_type,
+            cluster=cluster,
         )
 
     @staticmethod

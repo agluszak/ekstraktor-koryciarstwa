@@ -2,6 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pipeline.cluster_reads import (
+    aliases_for_cluster as read_aliases_for_cluster,
+)
+from pipeline.cluster_reads import (
+    canonical_name_for_cluster as read_canonical_name_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_for_cluster as read_entity_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_type_for_cluster as read_entity_type_for_cluster,
+)
+from pipeline.cluster_reads import (
+    is_proxy_person_cluster as read_is_proxy_person_cluster,
+)
 from pipeline.domain_lexicons import (
     ATTRIBUTION_SPEECH_LEMMAS,
     KINSHIP_BY_LEMMA,
@@ -531,22 +546,7 @@ def _entity_for_cluster(
     cluster: EntityCluster,
     entities_by_id: dict[EntityID, Entity],
 ) -> Entity | None:
-    if cluster.primary_entity_id is not None:
-        entity = entities_by_id.get(cluster.primary_entity_id)
-        if entity is not None:
-            return entity
-    for entity_id in cluster.member_entity_ids:
-        entity = entities_by_id.get(entity_id)
-        if entity is not None:
-            return entity
-    return next(
-        (
-            entities_by_id[mention.entity_id]
-            for mention in cluster.mentions
-            if mention.entity_id in entities_by_id
-        ),
-        None,
-    )
+    return read_entity_for_cluster(cluster, entities_by_id)
 
 
 def _cluster_entity_type(
@@ -554,10 +554,8 @@ def _cluster_entity_type(
     cluster: EntityCluster,
     entities_by_id: dict[EntityID, Entity],
 ) -> EntityType:
-    entity = _entity_for_cluster(cluster, entities_by_id)
-    if entity is not None:
-        return entity.entity_type
-    return cluster.mentions[0].entity_type if cluster.mentions else EntityType.ORGANIZATION
+    _ = document
+    return read_entity_type_for_cluster(cluster, entities_by_id)
 
 
 def _cluster_canonical_name(
@@ -565,10 +563,8 @@ def _cluster_canonical_name(
     cluster: EntityCluster,
     entities_by_id: dict[EntityID, Entity],
 ) -> str:
-    entity = _entity_for_cluster(cluster, entities_by_id)
-    if entity is not None:
-        return entity.canonical_name
-    return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
+    _ = document
+    return read_canonical_name_for_cluster(cluster, entities_by_id)
 
 
 def _cluster_aliases(
@@ -576,12 +572,8 @@ def _cluster_aliases(
     cluster: EntityCluster,
     entities_by_id: dict[EntityID, Entity],
 ) -> list[str]:
-    entity = _entity_for_cluster(cluster, entities_by_id)
-    aliases = list(entity.aliases) if entity is not None else []
-    for mention in cluster.mentions:
-        if mention.text not in aliases:
-            aliases.append(mention.text)
-    return aliases
+    _ = document
+    return read_aliases_for_cluster(cluster, entities_by_id)
 
 
 def _cluster_is_proxy_person(
@@ -589,5 +581,5 @@ def _cluster_is_proxy_person(
     cluster: EntityCluster,
     entities_by_id: dict[EntityID, Entity],
 ) -> bool:
-    entity = _entity_for_cluster(cluster, entities_by_id)
-    return entity.is_proxy_person if entity is not None else False
+    _ = document
+    return read_is_proxy_person_cluster(cluster, entities_by_id)

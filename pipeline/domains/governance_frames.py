@@ -180,10 +180,7 @@ class PolishGovernanceFrameExtractor:
         context: ExtractionContext,
         signal: GovernanceSignal,
     ) -> GovernanceFrame | None:
-        person_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
-            {EntityType.PERSON},
-        )
+        person_clusters = context.clusters_for_clause(clause, {EntityType.PERSON})
         dependency_frame = context.dependency_frame_for_clause(clause)
         person_clusters = self._prefer_dependency_people(
             dependency_frame,
@@ -224,10 +221,7 @@ class PolishGovernanceFrameExtractor:
         if not person_clusters:
             return None
 
-        role_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
-            {EntityType.POSITION},
-        )
+        role_clusters = context.clusters_for_clause(clause, {EntityType.POSITION})
         role_cluster = (
             role_clusters[0]
             if role_clusters
@@ -235,8 +229,8 @@ class PolishGovernanceFrameExtractor:
         )
         role_text = None if role_cluster is not None else self._find_role_text(document, clause)
 
-        clause_orgs = context.clusters_for_mentions(
-            clause.cluster_mentions,
+        clause_orgs = context.clusters_for_clause(
+            clause,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
         dependency_orgs = self._dependency_orgs(dependency_frame, context)
@@ -441,7 +435,7 @@ class PolishGovernanceFrameExtractor:
             if signal == GovernanceSignal.APPOINTMENT
             else None
         )
-        for mention in clause.cluster_mentions:
+        for mention in context.mentions_for_clause(clause, {EntityType.PERSON}):
             cluster = next(
                 (
                     cluster
@@ -452,7 +446,7 @@ class PolishGovernanceFrameExtractor:
             )
             if cluster is None or cluster.cluster_id not in person_cluster_ids:
                 continue
-            role = clause.mention_roles.get(mention.text)
+            role = context.role_for_mention_in_clause(clause, mention)
             if role and (role.startswith("obj") or role == "nsubj:pass"):
                 # obj* = direct/indirect object (active appointee);
                 # nsubj:pass = passive subject — the recipient of the appointment, not
@@ -539,7 +533,7 @@ class PolishGovernanceFrameExtractor:
         for mention in cluster.mentions:
             if mention.sentence_index != clause.sentence_index:
                 continue
-            role = clause.mention_roles.get(mention.text)
+            role = context.role_for_mention_in_clause(clause, mention)
             if role and (role.startswith("nsubj") or role.startswith("obj")):
                 return True
             if context.is_proxy_person_cluster(cluster) and role == "det:poss":

@@ -5,6 +5,7 @@ import uuid
 import numpy as np
 
 from pipeline.base import EntityClusterer
+from pipeline.cluster_reads import entity_for_cluster as read_entity_for_cluster
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import ClusterID, EntityID, EntityType
 from pipeline.models import (
@@ -175,7 +176,6 @@ class PolishEntityClusterer(EntityClusterer):
             cluster_id=cluster_id,
             mentions=mentions,
             primary_entity_id=entity.entity_id,
-            member_entity_ids=[entity.entity_id],
         )
 
     def _add_to_cluster(
@@ -219,7 +219,16 @@ class PolishEntityClusterer(EntityClusterer):
                     )
                 )
         cluster.mentions.extend(new_mentions)
-        if entity.entity_id not in cluster.member_entity_ids:
+        if (
+            cluster.primary_entity_id is not None
+            and cluster.primary_entity_id != entity.entity_id
+            and cluster.primary_entity_id not in cluster.member_entity_ids
+        ):
+            cluster.member_entity_ids.append(cluster.primary_entity_id)
+        if (
+            cluster.primary_entity_id != entity.entity_id
+            and entity.entity_id not in cluster.member_entity_ids
+        ):
             cluster.member_entity_ids.append(entity.entity_id)
         representative.aliases = all_names
 
@@ -267,22 +276,7 @@ class PolishEntityClusterer(EntityClusterer):
         cluster: EntityCluster,
         entities_by_id: dict[EntityID, Entity],
     ) -> Entity | None:
-        if cluster.primary_entity_id is not None:
-            entity = entities_by_id.get(cluster.primary_entity_id)
-            if entity is not None:
-                return entity
-        for entity_id in cluster.member_entity_ids:
-            entity = entities_by_id.get(entity_id)
-            if entity is not None:
-                return entity
-        return next(
-            (
-                entities_by_id[mention.entity_id]
-                for mention in cluster.mentions
-                if mention.entity_id in entities_by_id
-            ),
-            None,
-        )
+        return read_entity_for_cluster(cluster, entities_by_id)
 
     @staticmethod
     def _mention_location(document: ArticleDocument, mention: Mention) -> tuple[int, int, int]:

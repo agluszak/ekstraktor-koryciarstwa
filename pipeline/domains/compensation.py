@@ -112,16 +112,10 @@ class PolishCompensationFrameExtractor:
             if earlier_match.start("amount") < match.start("amount")
         )
 
-        person_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
-            {EntityType.PERSON},
-        )
-        role_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
-            {EntityType.POSITION},
-        )
-        org_clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
+        person_clusters = context.clusters_for_clause(clause, {EntityType.PERSON})
+        role_clusters = context.clusters_for_clause(clause, {EntityType.POSITION})
+        org_clusters = context.clusters_for_clause(
+            clause,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
         )
 

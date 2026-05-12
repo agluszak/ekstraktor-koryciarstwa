@@ -4,14 +4,26 @@ import re
 from dataclasses import dataclass
 
 from pipeline.base import EntityEnricher
+from pipeline.cluster_reads import (
+    canonical_name_for_cluster as read_canonical_name_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_for_cluster as read_entity_for_cluster,
+)
+from pipeline.cluster_reads import (
+    entity_type_for_cluster as read_entity_type_for_cluster,
+)
+from pipeline.cluster_reads import (
+    normalized_name_for_cluster as read_normalized_name_for_cluster,
+)
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import ensure_entity, ensure_entity_view, refresh_clause_mentions
 from pipeline.domain_lexicons import (
     DERIVED_ORGANIZATION_HEADS,
     DERIVED_ORGANIZATION_PATTERN,
     ORGANIZATION_GROUNDING_MARKERS,
 )
 from pipeline.domain_types import (
-    ClusterID,
     EntityID,
     EntityType,
     MentionKind,
@@ -22,11 +34,7 @@ from pipeline.domain_types import (
 from pipeline.frame_grounding import FrameSlotGrounder
 from pipeline.models import (
     ArticleDocument,
-    ClusterMention,
     Entity,
-    EntityCluster,
-    EvidenceSpan,
-    Mention,
     ParsedWord,
     SentenceFragment,
 )
@@ -67,66 +75,8 @@ class SharedEntityEnricher(EntityEnricher):
         self._derive_missing_party_mentions(document)
         self._derive_missing_role_mentions(document)
         self._enrich_public_institutions(document)
-        self._refresh_clause_mentions(document)
+        refresh_clause_mentions(document)
         return document
-
-    @staticmethod
-    def _entity_for_cluster(
-        document: ArticleDocument,
-        cluster: EntityCluster,
-        entities_by_id: dict[EntityID, Entity] | None = None,
-    ) -> Entity | None:
-        if entities_by_id is None:
-            entities_by_id = {entity.entity_id: entity for entity in document.entities}
-        if cluster.primary_entity_id is not None:
-            entity = entities_by_id.get(cluster.primary_entity_id)
-            if entity is not None:
-                return entity
-        for entity_id in cluster.member_entity_ids:
-            entity = entities_by_id.get(entity_id)
-            if entity is not None:
-                return entity
-        return next(
-            (
-                entities_by_id[mention.entity_id]
-                for mention in cluster.mentions
-                if mention.entity_id in entities_by_id
-            ),
-            None,
-        )
-
-    @staticmethod
-    def _cluster_entity_type(
-        document: ArticleDocument,
-        cluster: EntityCluster,
-        entities_by_id: dict[EntityID, Entity] | None = None,
-    ) -> EntityType:
-        entity = SharedEntityEnricher._entity_for_cluster(document, cluster, entities_by_id)
-        if entity is not None:
-            return entity.entity_type
-        return cluster.mentions[0].entity_type if cluster.mentions else EntityType.ORGANIZATION
-
-    @staticmethod
-    def _cluster_canonical_name(
-        document: ArticleDocument,
-        cluster: EntityCluster,
-        entities_by_id: dict[EntityID, Entity] | None = None,
-    ) -> str:
-        entity = SharedEntityEnricher._entity_for_cluster(document, cluster, entities_by_id)
-        if entity is not None:
-            return entity.canonical_name
-        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
-
-    @staticmethod
-    def _cluster_normalized_name(
-        document: ArticleDocument,
-        cluster: EntityCluster,
-        entities_by_id: dict[EntityID, Entity] | None = None,
-    ) -> str:
-        entity = SharedEntityEnricher._entity_for_cluster(document, cluster, entities_by_id)
-        if entity is not None:
-            return entity.normalized_name
-        return cluster.mentions[0].text if cluster.mentions else str(cluster.cluster_id)
 
     def _derive_missing_organizations(self, document: ArticleDocument) -> None:
         self.slot_grounder.ensure_document_organizations(document)
@@ -245,75 +195,13 @@ class SharedEntityEnricher(EntityEnricher):
         person_mentions = [
             mention
             for cluster in document.clusters
-            if SharedEntityEnricher._cluster_entity_type(document, cluster, entities_by_id)
-            == EntityType.PERSON
+            if read_entity_type_for_cluster(cluster, entities_by_id) == EntityType.PERSON
             for mention in cluster.mentions
             if mention.paragraph_index == sentence.paragraph_index
         ]
         if not person_mentions:
             return None
         return min(person_mentions, key=lambda mention: abs(mention.start_char - anchor)).text
-
-    @staticmethod
-    def _add_organization(
-        document: ArticleDocument,
-        derived: DerivedOrganizationMention,
-    ) -> None:
-        entity_id = EntityID(
-            stable_id(
-                "entity",
-                document.document_id,
-                derived.canonical_name,
-                str(derived.sentence_index),
-                str(derived.start_char),
-                str(derived.end_char),
-            )
-        )
-        evidence = EvidenceSpan(
-            text=derived.surface,
-            sentence_index=derived.sentence_index,
-            paragraph_index=derived.paragraph_index,
-            start_char=derived.start_char,
-            end_char=derived.end_char,
-        )
-        entity = Entity(
-            entity_id=entity_id,
-            entity_type=derived.entity_type,
-            canonical_name=derived.canonical_name,
-            normalized_name=derived.canonical_name,
-            aliases=[derived.surface],
-            evidence=[evidence],
-            organization_kind=derived.organization_kind,
-        )
-        mention = Mention(
-            text=derived.surface,
-            normalized_text=derived.canonical_name,
-            entity_type=derived.entity_type,
-            mention_kind=MentionKind.DERIVED_ENTITY,
-            sentence_index=derived.sentence_index,
-            paragraph_index=derived.paragraph_index,
-            start_char=derived.start_char,
-            end_char=derived.end_char,
-            entity_id=entity_id,
-        )
-        cluster_mention = ClusterMention(
-            text=derived.surface,
-            entity_type=derived.entity_type,
-            sentence_index=derived.sentence_index,
-            paragraph_index=derived.paragraph_index,
-            start_char=derived.start_char,
-            end_char=derived.end_char,
-            entity_id=entity_id,
-        )
-        cluster = EntityCluster(
-            cluster_id=ClusterID(stable_id("cluster", document.document_id, entity_id)),
-            mentions=[cluster_mention],
-            primary_entity_id=entity_id,
-            member_entity_ids=[entity_id],
-        )
-        document.entities.append(entity)
-        document.mentions.append(mention)
-        document.clusters.append(cluster)
 
     def _derive_missing_party_mentions(self, document: ArticleDocument) -> None:
         party_tokens = set(self.config.party_aliases.keys()).union(
@@ -354,22 +242,20 @@ class SharedEntityEnricher(EntityEnricher):
             person_views = [
                 (cluster, mention)
                 for cluster in document.clusters
-                if self._cluster_entity_type(document, cluster, entities_by_id) == EntityType.PERSON
+                if read_entity_type_for_cluster(cluster, entities_by_id) == EntityType.PERSON
                 for mention in cluster.mentions
                 if mention.sentence_index == sentence.sentence_index
             ]
             initials = [
                 (cluster, mention)
                 for cluster, mention in person_views
-                if len(self._cluster_canonical_name(document, cluster, entities_by_id).rstrip("."))
-                == 1
+                if len(read_canonical_name_for_cluster(cluster, entities_by_id).rstrip(".")) == 1
             ]
             surnames = [
                 (cluster, mention)
                 for cluster, mention in person_views
-                if len(self._cluster_canonical_name(document, cluster, entities_by_id).split()) == 1
-                and len(self._cluster_canonical_name(document, cluster, entities_by_id).rstrip("."))
-                > 1
+                if len(read_canonical_name_for_cluster(cluster, entities_by_id).split()) == 1
+                and len(read_canonical_name_for_cluster(cluster, entities_by_id).rstrip(".")) > 1
             ]
             for initial_cluster, initial_mention in initials:
                 for surname_cluster, surname_mention in surnames:
@@ -380,13 +266,11 @@ class SharedEntityEnricher(EntityEnricher):
                     ]
                     if between not in {". ", ".\u00a0"}:
                         continue
-                    first = self._cluster_canonical_name(
-                        document,
+                    first = read_canonical_name_for_cluster(
                         initial_cluster,
                         entities_by_id,
                     ).rstrip(".")
-                    surname = self._cluster_canonical_name(
-                        document,
+                    surname = read_canonical_name_for_cluster(
                         surname_cluster,
                         entities_by_id,
                     )
@@ -475,91 +359,32 @@ class SharedEntityEnricher(EntityEnricher):
             ),
             None,
         )
-        if entity is None:
-            entity = Entity(
-                entity_id=EntityID(
-                    stable_id(entity_type.lower(), document.document_id, canonical_name)
-                ),
-                entity_type=entity_type,
-                canonical_name=canonical_name,
-                normalized_name=canonical_name,
-                aliases=[surface],
-                organization_kind=organization_kind,
-            )
-            document.entities.append(entity)
-        elif surface not in entity.aliases:
-            entity.aliases.append(surface)
-
-        if organization_kind is not None:
-            entity.organization_kind = organization_kind
-        if role_kind is not None:
-            entity.role_kind = role_kind
-        if role_modifier is not None:
-            entity.role_modifier = role_modifier
-
-        evidence = EvidenceSpan(
-            text=surface,
-            sentence_index=sentence.sentence_index,
-            paragraph_index=sentence.paragraph_index,
-            start_char=start_char,
-            end_char=end_char,
-        )
-        if all(
-            span.start_char != start_char or span.end_char != end_char for span in entity.evidence
-        ):
-            entity.evidence.append(evidence)
-
-        mention = Mention(
-            text=surface,
-            normalized_text=canonical_name,
-            entity_type=entity_type,
-            mention_kind=MentionKind.DERIVED_ENTITY,
-            sentence_index=sentence.sentence_index,
-            paragraph_index=sentence.paragraph_index,
-            start_char=start_char,
-            end_char=end_char,
-            entity_id=entity.entity_id,
-        )
-        document.mentions.append(mention)
-
-        cluster_mention = ClusterMention(
-            text=surface,
-            entity_type=entity_type,
-            sentence_index=sentence.sentence_index,
-            paragraph_index=sentence.paragraph_index,
-            start_char=start_char,
-            end_char=end_char,
-            entity_id=entity.entity_id,
-        )
-        cluster = next(
-            (
-                existing
-                for existing in document.clusters
-                if SharedEntityEnricher._cluster_entity_type(document, existing, entities_by_id)
-                == entity_type
-                and SharedEntityEnricher._cluster_normalized_name(
-                    document,
-                    existing,
-                    entities_by_id,
-                ).casefold()
-                == canonical_name.casefold()
+        entity = ensure_entity(
+            document,
+            entity_id=(
+                EntityID(stable_id(entity_type.lower(), document.document_id, canonical_name))
+                if entity is None
+                else entity.entity_id
             ),
-            None,
+            entity_type=entity_type,
+            canonical_name=canonical_name,
+            aliases=[surface],
+            organization_kind=organization_kind,
+            role_kind=role_kind,
+            role_modifier=role_modifier,
         )
-        if cluster is None:
-            cluster = EntityCluster(
-                cluster_id=ClusterID(stable_id("cluster", document.document_id, entity.entity_id)),
-                mentions=[cluster_mention],
-                primary_entity_id=entity.entity_id,
-                member_entity_ids=[entity.entity_id],
-            )
-            document.clusters.append(cluster)
-        else:
-            cluster.mentions.append(cluster_mention)
-            if entity.entity_id not in cluster.member_entity_ids:
-                cluster.member_entity_ids.append(entity.entity_id)
-            if organization_kind is not None:
-                entity.organization_kind = organization_kind
+        ensure_entity_view(
+            document,
+            entity=entity,
+            surface=surface,
+            normalized_text=canonical_name,
+            sentence_index=sentence.sentence_index,
+            paragraph_index=sentence.paragraph_index,
+            start_char=start_char,
+            end_char=end_char,
+            mention_kind=MentionKind.DERIVED_ENTITY,
+            entity_type=entity_type,
+        )
 
     @staticmethod
     def _has_existing_view(
@@ -572,14 +397,10 @@ class SharedEntityEnricher(EntityEnricher):
         end_char: int,
         entities_by_id: dict[EntityID, Entity] | None = None,
     ) -> bool:
+        cluster_entities = {} if entities_by_id is None else entities_by_id
         return any(
-            SharedEntityEnricher._cluster_entity_type(document, cluster, entities_by_id)
-            == entity_type
-            and SharedEntityEnricher._cluster_normalized_name(
-                document,
-                cluster,
-                entities_by_id,
-            ).casefold()
+            read_entity_type_for_cluster(cluster, cluster_entities) == entity_type
+            and read_normalized_name_for_cluster(cluster, cluster_entities).casefold()
             == canonical_name.casefold()
             and any(
                 mention.sentence_index == sentence_index
@@ -600,7 +421,7 @@ class SharedEntityEnricher(EntityEnricher):
     ) -> bool:
         entities_by_id = {entity.entity_id: entity for entity in document.entities}
         for cluster in document.clusters:
-            if SharedEntityEnricher._cluster_entity_type(document, cluster, entities_by_id) not in {
+            if read_entity_type_for_cluster(cluster, entities_by_id) not in {
                 EntityType.ORGANIZATION,
                 EntityType.PUBLIC_INSTITUTION,
             }:
@@ -622,7 +443,7 @@ class SharedEntityEnricher(EntityEnricher):
     def _enrich_public_institutions(self, document: ArticleDocument) -> None:
         entity_by_id = {entity.entity_id: entity for entity in document.entities}
         for cluster in document.clusters:
-            cluster_entity = self._entity_for_cluster(document, cluster, entity_by_id)
+            cluster_entity = read_entity_for_cluster(cluster, entity_by_id)
             if cluster_entity is None:
                 continue
             if cluster_entity.entity_type not in {
@@ -676,10 +497,6 @@ class SharedEntityEnricher(EntityEnricher):
                         entity.canonical_name = typing_result.canonical_name
                         entity.normalized_name = typing_result.canonical_name
                     mention.entity_type = cluster_entity.entity_type
-
-    @staticmethod
-    def _refresh_clause_mentions(document: ArticleDocument) -> None:
-        FrameSlotGrounder.refresh_clause_mentions(document)
 
 
 def _has_non_party_organization_head(name: str) -> bool:

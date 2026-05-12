@@ -1,13 +1,19 @@
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 
 from pipeline.base import IdentityResolver
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import (
+    ensure_entity,
+    ensure_entity_view,
+    refresh_clause_mentions,
+)
+from pipeline.document_graph import (
+    entity_by_id as lookup_entity_by_id,
+)
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
-    ClusterID,
     EntityID,
     EntityType,
     FactID,
@@ -34,13 +40,11 @@ from pipeline.identity_signals import (
 )
 from pipeline.models import (
     ArticleDocument,
-    ClusterMention,
     Entity,
     EntityCluster,
     EvidenceSpan,
     Fact,
     IdentityHypothesis,
-    Mention,
 )
 from pipeline.utils import normalize_entity_name, stable_id
 
@@ -77,7 +81,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         self._add_proxy_family_facts(document, proxies)
         self._add_proxy_identity_hypotheses(document, proxies)
         self._add_full_name_identity_hypotheses(document)
-        self._refresh_clause_mentions(document)
+        refresh_clause_mentions(document)
         return document
 
     def _collect_resolved_family_mentions(
@@ -169,10 +173,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 kinship_detail.value,
             )
         )
-        existing_entity = next(
-            (entity for entity in document.entities if entity.entity_id == entity_id),
-            None,
-        )
         evidence = EvidenceSpan(
             text=surface,
             sentence_index=sentence_index,
@@ -180,48 +180,30 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             start_char=start_char,
             end_char=end_char,
         )
-        if existing_entity is None:
-            existing_entity = Entity(
-                entity_id=entity_id,
-                entity_type=EntityType.PERSON,
-                canonical_name=canonical_name,
-                normalized_name=canonical_name,
-                aliases=[surface],
-                is_proxy_person=True,
-                proxy_kind=ProxyKind.FAMILY,
-                kinship_detail=kinship_detail,
-                proxy_anchor_entity_id=EntityID(anchor_entity_id),
-                lemmas=[kinship_detail.value],
-                evidence=[evidence],
-            )
-            document.entities.append(existing_entity)
-            document.mentions.append(
-                Mention(
-                    text=surface,
-                    normalized_text=canonical_name,
-                    entity_type=EntityType.PERSON,
-                    mention_kind=MentionKind.DERIVED_ENTITY,
-                    sentence_index=sentence_index,
-                    paragraph_index=paragraph_index,
-                    start_char=start_char,
-                    end_char=end_char,
-                    entity_id=entity_id,
-                )
-            )
-        elif not any(
-            span.start_char == start_char and span.sentence_index == sentence_index
-            for span in existing_entity.evidence
-        ):
-            existing_entity.evidence.append(evidence)
-
-        cluster = self._ensure_proxy_cluster(
+        existing_entity = ensure_entity(
             document,
-            existing_entity,
+            entity_id=entity_id,
+            entity_type=EntityType.PERSON,
+            canonical_name=canonical_name,
+            aliases=[surface],
+            evidence=evidence,
+            is_proxy_person=True,
+            proxy_kind=ProxyKind.FAMILY,
+            kinship_detail=kinship_detail,
+            proxy_anchor_entity_id=EntityID(anchor_entity_id),
+            lemmas=[kinship_detail.value],
+        )
+
+        cluster = ensure_entity_view(
+            document,
+            entity=existing_entity,
+            surface=surface,
+            normalized_text=canonical_name,
             sentence_index=sentence_index,
             paragraph_index=paragraph_index,
             start_char=start_char,
             end_char=end_char,
-            surface=surface,
+            mention_kind=MentionKind.DERIVED_ENTITY,
         )
         return _ProxyRecord(
             entity=existing_entity,
@@ -230,51 +212,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             anchor_entity_id=anchor_entity_id,
             anchor_cluster_id=anchor.cluster_id,
         )
-
-    def _ensure_proxy_cluster(
-        self,
-        document: ArticleDocument,
-        entity: Entity,
-        *,
-        sentence_index: int,
-        paragraph_index: int,
-        start_char: int,
-        end_char: int,
-        surface: str,
-    ) -> EntityCluster:
-        existing = next(
-            (
-                cluster
-                for cluster in document.clusters
-                if cluster.primary_entity_id == entity.entity_id
-                or entity.entity_id in cluster.member_entity_ids
-            ),
-            None,
-        )
-        mention = ClusterMention(
-            text=surface,
-            entity_type=EntityType.PERSON,
-            sentence_index=sentence_index,
-            paragraph_index=paragraph_index,
-            start_char=start_char,
-            end_char=end_char,
-            entity_id=entity.entity_id,
-        )
-        if existing is None:
-            cluster = EntityCluster(
-                cluster_id=ClusterID(f"cluster-proxy-{uuid.uuid4().hex[:8]}"),
-                mentions=[mention],
-                primary_entity_id=entity.entity_id,
-                member_entity_ids=[entity.entity_id],
-            )
-            document.clusters.append(cluster)
-            return cluster
-        if not any(
-            item.start_char == start_char and item.sentence_index == sentence_index
-            for item in existing.mentions
-        ):
-            existing.mentions.append(mention)
-        return existing
 
     def _add_proxy_family_facts(
         self,
@@ -359,7 +296,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             anchor_id = proxy.proxy_anchor_entity_id
             if anchor_id is None:
                 continue
-            anchor = self._entity_by_id(document, anchor_id)
+            anchor = lookup_entity_by_id(document, anchor_id)
             if anchor is None:
                 continue
             anchor_surname = surname_for_name(anchor.canonical_name)
@@ -448,9 +385,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         entity_id = EntityID(
             stable_id("person_ref", document.document_id, canonical, str(start_char))
         )
-        existing = self._entity_by_id(document, entity_id)
-        if existing is not None:
-            return existing
         evidence = EvidenceSpan(
             text=surface,
             sentence_index=sentence_index,
@@ -458,89 +392,27 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             start_char=start_char,
             end_char=end_char,
         )
-        entity = Entity(
-            entity_id=EntityID(entity_id),
+        entity = ensure_entity(
+            document,
+            entity_id=entity_id,
             entity_type=EntityType.PERSON,
             canonical_name=canonical,
-            normalized_name=canonical,
             aliases=[surface],
+            evidence=evidence,
             is_honorific_person_ref=True,
-            evidence=[evidence],
         )
-        document.entities.append(entity)
-        document.mentions.append(
-            Mention(
-                text=surface,
-                normalized_text=canonical,
-                entity_type=EntityType.PERSON,
-                mention_kind=MentionKind.DERIVED_ENTITY,
-                sentence_index=sentence_index,
-                paragraph_index=paragraph_index,
-                start_char=start_char,
-                end_char=end_char,
-                entity_id=EntityID(entity_id),
-            )
-        )
-        document.clusters.append(
-            EntityCluster(
-                cluster_id=ClusterID(f"cluster-ref-{uuid.uuid4().hex[:8]}"),
-                mentions=[
-                    ClusterMention(
-                        text=surface,
-                        entity_type=EntityType.PERSON,
-                        sentence_index=sentence_index,
-                        paragraph_index=paragraph_index,
-                        start_char=start_char,
-                        end_char=end_char,
-                        entity_id=EntityID(entity_id),
-                    )
-                ],
-                primary_entity_id=EntityID(entity_id),
-                member_entity_ids=[EntityID(entity_id)],
-            )
+        ensure_entity_view(
+            document,
+            entity=entity,
+            surface=surface,
+            normalized_text=canonical,
+            sentence_index=sentence_index,
+            paragraph_index=paragraph_index,
+            start_char=start_char,
+            end_char=end_char,
+            mention_kind=MentionKind.DERIVED_ENTITY,
         )
         return entity
-
-    def _refresh_clause_mentions(self, document: ArticleDocument) -> None:
-        for clause in document.clause_units:
-            for cluster in document.clusters:
-                for mention in cluster.mentions:
-                    if mention.sentence_index != clause.sentence_index:
-                        continue
-                    if not (
-                        clause.start_char <= mention.start_char
-                        and mention.end_char <= clause.end_char
-                    ):
-                        continue
-                    if any(
-                        existing.start_char == mention.start_char
-                        and existing.end_char == mention.end_char
-                        and existing.entity_type == mention.entity_type
-                        for existing in clause.cluster_mentions
-                    ):
-                        continue
-                    clause.cluster_mentions.append(mention)
-                    role = self._mention_dependency_role(document, clause.sentence_index, mention)
-                    if role is not None:
-                        clause.mention_roles[mention.text] = role
-
-    @staticmethod
-    def _mention_dependency_role(
-        document: ArticleDocument,
-        sentence_index: int,
-        mention: ClusterMention,
-    ) -> str | None:
-        sentence = next(
-            (item for item in document.sentences if item.sentence_index == sentence_index),
-            None,
-        )
-        if sentence is None:
-            return None
-        for word in document.parsed_sentences.get(sentence_index, []):
-            abs_start = sentence.start_char + word.start
-            if mention.start_char <= abs_start < mention.end_char:
-                return word.deprel
-        return None
 
     def _near_family_context(
         self,
@@ -626,10 +498,6 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         if kinship_detail in {KinshipDetail.SIBLING_SISTER, KinshipDetail.SIBLING_BROTHER}:
             return KinshipDetail.SIBLING_SISTER
         return None
-
-    @staticmethod
-    def _entity_by_id(document: ArticleDocument, entity_id: str) -> Entity | None:
-        return next((entity for entity in document.entities if entity.entity_id == entity_id), None)
 
     @staticmethod
     def _best_entity_id(cluster: EntityCluster) -> str:

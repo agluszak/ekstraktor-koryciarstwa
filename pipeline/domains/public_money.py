@@ -179,8 +179,8 @@ class PolishPublicContractFrameExtractor:
         *,
         explicit_public_procurement: bool,
     ) -> list[PublicContractFrame]:
-        clusters = context.clusters_for_mentions(
-            clause.cluster_mentions,
+        clusters = context.clusters_for_clause(
+            clause,
             {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION, EntityType.PERSON},
         )
         if not clusters:
@@ -547,8 +547,8 @@ def _public_money_clusters(
     ]
     if cluster_ids:
         return [cluster for cluster in document.clusters if cluster.cluster_id in cluster_ids]
-    return context.clusters_for_mentions(
-        clause.cluster_mentions,
+    return context.clusters_for_clause(
+        clause,
         {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},
     )
 
