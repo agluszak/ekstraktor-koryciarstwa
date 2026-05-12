@@ -31,7 +31,6 @@ from pipeline.document_graph import (
     clause_mentions,
     ensure_entity,
     ensure_entity_view,
-    refresh_clause_mentions,
 )
 from pipeline.domain_lexicons import (
     DERIVED_ORGANIZATION_HEADS,
@@ -206,7 +205,7 @@ class FrameSlotGrounder:
         grounded = self._sentence_grounded_organization_mentions(document, sentence)
         for mention in grounded:
             self._upsert_grounded_organization(document, mention)
-        refresh_clause_mentions(document)
+
         return grounded
 
     def ground_organization_mentions(

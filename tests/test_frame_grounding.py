@@ -121,7 +121,6 @@ def _document(
             paragraph_index=0,
             start_char=0,
             end_char=len(text),
-            cluster_mentions=cluster_mentions,
         )
     ]
     return document

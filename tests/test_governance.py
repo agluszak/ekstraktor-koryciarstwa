@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_types import (
     ClauseID,
     ClusterID,
@@ -145,7 +146,7 @@ def _entities(fixtures: list[ClusterFixture]) -> list[Entity]:
 
 
 def document(clusters: list[ClusterFixture]) -> ArticleDocument:
-    return ArticleDocument(
+    document = ArticleDocument(
         document_id=DocumentID("doc-1"),
         source_url=None,
         raw_html="",
@@ -154,8 +155,11 @@ def document(clusters: list[ClusterFixture]) -> ArticleDocument:
         cleaned_text="",
         paragraphs=[],
         entities=_entities(clusters),
+        mentions=[mention for cluster in _clusters(clusters) for mention in cluster.mentions],
         clusters=_clusters(clusters),
     )
+    sync_entity_mentions(document)
+    return document
 
 
 def test_target_resolver_prefers_stadnina_over_skarb_panstwa() -> None:
@@ -468,7 +472,6 @@ def test_resolve_people_recovers_previous_sentence_appointing_authority() -> Non
         paragraph_index=0,
         start_char=sentence_break,
         end_char=sentence_break + len(clause_text),
-        cluster_mentions=[appointee.mentions[0]],
     )
 
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
@@ -571,7 +574,6 @@ def test_resolve_people_binds_title_only_authority_to_recent_named_holder() -> N
         paragraph_index=0,
         start_char=second_break,
         end_char=second_break + len(clause_text),
-        cluster_mentions=[appointee.mentions[0]],
     )
 
     person_cluster_id, appointing_authority_id = extractor._resolve_people(
@@ -754,7 +756,6 @@ def test_governance_frame_assembler_joins_split_sentence_appointment() -> None:
             paragraph_index=0,
             start_char=doc.sentences[1].start_char,
             end_char=doc.sentences[1].end_char,
-            cluster_mentions=[],
         )
     ]
 
@@ -832,7 +833,6 @@ def test_governance_frame_assembler_joins_split_sentence_dismissal() -> None:
             paragraph_index=0,
             start_char=doc.sentences[0].start_char,
             end_char=doc.sentences[0].end_char,
-            cluster_mentions=[],
         )
     ]
 
@@ -1200,7 +1200,6 @@ def test_compensation_frame_extractor_ignores_funding_amounts() -> None:
             paragraph_index=0,
             start_char=0,
             end_char=len(text),
-            cluster_mentions=fundacja.mentions,
         )
     ]
 
@@ -1227,7 +1226,6 @@ def test_compensation_frame_extractor_emits_role_only_salary_frame() -> None:
             paragraph_index=0,
             start_char=0,
             end_char=len(text),
-            cluster_mentions=[*role.mentions, *org.mentions],
         )
     ]
 
@@ -1262,7 +1260,6 @@ def test_funding_frame_extractor_emits_grant_frame_without_compensation_frame() 
             paragraph_index=0,
             start_char=0,
             end_char=len(text),
-            cluster_mentions=[*funder.mentions, *recipient.mentions],
         )
     ]
 
@@ -1306,7 +1303,6 @@ def test_funding_frame_extractor_rejects_reporting_przekazac_with_amount() -> No
             paragraph_index=0,
             start_char=0,
             end_char=len(text),
-            cluster_mentions=[*source.mentions, *recipient.mentions],
         )
     ]
 
@@ -1364,7 +1360,6 @@ def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_of
             paragraph_index=0,
             start_char=sentence_start,
             end_char=sentence_start + len(text),
-            cluster_mentions=[*recipient.mentions, *funder.mentions],
         )
     ]
 
@@ -1440,8 +1435,6 @@ def test_resolve_people_treats_passive_subject_as_appointee_not_authority() -> N
         paragraph_index=0,
         start_char=0,
         end_char=len(text),
-        cluster_mentions=[appointee.mentions[0]],
-        mention_roles={"Jan Kowalski": "nsubj:pass"},
     )
     doc = ArticleDocument(
         document_id=DocumentID("doc-passive"),

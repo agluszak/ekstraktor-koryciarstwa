@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from pipeline.domain_types import (
     ClusterID,
     EntityID,
     EntityType,
     KinshipDetail,
+    MentionID,
     MentionKind,
     OrganizationKind,
     ProxyKind,
@@ -24,17 +27,29 @@ from pipeline.models import (
 from pipeline.utils import stable_id
 
 
-def refresh_clause_mentions(document: ArticleDocument) -> None:
-    sentences_by_index = {sentence.sentence_index: sentence for sentence in document.sentences}
+@dataclass(slots=True)
+class DocumentGraph:
+    document: ArticleDocument
+    entities_by_id: dict[EntityID, Entity] = field(init=False)
+    mentions_by_id: dict[MentionID, Mention] = field(init=False)
+    mentions_by_entity_id: dict[EntityID, list[Mention]] = field(init=False)
 
-    for clause in document.clause_units:
-        clause.cluster_mentions = clause_mentions(document, clause)
-        sentence = sentences_by_index.get(clause.sentence_index)
-        clause.mention_roles = {
-            mention.text: role
-            for mention in clause.cluster_mentions
-            if (role := mention_dependency_role(document, sentence, mention)) is not None
-        }
+    def __post_init__(self) -> None:
+        self.entities_by_id = {entity.entity_id: entity for entity in self.document.entities}
+        self.mentions_by_id = {mention.mention_id: mention for mention in self.document.mentions}
+        self.mentions_by_entity_id = {}
+        for entity in self.document.entities:
+            self.mentions_by_entity_id[entity.entity_id] = [
+                self.mentions_by_id[mention_id]
+                for mention_id in entity.mention_ids
+                if mention_id in self.mentions_by_id
+            ]
+
+    def entity_by_id(self, entity_id: EntityID) -> Entity | None:
+        return self.entities_by_id.get(entity_id)
+
+    def mentions_for_entity(self, entity_id: EntityID) -> list[Mention]:
+        return list(self.mentions_by_entity_id.get(entity_id, []))
 
 
 def mention_dependency_role(
@@ -56,31 +71,43 @@ def clause_mentions(
     clause: ClauseUnit,
 ) -> list[ClusterMention]:
     mentions: list[ClusterMention] = []
-    seen: set[tuple[EntityID | None, int, int, str, EntityType]] = set()
-    for cluster in document.clusters:
-        for mention in cluster.mentions:
-            if mention.sentence_index != clause.sentence_index:
-                continue
-            if not (
-                clause.start_char <= mention.start_char and mention.end_char <= clause.end_char
-            ):
-                continue
-            key = (
-                mention.entity_id,
-                mention.start_char,
-                mention.end_char,
-                mention.text,
-                mention.entity_type,
-            )
-            if key in seen:
-                continue
-            seen.add(key)
-            mentions.append(mention)
+    seen: set[MentionID] = set()
+    for mention in document.mentions:
+        if mention.sentence_index != clause.sentence_index:
+            continue
+        if not (clause.start_char <= mention.start_char and mention.end_char <= clause.end_char):
+            continue
+        if mention.mention_id in seen:
+            continue
+        seen.add(mention.mention_id)
+        mentions.append(mention)
     return mentions
 
 
 def entity_by_id(document: ArticleDocument, entity_id: EntityID) -> Entity | None:
-    return next((entity for entity in document.entities if entity.entity_id == entity_id), None)
+    return DocumentGraph(document).entity_by_id(entity_id)
+
+
+def mentions_for_entity(document: ArticleDocument, entity_id: EntityID) -> list[Mention]:
+    return DocumentGraph(document).mentions_for_entity(entity_id)
+
+
+def attach_mention_to_entity(entity: Entity, mention: Mention) -> None:
+    if mention.mention_id not in entity.mention_ids:
+        entity.mention_ids.append(mention.mention_id)
+
+
+def sync_entity_mentions(document: ArticleDocument) -> None:
+    entities_by_id = {entity.entity_id: entity for entity in document.entities}
+    for entity in document.entities:
+        entity.mention_ids = []
+    for mention in document.mentions:
+        if mention.entity_id is None:
+            continue
+        entity = entities_by_id.get(mention.entity_id)
+        if entity is None:
+            continue
+        attach_mention_to_entity(entity, mention)
 
 
 def cluster_for_entity(
@@ -212,44 +239,47 @@ def ensure_entity_view(
         entity.aliases.append(surface)
 
     resolved_type = entity.entity_type if entity_type is None else entity_type
-    if not any(
-        mention.entity_id == entity.entity_id
-        and mention.sentence_index == sentence_index
-        and mention.start_char == start_char
-        and mention.end_char == end_char
-        and mention.text == surface
-        for mention in document.mentions
-    ):
-        document.mentions.append(
-            Mention(
-                text=surface,
-                normalized_text=normalized_text,
-                entity_type=resolved_type,
-                mention_kind=mention_kind,
-                sentence_index=sentence_index,
-                paragraph_index=paragraph_index,
-                start_char=start_char,
-                end_char=end_char,
-                entity_id=entity.entity_id,
-            )
-        )
-
-    cluster_mention = ClusterMention(
-        text=surface,
-        entity_type=resolved_type,
-        sentence_index=sentence_index,
-        paragraph_index=paragraph_index,
-        start_char=start_char,
-        end_char=end_char,
-        mention_kind=mention_kind,
-        entity_id=entity.entity_id,
+    mention_record = next(
+        (
+            mention
+            for mention in document.mentions
+            if mention.entity_id == entity.entity_id
+            and mention.sentence_index == sentence_index
+            and mention.start_char == start_char
+            and mention.end_char == end_char
+            and mention.text == surface
+        ),
+        None,
     )
+    if mention_record is None:
+        mention_record = Mention(
+            text=surface,
+            normalized_text=normalized_text,
+            entity_type=resolved_type,
+            mention_kind=mention_kind,
+            sentence_index=sentence_index,
+            paragraph_index=paragraph_index,
+            start_char=start_char,
+            end_char=end_char,
+            entity_id=entity.entity_id,
+        )
+        document.mentions.append(mention_record)
+    else:
+        mention_record.entity_type = resolved_type
+        mention_record.mention_kind = mention_kind
+        mention_record.normalized_text = normalized_text
+        mention_record.paragraph_index = paragraph_index
+        mention_record.start_char = start_char
+        mention_record.end_char = end_char
+        mention_record.entity_id = entity.entity_id
+    attach_mention_to_entity(entity, mention_record)
+
     target_cluster = cluster or cluster_for_entity(document, entity.entity_id)
     if target_cluster is None:
         target_cluster = EntityCluster(
             cluster_id=cluster_id
             or ClusterID(stable_id("cluster", document.document_id, entity.entity_id)),
-            mentions=[cluster_mention],
+            mentions=[mention_record],
             primary_entity_id=entity.entity_id,
         )
         document.clusters.append(target_cluster)
@@ -275,5 +305,5 @@ def ensure_entity_view(
         and mention.text == surface
         for mention in target_cluster.mentions
     ):
-        target_cluster.mentions.append(cluster_mention)
+        target_cluster.mentions.append(mention_record)
     return target_cluster

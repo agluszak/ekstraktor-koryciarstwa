@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -16,6 +17,7 @@ from pipeline.domain_types import (
     IdentityHypothesisReason,
     IdentityHypothesisStatus,
     KinshipDetail,
+    MentionID,
     MentionKind,
     NERLabel,
     OrganizationKind,
@@ -64,6 +66,7 @@ class Entity:
     normalized_name: str
     aliases: list[str] = field(default_factory=list)
     evidence: list[EvidenceSpan] = field(default_factory=list)
+    mention_ids: list[MentionID] = field(default_factory=list)
 
     # Inlined attributes
     registry_id: str | None = None
@@ -170,7 +173,6 @@ class ParsedSentence:
 @dataclass(slots=True)
 class Mention:
     text: str
-    normalized_text: str
     entity_type: EntityType
     sentence_index: int
     mention_kind: MentionKind = MentionKind.NAMED_ENTITY
@@ -178,23 +180,17 @@ class Mention:
     start_char: int = 0
     end_char: int = 0
     entity_id: EntityID | None = None
+    normalized_text: str = ""
+    mention_id: MentionID = field(
+        default_factory=lambda: MentionID(f"mention-{uuid.uuid4().hex[:12]}")
+    )
 
     # Inlined attributes
     lemmas: list[str] = field(default_factory=list)
     ner_label: NERLabel | None = None
 
 
-@dataclass(slots=True)
-class ClusterMention:
-    text: str
-    entity_type: EntityType
-    sentence_index: int
-    paragraph_index: int
-    start_char: int
-    end_char: int
-    mention_kind: MentionKind = MentionKind.NAMED_ENTITY
-    entity_id: EntityID | None = None
-    ner_label: NERLabel | None = None
+ClusterMention = Mention
 
 
 @dataclass(slots=True)
@@ -320,8 +316,6 @@ class ClauseUnit:
     paragraph_index: int
     start_char: int
     end_char: int
-    cluster_mentions: list[ClusterMention] = field(default_factory=list)
-    mention_roles: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

@@ -96,6 +96,66 @@ def test_build_views_by_entity_id_uses_cluster_identity_when_mentions_are_unlink
     assert views[entity_id].canonical_name == "proxy spouse"
 
 
+def test_build_views_by_entity_id_returns_view_bound_to_each_entity_id() -> None:
+    first_id = EntityID("entity-first")
+    second_id = EntityID("entity-second")
+    cluster = _cluster(
+        "cluster-multi",
+        [
+            ClusterMention(
+                text="Jan Kowalski",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=12,
+                entity_id=first_id,
+            ),
+            ClusterMention(
+                text="Kowalski",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=20,
+                end_char=28,
+                entity_id=second_id,
+            ),
+        ],
+        primary_entity_id=first_id,
+        member_entity_ids=[first_id, second_id],
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc-kinship-multi"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="Jan Kowalski Kowalski",
+        paragraphs=["Jan Kowalski Kowalski"],
+        entities=[
+            Entity(
+                entity_id=first_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+            ),
+            Entity(
+                entity_id=second_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Kowalski",
+                normalized_name="Kowalski",
+            ),
+        ],
+        clusters=[cluster],
+    )
+
+    views = _build_views_by_entity_id(ExtractionContext.build(document), document.clusters)
+
+    assert views[first_id].entity_id == first_id
+    assert views[second_id].entity_id == second_id
+    assert views[second_id].mention.entity_id == second_id
+
+
 def test_kinship_apposition_emits_spouse_tie() -> None:
     sentence_text = (
         "Marszałek powołał Sylwię Sobolewską, żonę byłego sekretarza Krzysztofa Sobolewskiego."

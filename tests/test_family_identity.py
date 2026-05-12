@@ -611,7 +611,6 @@ def test_sister_proxy_is_governance_subject_not_anchor() -> None:
     doc.clusters.extend([karol_cluster, org_cluster])
     doc.clause_units[1].trigger_head_text = "została"
     doc.clause_units[1].trigger_head_lemma = "zostać"
-    doc.clause_units[1].cluster_mentions.append(org_cluster.mentions[0])
 
     config = PipelineConfig.from_file("config.yaml")
     resolved = PolishFamilyIdentityResolver(config).run(doc)

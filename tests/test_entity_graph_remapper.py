@@ -1,4 +1,10 @@
-from pipeline.domain_types import ClusterID, DocumentID, EntityID, EntityType
+from pipeline.domain_types import (
+    ClusterID,
+    DocumentID,
+    EntityID,
+    EntityType,
+    MentionKind,
+)
 from pipeline.entity_graph_remapper import EntityGraphRemapper
 from pipeline.models import ArticleDocument, ClusterMention, Entity, EntityCluster, Mention
 
@@ -77,3 +83,63 @@ def test_remap_mentions_deduplicates_member_entity_ids_after_many_to_one_remap()
         target_id,
         target_id,
     ]
+
+
+def test_remap_mentions_keeps_distinct_same_text_spans_in_same_sentence() -> None:
+    target_id = EntityID("entity-target")
+    source_id = EntityID("entity-source")
+    document = ArticleDocument(
+        document_id=DocumentID("doc-remap-spans"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date=None,
+        cleaned_text="ABC ABC",
+        paragraphs=["ABC ABC"],
+        entities=[
+            Entity(
+                entity_id=target_id,
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="ABC",
+                normalized_name="ABC",
+            ),
+            Entity(
+                entity_id=source_id,
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="ABC SA",
+                normalized_name="ABC SA",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="ABC",
+                normalized_text="ABC",
+                entity_type=EntityType.ORGANIZATION,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=3,
+                mention_kind=MentionKind.NAMED_ENTITY,
+                entity_id=source_id,
+            ),
+            Mention(
+                text="ABC",
+                normalized_text="ABC",
+                entity_type=EntityType.ORGANIZATION,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=4,
+                end_char=7,
+                mention_kind=MentionKind.NAMED_ENTITY,
+                entity_id=source_id,
+            ),
+        ],
+    )
+
+    EntityGraphRemapper.remap_mentions(document, {source_id: target_id})
+
+    assert [(mention.start_char, mention.end_char) for mention in document.mentions] == [
+        (0, 3),
+        (4, 7),
+    ]
+    assert all(mention.entity_id == target_id for mention in document.mentions)
