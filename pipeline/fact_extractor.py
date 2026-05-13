@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from pipeline.base import FactExtractor
 from pipeline.config import PipelineConfig
 from pipeline.domain_registry import DomainRegistry, build_default_domain_registry
@@ -42,6 +44,19 @@ class PolishFactExtractor(FactExtractor):
                 fact.value_normalized,
                 fact.evidence.text,
             )
-            if key not in deduplicated or deduplicated[key].confidence < fact.confidence:
+            existing = deduplicated.get(key)
+            if existing is None:
                 deduplicated[key] = fact
+                continue
+            preferred = fact if existing.confidence < fact.confidence else existing
+            fallback = existing if preferred is fact else fact
+            merged_matches = list(preferred.possible_entity_matches)
+            for match in fallback.possible_entity_matches:
+                if match not in merged_matches:
+                    merged_matches.append(match)
+            deduplicated[key] = replace(
+                preferred,
+                entity_resolution=preferred.entity_resolution or fallback.entity_resolution,
+                possible_entity_matches=merged_matches,
+            )
         return list(deduplicated.values())

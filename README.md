@@ -31,7 +31,7 @@ For processing multiple articles efficiently (keeping NLP models loaded in a war
 uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
 ```
 
-This will read all matching HTML files in `inputs/` and write `.json` extraction results and an `entity_registry.sqlite3` database to `output/`.
+This will read all matching HTML files in `inputs/` and write `.json` extraction results to `output/`.
 
 ### Persistent Worker (stdin/stdout)
 

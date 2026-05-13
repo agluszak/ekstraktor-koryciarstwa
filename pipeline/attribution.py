@@ -93,6 +93,8 @@ def resolve_party_attributions(
             sentence_start=sentence.start_char,
         ):
             continue
+        if _party_belongs_to_closer_previous_person(person, party, persons):
+            continue
         attributed.append(ResolvedPartyAttribution(person=person, party=party, score=score))
     return attributed
 
@@ -163,6 +165,8 @@ def resolve_political_role_attributions(
 
     attributed: list[ResolvedRoleAttribution] = []
     for role in positions:
+        if role.start_char < person.start_char and person.start_char - role.end_char > 16:
+            continue
         # Precision: ignore very generic roles if they don't have enough context
         generic_roles = {"prezes", "dyrektor", "kierownik", "członek", "pracownik"}
         if role.normalized_name.lower() in generic_roles:
@@ -226,12 +230,48 @@ def resolve_candidacy_score(
     ]
     if "wybory" not in lowered_text and "kandydat" not in lowered_text:
         return None
+    if _looks_like_support_for_someone_else(sentence, person):
+        return None
     if any(
         abs(person.start_char - (sentence.start_char + word.start)) <= 28
         for word in governing_words
     ):
         return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
     return _score(0.55, "same_sentence", "same_sentence", "election_context")
+
+
+def _party_belongs_to_closer_previous_person(
+    person: ClusterMentionView,
+    party: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
+) -> bool:
+    if party.start_char >= person.start_char:
+        return False
+    previous_people = [
+        candidate
+        for candidate in sentence_persons
+        if candidate.cluster_id != person.cluster_id and candidate.end_char <= party.start_char
+    ]
+    if not previous_people:
+        return False
+    closest_previous = max(previous_people, key=lambda candidate: candidate.end_char)
+    return party.start_char - closest_previous.end_char <= 8
+
+
+def _looks_like_support_for_someone_else(
+    sentence: SentenceFragment,
+    person: ClusterMentionView,
+) -> bool:
+    lowered = sentence.text.casefold()
+    support_offsets = [
+        lowered.find(marker)
+        for marker in ("kandydaturę wspiera", "kandydature wspiera", "kandydaturę popiera")
+        if lowered.find(marker) >= 0
+    ]
+    if not support_offsets:
+        return False
+    support_offset = min(support_offsets)
+    return person.start_char - sentence.start_char > support_offset
 
 
 def resolve_public_employment_attribution(

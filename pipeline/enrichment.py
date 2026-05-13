@@ -43,6 +43,8 @@ from pipeline.role_matching import RoleMatch, match_role_mentions
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import stable_id
 
+LOWERCASE_COMMON_PARTY_ALIASES = frozenset({"razem"})
+
 
 @dataclass(frozen=True, slots=True)
 class DerivedOrganizationMention:
@@ -210,6 +212,10 @@ class SharedEntityEnricher(EntityEnricher):
             for token in party_tokens:
                 flags = 0 if token.isupper() and len(token) <= 3 else re.IGNORECASE
                 for match in re.finditer(rf"(?<!\w){re.escape(token)}(?!\w)", sentence.text, flags):
+                    if token.casefold() in LOWERCASE_COMMON_PARTY_ALIASES and match.group(
+                        0
+                    ).casefold() == match.group(0):
+                        continue
                     start_char = sentence.start_char + match.start()
                     end_char = sentence.start_char + match.end()
                     if self._overlaps_non_party_organization(
@@ -308,9 +314,13 @@ class SharedEntityEnricher(EntityEnricher):
         sentence: SentenceFragment,
         match: RoleMatch,
     ) -> None:
+        if match.end <= match.start:
+            return
         start_char = sentence.start_char + match.start
         end_char = sentence.start_char + match.end
         surface = sentence.text[match.start : match.end]
+        if not surface.strip():
+            return
         self._add_or_update_entity_view(
             document=document,
             sentence=sentence,

@@ -487,7 +487,7 @@ def test_ambiguous_surname_only_person_reference_does_not_hard_merge() -> None:
     }
 
 
-def test_single_token_inflected_person_variants_merge_into_full_name_cluster() -> None:
+def test_single_token_inflected_person_variants_do_not_hard_merge_into_full_name_cluster() -> None:
     config = PipelineConfig.from_file("config.yaml")
     canonicalizer = DocumentEntityCanonicalizer(config)
     document = ArticleDocument(
@@ -522,8 +522,11 @@ def test_single_token_inflected_person_variants_merge_into_full_name_cluster() -
 
     normalized = canonicalizer.run(document)
 
-    assert len(normalized.entities) == 1
-    assert normalized.entities[0].canonical_name == "Marek Rząsowski"
+    assert {entity.canonical_name for entity in normalized.entities} == {
+        "Marek Rząsowski",
+        "Rząsowskiego",
+        "Marku",
+    }
 
 
 def test_person_canonical_prefers_observed_surface_over_broken_lemma_stem() -> None:

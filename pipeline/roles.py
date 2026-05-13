@@ -31,7 +31,14 @@ class PolishPositionExtractor(DocumentStage):
 
             matches = match_role_mentions(words)
             for match in matches:
+                if match.end <= match.start:
+                    continue
                 canonical_name = match.canonical_name
+                start_char = sentence.start_char + match.start
+                end_char = sentence.start_char + match.end
+                surface = sentence.text[match.start : match.end]
+                if not surface.strip():
+                    continue
                 # Use canonical name as merge key for roles within a document
                 merge_key = canonical_name.lower()
 
@@ -54,11 +61,9 @@ class PolishPositionExtractor(DocumentStage):
 
                 entity.evidence.append(
                     EvidenceSpan(
-                        text=sentence.text[
-                            match.start - sentence.start_char : match.end - sentence.start_char
-                        ],
-                        start_char=match.start,
-                        end_char=match.end,
+                        text=surface,
+                        start_char=start_char,
+                        end_char=end_char,
                         sentence_index=sentence.sentence_index,
                         paragraph_index=sentence.paragraph_index,
                     )
@@ -66,16 +71,14 @@ class PolishPositionExtractor(DocumentStage):
 
                 document.mentions.append(
                     Mention(
-                        text=sentence.text[
-                            match.start - sentence.start_char : match.end - sentence.start_char
-                        ],
+                        text=surface,
                         normalized_text=canonical_name,
                         entity_type=EntityType.POSITION,
                         mention_kind=MentionKind.DERIVED_ENTITY,
                         sentence_index=sentence.sentence_index,
                         paragraph_index=sentence.paragraph_index,
-                        start_char=match.start,
-                        end_char=match.end,
+                        start_char=start_char,
+                        end_char=end_char,
                         entity_id=entity.entity_id,
                         lemmas=entity.lemmas,
                         ner_label=None,  # Roles don't have standard NER labels

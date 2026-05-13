@@ -4,10 +4,10 @@ from pipeline.domain_types import (
     ClusterID,
     DocumentID,
     EntityID,
+    EntityResolutionReason,
+    EntityResolutionStatus,
     EntityType,
     FactType,
-    IdentityHypothesisReason,
-    IdentityHypothesisStatus,
     KinshipDetail,
     RelationshipType,
 )
@@ -364,8 +364,8 @@ def test_sister_proxy_is_separate_from_spouse_proxy() -> None:
     proxy_kinds = {entity.kinship_detail for entity in resolved.entities if entity.is_proxy_person}
     assert {KinshipDetail.SPOUSE, KinshipDetail.SIBLING_SISTER} <= proxy_kinds
     assert not any(
-        hypothesis.status == IdentityHypothesisStatus.PROBABLE
-        for hypothesis in resolved.identity_hypotheses
+        hypothesis.status == EntityResolutionStatus.PROBABLE
+        for hypothesis in resolved.entity_resolution_hypotheses
     )
 
 
@@ -408,9 +408,9 @@ def test_possessive_partner_is_probable_same_person_as_spouse_proxy() -> None:
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
     assert any(
-        hypothesis.status == IdentityHypothesisStatus.PROBABLE
-        and hypothesis.reason == IdentityHypothesisReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY
-        for hypothesis in resolved.identity_hypotheses
+        hypothesis.status == EntityResolutionStatus.PROBABLE
+        and hypothesis.reason == EntityResolutionReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY
+        for hypothesis in resolved.entity_resolution_hypotheses
     )
 
 
@@ -487,13 +487,13 @@ def test_honorific_surname_only_stays_possible() -> None:
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
     assert any(
-        hypothesis.status == IdentityHypothesisStatus.POSSIBLE
-        and hypothesis.reason == IdentityHypothesisReason.HONORIFIC_SURNAME_ONLY
-        for hypothesis in resolved.identity_hypotheses
+        hypothesis.status == EntityResolutionStatus.POSSIBLE
+        and hypothesis.reason == EntityResolutionReason.HONORIFIC_SURNAME_ONLY
+        for hypothesis in resolved.entity_resolution_hypotheses
     )
     assert not any(
-        hypothesis.status == IdentityHypothesisStatus.PROBABLE
-        for hypothesis in resolved.identity_hypotheses
+        hypothesis.status == EntityResolutionStatus.PROBABLE
+        for hypothesis in resolved.entity_resolution_hypotheses
     )
     canonicalized = DocumentEntityCanonicalizer(PipelineConfig.from_file("config.yaml")).run(
         resolved
@@ -544,10 +544,76 @@ def test_full_name_with_near_family_context_is_probable_proxy_match() -> None:
     resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
 
     assert any(
-        hypothesis.status == IdentityHypothesisStatus.PROBABLE
-        and hypothesis.reason == IdentityHypothesisReason.SURNAME_COMPATIBLE_NEAR_FAMILY_CONTEXT
+        hypothesis.status == EntityResolutionStatus.PROBABLE
+        and hypothesis.reason == EntityResolutionReason.SURNAME_COMPATIBLE_NEAR_FAMILY_CONTEXT
         and "person-agnieszka" in {hypothesis.left_entity_id, hypothesis.right_entity_id}
-        for hypothesis in resolved.identity_hypotheses
+        for hypothesis in resolved.entity_resolution_hypotheses
+    )
+
+
+def test_single_token_person_in_family_context_emits_resolution_hypotheses() -> None:
+    sentences = [
+        "Jarosław Wilczyński był marszałkiem województwa.",
+        "W międzyczasie urząd opublikował komunikat.",
+        "Michał Wilczyński, syn marszałka Wilczyńskiego, objął stanowisko.",
+    ]
+    doc = _document(
+        sentences,
+        {
+            0: [
+                _word(1, "Jarosław", "Jarosław", "PROPN", 2, "nsubj", 0),
+                _word(2, "Wilczyński", "Wilczyński", "PROPN", 3, "flat", 9),
+                _word(3, "był", "być", "VERB", 0, "root", 20),
+            ],
+            1: [
+                _word(1, "W", "w", "ADP", 2, "case", 0),
+                _word(2, "międzyczasie", "międzyczas", "ADV", 4, "advmod", 2),
+                _word(3, "urząd", "urząd", "NOUN", 4, "nsubj", 15),
+                _word(4, "opublikował", "opublikować", "VERB", 0, "root", 21),
+            ],
+            2: [
+                _word(1, "Michał", "Michał", "PROPN", 7, "nsubj", 0),
+                _word(2, "Wilczyński", "Wilczyński", "PROPN", 1, "flat", 7),
+                _word(3, "syn", "syn", "NOUN", 1, "appos", 19),
+                _word(4, "marszałka", "marszałek", "NOUN", 3, "nmod", 23),
+                _word(5, "Wilczyńskiego", "Wilczyński", "PROPN", 4, "flat", 33),
+                _word(7, "objął", "objąć", "VERB", 0, "root", 47),
+            ],
+        },
+    )
+    jaroslaw, jaroslaw_cluster = _person_cluster(
+        "person-jaroslaw",
+        "Jarosław Wilczyński",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=0,
+    )
+    offset = len(sentences[0]) + 1 + len(sentences[1]) + 1
+    michal, michal_cluster = _person_cluster(
+        "person-michal",
+        "Michał Wilczyński",
+        sentence_index=2,
+        paragraph_index=0,
+        start_char=offset,
+    )
+    singleton, singleton_cluster = _person_cluster(
+        "person-singleton",
+        "Wilczyński",
+        sentence_index=2,
+        paragraph_index=0,
+        start_char=offset + 33,
+    )
+    doc.entities.extend([jaroslaw, michal, singleton])
+    doc.clusters.extend([jaroslaw_cluster, michal_cluster, singleton_cluster])
+
+    resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+    assert any(
+        hypothesis.reason == EntityResolutionReason.SURNAME_ONLY_NEAR_FAMILY_CONTEXT
+        and hypothesis.status == EntityResolutionStatus.POSSIBLE
+        and "person-singleton" in {hypothesis.left_entity_id, hypothesis.right_entity_id}
+        and "person-jaroslaw" in {hypothesis.left_entity_id, hypothesis.right_entity_id}
+        for hypothesis in resolved.entity_resolution_hypotheses
     )
 
 

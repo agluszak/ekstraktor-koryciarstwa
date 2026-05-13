@@ -2,25 +2,26 @@ from pipeline.domain_types import (
     ClusterID,
     DocumentID,
     EntityID,
+    EntityResolutionReason,
+    EntityResolutionStatus,
     EntityType,
     FactID,
     FactType,
-    IdentityHypothesisReason,
-    IdentityHypothesisStatus,
     KinshipDetail,
     RelationshipType,
     TimeScope,
 )
 from pipeline.domains.kinship import KinshipTieBuilder, _build_views_by_entity_id
 from pipeline.extraction_context import ExtractionContext
+from pipeline.fact_extractor import PolishFactExtractor
 from pipeline.models import (
     ArticleDocument,
     ClusterMention,
     Entity,
     EntityCluster,
+    EntityResolutionHypothesis,
     EvidenceSpan,
     Fact,
-    IdentityHypothesis,
     ParsedWord,
     SentenceFragment,
 )
@@ -590,14 +591,15 @@ def test_identity_backed_proxy_tie_uses_entity_backed_views_with_stale_cluster_m
                 kinship_detail=KinshipDetail.SPOUSE,
             )
         ],
-        identity_hypotheses=[
-            IdentityHypothesis(
+        entity_resolution_hypotheses=[
+            EntityResolutionHypothesis(
+                hypothesis_id="hypothesis-proxy-match",
                 left_entity_id=proxy_id,
                 right_entity_id=matched_id,
                 confidence=0.72,
-                reason=IdentityHypothesisReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY,
+                reason=EntityResolutionReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY,
                 evidence=[evidence],
-                status=IdentityHypothesisStatus.PROBABLE,
+                status=EntityResolutionStatus.PROBABLE,
             )
         ],
     )
@@ -607,4 +609,221 @@ def test_identity_backed_proxy_tie_uses_entity_backed_views_with_stale_cluster_m
     assert len(facts) == 1
     assert facts[0].subject_entity_id == proxy_id
     assert facts[0].object_entity_id == anchor_id
-    assert facts[0].possible_identity_matches == [matched_id]
+    assert facts[0].possible_entity_matches == [matched_id]
+
+
+def test_direct_kinship_tie_exposes_possible_matches_from_entity_resolution_hypotheses() -> None:
+    sentence_text = "Michał Wilczyński, syn marszałka Wilczyńskiego, objął stanowisko."
+    michal_start = sentence_text.index("Michał")
+    parent_start = sentence_text.index("Wilczyńskiego")
+    syn_start = sentence_text.index("syn")
+    marszalek_start = sentence_text.index("marszałka")
+    objal_start = sentence_text.index("objął")
+    sentence = SentenceFragment(
+        text=sentence_text,
+        paragraph_index=0,
+        sentence_index=0,
+        start_char=0,
+        end_char=len(sentence_text),
+    )
+    subject_id = EntityID("person-michal")
+    parent_full_id = EntityID("person-jaroslaw")
+    parent_singleton_id = EntityID("person-singleton")
+    document = ArticleDocument(
+        document_id=DocumentID("doc-kinship-hypothesis"),
+        source_url=None,
+        raw_html="",
+        title="",
+        publication_date="2026-04-22",
+        cleaned_text=sentence_text,
+        paragraphs=[sentence_text],
+        sentences=[sentence],
+        parsed_sentences={
+            0: [
+                ParsedWord(
+                    1,
+                    "Michał",
+                    "Michał",
+                    "PROPN",
+                    7,
+                    "nsubj",
+                    michal_start,
+                    michal_start + 6,
+                ),
+                ParsedWord(
+                    2,
+                    "Wilczyński",
+                    "Wilczyński",
+                    "PROPN",
+                    1,
+                    "flat",
+                    michal_start + 7,
+                    michal_start + 17,
+                ),
+                ParsedWord(3, "syn", "syn", "NOUN", 1, "appos", syn_start, syn_start + 3),
+                ParsedWord(
+                    4,
+                    "marszałka",
+                    "marszałek",
+                    "NOUN",
+                    3,
+                    "nmod",
+                    marszalek_start,
+                    marszalek_start + 9,
+                ),
+                ParsedWord(
+                    5,
+                    "Wilczyńskiego",
+                    "Wilczyński",
+                    "PROPN",
+                    4,
+                    "flat",
+                    parent_start,
+                    parent_start + 12,
+                ),
+                ParsedWord(7, "objął", "objąć", "VERB", 0, "root", objal_start, objal_start + 5),
+            ]
+        },
+        entities=[
+            Entity(
+                entity_id=subject_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Michał Wilczyński",
+                normalized_name="Michał Wilczyński",
+                evidence=[EvidenceSpan(text="Michał Wilczyński", sentence_index=0)],
+            ),
+            Entity(
+                entity_id=parent_full_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Jarosław Wilczyński",
+                normalized_name="Jarosław Wilczyński",
+                evidence=[EvidenceSpan(text="Jarosław Wilczyński", sentence_index=0)],
+            ),
+            Entity(
+                entity_id=parent_singleton_id,
+                entity_type=EntityType.PERSON,
+                canonical_name="Wilczyński",
+                normalized_name="Wilczyński",
+                evidence=[EvidenceSpan(text="Wilczyńskiego", sentence_index=0)],
+            ),
+        ],
+        clusters=[
+            _cluster(
+                "cluster-michal",
+                [
+                    ClusterMention(
+                        text="Michał Wilczyński",
+                        entity_type=EntityType.PERSON,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=michal_start,
+                        end_char=michal_start + 17,
+                        entity_id=subject_id,
+                    )
+                ],
+            ),
+            _cluster(
+                "cluster-parent-full",
+                [
+                    ClusterMention(
+                        text="Jarosław Wilczyński",
+                        entity_type=EntityType.PERSON,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=0,
+                        end_char=18,
+                        entity_id=parent_full_id,
+                    )
+                ],
+            ),
+            _cluster(
+                "cluster-parent-singleton",
+                [
+                    ClusterMention(
+                        text="Wilczyńskiego",
+                        entity_type=EntityType.PERSON,
+                        sentence_index=0,
+                        paragraph_index=0,
+                        start_char=parent_start,
+                        end_char=parent_start + 12,
+                        entity_id=parent_singleton_id,
+                    )
+                ],
+            ),
+        ],
+        entity_resolution_hypotheses=[
+            EntityResolutionHypothesis(
+                hypothesis_id="hypothesis-parent",
+                left_entity_id=parent_singleton_id,
+                right_entity_id=parent_full_id,
+                confidence=0.52,
+                reason=EntityResolutionReason.SURNAME_ONLY_NEAR_FAMILY_CONTEXT,
+                evidence=[EvidenceSpan(text="Wilczyńskiego", sentence_index=0)],
+                status=EntityResolutionStatus.POSSIBLE,
+            ),
+            EntityResolutionHypothesis(
+                hypothesis_id="hypothesis-self",
+                left_entity_id=parent_singleton_id,
+                right_entity_id=subject_id,
+                confidence=0.52,
+                reason=EntityResolutionReason.SURNAME_ONLY_NEAR_FAMILY_CONTEXT,
+                evidence=[EvidenceSpan(text="Wilczyńskiego", sentence_index=0)],
+                status=EntityResolutionStatus.POSSIBLE,
+            ),
+        ],
+    )
+
+    facts = KinshipTieBuilder().build(document, ExtractionContext.build(document))
+
+    son_facts = [fact for fact in facts if fact.kinship_detail == KinshipDetail.CHILD_SON]
+    assert any(
+        fact.subject_entity_id == subject_id
+        and fact.object_entity_id == parent_singleton_id
+        and fact.possible_entity_matches == [parent_full_id]
+        for fact in son_facts
+    )
+
+
+def test_fact_deduplication_keeps_possible_entity_matches_from_lower_confidence_duplicate() -> None:
+    subject_id = EntityID("person-michal")
+    object_id = EntityID("person-singleton")
+    matched_id = EntityID("person-jaroslaw")
+    evidence = EvidenceSpan(
+        text="Michał Wilczyński, syn marszałka Wilczyńskiego.",
+        sentence_index=0,
+    )
+    direct = Fact(
+        fact_id=FactID("fact-direct"),
+        fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+        subject_entity_id=subject_id,
+        object_entity_id=object_id,
+        value_text=KinshipDetail.CHILD_SON.value,
+        value_normalized=KinshipDetail.CHILD_SON.value,
+        time_scope=TimeScope.CURRENT,
+        event_date="2026-04-22",
+        confidence=0.88,
+        evidence=evidence,
+        relationship_type=RelationshipType.FAMILY,
+        kinship_detail=KinshipDetail.CHILD_SON,
+    )
+    augmented = Fact(
+        fact_id=FactID("fact-augmented"),
+        fact_type=FactType.PERSONAL_OR_POLITICAL_TIE,
+        subject_entity_id=subject_id,
+        object_entity_id=object_id,
+        value_text=KinshipDetail.CHILD_SON.value,
+        value_normalized=KinshipDetail.CHILD_SON.value,
+        time_scope=TimeScope.CURRENT,
+        event_date="2026-04-22",
+        confidence=0.68,
+        evidence=evidence,
+        relationship_type=RelationshipType.FAMILY,
+        kinship_detail=KinshipDetail.CHILD_SON,
+        possible_entity_matches=[matched_id],
+    )
+
+    deduplicated = PolishFactExtractor._deduplicate_facts([direct, augmented])
+
+    assert len(deduplicated) == 1
+    assert deduplicated[0].confidence == 0.88
+    assert deduplicated[0].possible_entity_matches == [matched_id]

@@ -15,6 +15,8 @@ from pipeline.utils import (
     stable_id,
 )
 
+LOWERCASE_COMMON_PARTY_ALIASES = frozenset({"razem"})
+
 
 class SpacyPolishNERExtractor(NERExtractor):
     def __init__(
@@ -84,6 +86,11 @@ class SpacyPolishNERExtractor(NERExtractor):
             if entity_type == EntityType.ORGANIZATION:
                 surface_lower = ent.text.strip().lower()
                 if surface_lower in party_keys_lower or surface_lower in party_values_lower:
+                    if (
+                        surface_lower in LOWERCASE_COMMON_PARTY_ALIASES
+                        and ent.text.strip() == surface_lower
+                    ):
+                        continue
                     canonical_party = self._canonical_party_name(ent.text)
                     entity_type = EntityType.POLITICAL_PARTY
                     merge_key = canonical_party

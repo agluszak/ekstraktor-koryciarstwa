@@ -93,17 +93,20 @@ class RelationshipType(StrEnum):
     OFFICE_CHIEF = "office_chief"
 
 
-class IdentityHypothesisStatus(StrEnum):
+class EntityResolutionStatus(StrEnum):
     POSSIBLE = "possible"
     PROBABLE = "probable"
     CONFIRMED = "confirmed"
 
 
-class IdentityHypothesisReason(StrEnum):
+class EntityResolutionReason(StrEnum):
     SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY = "same_anchor_compatible_family_proxy"
     SURNAME_COMPATIBLE_FAMILY_PROXY = "surname_compatible_family_proxy"
     SURNAME_COMPATIBLE_NEAR_FAMILY_CONTEXT = "surname_compatible_near_family_context"
+    SURNAME_ONLY_NEAR_FAMILY_CONTEXT = "surname_only_near_family_context"
     HONORIFIC_SURNAME_ONLY = "honorific_surname_only"
+    SEMANTIC_ORGANIZATION_SIMILARITY = "semantic_organization_similarity"
+    COMPATIBLE_UNCONFIRMED_ENTITY = "compatible_unconfirmed_entity"
 
 
 class ProxyKind(StrEnum):

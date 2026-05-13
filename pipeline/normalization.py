@@ -89,7 +89,7 @@ class DocumentEntityCanonicalizer:
                 (
                     candidate
                     for candidate in deduplicated
-                    if self.entities_compatible(candidate, entity)
+                    if self.entities_confirmed_same(candidate, entity)
                 ),
                 None,
             )
@@ -235,6 +235,56 @@ class DocumentEntityCanonicalizer:
             return self._organizations_compatible(left, right)
         return left.normalized_name == right.normalized_name
 
+    def entities_confirmed_same(self, left: Entity, right: Entity) -> bool:
+        if (
+            left.is_proxy_person
+            or right.is_proxy_person
+            or left.is_honorific_person_ref
+            or right.is_honorific_person_ref
+        ):
+            return left.entity_id == right.entity_id
+
+        if (
+            left.entity_type == EntityType.POLITICAL_PARTY
+            or right.entity_type == EntityType.POLITICAL_PARTY
+        ):
+            if left.entity_type != right.entity_type:
+                return False
+            left_party = self.party_naming.canonical_name(self._names_for_entity(left))
+            right_party = self.party_naming.canonical_name(self._names_for_entity(right))
+            return bool(left_party and left_party == right_party)
+
+        if left.entity_type != right.entity_type:
+            if {left.entity_type, right.entity_type} <= {
+                EntityType.ORGANIZATION,
+                EntityType.PUBLIC_INSTITUTION,
+            }:
+                return self._organizations_confirmed_same(left, right)
+            return False
+
+        if left.entity_type == EntityType.PERSON:
+            return self._persons_confirmed_same(left, right)
+        if left.entity_type == EntityType.LOCATION:
+            return self._locations_compatible(left, right)
+        if left.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}:
+            return self._organizations_confirmed_same(left, right)
+        return left.normalized_name.casefold() == right.normalized_name.casefold()
+
+    def _organizations_confirmed_same(self, left: Entity, right: Entity) -> bool:
+        if left.normalized_name.casefold() == right.normalized_name.casefold():
+            return True
+        left_names = self._names_for_entity(left)
+        right_names = self._names_for_entity(right)
+        if self._governing_body_mismatch(left_names, right_names):
+            return False
+
+        left_signature = self._organization_signature(left)
+        right_signature = self._organization_signature(right)
+        if left_signature and right_signature and left_signature == right_signature:
+            return True
+
+        return self._shared_acronym(left_names, right_names)
+
     def _refresh_entity_names(self, entities: list[Entity]) -> None:
         for entity in entities:
             self.normalize_entity(entity)
@@ -245,6 +295,15 @@ class DocumentEntityCanonicalizer:
             right.normalized_name,
             self.ambiguous_person_singletons,
         )
+
+    def _persons_confirmed_same(self, left: Entity, right: Entity) -> bool:
+        left_tokens = left.normalized_name.split()
+        right_tokens = right.normalized_name.split()
+        if left.normalized_name.casefold() == right.normalized_name.casefold():
+            return True
+        if len(left_tokens) >= 2 and len(right_tokens) >= 2:
+            return self._persons_compatible(left, right)
+        return False
 
     def ambiguous_person_names(self, entities: list[Entity]) -> set[str]:
         return self.person_naming.ambiguous_person_singletons(entities)
@@ -385,13 +444,18 @@ class DocumentEntityCanonicalizer:
         normalized = normalize_entity_name(name)
         tokens = normalized.split()
         acronyms = set()
+        if len(tokens) == 1 and DocumentEntityCanonicalizer._is_acronym_like(tokens[0]):
+            return {tokens[0].lower()}
         if normalized:
             acronym_tokens = DocumentEntityCanonicalizer._acronym_tokens(tokens)
+            if len(acronym_tokens) == 1 and DocumentEntityCanonicalizer._is_acronym_like(
+                acronym_tokens[0]
+            ):
+                acronyms.add(acronym_tokens[0].lower())
+                return acronyms
             acronym = acronym_from_lemmas(token.lower() for token in acronym_tokens)
             if acronym:
                 acronyms.add(acronym.lower())
-        if len(tokens) == 1 and DocumentEntityCanonicalizer._is_acronym_like(tokens[0]):
-            acronyms.add(tokens[0].lower())
         return acronyms
 
     @staticmethod

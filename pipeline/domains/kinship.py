@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
     EntityID,
+    EntityResolutionStatus,
     EntityType,
     FactID,
     FactType,
-    IdentityHypothesisStatus,
     KinshipDetail,
     RelationshipType,
     TimeScope,
@@ -19,9 +19,9 @@ from pipeline.models import (
     ArticleDocument,
     ClusterMentionView,
     EntityCluster,
+    EntityResolutionMetadata,
     EvidenceSpan,
     Fact,
-    IdentityResolutionMetadata,
     ParsedWord,
     SentenceFragment,
 )
@@ -37,8 +37,8 @@ class KinshipTieEvidence:
     extraction_signal: str
     evidence_scope: str
     sentence: SentenceFragment
-    possible_identity_matches: tuple[EntityID, ...] = ()
-    identity_resolution: IdentityResolutionMetadata | None = None
+    possible_entity_matches: tuple[EntityID, ...] = ()
+    entity_resolution: EntityResolutionMetadata | None = None
 
 
 class KinshipTieBuilder:
@@ -60,7 +60,8 @@ class KinshipTieBuilder:
                 )
             )
         views_by_entity_id = _build_views_by_entity_id(context, document.clusters)
-        evidence_items.extend(self._identity_backed_proxy_ties(document, views_by_entity_id))
+        evidence_items.extend(self._resolution_backed_direct_ties(document, evidence_items))
+        evidence_items.extend(self._resolution_backed_proxy_ties(document, views_by_entity_id))
         return [self._fact(document, evidence) for evidence in evidence_items]
 
     def _direct_sentence_ties(
@@ -334,7 +335,7 @@ class KinshipTieBuilder:
             )
         return ties
 
-    def _identity_backed_proxy_ties(
+    def _resolution_backed_proxy_ties(
         self,
         document: ArticleDocument,
         views_by_entity_id: dict[EntityID, ClusterMentionView],
@@ -347,10 +348,10 @@ class KinshipTieBuilder:
             and fact.kinship_detail is not None
         }
         ties: list[KinshipTieEvidence] = []
-        for hypothesis in document.identity_hypotheses:
+        for hypothesis in document.entity_resolution_hypotheses:
             if hypothesis.status not in {
-                IdentityHypothesisStatus.PROBABLE,
-                IdentityHypothesisStatus.CONFIRMED,
+                EntityResolutionStatus.PROBABLE,
+                EntityResolutionStatus.CONFIRMED,
             }:
                 continue
             left_fact = facts_by_proxy.get(hypothesis.left_entity_id)
@@ -371,7 +372,7 @@ class KinshipTieBuilder:
             )
             subject_id = (
                 matched_entity_id
-                if hypothesis.status == IdentityHypothesisStatus.CONFIRMED
+                if hypothesis.status == EntityResolutionStatus.CONFIRMED
                 else proxy_entity_id
             )
             subject = views_by_entity_id.get(subject_id)
@@ -384,14 +385,15 @@ class KinshipTieBuilder:
                 sentence,
             ):
                 continue
-            identity_resolution = None
+            entity_resolution = None
             possible_matches: tuple[EntityID, ...] = ()
             confidence = min(0.78, hypothesis.confidence)
-            if hypothesis.status == IdentityHypothesisStatus.CONFIRMED:
-                identity_resolution = IdentityResolutionMetadata(
+            if hypothesis.status == EntityResolutionStatus.CONFIRMED:
+                entity_resolution = EntityResolutionMetadata(
                     matched_entity_id=matched_entity_id,
                     confidence=hypothesis.confidence,
                     status=hypothesis.status,
+                    hypothesis_id=hypothesis.hypothesis_id,
                 )
             else:
                 possible_matches = (matched_entity_id,)
@@ -405,11 +407,88 @@ class KinshipTieBuilder:
                     extraction_signal="identity_hypothesis",
                     evidence_scope="same_paragraph_adjacent_sentence",
                     sentence=sentence,
-                    possible_identity_matches=possible_matches,
-                    identity_resolution=identity_resolution,
+                    possible_entity_matches=possible_matches,
+                    entity_resolution=entity_resolution,
                 )
             )
         return ties
+
+    def _resolution_backed_direct_ties(
+        self,
+        document: ArticleDocument,
+        evidence_items: list[KinshipTieEvidence],
+    ) -> list[KinshipTieEvidence]:
+        augmented: list[KinshipTieEvidence] = []
+        for evidence in evidence_items:
+            if evidence.possible_entity_matches or evidence.entity_resolution is not None:
+                continue
+            subject_id = evidence.subject.entity_id
+            target_id = evidence.target.entity_id
+            if subject_id is None or target_id is None:
+                continue
+            exclude_ids = {subject_id, target_id}
+            target_matches = self._hypothesis_matches_for_entity(
+                document,
+                target_id,
+                exclude_ids=exclude_ids,
+            )
+            if target_matches:
+                augmented.append(
+                    replace(
+                        evidence,
+                        confidence=min(evidence.confidence, 0.68),
+                        extraction_signal="entity_resolution_hypothesis",
+                        evidence_scope="same_paragraph_adjacent_sentence",
+                        possible_entity_matches=target_matches,
+                    )
+                )
+                continue
+            subject_matches = self._hypothesis_matches_for_entity(
+                document,
+                subject_id,
+                exclude_ids=exclude_ids,
+            )
+            if subject_matches:
+                augmented.append(
+                    replace(
+                        evidence,
+                        confidence=min(evidence.confidence, 0.68),
+                        extraction_signal="entity_resolution_hypothesis",
+                        evidence_scope="same_paragraph_adjacent_sentence",
+                        possible_entity_matches=subject_matches,
+                    )
+                )
+        return augmented
+
+    @staticmethod
+    def _hypothesis_matches_for_entity(
+        document: ArticleDocument,
+        entity_id: EntityID,
+        *,
+        exclude_ids: set[EntityID],
+    ) -> tuple[EntityID, ...]:
+        ranked_matches: list[tuple[float, EntityID]] = []
+        for hypothesis in document.entity_resolution_hypotheses:
+            if hypothesis.status not in {
+                EntityResolutionStatus.POSSIBLE,
+                EntityResolutionStatus.PROBABLE,
+                EntityResolutionStatus.CONFIRMED,
+            }:
+                continue
+            if entity_id == hypothesis.left_entity_id:
+                matched_entity_id = hypothesis.right_entity_id
+            elif entity_id == hypothesis.right_entity_id:
+                matched_entity_id = hypothesis.left_entity_id
+            else:
+                continue
+            if matched_entity_id in exclude_ids:
+                continue
+            ranked_matches.append((hypothesis.confidence, matched_entity_id))
+        ordered_matches: list[EntityID] = []
+        for _, matched_entity_id in sorted(ranked_matches, reverse=True):
+            if matched_entity_id not in ordered_matches:
+                ordered_matches.append(matched_entity_id)
+        return tuple(ordered_matches)
 
     @staticmethod
     def _sentence_for_evidence(
@@ -480,8 +559,8 @@ class KinshipTieBuilder:
             ),
             relationship_type=RelationshipType.FAMILY,
             kinship_detail=evidence.kinship_detail,
-            identity_resolution=evidence.identity_resolution,
-            possible_identity_matches=list(evidence.possible_identity_matches),
+            entity_resolution=evidence.entity_resolution,
+            possible_entity_matches=list(evidence.possible_entity_matches),
             source_extractor="kinship_tie_builder",
             extraction_signal=evidence.extraction_signal,
             evidence_scope=evidence.evidence_scope,

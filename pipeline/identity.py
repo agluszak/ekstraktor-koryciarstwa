@@ -14,11 +14,11 @@ from pipeline.document_graph import (
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
     EntityID,
+    EntityResolutionReason,
+    EntityResolutionStatus,
     EntityType,
     FactID,
     FactType,
-    IdentityHypothesisReason,
-    IdentityHypothesisStatus,
     KinshipDetail,
     MentionKind,
     ProxyKind,
@@ -41,9 +41,9 @@ from pipeline.models import (
     ArticleDocument,
     Entity,
     EntityCluster,
+    EntityResolutionHypothesis,
     EvidenceSpan,
     Fact,
-    IdentityHypothesis,
 )
 from pipeline.utils import normalize_entity_name, stable_id
 
@@ -78,8 +78,9 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         self._materialize_honorific_hypotheses(document, honorific_mentions)
 
         self._add_proxy_family_facts(document, proxies)
-        self._add_proxy_identity_hypotheses(document, proxies)
-        self._add_full_name_identity_hypotheses(document)
+        self._add_proxy_entity_resolution_hypotheses(document, proxies)
+        self._add_full_name_entity_resolution_hypotheses(document)
+        self._add_single_token_family_context_hypotheses(document)
         return document
 
     def _collect_resolved_family_mentions(
@@ -251,7 +252,7 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             )
             seen.add(fact_id)
 
-    def _add_proxy_identity_hypotheses(
+    def _add_proxy_entity_resolution_hypotheses(
         self,
         document: ArticleDocument,
         proxies: list[_ProxyRecord],
@@ -269,14 +270,14 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                     previous.entity.entity_id,
                     proxy.entity.entity_id,
                     confidence=0.78,
-                    status=IdentityHypothesisStatus.PROBABLE,
-                    reason=IdentityHypothesisReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY,
+                    status=EntityResolutionStatus.PROBABLE,
+                    reason=EntityResolutionReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY,
                     evidence=[*previous.entity.evidence[-1:], *proxy.entity.evidence[-1:]],
                 )
                 continue
             by_anchor_and_kind[key] = proxy
 
-    def _add_full_name_identity_hypotheses(self, document: ArticleDocument) -> None:
+    def _add_full_name_entity_resolution_hypotheses(self, document: ArticleDocument) -> None:
         proxies = [
             entity
             for entity in document.entities
@@ -307,15 +308,15 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                     anchor_surname,
                 ):
                     continue
-                status = IdentityHypothesisStatus.POSSIBLE
+                status = EntityResolutionStatus.POSSIBLE
                 confidence = 0.55
-                reason = IdentityHypothesisReason.SURNAME_COMPATIBLE_FAMILY_PROXY
+                reason = EntityResolutionReason.SURNAME_COMPATIBLE_FAMILY_PROXY
                 if self._near_family_context(document, person, proxy):
-                    status = IdentityHypothesisStatus.PROBABLE
+                    status = EntityResolutionStatus.PROBABLE
                     confidence = 0.74
-                    reason = IdentityHypothesisReason.SURNAME_COMPATIBLE_NEAR_FAMILY_CONTEXT
+                    reason = EntityResolutionReason.SURNAME_COMPATIBLE_NEAR_FAMILY_CONTEXT
                 if proxy_kind in {KinshipDetail.SIBLING_SISTER, KinshipDetail.SIBLING_BROTHER}:
-                    status = IdentityHypothesisStatus.POSSIBLE
+                    status = EntityResolutionStatus.POSSIBLE
                     confidence = min(confidence, 0.56)
                 self._add_hypothesis(
                     document,
@@ -325,6 +326,73 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                     status=status,
                     reason=reason,
                     evidence=[*proxy.evidence[-1:], *person.evidence[-1:]],
+                )
+
+    def _add_single_token_family_context_hypotheses(self, document: ArticleDocument) -> None:
+        singletons = [
+            entity
+            for entity in document.entities
+            if entity.entity_type == EntityType.PERSON
+            and not entity.is_proxy_person
+            and not entity.is_honorific_person_ref
+            and len(entity.canonical_name.split()) == 1
+        ]
+        full_people = [
+            entity
+            for entity in document.entities
+            if entity.entity_type == EntityType.PERSON
+            and not entity.is_proxy_person
+            and not entity.is_honorific_person_ref
+            and len(entity.canonical_name.split()) >= 2
+        ]
+        for singleton in singletons:
+            compatible_candidates = [
+                person
+                for person in full_people
+                if person.entity_id != singleton.entity_id
+                and surname_tokens_compatible(
+                    surname_for_name(person.canonical_name),
+                    normalize_entity_name(singleton.canonical_name),
+                )
+            ]
+            if not compatible_candidates:
+                continue
+            near_candidates = [
+                person
+                for person in compatible_candidates
+                if self._near_family_context(document, person, singleton)
+            ]
+            if not near_candidates:
+                continue
+            distant_candidates = [
+                person for person in compatible_candidates if person not in near_candidates
+            ]
+            for person in near_candidates:
+                status = (
+                    EntityResolutionStatus.PROBABLE
+                    if len(near_candidates) == 1
+                    else EntityResolutionStatus.POSSIBLE
+                )
+                confidence = 0.72 if status == EntityResolutionStatus.PROBABLE else 0.52
+                self._add_hypothesis(
+                    document,
+                    singleton.entity_id,
+                    person.entity_id,
+                    confidence=confidence,
+                    status=status,
+                    reason=EntityResolutionReason.SURNAME_ONLY_NEAR_FAMILY_CONTEXT,
+                    evidence=[*singleton.evidence[-1:], *person.evidence[-1:]],
+                )
+            if len(distant_candidates) == 1:
+                distant = distant_candidates[0]
+                self._add_hypothesis(
+                    document,
+                    singleton.entity_id,
+                    distant.entity_id,
+                    confidence=0.46,
+                    status=EntityResolutionStatus.POSSIBLE,
+                    reason=EntityResolutionReason.SURNAME_ONLY_NEAR_FAMILY_CONTEXT,
+                    evidence=[*singleton.evidence[-1:], *distant.evidence[-1:]],
                 )
 
     def _add_honorific_hypotheses(
@@ -362,8 +430,8 @@ class PolishFamilyIdentityResolver(IdentityResolver):
                 entity.entity_id,
                 candidate.entity_id,
                 confidence=0.48,
-                status=IdentityHypothesisStatus.POSSIBLE,
-                reason=IdentityHypothesisReason.HONORIFIC_SURNAME_ONLY,
+                status=EntityResolutionStatus.POSSIBLE,
+                reason=EntityResolutionReason.HONORIFIC_SURNAME_ONLY,
                 evidence=[entity.evidence[-1], *candidate.evidence[-1:]],
             )
 
@@ -456,9 +524,9 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         right_entity_id: str,
         *,
         confidence: float,
-        reason: IdentityHypothesisReason,
+        reason: EntityResolutionReason,
         evidence: list[EvidenceSpan],
-        status: IdentityHypothesisStatus,
+        status: EntityResolutionStatus,
     ) -> None:
         if left_entity_id == right_entity_id:
             return
@@ -466,20 +534,28 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         existing = next(
             (
                 hypothesis
-                for hypothesis in document.identity_hypotheses
+                for hypothesis in document.entity_resolution_hypotheses
                 if frozenset({hypothesis.left_entity_id, hypothesis.right_entity_id}) == key
             ),
             None,
         )
         if existing is None:
-            document.identity_hypotheses.append(
-                IdentityHypothesis(
+            document.entity_resolution_hypotheses.append(
+                EntityResolutionHypothesis(
+                    hypothesis_id=stable_id(
+                        "entity_resolution",
+                        document.document_id,
+                        left_entity_id,
+                        right_entity_id,
+                        reason.value,
+                    ),
                     left_entity_id=EntityID(left_entity_id),
                     right_entity_id=EntityID(right_entity_id),
                     confidence=confidence,
                     reason=reason,
                     evidence=evidence,
                     status=status,
+                    source_stage=self.name(),
                 )
             )
             return

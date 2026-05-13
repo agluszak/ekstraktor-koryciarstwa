@@ -17,7 +17,7 @@ Investigation focused on the current local worktree for PR #27-style extraction 
 
 **Benchmark / validation checked:**
 - Full `uv run pytest -q`: passed.
-- Clean-registry warm benchmark run: `uv run python main.py --input-dir inputs --glob "*.html" --output-dir output` after deleting `output/entity_registry.sqlite3*`: passed.
+- Warm benchmark run: `uv run python main.py --input-dir inputs --glob "*.html" --output-dir output`: passed.
 - Spot-checked benchmark outputs:
   - `zona-posla-pis`: spouse ties, PiS party links, and appointment output still present.
   - `dziennikpolski24...charsznicy...`: partner/father-in-law ties and local appointment output still present.

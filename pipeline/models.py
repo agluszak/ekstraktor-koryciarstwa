@@ -9,13 +9,13 @@ from pipeline.domain_types import (
     ClusterID,
     DocumentID,
     EntityID,
+    EntityResolutionReason,
+    EntityResolutionStatus,
     EntityType,
     FactID,
     FactType,
     FrameID,
     GovernanceSignal,
-    IdentityHypothesisReason,
-    IdentityHypothesisStatus,
     KinshipDetail,
     MentionID,
     MentionKind,
@@ -82,20 +82,23 @@ class Entity:
 
 
 @dataclass(slots=True)
-class IdentityHypothesis:
+class EntityResolutionHypothesis:
+    hypothesis_id: str
     left_entity_id: EntityID
     right_entity_id: EntityID
     confidence: float
-    reason: IdentityHypothesisReason
+    reason: EntityResolutionReason
     evidence: list[EvidenceSpan] = field(default_factory=list)
-    status: IdentityHypothesisStatus = IdentityHypothesisStatus.POSSIBLE
+    status: EntityResolutionStatus = EntityResolutionStatus.POSSIBLE
+    source_stage: str | None = None
 
 
 @dataclass(slots=True)
-class IdentityResolutionMetadata:
+class EntityResolutionMetadata:
     matched_entity_id: EntityID
     confidence: float
-    status: IdentityHypothesisStatus
+    status: EntityResolutionStatus
+    hypothesis_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -126,8 +129,8 @@ class Fact:
     period: str | None = None
     relationship_type: RelationshipType | None = None
     kinship_detail: KinshipDetail | None = None
-    identity_resolution: IdentityResolutionMetadata | None = None
-    possible_identity_matches: list[EntityID] = field(default_factory=list)
+    entity_resolution: EntityResolutionMetadata | None = None
+    possible_entity_matches: list[EntityID] = field(default_factory=list)
     extraction_signal: str | None = None
     evidence_scope: str | None = None
     overlaps_governance: bool = False
@@ -503,7 +506,7 @@ class ArticleDocument:
     )
     public_procurement_abuse_frames: list[PublicProcurementAbuseFrame] = field(default_factory=list)
     public_employment_frames: list[PublicEmploymentFrame] = field(default_factory=list)
-    identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
+    entity_resolution_hypotheses: list[EntityResolutionHypothesis] = field(default_factory=list)
     execution_times: dict[str, float] = field(default_factory=dict)
 
 
@@ -517,7 +520,7 @@ class ExtractionResult:
     entities: list[Entity]
     facts: list[Fact]
     score: ScoreResult | None
-    identity_hypotheses: list[IdentityHypothesis] = field(default_factory=list)
+    entity_resolution_hypotheses: list[EntityResolutionHypothesis] = field(default_factory=list)
     execution_times: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -534,6 +537,6 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         entities=document.entities,
         facts=document.facts,
         score=document.score,
-        identity_hypotheses=document.identity_hypotheses,
+        entity_resolution_hypotheses=document.entity_resolution_hypotheses,
         execution_times=document.execution_times,
     )

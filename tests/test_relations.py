@@ -326,6 +326,71 @@ def test_shared_enrichment_adds_public_office_positions_idempotently() -> None:
     )
 
 
+def test_position_extractor_converts_sentence_local_offsets_to_document_offsets() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    prefix = "Wcześniejszy akapit. "
+    sentence_text = "Radny Jan Kowalski złożył zawiadomienie."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-position-offsets"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=prefix + sentence_text,
+        paragraphs=[prefix + sentence_text],
+        sentences=[
+            SentenceFragment(
+                text=sentence_text,
+                paragraph_index=0,
+                sentence_index=1,
+                start_char=len(prefix),
+                end_char=len(prefix) + len(sentence_text),
+            )
+        ],
+        parsed_sentences={
+            1: [
+                word(1, "Radny", "radny", 0, head=4, deprel="nsubj"),
+                word(2, "Jan", "Jan", 6, head=4, deprel="nsubj", upos="PROPN"),
+                word(3, "Kowalski", "Kowalski", 10, head=2, deprel="flat", upos="PROPN"),
+                word(4, "złożył", "złożyć", 19, upos="VERB"),
+            ]
+        },
+    )
+
+    from pipeline.roles import PolishPositionExtractor
+
+    PolishPositionExtractor(config).run(document)
+
+    position_mention = next(
+        mention for mention in document.mentions if mention.entity_type == EntityType.POSITION
+    )
+    assert position_mention.text == "Radny"
+    assert position_mention.start_char == len(prefix)
+    assert position_mention.end_char == len(prefix) + len("Radny")
+
+
+def test_position_extractor_skips_zero_length_alignment_artifacts() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = "Pani Agnieszka podreperowała zdrowie."
+    document = prepared_single_clause_document(
+        document_id="doc-position-zero-length",
+        text=text,
+        entities=[("Pani Agnieszka", EntityType.PERSON, "Pani Agnieszka")],
+        parsed_words=[
+            ParsedWord(1, "Radny", "radny", "NOUN", 2, "nsubj", 0, 0),
+            ParsedWord(2, "odkrywa", "odkrywać", "VERB", 0, "root", 0, 0),
+            word(3, "Pani", "pani", 0, head=4, deprel="nsubj"),
+            word(4, "Agnieszka", "agnieszka", 5, head=2, deprel="appos", upos="PROPN"),
+        ],
+    )
+
+    from pipeline.roles import PolishPositionExtractor
+
+    PolishPositionExtractor(config).run(document)
+
+    assert not any(mention.entity_type == EntityType.POSITION for mention in document.mentions)
+
+
 def test_resolve_party_attributions_uses_shared_candidate_support() -> None:
     document = prepared_single_clause_document(
         document_id="doc-attribution-party",

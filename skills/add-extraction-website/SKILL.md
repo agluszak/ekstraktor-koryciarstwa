@@ -63,13 +63,13 @@ This skill is repo-specific for `/home/agluszak/code/aktywizm/ekstraktor-korycia
    - facts, subject/object direction, type, amount/role/period, confidence, source extractor, and evidence spans
    - missing expected facts
    - false-positive facts
-   - stale or polluted `output/entity_registry.sqlite3` effects
+   - stale or polluted warm-process entity-linker effects
 
 6. Identify the failing layer before proposing a fix.
    Use the smallest useful diagnosis:
    - Relevance wrong: inspect `pipeline/filtering/service.py` and cleaned text.
    - Text missing/bad: inspect `TrafilaturaPreprocessor` output and content quality flags.
-   - Names bad: inspect NER, normalization, clustering, and SQLite linking.
+   - Names bad: inspect NER, normalization, clustering, and in-memory linking.
    - Fact missing: inspect segmentation, clause parsing, frame extraction, then fact builders.
    - Wrong target/entity: inspect governance target resolution, owner/body context handling, identity/proxy evidence, and canonicalization.
    - Public-money confusion: distinguish `FUNDING`, `PUBLIC_CONTRACT`, and `COMPENSATION`; do not overload one fact type to cover another.

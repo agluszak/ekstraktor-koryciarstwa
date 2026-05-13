@@ -137,6 +137,14 @@ class PolishCompensationFrameExtractor:
             person_clusters,
             amount_start,
         )
+        pronoun_beneficiary = self._pronoun_beneficiary_cluster(
+            context,
+            clause,
+            amount_start,
+            excluded_cluster=person_cluster,
+        )
+        if pronoun_beneficiary is not None:
+            person_cluster = pronoun_beneficiary
         role_cluster = local_role_cluster or ExtractionContext.best_cluster_near_offset(
             role_clusters, amount_start
         )
@@ -260,6 +268,77 @@ class PolishCompensationFrameExtractor:
         return bool(
             {word.lemma.lower() for word in parsed_words}.intersection(COMPENSATION_CONTEXT_LEMMAS)
         )
+
+    @staticmethod
+    def _pronoun_beneficiary_cluster(
+        context: ExtractionContext,
+        clause: ClauseUnit,
+        amount_start: int,
+        *,
+        excluded_cluster: EntityCluster | None,
+    ) -> EntityCluster | None:
+        lowered = clause.text.casefold()
+        if "kobieta" not in lowered and "żona" not in lowered:
+            return None
+        if not any(marker in lowered for marker in ("dostaje", "otrzymuje", "pobiera")):
+            return None
+
+        family_context = PolishCompensationFrameExtractor._family_context_beneficiary(
+            context,
+            clause,
+            amount_start,
+        )
+        if family_context is not None:
+            return family_context
+
+        candidates: list[tuple[int, EntityCluster]] = []
+        for cluster in context.document.clusters:
+            if cluster.cluster_id == (excluded_cluster.cluster_id if excluded_cluster else None):
+                continue
+            if context.entity_type_for_cluster(cluster) != EntityType.PERSON:
+                continue
+            entity = context.entity_for_cluster(cluster)
+            if entity is not None and (entity.is_proxy_person or entity.is_honorific_person_ref):
+                continue
+            distances = [
+                amount_start - mention.end_char
+                for mention in cluster.mentions
+                if mention.end_char <= amount_start
+                and 0 <= clause.sentence_index - mention.sentence_index <= 2
+            ]
+            if distances:
+                candidates.append((min(distances), cluster))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
+
+    @staticmethod
+    def _family_context_beneficiary(
+        context: ExtractionContext,
+        clause: ClauseUnit,
+        amount_start: int,
+    ) -> EntityCluster | None:
+        candidates: list[tuple[int, EntityCluster]] = []
+        for fact in context.document.facts:
+            if fact.kinship_detail is None or fact.relationship_type is None:
+                continue
+            if fact.object_entity_id is None:
+                continue
+            sentence_index = fact.evidence.sentence_index
+            end_char = fact.evidence.end_char
+            if sentence_index is None or end_char is None:
+                continue
+            if not (0 <= clause.sentence_index - sentence_index <= 4 and end_char <= amount_start):
+                continue
+            cluster = context.cluster_by_entity_id(fact.object_entity_id)
+            if cluster is None:
+                continue
+            candidates.append((amount_start - end_char, cluster))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
 
     @staticmethod
     def _looks_like_funding_clause(document: ArticleDocument, clause: ClauseUnit) -> bool:

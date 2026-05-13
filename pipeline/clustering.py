@@ -7,17 +7,24 @@ import numpy as np
 from pipeline.base import EntityClusterer
 from pipeline.cluster_reads import entity_for_cluster as read_entity_for_cluster
 from pipeline.config import PipelineConfig
-from pipeline.domain_types import ClusterID, EntityID, EntityType
+from pipeline.domain_types import (
+    ClusterID,
+    EntityID,
+    EntityResolutionReason,
+    EntityResolutionStatus,
+    EntityType,
+)
 from pipeline.models import (
     ArticleDocument,
     Entity,
     EntityCluster,
+    EntityResolutionHypothesis,
     EvidenceSpan,
     Mention,
 )
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
-from pipeline.utils import unique_preserve_order
+from pipeline.utils import stable_id, unique_preserve_order
 
 
 class PolishEntityClusterer(EntityClusterer):
@@ -46,14 +53,19 @@ class PolishEntityClusterer(EntityClusterer):
         entities_by_id = {entity.entity_id: entity for entity in document.entities}
 
         for entity in document.entities:
-            match = next(
-                (
-                    cluster
-                    for cluster in clusters
-                    if self._entity_matches_cluster(entity, cluster, entities_by_id)
-                ),
-                None,
-            )
+            match = None
+            for cluster in clusters:
+                cluster_entity = self._representative_entity(cluster, entities_by_id)
+                if cluster_entity is None:
+                    continue
+                if self.canonicalizer.entities_confirmed_same(entity, cluster_entity):
+                    match = cluster
+                    break
+                self._add_unconfirmed_resolution_hypothesis(
+                    document,
+                    entity,
+                    cluster_entity,
+                )
 
             if match is None:
                 cluster_id = ClusterID(f"cluster-{uuid.uuid4().hex[:8]}")
@@ -99,39 +111,103 @@ class PolishEntityClusterer(EntityClusterer):
         document.clusters = clusters
         return document
 
-    def _entity_matches_cluster(
+    def _add_unconfirmed_resolution_hypothesis(
+        self,
+        document: ArticleDocument,
+        entity: Entity,
+        cluster_entity: Entity,
+    ) -> None:
+        if entity.entity_id == cluster_entity.entity_id:
+            return
+        if self.canonicalizer.entities_confirmed_same(entity, cluster_entity):
+            return
+
+        confidence: float | None = None
+        reason: EntityResolutionReason | None = None
+        status = EntityResolutionStatus.POSSIBLE
+
+        semantic_similarity = self._semantic_organization_similarity(entity, cluster_entity)
+        if semantic_similarity >= self._org_similarity_threshold:
+            confidence = min(0.95, semantic_similarity)
+            status = EntityResolutionStatus.PROBABLE
+            reason = EntityResolutionReason.SEMANTIC_ORGANIZATION_SIMILARITY
+        elif self.canonicalizer.entities_compatible(entity, cluster_entity):
+            confidence = 0.58
+            reason = EntityResolutionReason.COMPATIBLE_UNCONFIRMED_ENTITY
+
+        if confidence is None or reason is None:
+            return
+
+        self._add_resolution_hypothesis(
+            document,
+            left=entity,
+            right=cluster_entity,
+            confidence=confidence,
+            status=status,
+            reason=reason,
+        )
+
+    def _semantic_organization_similarity(
         self,
         entity: Entity,
-        cluster: EntityCluster,
-        entities_by_id: dict[EntityID, Entity],
-    ) -> bool:
-        cluster_entity = self._representative_entity(cluster, entities_by_id)
-        if cluster_entity is None:
-            return False
-        if (
-            entity.is_proxy_person
-            or cluster_entity.is_proxy_person
-            or entity.is_honorific_person_ref
-            or cluster_entity.is_honorific_person_ref
-        ):
-            return entity.entity_id == cluster_entity.entity_id
-
-        if self.canonicalizer.entities_compatible(entity, cluster_entity):
-            return True
-
-        # Embedding-based fallback for organizations/institutions
+        other: Entity,
+    ) -> float:
         if (
             self.runtime is not None
             and entity.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
-            and cluster_entity.entity_type
-            in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
+            and other.entity_type in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
         ):
             left_emb = self._encode_text(entity.canonical_name)
-            right_emb = self._encode_text(cluster_entity.canonical_name)
-            if self._cosine_similarity(left_emb, right_emb) >= self._org_similarity_threshold:
-                return True
+            right_emb = self._encode_text(other.canonical_name)
+            return self._cosine_similarity(left_emb, right_emb)
+        return 0.0
 
-        return False
+    def _add_resolution_hypothesis(
+        self,
+        document: ArticleDocument,
+        *,
+        left: Entity,
+        right: Entity,
+        confidence: float,
+        status: EntityResolutionStatus,
+        reason: EntityResolutionReason,
+    ) -> None:
+        key = frozenset({left.entity_id, right.entity_id})
+        existing = next(
+            (
+                hypothesis
+                for hypothesis in document.entity_resolution_hypotheses
+                if frozenset({hypothesis.left_entity_id, hypothesis.right_entity_id}) == key
+            ),
+            None,
+        )
+        evidence = [*left.evidence[-1:], *right.evidence[-1:]]
+        if existing is None:
+            document.entity_resolution_hypotheses.append(
+                EntityResolutionHypothesis(
+                    hypothesis_id=stable_id(
+                        "entity_resolution",
+                        document.document_id,
+                        left.entity_id,
+                        right.entity_id,
+                        reason.value,
+                    ),
+                    left_entity_id=left.entity_id,
+                    right_entity_id=right.entity_id,
+                    confidence=round(confidence, 3),
+                    reason=reason,
+                    evidence=evidence,
+                    status=status,
+                    source_stage=self.name(),
+                )
+            )
+            return
+        if confidence > existing.confidence:
+            existing.confidence = round(confidence, 3)
+            existing.reason = reason
+            existing.evidence = evidence
+            existing.status = status
+            existing.source_stage = self.name()
 
     def _encode_text(self, text: str) -> np.ndarray:
         if self.runtime is None:

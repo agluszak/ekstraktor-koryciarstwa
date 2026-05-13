@@ -75,7 +75,7 @@ The pipeline is no longer just "NER plus relation rules". The current internal s
 7. clause parsing
 8. frame extraction
 9. fact extraction from frames
-10. SQLite entity linking
+10. in-memory entity linking
 11. scoring
 12. JSON output
 
@@ -101,20 +101,16 @@ The practical entrypoint is [pipeline/cli.py](/D:/extractor/pipeline/cli.py:1), 
   Builds funding facts from funding frames.
 - [pipeline/relations/service.py](/D:/extractor/pipeline/relations/service.py:1)
   The frame-derived fact extraction path. This is the main extraction service now.
-- [pipeline/linking/service.py](/D:/extractor/pipeline/linking/service.py:1)
-  SQLite registry linking and post-extraction canonical name reuse.
+- [pipeline/linking.py](/D:/extractor/pipeline/linking.py:1)
+  In-memory registry linking and post-extraction canonical name reuse within the current process.
 
 ## Practical Model / Runtime Notes
 
 - There is a shared runtime for spaCy / sentence-transformers / parsing, but Stanza coref is intentionally reloaded multiple times because earlier attempts to persist it caused instability. This is known and documented in `reports/`.
 - Batch mode still matters. Even with repeated coref loading, `--input-dir ... --glob "*.html"` is the correct benchmark path because the rest of the pipeline stays warm.
-- The generated SQLite registry lives at `output/entity_registry.sqlite3`.
-  This is a generated artifact, not a source of truth.
-  If canonical names or aliases look polluted, it is valid to delete:
-  - `output/entity_registry.sqlite3`
-  - `output/entity_registry.sqlite3-shm`
-  - `output/entity_registry.sqlite3-wal`
-  and rerun from a clean registry before judging extraction quality.
+- The current CLI writes per-document JSON files only.
+- The linker still maintains an in-memory registry during a warm process, so canonical-name pollution can persist within one batch run.
+- If canonical names or aliases look polluted, rerun the batch in a fresh process before judging extraction quality.
 
 ## Current Extraction Design
 
@@ -149,10 +145,10 @@ The practical entrypoint is [pipeline/cli.py](/D:/extractor/pipeline/cli.py:1), 
 - The current fix is:
   - multiline organization names are split into line-level candidates for canonicalization,
   - compacted full-block names are excluded when the raw multiline alias exists,
-  - multiline aliases are not inserted into SQLite alias matching.
+  - multiline aliases are not inserted into registry alias matching.
 - If you see a weird joined organization name in output, check both:
   - normalization behavior,
-  - whether the local generated SQLite registry still contains old polluted canonicals.
+  - whether the current warm-process in-memory registry was already polluted earlier in the batch.
 
 ## Benchmark State As Of 2026-04-16
 
@@ -202,8 +198,8 @@ When an article behaves strangely, inspect it in this order:
    not
    "Why did the final relation look odd?"
 
-5. SQLite registry contamination.
-   If names look stale or impossible, clear the generated registry and rerun once before deeper surgery.
+5. Warm-process linker contamination.
+   If names look stale or impossible, rerun once in a fresh process before deeper surgery.
 
 ## Operational Guidance For Future Agents
 

@@ -61,6 +61,19 @@ def get_entity_name(doc: dict[str, Any], entity_id: str | None) -> str:
     return entity_id or ""
 
 
+def get_entity_aliases(doc: dict[str, Any], entity_id: str | None) -> list[str]:
+    if not entity_id:
+        return []
+    for entity in doc.get("entities", []):
+        if entity["entity_id"] == entity_id:
+            return [str(entity.get("canonical_name", "")), *entity.get("aliases", [])]
+    return []
+
+
+def entity_names_contain(doc: dict[str, Any], entity_id: str | None, needle: str) -> bool:
+    return any(needle in alias for alias in get_entity_aliases(doc, entity_id))
+
+
 def get_facts_by_type(doc: dict[str, Any], fact_type: str) -> list[dict[str, Any]]:
     return [f for f in doc.get("facts", []) if f["fact_type"] == fact_type]
 
@@ -767,6 +780,110 @@ def test_tvnwarszawa_fundacja_bielskiego_public_contract(
 
     ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
     assert not any(tie.get("relationship_type") == "family" for tie in ties)
+
+
+def test_wp_zona_sekretarza_krasnik_entity_resolution(
+    benchmark_results: dict[str, Any],
+) -> None:
+    """
+    Article: Dwa dni i trzy umowy dla żony sekretarza urzędu miasta.
+    Expectation:
+    - Overproduce facts, but keep uncertain entity identity explicit.
+    - Do not transparently merge MOPS/MOSiR or surname/proxy people.
+    """
+    key = "wp_zona_sekretarza_krasnik_20260513"
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    assert doc["relevance"]["is_relevant"] is True
+
+    entities = doc.get("entities", [])
+    assert any("Magdalen" in entity["canonical_name"] for entity in entities)
+    assert any("Łukasz Skokowski" in entity["canonical_name"] for entity in entities)
+    assert any("MOPS" in entity["canonical_name"] for entity in entities)
+    assert any("MOSiR" in entity["canonical_name"] for entity in entities)
+    assert not any(
+        any("MOPS" in alias for alias in get_entity_aliases(doc, entity["entity_id"]))
+        and any("MOSiR" in alias for alias in get_entity_aliases(doc, entity["entity_id"]))
+        for entity in entities
+    )
+
+    appointments = get_facts_by_type(doc, "APPOINTMENT")
+    assert any(
+        entity_names_contain(doc, fact.get("subject_entity_id"), "Skokowsk")
+        and entity_names_contain(doc, fact.get("object_entity_id"), "MOPS")
+        for fact in appointments
+    )
+    assert any(
+        entity_names_contain(doc, fact.get("subject_entity_id"), "Michał Stawiarski")
+        and entity_names_contain(doc, fact.get("object_entity_id"), "MOSiR")
+        and fact.get("role") == "Dyrektor"
+        for fact in appointments
+    )
+
+    public_money_facts = [
+        *get_facts_by_type(doc, "COMPENSATION"),
+        *get_facts_by_type(doc, "PUBLIC_CONTRACT"),
+    ]
+    assert any(
+        entity_names_contain(doc, fact.get("subject_entity_id"), "Skokowsk")
+        and fact.get("amount_text") == "10 189,50 Zł Brutto"
+        for fact in public_money_facts
+    )
+
+    ties = get_facts_by_type(doc, "PERSONAL_OR_POLITICAL_TIE")
+    assert any(
+        fact.get("kinship_detail") == "spouse"
+        and entity_names_contain(doc, fact.get("object_entity_id"), "Skokowsk")
+        and any(
+            entity_names_contain(doc, possible_id, "Łukasz Skokowski")
+            for possible_id in fact.get("possible_entity_matches", [])
+        )
+        for fact in ties
+    )
+
+    hypotheses = doc.get("entity_resolution_hypotheses", [])
+    assert any(
+        fact.get("kinship_detail") == "child_son"
+        and entity_names_contain(doc, fact.get("subject_entity_id"), "Michał Stawiarski")
+        and (
+            entity_names_contain(doc, fact.get("object_entity_id"), "Jarosław Stawiarski")
+            or any(
+                hypothesis.get("status") in {"possible", "probable", "confirmed"}
+                and {
+                    hypothesis.get("left_entity_id"),
+                    hypothesis.get("right_entity_id"),
+                }
+                >= {fact.get("object_entity_id")}
+                and (
+                    entity_names_contain(doc, hypothesis.get("left_entity_id"), "Jarosław")
+                    or entity_names_contain(doc, hypothesis.get("right_entity_id"), "Jarosław")
+                )
+                for hypothesis in hypotheses
+            )
+        )
+        for fact in ties
+    )
+
+    memberships = get_facts_by_type(doc, "PARTY_MEMBERSHIP")
+    assert not any(
+        entity_names_contain(doc, fact.get("subject_entity_id"), "Wojciech Wilk")
+        and fact.get("party") == "Razem"
+        for fact in memberships
+    )
+    assert not any(
+        entity_names_contain(doc, fact.get("subject_entity_id"), "Krzysztof Staruch")
+        and fact.get("party") == "Platforma Obywatelska"
+        for fact in memberships
+    )
+
+    offices = get_facts_by_type(doc, "POLITICAL_OFFICE")
+    assert not any(
+        entity_names_contain(doc, fact.get("subject_entity_id"), "Agnieszka")
+        and fact.get("office_type") == "Radny"
+        for fact in offices
+    )
 
 
 def test_dziennik_polski_charsznica_nepotism(
