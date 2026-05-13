@@ -1008,7 +1008,6 @@ class FrameSlotGrounder:
             end_char=grounded.evidence.end_char,
             mention_kind=MentionKind.DERIVED_ENTITY,
             entity_type=entity_type,
-            cluster=cluster,
         )
 
     @staticmethod

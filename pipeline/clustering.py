@@ -6,7 +6,6 @@ from pipeline.base import EntityClusterer
 from pipeline.config import PipelineConfig
 from pipeline.document_graph import merge_entities
 from pipeline.domain_types import EntityID, EntityType
-from pipeline.entity_graph_remapper import EntityGraphRemapper
 from pipeline.models import ArticleDocument, Entity, Mention
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
@@ -57,7 +56,7 @@ class PolishEntityClusterer(EntityClusterer):
             remap[entity.entity_id] = match.entity_id
 
         if remap:
-            merge_entities(document, remap, merge_fn=EntityGraphRemapper.merge_entity)
+            merge_entities(document, remap)
 
         for entity in document.entities:
             self.canonicalizer.normalize_entity(entity)

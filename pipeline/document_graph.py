@@ -296,11 +296,7 @@ def ensure_entity_view(
     end_char: int,
     mention_kind: MentionKind = MentionKind.DERIVED_ENTITY,
     entity_type: EntityType | None = None,
-    cluster: EntityCluster | None = None,
-    cluster_id: ClusterID | None = None,
 ) -> EntityCluster:
-    _ = cluster
-    _ = cluster_id
     evidence = EvidenceSpan(
         text=surface,
         sentence_index=sentence_index,
