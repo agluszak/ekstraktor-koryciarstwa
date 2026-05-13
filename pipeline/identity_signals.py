@@ -14,6 +14,7 @@ from pipeline.cluster_reads import (
 from pipeline.cluster_reads import (
     entity_type_for_cluster as read_entity_type_for_cluster,
 )
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_lexicons import (
     ATTRIBUTION_SPEECH_LEMMAS,
     KINSHIP_BY_LEMMA,
@@ -295,7 +296,7 @@ def _resolve_anchor(
         )
     candidates = [
         cluster
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
         if _cluster_entity_type(document, cluster, entities_by_id) == EntityType.PERSON
         and not _cluster_is_proxy_person(document, cluster, entities_by_id)
         and (
@@ -338,7 +339,7 @@ def subject_person_cluster(
     )
     if sentence is None:
         return None
-    for cluster in document.clusters:
+    for cluster in derived_clusters(document):
         if _cluster_entity_type(document, cluster, entities_by_id) != EntityType.PERSON or (
             _cluster_is_proxy_person(document, cluster, entities_by_id)
         ):
@@ -383,7 +384,7 @@ def person_cluster_with_role_context(
     sentences = {sentence.sentence_index: sentence for sentence in document.sentences}
     candidates: list[tuple[int, int, EntityCluster]] = []
     role_markers = tuple(role_lemmas)
-    for cluster in document.clusters:
+    for cluster in derived_clusters(document):
         if _cluster_entity_type(document, cluster, entities_by_id) != EntityType.PERSON or (
             _cluster_is_proxy_person(document, cluster, entities_by_id)
         ):
@@ -458,7 +459,7 @@ def speaker_cluster_raw(
     speaker_words = [
         word for word in parsed if word.head in speech_heads and word.deprel.startswith("nsubj")
     ]
-    for cluster in document.clusters:
+    for cluster in derived_clusters(document):
         if _cluster_entity_type(document, cluster, entities_by_id) != EntityType.PERSON or (
             _cluster_is_proxy_person(document, cluster, entities_by_id)
         ):
@@ -483,7 +484,7 @@ def nearest_person_cluster(
 ) -> EntityCluster | None:
     candidates = [
         cluster
-        for cluster in document.clusters
+        for cluster in derived_clusters(document)
         if _cluster_entity_type(document, cluster, entities_by_id) == EntityType.PERSON
         and not _cluster_is_proxy_person(document, cluster, entities_by_id)
         and any(

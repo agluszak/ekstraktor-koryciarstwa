@@ -96,13 +96,12 @@ class DocumentEntityCanonicalizer:
             if match is None:
                 deduplicated.append(entity)
                 continue
-            EntityGraphRemapper.merge_entity(match, entity)
             remap[entity.entity_id] = match.entity_id
 
-        document.entities = deduplicated
-        EntityGraphRemapper.remap_mentions(document, remap)
-        EntityGraphRemapper.remap_fact_graph(document, remap)
+        if remap:
+            EntityGraphRemapper.apply_remap(document, remap)
         self._refresh_entity_names(document.entities)
+        self._refresh_mention_identity(document)
         self._validate_party_membership_objects(document)
         return document
 
@@ -238,6 +237,18 @@ class DocumentEntityCanonicalizer:
     def _refresh_entity_names(self, entities: list[Entity]) -> None:
         for entity in entities:
             self.normalize_entity(entity)
+
+    @staticmethod
+    def _refresh_mention_identity(document: ArticleDocument) -> None:
+        entity_by_id = {entity.entity_id: entity for entity in document.entities}
+        for mention in document.mentions:
+            if mention.entity_id is None:
+                continue
+            entity = entity_by_id.get(mention.entity_id)
+            if entity is None:
+                continue
+            mention.normalized_text = entity.normalized_name
+            mention.entity_type = entity.entity_type
 
     def _persons_compatible(self, left: Entity, right: Entity) -> bool:
         return self.person_naming.persons_compatible(

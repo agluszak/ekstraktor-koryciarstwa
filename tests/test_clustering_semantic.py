@@ -7,6 +7,7 @@ import pytest
 
 from pipeline.clustering import PolishEntityClusterer
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_types import DocumentID, EntityID, EntityType
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan
@@ -68,10 +69,10 @@ def test_polish_entity_clusterer_merges_orgs_by_semantic_similarity(config, mock
 
     result = clusterer.run(doc)
 
-    # Should have only 1 cluster because they were merged via semantic similarity
-    assert len(result.clusters) == 1
+    clusters = derived_clusters(result)
+    assert len(clusters) == 1
     assert (
-        ExtractionContext.build(result).canonical_name_for_cluster(result.clusters[0])
+        ExtractionContext.build(result).canonical_name_for_cluster(clusters[0])
         == "Krajowy Ośrodek Wsparcia Rolnictwa"
     )
 
@@ -116,5 +117,4 @@ def test_polish_entity_clusterer_does_not_merge_dissimilar_orgs(config, mock_run
 
     result = clusterer.run(doc)
 
-    # Should have 2 clusters
-    assert len(result.clusters) == 2
+    assert len(derived_clusters(result)) == 2

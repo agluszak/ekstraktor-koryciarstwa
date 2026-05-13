@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_lexicons import PUBLIC_OFFICE_ROLE_KINDS
 from pipeline.domain_types import (
     ClusterID,
@@ -602,7 +603,7 @@ class GovernanceFactBuilder:
     ) -> list[EntityCluster]:
         return [
             cluster
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
             if context.entity_type_for_cluster(cluster) == EntityType.PERSON
             and any(
                 mention.paragraph_index == sentence.paragraph_index for mention in cluster.mentions
@@ -636,7 +637,7 @@ class GovernanceFactBuilder:
     ) -> EntityCluster | None:
         candidates = [
             cluster
-            for cluster in document.clusters
+            for cluster in derived_clusters(document)
             if context.entity_type_for_cluster(cluster)
             in {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
             and any(
@@ -862,7 +863,7 @@ class GovernanceFactBuilder:
             chooser_present = any(
                 word.lemma.casefold() in APPOINTING_AUTHORITY_CUE_LEMMAS for word in parsed_words
             )
-            for cluster in document.clusters:
+            for cluster in derived_clusters(document):
                 if (
                     context.entity_type_for_cluster(cluster) != EntityType.PERSON
                     or context.entity_id_for_cluster(cluster) == frame.person_entity_id

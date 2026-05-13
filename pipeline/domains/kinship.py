@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_lexicons import KINSHIP_BY_LEMMA
 from pipeline.domain_types import (
     EntityID,
@@ -59,7 +60,7 @@ class KinshipTieBuilder:
                     sentence_views=sentence_views,
                 )
             )
-        views_by_entity_id = _build_views_by_entity_id(context, document.clusters)
+        views_by_entity_id = _build_views_by_entity_id(context, derived_clusters(document))
         evidence_items.extend(self._identity_backed_proxy_ties(document, views_by_entity_id))
         return [self._fact(document, evidence) for evidence in evidence_items]
 

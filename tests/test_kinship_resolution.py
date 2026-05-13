@@ -1,3 +1,4 @@
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_types import (
     ClusterID,
     DocumentID,
@@ -45,6 +46,10 @@ def _cluster(
     )
 
 
+def _flatten_cluster_mentions(clusters: list[EntityCluster]) -> list[ClusterMention]:
+    return [mention for cluster in clusters for mention in cluster.mentions]
+
+
 def test_build_views_by_entity_id_uses_cluster_identity_when_mentions_are_unlinked() -> None:
     entity_id = EntityID("entity-proxy")
     cluster = _cluster(
@@ -79,12 +84,12 @@ def test_build_views_by_entity_id_uses_cluster_identity_when_mentions_are_unlink
                 normalized_name="proxy spouse",
             )
         ],
-        clusters=[cluster],
+        mentions=cluster.mentions,
     )
 
-    views = _build_views_by_entity_id(ExtractionContext.build(document), document.clusters)
+    views = _build_views_by_entity_id(ExtractionContext.build(document), derived_clusters(document))
 
-    assert views[entity_id].cluster_id == cluster.cluster_id
+    assert views[entity_id].entity_id == entity_id
     assert views[entity_id].canonical_name == "proxy spouse"
 
 
@@ -137,10 +142,10 @@ def test_build_views_by_entity_id_returns_view_bound_to_each_entity_id() -> None
                 normalized_name="Kowalski",
             ),
         ],
-        clusters=[cluster],
+        mentions=cluster.mentions,
     )
 
-    views = _build_views_by_entity_id(ExtractionContext.build(document), document.clusters)
+    views = _build_views_by_entity_id(ExtractionContext.build(document), derived_clusters(document))
 
     assert views[first_id].entity_id == first_id
     assert views[second_id].entity_id == second_id
@@ -230,36 +235,38 @@ def test_kinship_apposition_emits_spouse_tie() -> None:
                 ),
             ]
         },
-        clusters=[
-            _cluster(
-                "cluster-sylwia",
-                [
-                    ClusterMention(
-                        text="Sylwię Sobolewską",
-                        entity_id=EntityID("person-sylwia"),
-                        entity_type=EntityType.PERSON,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=sylwia_start,
-                        end_char=sylwia_start + len("Sylwię Sobolewską"),
-                    )
-                ],
-            ),
-            _cluster(
-                "cluster-krzysztof",
-                [
-                    ClusterMention(
-                        text="Krzysztofa Sobolewskiego",
-                        entity_id=EntityID("person-krzysztof"),
-                        entity_type=EntityType.PERSON,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=krzysztof_start,
-                        end_char=krzysztof_start + len("Krzysztofa Sobolewskiego"),
-                    )
-                ],
-            ),
-        ],
+        mentions=_flatten_cluster_mentions(
+            [
+                _cluster(
+                    "cluster-sylwia",
+                    [
+                        ClusterMention(
+                            text="Sylwię Sobolewską",
+                            entity_id=EntityID("person-sylwia"),
+                            entity_type=EntityType.PERSON,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=sylwia_start,
+                            end_char=sylwia_start + len("Sylwię Sobolewską"),
+                        )
+                    ],
+                ),
+                _cluster(
+                    "cluster-krzysztof",
+                    [
+                        ClusterMention(
+                            text="Krzysztofa Sobolewskiego",
+                            entity_id=EntityID("person-krzysztof"),
+                            entity_type=EntityType.PERSON,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=krzysztof_start,
+                            end_char=krzysztof_start + len("Krzysztofa Sobolewskiego"),
+                        )
+                    ],
+                ),
+            ]
+        ),
     )
 
     facts = KinshipTieBuilder().build(doc, ExtractionContext.build(doc))
@@ -364,36 +371,38 @@ def test_kinship_apposition_handles_sparse_dependency_indices() -> None:
                 ),
             ]
         },
-        clusters=[
-            _cluster(
-                "cluster-sylwia-sparse",
-                [
-                    ClusterMention(
-                        text="Sylwię Sobolewską",
-                        entity_id=EntityID("person-sylwia-sparse"),
-                        entity_type=EntityType.PERSON,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=sylwia_start,
-                        end_char=sylwia_start + len("Sylwię Sobolewską"),
-                    )
-                ],
-            ),
-            _cluster(
-                "cluster-krzysztof-sparse",
-                [
-                    ClusterMention(
-                        text="Krzysztofa Sobolewskiego",
-                        entity_id=EntityID("person-krzysztof-sparse"),
-                        entity_type=EntityType.PERSON,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=krzysztof_start,
-                        end_char=krzysztof_start + len("Krzysztofa Sobolewskiego"),
-                    )
-                ],
-            ),
-        ],
+        mentions=_flatten_cluster_mentions(
+            [
+                _cluster(
+                    "cluster-sylwia-sparse",
+                    [
+                        ClusterMention(
+                            text="Sylwię Sobolewską",
+                            entity_id=EntityID("person-sylwia-sparse"),
+                            entity_type=EntityType.PERSON,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=sylwia_start,
+                            end_char=sylwia_start + len("Sylwię Sobolewską"),
+                        )
+                    ],
+                ),
+                _cluster(
+                    "cluster-krzysztof-sparse",
+                    [
+                        ClusterMention(
+                            text="Krzysztofa Sobolewskiego",
+                            entity_id=EntityID("person-krzysztof-sparse"),
+                            entity_type=EntityType.PERSON,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=krzysztof_start,
+                            end_char=krzysztof_start + len("Krzysztofa Sobolewskiego"),
+                        )
+                    ],
+                ),
+            ]
+        ),
     )
 
     facts = KinshipTieBuilder().build(doc, ExtractionContext.build(doc))
@@ -438,36 +447,38 @@ def test_kinship_builder_does_not_pair_nearest_previous_people_without_evidence(
                 ParsedWord(4, "zrezygnowała", "zrezygnować", "VERB", 0, "root", 18, 30),
             ]
         },
-        clusters=[
-            _cluster(
-                "cluster-jan",
-                [
-                    ClusterMention(
-                        text="Jan Kowalski",
-                        entity_id=EntityID("person-jan"),
-                        entity_type=EntityType.PERSON,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=0,
-                        end_char=12,
-                    )
-                ],
-            ),
-            _cluster(
-                "cluster-adam",
-                [
-                    ClusterMention(
-                        text="Adam Nowak",
-                        entity_id=EntityID("person-adam"),
-                        entity_type=EntityType.PERSON,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=21,
-                        end_char=32,
-                    )
-                ],
-            ),
-        ],
+        mentions=_flatten_cluster_mentions(
+            [
+                _cluster(
+                    "cluster-jan",
+                    [
+                        ClusterMention(
+                            text="Jan Kowalski",
+                            entity_id=EntityID("person-jan"),
+                            entity_type=EntityType.PERSON,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=0,
+                            end_char=12,
+                        )
+                    ],
+                ),
+                _cluster(
+                    "cluster-adam",
+                    [
+                        ClusterMention(
+                            text="Adam Nowak",
+                            entity_id=EntityID("person-adam"),
+                            entity_type=EntityType.PERSON,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=21,
+                            end_char=32,
+                        )
+                    ],
+                ),
+            ]
+        ),
     )
 
     assert KinshipTieBuilder().build(doc, ExtractionContext.build(doc)) == []
@@ -524,56 +535,58 @@ def test_identity_backed_proxy_tie_uses_entity_backed_views_with_stale_cluster_m
                 normalized_name="Anna Nowak",
             ),
         ],
-        clusters=[
-            _cluster(
-                "cluster-proxy-stale",
-                [
-                    ClusterMention(
-                        text="żona",
-                        entity_type=EntityType.POSITION,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=sentence_text.index("żona"),
-                        end_char=sentence_text.index("żona") + len("żona"),
-                        entity_id=proxy_id,
-                    )
-                ],
-                primary_entity_id=proxy_id,
-                member_entity_ids=[proxy_id],
-            ),
-            _cluster(
-                "cluster-jan-stale",
-                [
-                    ClusterMention(
-                        text="Jana Kowalskiego",
-                        entity_type=EntityType.POSITION,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=sentence_text.index("Jana"),
-                        end_char=sentence_text.index("Jana") + len("Jana Kowalskiego"),
-                        entity_id=anchor_id,
-                    )
-                ],
-                primary_entity_id=anchor_id,
-                member_entity_ids=[anchor_id],
-            ),
-            _cluster(
-                "cluster-anna-stale",
-                [
-                    ClusterMention(
-                        text="Anna Nowak",
-                        entity_type=EntityType.POSITION,
-                        sentence_index=0,
-                        paragraph_index=0,
-                        start_char=0,
-                        end_char=len("Anna Nowak"),
-                        entity_id=matched_id,
-                    )
-                ],
-                primary_entity_id=matched_id,
-                member_entity_ids=[matched_id],
-            ),
-        ],
+        mentions=_flatten_cluster_mentions(
+            [
+                _cluster(
+                    "cluster-proxy-stale",
+                    [
+                        ClusterMention(
+                            text="żona",
+                            entity_type=EntityType.POSITION,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=sentence_text.index("żona"),
+                            end_char=sentence_text.index("żona") + len("żona"),
+                            entity_id=proxy_id,
+                        )
+                    ],
+                    primary_entity_id=proxy_id,
+                    member_entity_ids=[proxy_id],
+                ),
+                _cluster(
+                    "cluster-jan-stale",
+                    [
+                        ClusterMention(
+                            text="Jana Kowalskiego",
+                            entity_type=EntityType.POSITION,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=sentence_text.index("Jana"),
+                            end_char=sentence_text.index("Jana") + len("Jana Kowalskiego"),
+                            entity_id=anchor_id,
+                        )
+                    ],
+                    primary_entity_id=anchor_id,
+                    member_entity_ids=[anchor_id],
+                ),
+                _cluster(
+                    "cluster-anna-stale",
+                    [
+                        ClusterMention(
+                            text="Anna Nowak",
+                            entity_type=EntityType.POSITION,
+                            sentence_index=0,
+                            paragraph_index=0,
+                            start_char=0,
+                            end_char=len("Anna Nowak"),
+                            entity_id=matched_id,
+                        )
+                    ],
+                    primary_entity_id=matched_id,
+                    member_entity_ids=[matched_id],
+                ),
+            ]
+        ),
         facts=[
             Fact(
                 fact_id=FactID("fact-proxy-family"),

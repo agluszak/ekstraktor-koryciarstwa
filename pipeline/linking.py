@@ -72,14 +72,11 @@ class InMemoryEntityLinker(EntityLinker):
 
         # Deduplicate: merge entities that resolved to the same registry_id
         document.entities, id_remap = self._deduplicate_by_registry(document.entities)
-        document.entities, exact_name_remap = self._deduplicate_exact_names(
-            document.entities,
-        )
+        document.entities, exact_name_remap = self._deduplicate_exact_names(document.entities)
         id_remap.update(exact_name_remap)
 
         if id_remap:
-            EntityGraphRemapper.remap_mentions(document, id_remap)
-            EntityGraphRemapper.remap_fact_graph(document, id_remap)
+            EntityGraphRemapper.apply_remap(document, id_remap)
 
         return self.canonicalizer.run(document)
 

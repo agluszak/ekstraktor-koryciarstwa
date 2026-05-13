@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_types import (
     ClusterID,
     EntityType,
@@ -289,7 +290,7 @@ class PolishCompensationFrameExtractor:
     ) -> EntityCluster | None:
         candidates = [
             cluster
-            for cluster in context.document.clusters
+            for cluster in context.clusters
             if context.entity_type_for_cluster(cluster) in entity_types
             and cls._cluster_is_valid_compensation_anchor(context, cluster)
             and any(
@@ -312,7 +313,7 @@ class PolishCompensationFrameExtractor:
     ) -> EntityCluster | None:
         candidates = [
             cluster
-            for cluster in context.document.clusters
+            for cluster in context.clusters
             if context.entity_type_for_cluster(cluster) in entity_types
             and cls._cluster_is_valid_compensation_anchor(context, cluster)
             and any(
@@ -332,7 +333,7 @@ class PolishCompensationFrameExtractor:
         role_text = find_role_text(document, clause)
         if role_text is None:
             return None
-        for cluster in document.clusters:
+        for cluster in derived_clusters(document):
             if context.entity_type_for_cluster(cluster) != EntityType.POSITION:
                 continue
             if context.canonical_name_for_cluster(cluster).lower() == role_text.lower():

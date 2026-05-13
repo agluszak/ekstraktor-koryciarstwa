@@ -60,6 +60,7 @@ ALL_ENTITY_TYPES: frozenset[EntityType] = frozenset(
 class ExtractionContext:
     document: ArticleDocument
     graph: DocumentGraph = field(init=False)
+    clusters: list[EntityCluster] = field(init=False)
     clusters_by_id: dict[ClusterID, EntityCluster] = field(init=False)
     entities_by_id: dict[EntityID, Entity] = field(init=False)
     cluster_by_entity_id_index: dict[EntityID, EntityCluster] = field(init=False)
@@ -79,7 +80,8 @@ class ExtractionContext:
 
     def __post_init__(self) -> None:
         self.graph = DocumentGraph(self.document)
-        self.clusters_by_id = {cluster.cluster_id: cluster for cluster in self.document.clusters}
+        self.clusters = self.graph.clusters()
+        self.clusters_by_id = {cluster.cluster_id: cluster for cluster in self.clusters}
         self.entities_by_id = self.graph.entities_by_id
         self.cluster_by_entity_id_index = {}
         self.exact_mention_index = {}
@@ -88,7 +90,7 @@ class ExtractionContext:
         self.clusters_by_paragraph_type = {}
         self.dependency_frames_by_clause_id = {}
 
-        for cluster in self.document.clusters:
+        for cluster in self.clusters:
             for entity_id in self.entity_ids_for_cluster(cluster):
                 if entity_id is not None and entity_id not in self.cluster_by_entity_id_index:
                     self.cluster_by_entity_id_index[entity_id] = cluster
@@ -397,8 +399,7 @@ class ExtractionContext:
 
     def cluster_entity_id_map(self) -> dict[ClusterID, EntityID]:
         return {
-            cluster.cluster_id: self.entity_id_for_cluster(cluster)
-            for cluster in self.document.clusters
+            cluster.cluster_id: self.entity_id_for_cluster(cluster) for cluster in self.clusters
         }
 
     def cluster_name(self, cluster_id: ClusterID | None) -> str | None:
@@ -598,7 +599,7 @@ class ExtractionContext:
     ) -> list[EntityCluster]:
         seen: set[ClusterID] = set()
         clusters: list[EntityCluster] = []
-        for cluster in self.document.clusters:
+        for cluster in self.clusters:
             if (
                 self.entity_type_for_cluster(cluster) not in entity_types
                 or cluster.cluster_id in seen

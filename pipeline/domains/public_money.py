@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from pipeline.config import PipelineConfig
+from pipeline.document_graph import derived_clusters
 from pipeline.domain_types import (
     EntityID,
     EntityType,
@@ -561,7 +562,9 @@ def _public_money_clusters(
         mention.cluster_id for mention in grounded_orgs if mention.cluster_id is not None
     ]
     if cluster_ids:
-        return [cluster for cluster in document.clusters if cluster.cluster_id in cluster_ids]
+        return [
+            cluster for cluster in derived_clusters(document) if cluster.cluster_id in cluster_ids
+        ]
     return context.clusters_for_clause(
         clause,
         {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION},

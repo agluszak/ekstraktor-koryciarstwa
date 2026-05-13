@@ -71,7 +71,6 @@ def document(text: str, clusters: list[EntityCluster]) -> ArticleDocument:
         paragraphs=[text],
         entities=entities,
         mentions=[mention for cluster in clusters for mention in cluster.mentions],
-        clusters=clusters,
     )
     sync_entity_mentions(document)
     return document
@@ -117,7 +116,7 @@ def test_dependency_frame_extracts_active_appointment_arguments() -> None:
         {EntityType.PERSON},
     )
     assert object_cluster is not None
-    assert object_cluster.cluster_id == ClusterID("cluster-person")
+    assert object_cluster.primary_entity_id == EntityID("entity-person")
 
 
 def test_dependency_frame_marks_passive_subject() -> None:
@@ -143,7 +142,7 @@ def test_dependency_frame_marks_passive_subject() -> None:
         {EntityType.PERSON},
     )
     assert passive_subject is not None
-    assert passive_subject.cluster_id == ClusterID("cluster-person")
+    assert passive_subject.primary_entity_id == EntityID("entity-person")
 
 
 def test_dependency_frame_extracts_funding_transfer_arguments_and_money() -> None:
@@ -174,7 +173,7 @@ def test_dependency_frame_extracts_funding_transfer_arguments_and_money() -> Non
         {EntityType.PUBLIC_INSTITUTION},
     )
     assert subject is not None
-    assert subject.cluster_id == ClusterID("cluster-funder")
+    assert subject.primary_entity_id == EntityID("entity-funder")
 
 
 def test_dependency_frame_marks_reporting_przekazac() -> None:
