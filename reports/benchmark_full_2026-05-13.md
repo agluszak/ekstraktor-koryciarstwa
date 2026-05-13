@@ -43,12 +43,17 @@ uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
    - `olsztyn_wodkan` still emits `COMPENSATION`, but the weak `FUNDING` fact from the salary-burden clause is gone.
    - Role-only `Prezes` compensation subjects remain removed.
 
-6. **Benchmark regressions introduced during the canonicalization pass were fixed before the final rerun.**
+6. **The new Warsaw municipal-companies salary benchmark is no longer empty.**
+   - `wiadomosci.wp.pl__warszawa__pensja-30-tys-zl-brutto...` is now relevant and emits broad `COMPENSATION` output instead of zero facts.
+   - The transport-company coordination no longer collapses MZA and Metro into one synthetic employer, and the article now carries multiple salary / bonus amounts.
+   - The remaining output is still role-heavy and somewhat noisy, but it now clears the "better to overgenerate than miss the article" bar.
+
+7. **Benchmark regressions introduced during the canonicalization pass were fixed before the final rerun.**
    - `ai42...czy-wojt-ukrywa-nepotyzm` again recovers `Artur Sosna`.
    - `tvnwarszawa_fundacja_bielskiego_20260425` now recovers `Karol Bielski` and a Bielsk-linked `Fundacja ...` entity.
    - `interwencja.polsatnews.pl__...bardzo-rodzinne-starostwo_1329791` now keeps `Syn Pszczółkowski`, `Synowa Morawska`, and `Jakub Mieszko Pszczółkowski`.
 
-7. **Stable positives still look alive after the uncertainty changes.**
+8. **Stable positives still look alive after the uncertainty changes.**
    - `oko_miliony_pajeczyna_rydzyka`: still emits `FUNDING` output.
    - `tvnwarszawa_fundacja_bielskiego_20260425`: still emits public-money output.
    - `zona-posla-pis`: still emits appointment/dismissal plus family/network facts.
@@ -78,10 +83,10 @@ uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
 
 ## Batch totals
 
-- Inputs processed: **33**
-- Relevant: **31**
+- Inputs processed: **34**
+- Relevant: **32**
 - Irrelevant: **2**
-- Outputs with facts: **30**
+- Outputs with facts: **31**
 - Outputs without facts: **3**
 - Missing output JSONs for `inputs/*.html`: **0**
 
@@ -131,11 +136,13 @@ The three zero-fact outputs are:
 ### Useful but still noisy / partially under-modeled
 
 - `businessinsider_kadrowa_czystka_panstwowa_spolka`  
-  High-density output, but severe `ELECTION_CANDIDACY` overgeneration (`20`) and obviously wrong targets (`Wojciech Olejniczak -> SLD`, `Allianza OFE -> PZU`) make this output unreliable.
+  Governance-heavy output remains, but the earlier supervisory-board `ELECTION_CANDIDACY` flood is gone; the main remaining risk is duplicated list-style governance extraction, not candidacy hallucinations.
 - `dziennikzachodni.pl__nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zawiadomienie-cba__c1-16375383`  
   Public-contract and anti-corruption output exists, but `Radny` is duplicated heavily and surname/person references are noisy.
 - `olsztyn_wodkan`  
   Salary article stays relevant and now avoids the earlier false-positive `FUNDING` fact; compensation output is still a bit dense but cleaner than before.
+- `wiadomosci.wp.pl__warszawa__pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-warszawskich-spolek-miejskich__7283597240129600a`  
+  New salary benchmark now emits broad compensation output (`COMPENSATION: 15`) across Tramwaje Warszawskie, MZA / Metro, MPWiK, and MPO; the remaining noise is mostly role-based duplication and some imperfect cross-clause carryover.
 - `onet_totalizator`  
   Coverage is broad (`52` facts) but precision is shaky: many long/noisy targets, party/office inflation, and duplicate/overstretched appointments.
 - `onet_totalizator_leca_glowy`  
@@ -193,6 +200,7 @@ All `inputs/*.html` outputs were summarized. Representative facts were inspected
 - `wiadomosci.onet.pl__krakow__cba-wojt-bral-lapowki-za-zlecanie-remontow-i-zatrudnianie-pracownikow__vdc04xe`
 - `wiadomosci.onet.pl__lublin__nowe-wladze-wfosigw-w-lublinie-bez-konkursu-i-bez-wysluchania-kandydatow__cpw9ltt`
 - `wiadomosci.wp.pl__odpartyjnienie-rad-nadzorczych-nie-tak-mialo-byc-wyglada-to-bardzo-zle__6996280410176160a`
+- `wiadomosci.wp.pl__warszawa__pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-warszawskich-spolek-miejskich__7283597240129600a`
 - `wiadomosci.wp.pl__wiedza-doswiadczenie-i-kompetencje-czyli-rodzina-na-swoim-w-opolu__7147022691576352a`
 - `wiadomosci.wp.pl__zona-posla-pis-odnalazla-sie-w-lublinie-byla-ofiara-uchwaly-o-nepotyzmie__7273798906222848a`
 - `wp_lubczyk`

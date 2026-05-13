@@ -875,7 +875,7 @@ def test_compensation_relation_is_extracted() -> None:
         fact for fact in extracted.facts if fact.fact_type == FactType.COMPENSATION
     ]
     assert compensation_facts
-    assert compensation_facts[0].amount_text == "31 Tys. Zł Brutto"
+    assert (compensation_facts[0].amount_text or "").endswith("31 Tys. Zł Brutto")
     assert compensation_facts[0].confidence >= 0.7
     assert compensation_facts[0].source_extractor == "compensation_frame"
     assert compensation_facts[0].extraction_signal in {

@@ -62,3 +62,25 @@ def test_spacy_raw_labels_are_preserved_as_typed_ner_labels() -> None:
     assert SpacyPolishNERExtractor._ner_label("placeName") == NERLabel.PLACE
     assert SpacyPolishNERExtractor._ner_label("date") == NERLabel.DATE
     assert SpacyPolishNERExtractor._ner_label("time") == NERLabel.TIME
+
+
+def test_split_coordinated_organization_spans_splits_parallel_org_list() -> None:
+    spans = SpacyPolishNERExtractor._split_coordinated_organization_spans(
+        "Tramwajach Warszawskich, Miejskich Zakładach Autobusowych i Metrze Warszawskim",
+        100,
+    )
+
+    assert [text for text, _, _ in spans] == [
+        "Tramwajach Warszawskich",
+        "Miejskich Zakładach Autobusowych",
+        "Metrze Warszawskim",
+    ]
+
+
+def test_split_coordinated_organization_spans_keeps_single_org_name_intact() -> None:
+    spans = SpacyPolishNERExtractor._split_coordinated_organization_spans(
+        "Ministerstwo Kultury i Dziedzictwa Narodowego",
+        0,
+    )
+
+    assert spans == []

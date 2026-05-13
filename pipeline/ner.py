@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import re
+
 from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
 from pipeline.document_graph import sync_entity_mentions
 from pipeline.domain_lexicons import KINSHIP_LEMMAS
 from pipeline.domain_types import EntityType, MentionKind, NERLabel
+from pipeline.entity_classifiers import is_employer_like_name
+from pipeline.entity_naming import is_acronym_like
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention, TemporalExpression
 from pipeline.nlp_services import MorphologyAnalyzer, StanzaPolishMorphologyAnalyzer
 from pipeline.normalization import DocumentEntityCanonicalizer
@@ -17,6 +21,7 @@ from pipeline.utils import (
 )
 
 LOWERCASE_COMMON_PARTY_ALIASES = frozenset({"razem"})
+ORG_COORDINATION_SEPARATOR = re.compile(r"(?:,\s*|\s+(?:i|oraz)\s+)", re.IGNORECASE)
 
 
 class SpacyPolishNERExtractor(NERExtractor):
@@ -72,85 +77,106 @@ class SpacyPolishNERExtractor(NERExtractor):
                 document.cleaned_text,
             ):
                 entity_type = EntityType.ORGANIZATION
-            merge_key, display_name, display_score, lemmas = self._entity_forms(ent, entity_type)
-
-            # Use spaCy's morphology to filter: single-token PERSON entities
-            # where no token has PROPN POS are misclassifications (media names,
-            # common nouns, abbreviations).
-            if entity_type == EntityType.PERSON:
-                lexical = [t for t in ent if t.text.strip()]
-                if lexical and not any(t.pos_ == "PROPN" for t in lexical):
-                    continue
-                if self._person_span_is_kinship_phrase(lexical):
-                    continue
-
-            # Reclassify: if spaCy labeled an ORG that matches a known party
-            # alias from config, retype it to PoliticalParty.
-            if entity_type == EntityType.ORGANIZATION:
-                surface_lower = ent.text.strip().lower()
-                if surface_lower in party_keys_lower or surface_lower in party_values_lower:
-                    if (
-                        surface_lower in LOWERCASE_COMMON_PARTY_ALIASES
-                        and ent.text.strip() == surface_lower
-                    ):
-                        continue
-                    canonical_party = self._canonical_party_name(ent.text)
-                    entity_type = EntityType.POLITICAL_PARTY
-                    merge_key = canonical_party
-                    display_name = canonical_party
-                    display_score = 100
-                    lemmas = [token.lower() for token in canonical_party.split()]
-
-            from pipeline.domain_types import EntityID
-
-            key = (entity_type, merge_key)
-            if key not in entity_index:
-                entity_index[key] = Entity(
-                    entity_id=EntityID(
-                        stable_id(entity_type.lower(), document.document_id, merge_key)
-                    ),
-                    entity_type=entity_type,
-                    canonical_name=display_name,
-                    normalized_name=display_name,
-                    lemmas=lemmas,
-                )
-                entity_display_score[key] = display_score
-            entity = entity_index[key]
-
-            # Update lemmas if we found a more "complete" version
-            if len(lemmas) > len(entity.lemmas):
-                entity.lemmas = lemmas
-
-            if display_score > entity_display_score[key]:
-                entity.canonical_name = display_name
-                entity.normalized_name = display_name
-                entity_display_score[key] = display_score
-            entity.aliases = list(dict.fromkeys([*entity.aliases, ent.text]))
-            sentence = self._sentence_for_offset(document, ent.start_char)
-            entity.evidence.append(
-                EvidenceSpan(
-                    text=ent.text,
-                    start_char=ent.start_char,
-                    end_char=ent.end_char,
-                    sentence_index=sentence.sentence_index if sentence is not None else 0,
-                    paragraph_index=sentence.paragraph_index if sentence is not None else 0,
-                )
+            spans = (
+                self._split_coordinated_organization_spans(ent.text, ent.start_char)
+                if entity_type == EntityType.ORGANIZATION
+                else []
             )
-            document.mentions.append(
-                Mention(
-                    text=ent.text,
-                    normalized_text=display_name,
-                    entity_type=entity_type,
-                    mention_kind=MentionKind.NAMED_ENTITY,
-                    sentence_index=sentence.sentence_index if sentence is not None else 0,
-                    paragraph_index=sentence.paragraph_index if sentence is not None else 0,
-                    start_char=ent.start_char,
-                    end_char=ent.end_char,
-                    entity_id=entity.entity_id,
-                    lemmas=lemmas,
-                    ner_label=ner_label,
+            if not spans:
+                spans = [(ent.text, ent.start_char, ent.end_char)]
+
+            for span_text, span_start, span_end in spans:
+                if (
+                    span_text == ent.text
+                    and span_start == ent.start_char
+                    and span_end == ent.end_char
+                ):
+                    segment_type = entity_type
+                    merge_key, display_name, display_score, lemmas = self._entity_forms(
+                        ent, segment_type
+                    )
+
+                    # Use spaCy's morphology to filter: single-token PERSON entities
+                    # where no token has PROPN POS are misclassifications (media names,
+                    # common nouns, abbreviations).
+                    if segment_type == EntityType.PERSON:
+                        lexical = [t for t in ent if t.text.strip()]
+                        if lexical and not any(t.pos_ == "PROPN" for t in lexical):
+                            continue
+                        if self._person_span_is_kinship_phrase(lexical):
+                            continue
+                else:
+                    segment_type = EntityType.ORGANIZATION
+                    merge_key, display_name, display_score, lemmas = self._surface_entity_forms(
+                        span_text, segment_type
+                    )
+
+                # Reclassify: if spaCy labeled an ORG that matches a known party
+                # alias from config, retype it to PoliticalParty.
+                if segment_type == EntityType.ORGANIZATION:
+                    surface_lower = span_text.strip().lower()
+                    if surface_lower in party_keys_lower or surface_lower in party_values_lower:
+                        if (
+                            surface_lower in LOWERCASE_COMMON_PARTY_ALIASES
+                            and span_text.strip() == surface_lower
+                        ):
+                            continue
+                        canonical_party = self._canonical_party_name(span_text)
+                        segment_type = EntityType.POLITICAL_PARTY
+                        merge_key = canonical_party
+                        display_name = canonical_party
+                        display_score = 100
+                        lemmas = [token.lower() for token in canonical_party.split()]
+
+                from pipeline.domain_types import EntityID
+
+                key = (segment_type, merge_key)
+                if key not in entity_index:
+                    entity_index[key] = Entity(
+                        entity_id=EntityID(
+                            stable_id(segment_type.lower(), document.document_id, merge_key)
+                        ),
+                        entity_type=segment_type,
+                        canonical_name=display_name,
+                        normalized_name=display_name,
+                        lemmas=lemmas,
+                    )
+                    entity_display_score[key] = display_score
+                entity = entity_index[key]
+
+                if len(lemmas) > len(entity.lemmas):
+                    entity.lemmas = lemmas
+
+                if display_score > entity_display_score[key]:
+                    entity.canonical_name = display_name
+                    entity.normalized_name = display_name
+                    entity_display_score[key] = display_score
+                entity.aliases = list(dict.fromkeys([*entity.aliases, span_text]))
+                sentence = self._sentence_for_offset(document, span_start)
+                entity.evidence.append(
+                    EvidenceSpan(
+                        text=span_text,
+                        start_char=span_start,
+                        end_char=span_end,
+                        sentence_index=sentence.sentence_index if sentence is not None else 0,
+                        paragraph_index=sentence.paragraph_index if sentence is not None else 0,
+                    )
                 )
-            )
+                document.mentions.append(
+                    Mention(
+                        text=span_text,
+                        normalized_text=display_name,
+                        entity_type=segment_type,
+                        mention_kind=MentionKind.NAMED_ENTITY,
+                        sentence_index=sentence.sentence_index if sentence is not None else 0,
+                        paragraph_index=sentence.paragraph_index if sentence is not None else 0,
+                        start_char=span_start,
+                        end_char=span_end,
+                        entity_id=entity.entity_id,
+                        lemmas=lemmas,
+                        ner_label=ner_label,
+                    )
+                )
 
         document.entities = list(entity_index.values())
         document = self.canonicalizer.run(document)
@@ -226,6 +252,45 @@ class SpacyPolishNERExtractor(NERExtractor):
             return merge_key, display_name, display_score, lemmas
         normalized = normalize_entity_name(ent.text)
         return normalized, normalized, 0, lemmas
+
+    @staticmethod
+    def _surface_entity_forms(
+        text: str,
+        entity_type: EntityType,
+    ) -> tuple[str, str, int, list[str]]:
+        normalized = normalize_entity_name(text)
+        lemmas = [token.casefold() for token in normalized.split()]
+        return normalized, normalized, 0 if entity_type == EntityType.ORGANIZATION else -1, lemmas
+
+    @staticmethod
+    def _split_coordinated_organization_spans(
+        text: str,
+        start_char: int,
+    ) -> list[tuple[str, int, int]]:
+        if not any(marker in text.lower() for marker in (",", " i ", " oraz ")):
+            return []
+
+        pieces = [
+            piece.strip(" ,")
+            for piece in ORG_COORDINATION_SEPARATOR.split(text)
+            if piece.strip(" ,")
+        ]
+        if len(pieces) < 2 or not all(
+            is_employer_like_name(piece) and (len(piece.split()) >= 2 or is_acronym_like(piece))
+            for piece in pieces
+        ):
+            return []
+
+        spans: list[tuple[str, int, int]] = []
+        cursor = 0
+        for piece in pieces:
+            relative_start = text.find(piece, cursor)
+            if relative_start < 0:
+                return []
+            relative_end = relative_start + len(piece)
+            spans.append((piece, start_char + relative_start, start_char + relative_end))
+            cursor = relative_end
+        return spans
 
     @staticmethod
     def _person_merge_key(ent) -> str:

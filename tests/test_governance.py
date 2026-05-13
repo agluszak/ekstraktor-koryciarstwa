@@ -19,6 +19,7 @@ from pipeline.domains.compensation import CompensationFactBuilder, PolishCompens
 from pipeline.domains.funding import FundingFactBuilder, PolishFundingFrameExtractor
 from pipeline.domains.governance import GovernanceFactBuilder, GovernanceTargetResolver
 from pipeline.domains.governance_frames import PolishGovernanceFrameExtractor
+from pipeline.entity_classifiers import is_employer_like_name
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
     ArticleDocument,
@@ -1311,6 +1312,168 @@ def test_compensation_frame_extractor_emits_role_only_salary_frame() -> None:
     assert extracted.compensation_frames[0].role_entity_id == "position-1"
     assert extracted.compensation_frames[0].organization_entity_id == "org-1"
     assert extracted.compensation_frames[0].confidence == 0.66
+
+
+def test_compensation_fact_builder_emits_role_subject_when_person_missing() -> None:
+    role = cluster("cluster-role", "Prezes", EntityType.POSITION, entity_id=EntityID("position-1"))
+    organization = cluster("cluster-org", "Metro Warszawskie", entity_id=EntityID("org-1"))
+    doc = document([role, organization])
+    doc.compensation_frames = [
+        CompensationFrame(
+            frame_id=FrameID("comp-frame-role-org"),
+            amount_text="35 tys. zł brutto",
+            amount_normalized="35 Tys. Zł Brutto",
+            period="Miesięcznie",
+            person_entity_id=None,
+            role_entity_id=EntityID("position-1"),
+            organization_entity_id=EntityID("org-1"),
+            role_label="Prezes",
+            organization_kind=OrganizationKind.ORGANIZATION,
+            confidence=0.66,
+            evidence=[
+                EvidenceSpan(text="Prezesi Metra Warszawskiego zarabiają 35 tys. zł brutto.")
+            ],
+            extraction_signal="same_clause",
+            evidence_scope="same_clause",
+            score_reason="role_amount_org",
+        )
+    ]
+
+    facts = CompensationFactBuilder().build(doc, ExtractionContext.build(doc))
+
+    assert len(facts) == 1
+    assert facts[0].subject_entity_id == "position-1"
+    assert facts[0].object_entity_id == "org-1"
+    assert facts[0].role == "Prezes"
+
+
+def test_compensation_frame_extractor_fans_out_multi_org_salary_clause() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    role = cluster("cluster-role", "Prezes", EntityType.POSITION, entity_id=EntityID("position-1"))
+    tramwaje = cluster(
+        "cluster-org-1",
+        "Tramwaje Warszawskie",
+        entity_id=EntityID("org-1"),
+        start_char=8,
+    )
+    mza = cluster("cluster-org-2", "MZA", entity_id=EntityID("org-2"), start_char=31)
+    metro = cluster(
+        "cluster-org-3",
+        "Metro Warszawskie",
+        entity_id=EntityID("org-3"),
+        start_char=37,
+    )
+    doc = document([role, tramwaje, mza, metro])
+    text = "Prezesi Tramwajów Warszawskich, MZA i Metro Warszawskie zarabiają 30 tys. zł brutto."
+    doc.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-comp-3"),
+            text=text,
+            trigger_head_text="zarabiają",
+            trigger_head_lemma="zarabiać",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+        )
+    ]
+
+    extracted = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
+
+    assert len(extracted.compensation_frames) == 3
+    assert {frame.organization_entity_id for frame in extracted.compensation_frames} == {
+        "org-1",
+        "org-2",
+        "org-3",
+    }
+    assert all(frame.role_entity_id == "position-1" for frame in extracted.compensation_frames)
+
+
+def test_compensation_frame_extractor_carries_bonus_org_context() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    role = cluster(
+        "cluster-role",
+        "Członek Zarządu",
+        EntityType.POSITION,
+        entity_id=EntityID("position-1"),
+        sentence_index=0,
+        start_char=0,
+    )
+    organization = cluster(
+        "cluster-org",
+        "MPWiK",
+        entity_id=EntityID("org-1"),
+        sentence_index=0,
+        start_char=18,
+    )
+    doc = document([role, organization])
+    first = "Członkowie zarządu MPWiK zarabiali miesięcznie 35 tys. zł brutto."
+    second = "W ubiegłym roku przyznano im premie roczne w wysokości 72,2 tys. zł."
+    doc.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-comp-4"),
+            text=first,
+            trigger_head_text="zarabiali",
+            trigger_head_lemma="zarabiać",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(first),
+        ),
+        ClauseUnit(
+            clause_id=ClauseID("clause-comp-5"),
+            text=second,
+            trigger_head_text="przyznano",
+            trigger_head_lemma="przyznać",
+            sentence_index=1,
+            paragraph_index=0,
+            start_char=len(first) + 1,
+            end_char=len(first) + 1 + len(second),
+        ),
+    ]
+
+    extracted = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
+
+    assert any(frame.organization_entity_id == "org-1" for frame in extracted.compensation_frames)
+    assert any(frame.amount_text == "72,2 tys. zł" for frame in extracted.compensation_frames)
+
+
+def test_compensation_frame_extractor_matches_spelled_thousand_amounts() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    role = cluster(
+        "cluster-role",
+        "Członek Zarządu",
+        EntityType.POSITION,
+        entity_id=EntityID("position-1"),
+        start_char=0,
+    )
+    organization = cluster("cluster-org", "MPWiK", entity_id=EntityID("org-1"), start_char=18)
+    doc = document([role, organization])
+    text = "Członkowie zarządu MPWiK zarabiali miesięcznie 35 tysięcy złotych brutto."
+    doc.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-comp-6"),
+            text=text,
+            trigger_head_text="zarabiali",
+            trigger_head_lemma="zarabiać",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+        )
+    ]
+
+    extracted = PolishCompensationFrameExtractor(config).run(doc, ExtractionContext.build(doc))
+
+    assert len(extracted.compensation_frames) == 1
+    assert extracted.compensation_frames[0].amount_text == "35 tysięcy złotych brutto"
+    assert extracted.compensation_frames[0].organization_entity_id == "org-1"
+
+
+def test_employer_like_name_accepts_municipal_company_names() -> None:
+    assert is_employer_like_name("Tramwaje Warszawskie")
+    assert is_employer_like_name("Metro Warszawskie")
+    assert is_employer_like_name("Miejskie Zakłady Autobusowe")
 
 
 def test_funding_frame_extractor_emits_grant_frame_without_compensation_frame() -> None:

@@ -1559,6 +1559,54 @@ d not treat social-media handles or insult quotes as primary relation facts.
  facts.
 primary relation facts.
  facts.
+
+## 33. WP: Pensja 30 tys. zł brutto. Tak zarabiają prezesi warszawskich spółek miejskich
+
+Source:
+- https://wiadomosci.wp.pl/warszawa/pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-warszawskich-spolek-miejskich-7283597240129600a
+
+Saved input:
+- `inputs/wiadomosci.wp.pl__warszawa__pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-warszawskich-spolek-miejskich__7283597240129600a.html`
+
+Expectation:
+- This article is **relevant public-money oversight** even though it is not a classic patronage-network piece.
+- It is about high salaries and bonuses in Warsaw municipal companies, so broad compensation extraction is preferable to an empty result.
+
+Expected core entities:
+- Tramwaje Warszawskie
+- Miejskie Zakłady Autobusowe
+- Metro Warszawskie
+- MPWiK / Miejskie Przedsiębiorstwo Wodociągów i Kanalizacji
+- MPO
+- Jerzy Lejek
+- Zarząd Dróg Miejskich
+
+Expected facts:
+- multiple `COMPENSATION` findings tied to board members / presidents of Warsaw municipal companies
+- compensation findings for the transport-company cluster:
+  - Tramwaje Warszawskie
+  - Miejskie Zakłady Autobusowe
+  - Metro Warszawskie
+- compensation findings for the utility / services cluster:
+  - MPWiK
+  - MPO
+- bonus / annual-compensation amounts should survive when the article states them:
+  - `niemal po 100 tys. zł premii`
+  - `92,6 tysiąca złotych`
+  - `72,2 tysiąca złotych`
+  - `86,5 tysiąca złotych`
+
+Important text cues:
+- "miesięcznie ponad 30 tys. zł brutto"
+- "członkowie zarządów miejskich spółek transportowych otrzymali w ubiegłym roku niemal po 100 tys. zł premii"
+- "członkowie zarządu Tramwajów Warszawskich zarabiali miesięcznie średnio 35 tysięcy złotych"
+- "wynagrodzenie członków zarządu MPWiK wyniosło ... 420 tysięcy złotych"
+- "członkowie zarządu stołecznego MPO zarabiali miesięcznie 29,4 tysiąca złotych"
+
+Expected comparison standard:
+- Coordinated organization mentions should stay **separate**; the pipeline should not merge MZA and Metro into one synthetic employer.
+- TVN24 / Redakcja TVN24 are media-source context, not compensation counterparties.
+- Overgeneration is acceptable here: role-based compensation facts for unnamed board members are useful and preferable to missing the article entirely.
 cts.
  facts.
 primary relation facts.

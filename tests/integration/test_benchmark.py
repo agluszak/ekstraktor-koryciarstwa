@@ -149,6 +149,77 @@ def test_wp_lubczyk(benchmark_results: dict[str, Any], subtests: Subtests) -> No
     )
 
 
+def test_wp_warszawa_spolki_salary(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
+    """
+    Article: Pensja 30 tys. zł brutto. Tak zarabiają prezesi warszawskich spółek miejskich
+    URL: https://wiadomosci.wp.pl/warszawa/pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-warszawskich-spolek-miejskich-7283597240129600a
+    Expectation:
+    - Relevant public-money oversight article.
+    - Keep transport companies separate instead of collapsing coordinated organization spans.
+    - Overgenerate compensation facts for board members / presidents of Warsaw municipal companies.
+    - Do not use TVN24 as the compensation counterparty/employer.
+    """
+    key = (
+        "wiadomosci.wp.pl__warszawa__pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-"
+        "warszawskich-spolek-miejskich__7283597240129600a"
+    )
+    if key not in benchmark_results:
+        pytest.skip(f"{key} not found")
+
+    doc = benchmark_results[key]
+    assert doc["relevance"]["is_relevant"] is True
+
+    entities = [e["canonical_name"] for e in doc.get("entities", [])]
+    assert any("Jerzy Lejek" in e for e in entities), "Should recover Jerzy Lejek"
+    assert any("Tramwaj" in e for e in entities), "Should recover Tramwaje Warszawskie"
+    assert any("Zakładach Autobusowych" in e or "MZA" in e for e in entities), (
+        "Should recover Miejskie Zakłady Autobusowe / MZA"
+    )
+    assert any("Metr" in e for e in entities), "Should recover Metro Warszawskie"
+    assert any("MPWiK" in e or "Wodociągów i Kanalizacji" in e for e in entities), (
+        "Should recover MPWiK / full waterworks company name"
+    )
+    assert any("MPO" in e for e in entities), "Should recover MPO"
+    assert not any("Zakładach Autobusowych" in e and "Metrze" in e for e in entities), (
+        "Should not collapse MZA and Metro into one organization"
+    )
+
+    compensation = get_facts_by_type(doc, "COMPENSATION")
+    assert len(compensation) >= 6, "Should extract multiple municipal-company compensation facts"
+    compensation_pairs = [
+        (
+            get_entity_name(doc, fact.get("subject_entity_id")),
+            get_entity_name(doc, fact.get("object_entity_id")),
+            fact.get("value_normalized"),
+        )
+        for fact in compensation
+    ]
+    assert any("Tramwaj" in obj for _, obj, _ in compensation_pairs), (
+        "Should attach compensation to Tramwaje Warszawskie"
+    )
+    assert any(
+        "Metro" in obj or "Zakładach Autobusowych" in obj or "MZA" in obj
+        for _, obj, _ in compensation_pairs
+    ), "Should attach compensation to Metro Warszawskie or MZA"
+    assert any(
+        "MPWiK" in obj or "Wodociągów i Kanalizacji" in obj for _, obj, _ in compensation_pairs
+    ), "Should attach compensation to MPWiK"
+    assert any("MPO" in obj for _, obj, _ in compensation_pairs), (
+        "Should attach compensation to MPO"
+    )
+    assert not any("TVN24" in obj for _, obj, _ in compensation_pairs), (
+        "Media outlet names should not become compensation counterparties"
+    )
+
+    target_assert(
+        subtests,
+        any(
+            "92,6" in str(amount) or "100 Tys. Zł" == amount for _, _, amount in compensation_pairs
+        ),
+        "Should capture annual bonus-style compensation amounts",
+    )
+
+
 def test_onet_totalizator(benchmark_results: dict[str, Any], subtests: Subtests) -> None:
     """
     Article: Partyjny desant na Totalizator Sportowy

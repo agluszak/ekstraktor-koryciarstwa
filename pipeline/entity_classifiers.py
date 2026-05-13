@@ -18,6 +18,11 @@ EMPLOYER_NAME_MARKERS = frozenset(
         "kanaliz",
         "przedsiębiorstw",
         "zarząd",
+        "tramwaj",
+        "metro",
+        "metr",
+        "autobus",
+        "zakład",
         "centrum",
         "kolej",
         "pogotow",
@@ -68,6 +73,7 @@ def is_employer_like_name(name: str) -> bool:
     lowered = name.casefold()
     return (
         is_public_employer_name(lowered)
+        or is_public_counterparty_name(lowered)
         or is_company_like_name(lowered)
         or any(marker in lowered for marker in EMPLOYER_NAME_MARKERS)
     )

@@ -13,7 +13,8 @@ from pipeline.domain_types import (
     TimeScope,
 )
 from pipeline.domains.public_money import FUNDING_SURFACE_FALLBACKS
-from pipeline.entity_classifiers import is_employer_like_name
+from pipeline.entity_classifiers import is_employer_like_name, is_media_like_name
+from pipeline.entity_naming import is_acronym_like
 from pipeline.extraction_context import ExtractionContext
 from pipeline.lemma_signals import lemma_set
 from pipeline.models import (
@@ -38,6 +39,7 @@ COMPENSATION_CONTEXT_LEMMAS = frozenset(
         "płaca",
         "uposażenie",
         "dieta",
+        "premia",
         "brutto",
         "netto",
     }
@@ -52,14 +54,19 @@ COMPENSATION_CONTEXT_TEXTS = frozenset(
         "wynagrodzenie",
         "pensję",
         "pensja",
+        "premia",
+        "premie",
+        "premii",
         "zarabia",
         "zarabiał",
         "zarobić",
         "brutto",
     }
 )
-PUBLIC_REMUNERATION_MARKERS = frozenset(
+PUBLIC_REMUNERATION_MARKERS = COMPENSATION_CONTEXT_TEXTS | frozenset(
     {
+        "premi",
+        "premia",
         "uposaż",
         "dieta",
         "pieniądze publiczne",
@@ -90,21 +97,21 @@ class PolishCompensationFrameExtractor:
             for match in COMPENSATION_PATTERN.finditer(clause.text):
                 if not self._has_compensation_context(document, clause):
                     continue
-                frame = self._extract_frame_from_clause(document, clause, match, context)
-                if frame is not None:
-                    document.compensation_frames.append(frame)
+                document.compensation_frames.extend(
+                    self._extract_frames_from_clause(document, clause, match, context)
+                )
         return document
 
-    def _extract_frame_from_clause(
+    def _extract_frames_from_clause(
         self,
         document: ArticleDocument,
         clause: ClauseUnit,
         match,
         context: ExtractionContext,
-    ) -> CompensationFrame | None:
+    ) -> list[CompensationFrame]:
         amount_text = match.group("amount")
         if not amount_text:
-            return None
+            return []
         period = match.group("period")
         amount_start = clause.start_char + match.start("amount")
         amount_rank = sum(
@@ -122,9 +129,10 @@ class PolishCompensationFrameExtractor:
 
         local_person_cluster = self._best_local_cluster(person_clusters, clause, amount_start)
         local_role_cluster = self._best_local_cluster(role_clusters, clause, amount_start)
-        local_org_cluster = self._best_local_org_cluster(
+        local_org_clusters = self._local_valid_org_clusters(
             org_clusters, context, clause, amount_start
         )
+        local_org_cluster = local_org_clusters[0] if local_org_clusters else None
 
         if (
             amount_rank > 0
@@ -132,7 +140,7 @@ class PolishCompensationFrameExtractor:
             and local_role_cluster is None
             and local_org_cluster is None
         ):
-            return None
+            return []
 
         person_cluster = local_person_cluster or ExtractionContext.best_cluster_near_offset(
             person_clusters,
@@ -218,7 +226,7 @@ class PolishCompensationFrameExtractor:
             org_cluster = None
 
         if person_cluster is None and role_cluster is None and org_cluster is None:
-            return None
+            return []
 
         confidence, score_reason = self._score_frame(
             person_cluster=person_cluster,
@@ -226,40 +234,55 @@ class PolishCompensationFrameExtractor:
             org_cluster=org_cluster,
             context_reason=context_reason,
         )
-        return CompensationFrame(
-            frame_id=FrameID(f"comp-frame-{uuid.uuid4().hex[:8]}"),
-            amount_text=amount_text,
-            amount_normalized=normalize_entity_name(amount_text.lower()),
-            period=normalize_entity_name(period.lower()) if period else None,
-            person_entity_id=context.entity_id_for_cluster(person_cluster)
-            if person_cluster
-            else None,
-            role_entity_id=context.entity_id_for_cluster(role_cluster) if role_cluster else None,
-            organization_entity_id=context.entity_id_for_cluster(org_cluster)
-            if org_cluster
-            else None,
-            role_label=context.canonical_name_for_cluster(role_cluster) if role_cluster else None,
-            organization_kind=(
-                entity.organization_kind
-                if org_cluster is not None
-                and (entity := context.entity_for_cluster(org_cluster)) is not None
-                else None
-            ),
-            confidence=confidence,
-            evidence=[
-                EvidenceSpan(
-                    text=clause.text,
-                    sentence_index=clause.sentence_index,
-                    paragraph_index=clause.paragraph_index,
-                    start_char=clause.start_char,
-                    end_char=clause.end_char,
+        frame_org_clusters = [org_cluster]
+        if person_cluster is None and role_cluster is not None and len(local_org_clusters) > 1:
+            frame_org_clusters = local_org_clusters
+
+        frames: list[CompensationFrame] = []
+        for frame_org_cluster in frame_org_clusters:
+            frames.append(
+                CompensationFrame(
+                    frame_id=FrameID(f"comp-frame-{uuid.uuid4().hex[:8]}"),
+                    amount_text=amount_text,
+                    amount_normalized=normalize_entity_name(amount_text.lower()),
+                    period=normalize_entity_name(period.lower()) if period else None,
+                    person_entity_id=context.entity_id_for_cluster(person_cluster)
+                    if person_cluster
+                    else None,
+                    role_entity_id=context.entity_id_for_cluster(role_cluster)
+                    if role_cluster
+                    else None,
+                    organization_entity_id=context.entity_id_for_cluster(frame_org_cluster)
+                    if frame_org_cluster
+                    else None,
+                    role_label=context.canonical_name_for_cluster(role_cluster)
+                    if role_cluster
+                    else None,
+                    organization_kind=(
+                        entity.organization_kind
+                        if frame_org_cluster is not None
+                        and (entity := context.entity_for_cluster(frame_org_cluster)) is not None
+                        else None
+                    ),
+                    confidence=confidence,
+                    evidence=[
+                        EvidenceSpan(
+                            text=clause.text,
+                            sentence_index=clause.sentence_index,
+                            paragraph_index=clause.paragraph_index,
+                            start_char=clause.start_char,
+                            end_char=clause.end_char,
+                        )
+                    ],
+                    extraction_signal=self._extraction_signal(score_reason),
+                    evidence_scope="same_clause"
+                    if context_reason == "same_clause"
+                    else "same_paragraph",
+                    score_reason=score_reason,
+                    context_reason=context_reason,
                 )
-            ],
-            extraction_signal=self._extraction_signal(score_reason),
-            evidence_scope="same_clause" if context_reason == "same_clause" else "same_paragraph",
-            score_reason=score_reason,
-            context_reason=context_reason,
-        )
+            )
+        return frames
 
     def _has_compensation_context(self, document: ArticleDocument, clause: ClauseUnit) -> bool:
         lowered = clause.text.lower()
@@ -346,6 +369,10 @@ class PolishCompensationFrameExtractor:
         lowered = clause.text.lower()
         parsed_words = document.parsed_sentences.get(clause.sentence_index, [])
         lemmas = lemma_set(parsed_words)
+        if any(trigger in lowered for trigger in PUBLIC_REMUNERATION_MARKERS):
+            return False
+        if lemmas.intersection(COMPENSATION_CONTEXT_LEMMAS):
+            return False
         return bool(
             lemmas.intersection(FUNDING_HINTS)
             or clause.trigger_head_lemma.lower() in FUNDING_HINTS
@@ -466,6 +493,8 @@ class PolishCompensationFrameExtractor:
             return 0.55, "public_org_amount_salary_context"
         if person_cluster is not None:
             return 0.55, "amount_person"
+        if role_cluster is not None:
+            return 0.48, "role_amount_only"
         return 0.42, "paragraph_carryover"
 
     @staticmethod
@@ -491,10 +520,12 @@ class PolishCompensationFrameExtractor:
     ) -> bool:
         if context.entity_type_for_cluster(cluster) != EntityType.ORGANIZATION:
             return True
+        if is_media_like_name(context.canonical_name_for_cluster(cluster)):
+            return False
         if is_employer_like_name(context.normalized_name_for_cluster(cluster)):
             return True
         stripped = context.canonical_name_for_cluster(cluster).strip()
-        return stripped.isupper() and 2 <= len(stripped) <= 8
+        return is_acronym_like(stripped) and 2 <= sum(char.isalpha() for char in stripped) <= 8
 
     @classmethod
     def _best_valid_org_cluster(
@@ -533,6 +564,50 @@ class PolishCompensationFrameExtractor:
         return candidates[0][1]
 
     @classmethod
+    def _local_valid_org_clusters(
+        cls,
+        clusters: list[EntityCluster],
+        context: ExtractionContext,
+        clause: ClauseUnit,
+        offset: int,
+    ) -> list[EntityCluster]:
+        valid_clusters = [
+            cluster
+            for cluster in clusters
+            if cls._cluster_is_valid_compensation_anchor(context, cluster)
+        ]
+        candidates: list[tuple[int, EntityCluster]] = []
+        for cluster in valid_clusters:
+            mention_offsets = [
+                max(0, offset - mention.end_char)
+                for mention in cluster.mentions
+                if mention.sentence_index == clause.sentence_index
+                and mention.end_char <= offset
+                and offset - mention.end_char <= 120
+            ]
+            if not mention_offsets:
+                mention_offsets = [
+                    max(0, mention.start_char - offset)
+                    for mention in cluster.mentions
+                    if mention.sentence_index == clause.sentence_index
+                    and mention.start_char >= offset
+                    and mention.start_char - offset <= 80
+                ]
+            if mention_offsets:
+                candidates.append((min(mention_offsets), cluster))
+        if not candidates:
+            return []
+        candidates.sort(key=lambda item: item[0])
+        ordered_clusters: list[EntityCluster] = []
+        seen_cluster_ids: set[ClusterID] = set()
+        for _, cluster in candidates:
+            if cluster.cluster_id in seen_cluster_ids:
+                continue
+            seen_cluster_ids.add(cluster.cluster_id)
+            ordered_clusters.append(cluster)
+        return ordered_clusters
+
+    @classmethod
     def _best_local_org_cluster(
         cls,
         clusters: list[EntityCluster],
@@ -540,29 +615,8 @@ class PolishCompensationFrameExtractor:
         clause: ClauseUnit,
         offset: int,
     ) -> EntityCluster | None:
-        valid_clusters = [
-            cluster
-            for cluster in clusters
-            if cls._cluster_is_valid_compensation_anchor(context, cluster)
-        ]
-        before_amount = cls._best_local_cluster(valid_clusters, clause, offset)
-        if before_amount is not None:
-            return before_amount
-        candidates: list[tuple[int, EntityCluster]] = []
-        for cluster in valid_clusters:
-            mention_offsets = [
-                max(0, mention.start_char - offset)
-                for mention in cluster.mentions
-                if mention.sentence_index == clause.sentence_index
-                and mention.start_char >= offset
-                and mention.start_char - offset <= 80
-            ]
-            if mention_offsets:
-                candidates.append((min(mention_offsets), cluster))
-        if not candidates:
-            return None
-        candidates.sort(key=lambda item: item[0])
-        return candidates[0][1]
+        local_clusters = cls._local_valid_org_clusters(clusters, context, clause, offset)
+        return local_clusters[0] if local_clusters else None
 
 
 class CompensationFactBuilder:
@@ -581,7 +635,13 @@ class CompensationFactBuilder:
         context: ExtractionContext,
     ) -> Fact | None:
         subject_id = frame.person_entity_id
-        if subject_id is None and frame.role_entity_id is None:
+        if (
+            subject_id is None
+            and frame.role_entity_id is not None
+            and frame.organization_entity_id is not None
+        ):
+            subject_id = frame.role_entity_id
+        elif subject_id is None and frame.role_entity_id is None:
             subject_id = frame.organization_entity_id
         if subject_id is None:
             return None
@@ -667,4 +727,21 @@ class CompensationFactBuilder:
                 position_entity_id=preferred.position_entity_id or fallback.position_entity_id,
                 role=preferred.role or fallback.role,
             )
-        return list(deduplicated.values())
+        role_subject_ids = {
+            fact.subject_entity_id
+            for fact in deduplicated.values()
+            if fact.position_entity_id is not None
+            and fact.subject_entity_id == fact.position_entity_id
+        }
+        person_fact_signatures = {
+            (fact.object_entity_id, fact.value_normalized, fact.period, fact.role)
+            for fact in deduplicated.values()
+            if fact.subject_entity_id not in role_subject_ids
+        }
+        return [
+            fact
+            for fact in deduplicated.values()
+            if fact.subject_entity_id not in role_subject_ids
+            or (fact.object_entity_id, fact.value_normalized, fact.period, fact.role)
+            not in person_fact_signatures
+        ]

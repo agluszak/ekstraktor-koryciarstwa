@@ -80,7 +80,8 @@ FUNDING_HINTS = frozenset(
     }
 )
 COMPENSATION_PATTERN = re.compile(
-    r"\b(?P<amount>\d+(?:[ .,]\d+)*(?:\s*tys\.)?\s*zł(?:\s*brutto)?)"
+    r"\b(?P<amount>(?:ponad\s+)?\d+(?:[ .,]\d+)*"
+    r"(?:\s*(?:tys\.|tysi(?:ąc|ąca|ęcy)))?\s*zł(?:otych)?(?:\s*brutto)?)"
     r"(?:\s*(?P<period>miesięcznie|mies\.|rocznie|za rok \d{4}|za miesiąc))?",
     re.IGNORECASE,
 )
