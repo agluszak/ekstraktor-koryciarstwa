@@ -46,14 +46,18 @@ uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
 6. **The new Warsaw municipal-companies salary benchmark is no longer empty.**
    - `wiadomosci.wp.pl__warszawa__pensja-30-tys-zl-brutto...` is now relevant and emits broad `COMPENSATION` output instead of zero facts.
    - The transport-company coordination no longer collapses MZA and Metro into one synthetic employer, and the article now carries multiple salary / bonus amounts.
-   - The remaining output is still role-heavy and somewhat noisy, but it now clears the "better to overgenerate than miss the article" bar.
+   - The remaining output is still role-heavy, but exact duplicate compensation rows are now collapsed in final output (`COMPENSATION: 14` instead of `15`).
 
-7. **Benchmark regressions introduced during the canonicalization pass were fixed before the final rerun.**
+7. **`rp_tk_negative` is now a real negative instead of a relevance false positive.**
+   - The legal-analysis guard now uses word/phrase-safe matching, so `analiza` no longer fires inside unrelated words like `kanalizacji`.
+   - `rp_tk_negative` now ends the pipeline as irrelevant with zero facts, while governance articles like the Olsztyn Słoma benchmark remain relevant.
+
+8. **Benchmark regressions introduced during the canonicalization pass were fixed before the final rerun.**
    - `ai42...czy-wojt-ukrywa-nepotyzm` again recovers `Artur Sosna`.
    - `tvnwarszawa_fundacja_bielskiego_20260425` now recovers `Karol Bielski` and a Bielsk-linked `Fundacja ...` entity.
    - `interwencja.polsatnews.pl__...bardzo-rodzinne-starostwo_1329791` now keeps `Syn Pszczółkowski`, `Synowa Morawska`, and `Jakub Mieszko Pszczółkowski`.
 
-8. **Stable positives still look alive after the uncertainty changes.**
+9. **Stable positives still look alive after the uncertainty changes.**
    - `oko_miliony_pajeczyna_rydzyka`: still emits `FUNDING` output.
    - `tvnwarszawa_fundacja_bielskiego_20260425`: still emits public-money output.
    - `zona-posla-pis`: still emits appointment/dismissal plus family/network facts.
@@ -65,27 +69,23 @@ uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
    - `ELECTION_CANDIDACY` facts for `Stawiarski` / `Staruch` are still overgenerated.
    - The critical relationship output is better, but candidacy extraction is still too loose around reference resolution.
 
-2. **`rp_tk_negative` is still a relevance false positive.**
-   - The article remains marked relevant while producing no facts.
-   - This is still a benchmark mismatch and suggests the relevance gate remains too permissive for that pattern.
-
-3. **`onet_totalizator_leca_glowy` still under-recovers network context.**
+2. **`onet_totalizator_leca_glowy` still under-recovers network context.**
    - The article remains relevant and emits appointments/dismissals, but output is still thin relative to expectations.
    - Current facts are dominated by governance and office signals; party-network and compensation coverage still look weak.
 
-4. **`wiadomosci.onet.pl__lublin__...__cpw9ltt` improved on relevance but remains noisy.**
-   - The article now emits useful governance facts, but also overproduces party memberships and some implausible targets.
-   - This looks like a precision problem after the relevance gate, not a relevance failure anymore.
+3. **`wiadomosci.onet.pl__lublin__...__cpw9ltt` improved on relevance but remains noisy.**
+   - The worst coordinated-apposition cross-link (`Andrzej Kloc -> Lewica`) is gone, and the broad election-context false positive was reduced in targeted checks.
+   - The article still overproduces some party memberships and retains a low-confidence surname-only candidacy / weak-party edge in the final warm batch.
 
-5. **`onet_totalizator` is still the loudest remaining political-profile outlier.**
+4. **`onet_totalizator` is still the loudest remaining political-profile outlier.**
    - It still emits very high `PARTY_MEMBERSHIP`, `POLITICAL_OFFICE`, and `ELECTION_CANDIDACY` counts.
-   - The new candidacy guard helped in board-candidate articles, but this broader political-profile inflation still needs a deeper precision pass.
+   - Counts are slightly lower than before (`PARTY_MEMBERSHIP: 14`, `FORMER_PARTY_MEMBERSHIP: 1`), but the article still needs a broader precision pass.
 
 ## Batch totals
 
 - Inputs processed: **34**
-- Relevant: **32**
-- Irrelevant: **2**
+- Relevant: **31**
+- Irrelevant: **3**
 - Outputs with facts: **31**
 - Outputs without facts: **3**
 - Missing output JSONs for `inputs/*.html`: **0**
@@ -94,7 +94,7 @@ The three zero-fact outputs are:
 
 - `olsztyn_roosevelta_negative` (expected negative)
 - `wp_meloni_negative` (expected negative)
-- `rp_tk_negative` (**still wrong**: relevant-but-empty false positive)
+- `rp_tk_negative` (expected negative after the legal-analysis guard fix)
 
 ## Broader article-by-article snapshot
 
@@ -142,7 +142,7 @@ The three zero-fact outputs are:
 - `olsztyn_wodkan`  
   Salary article stays relevant and now avoids the earlier false-positive `FUNDING` fact; compensation output is still a bit dense but cleaner than before.
 - `wiadomosci.wp.pl__warszawa__pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-warszawskich-spolek-miejskich__7283597240129600a`  
-  New salary benchmark now emits broad compensation output (`COMPENSATION: 15`) across Tramwaje Warszawskie, MZA / Metro, MPWiK, and MPO; the remaining noise is mostly role-based duplication and some imperfect cross-clause carryover.
+  New salary benchmark now emits broad compensation output (`COMPENSATION: 14`) across Tramwaje Warszawskie, MZA / Metro, MPWiK, and MPO; the remaining noise is mostly role-based carryover rather than exact duplicates.
 - `onet_totalizator`  
   Coverage is broad (`52` facts) but precision is shaky: many long/noisy targets, party/office inflation, and duplicate/overstretched appointments.
 - `onet_totalizator_leca_glowy`  
@@ -156,7 +156,7 @@ The three zero-fact outputs are:
 - `wiadomosci.onet.pl__kraj__tak-psl-obsadzil-panstwowa-spolke-prace-dostal-min-29-letni-brat-wiceministra__ezt8y9t`  
   Family/network and governance output is present, but the article is over-dense (`42` facts) with duplicated Natura Tour events and too many office facts.
 - `wiadomosci.onet.pl__lublin__nowe-wladze-wfosigw-w-lublinie-bez-konkursu-i-bez-wysluchania-kandydatow__cpw9ltt`  
-  Important improvement on relevance, but still noisy after that: implausible targets (`Janów`, `Senatu`) and too many party/office/candidacy facts.
+  Important improvement on relevance, and the coordinated-apposition party bleed is better than before, but the article still keeps implausible targets (`Janów`, `Senatu`) plus one low-confidence candidacy edge in the final warm batch.
 - `wiadomosci.wp.pl__odpartyjnienie-rad-nadzorczych-nie-tak-mialo-byc-wyglada-to-bardzo-zle__6996280410176160a`  
   Board-appointment story is visible, but targets are long/noisy and office output is repetitive.
 - `wiadomosci.wp.pl__wiedza-doswiadczenie-i-kompetencje-czyli-rodzina-na-swoim-w-opolu__7147022691576352a`  
@@ -171,7 +171,7 @@ The three zero-fact outputs are:
 - `wp_meloni_negative`  
   Correctly filtered out as irrelevant with no entities and no facts.
 - `rp_tk_negative`  
-  Still the clearest unresolved benchmark failure: relevant `true`, `35` entities, and **zero facts**.
+  Correctly filtered out as irrelevant with no facts after the legal-analysis negative guard fix.
 
 ## Articles covered in this report
 
@@ -210,9 +210,9 @@ All `inputs/*.html` outputs were summarized. Representative facts were inspected
 
 ## Next bottleneck
 
-The next highest-leverage cleanup is **downstream political-profile precision**, not entity-resolution schema plumbing.
+The next highest-leverage cleanup is still **downstream political-profile precision**, not entity-resolution schema plumbing.
 
 Concretely:
 
-- reduce candidacy/party overgeneration around pronouns and surname-only mentions,
+- reduce remaining candidacy/party overgeneration around surname-only mentions and list-style biographies,
 - keep deduplication uncertainty-aware so richer facts do not lose `possible_entity_matches` during merge.

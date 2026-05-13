@@ -14,6 +14,41 @@ from pipeline.semantic_signals import (
     matching_markers,
 )
 
+LEGAL_ANALYSIS_MARKERS = frozenset(
+    {
+        "analiza",
+        "sąd pracy",
+        "sądu pracy",
+        "droga sądowa",
+        "drogi sądowej",
+        "sąd cywilny",
+        "cywilny",
+        "status sędziego",
+        "statusie sędziego",
+        "trybunału konstytucyjnego",
+        "trybunał konstytucyjny",
+        "orzekania",
+        "stosunku pracowniczego",
+        "publicznopraw",
+    }
+)
+LEGAL_ANALYSIS_PATTERNS = {
+    "analiza": re.compile(r"\banaliz\w*\b"),
+    "sąd pracy": re.compile(r"\bsąd\w*\s+pracy\b"),
+    "sądu pracy": re.compile(r"\bsąd\w*\s+pracy\b"),
+    "droga sądowa": re.compile(r"\bdrog\w*\s+sąd\w*\b"),
+    "drogi sądowej": re.compile(r"\bdrog\w*\s+sąd\w*\b"),
+    "sąd cywilny": re.compile(r"\bsąd\w*\s+cywiln\w*\b"),
+    "cywilny": re.compile(r"\bcywiln\w*\b"),
+    "status sędziego": re.compile(r"\bstatus\w*\s+sędzi\w*\b"),
+    "statusie sędziego": re.compile(r"\bstatus\w*\s+sędzi\w*\b"),
+    "trybunału konstytucyjnego": re.compile(r"\btrybuna\w*\s+konstytucyjn\w*\b"),
+    "trybunał konstytucyjny": re.compile(r"\btrybuna\w*\s+konstytucyjn\w*\b"),
+    "orzekania": re.compile(r"\borzeka\w*\b"),
+    "stosunku pracowniczego": re.compile(r"\bstosunk\w*\s+pracownicz\w*\b"),
+    "publicznopraw": re.compile(r"\bpublicznopraw\w*\b"),
+}
+
 
 class KeywordRelevanceFilter(RelevanceFilter):
     def __init__(self, config: PipelineConfig) -> None:
@@ -84,6 +119,8 @@ class KeywordRelevanceFilter(RelevanceFilter):
         focus_soft_governance_hits = matching_markers(
             lowered_focus, SOFT_GOVERNANCE_CONTEXT_MARKERS
         )
+        legal_analysis_hits = _matching_legal_analysis_markers(lowered_full)
+        focus_legal_analysis_hits = _matching_legal_analysis_markers(lowered_focus)
 
         score = 0.0
         reasons: list[str] = []
@@ -138,8 +175,48 @@ class KeywordRelevanceFilter(RelevanceFilter):
             score += 0.1
             reasons.append("contains appointment or dismissal language")
 
+        if self._looks_like_legal_analysis_negative(
+            legal_analysis_hits=legal_analysis_hits,
+            focus_legal_analysis_hits=focus_legal_analysis_hits,
+            patronage_hits=patronage_hits,
+            anti_corruption_hits=anti_corruption_hits,
+            public_fund_hits=public_fund_hits,
+            soft_governance_hits=soft_governance_hits,
+            has_governance_event=has_governance_event,
+        ):
+            score = min(score, 0.24)
+            reasons.append("legal-analysis negative guard")
+
         return RelevanceDecision(
             is_relevant=score >= 0.45,
             score=round(min(score, 1.0), 3),
             reasons=reasons or ["no relevance indicators found"],
         )
+
+    @staticmethod
+    def _looks_like_legal_analysis_negative(
+        *,
+        legal_analysis_hits: list[str],
+        focus_legal_analysis_hits: list[str],
+        patronage_hits: list[str],
+        anti_corruption_hits: list[str],
+        public_fund_hits: list[str],
+        soft_governance_hits: list[str],
+        has_governance_event: bool,
+    ) -> bool:
+        if len(legal_analysis_hits) < 2 and not focus_legal_analysis_hits:
+            return False
+        if patronage_hits or anti_corruption_hits or public_fund_hits or soft_governance_hits:
+            return False
+        if has_governance_event:
+            return False
+        return True
+
+
+def _matching_legal_analysis_markers(text: str) -> list[str]:
+    lowered = text.casefold()
+    return [
+        marker
+        for marker in LEGAL_ANALYSIS_MARKERS
+        if (pattern := LEGAL_ANALYSIS_PATTERNS.get(marker)) is not None and pattern.search(lowered)
+    ]

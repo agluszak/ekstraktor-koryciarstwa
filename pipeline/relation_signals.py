@@ -137,7 +137,11 @@ def party_syntactic_signal(
 
     party_start = party.start_char - sentence_start
     preceding_text = sentence_text[max(0, party_start - 3) : party_start].lower()
-    if preceding_text.endswith(" z "):
+    if (
+        party.start_char > person.end_char
+        and party.start_char - person.end_char <= 20
+        and preceding_text.endswith(" z ")
+    ):
         return "syntactic_direct"
     return None
 
@@ -191,7 +195,12 @@ def supports_party_link(
 
     party_start = party.start_char - sentence_start
     preceding_text = lowered_text[max(0, party_start - 3) : party_start]
-    if preceding_text.endswith(" z ") and distance <= 28:
+    if (
+        party.start_char > person.end_char
+        and party.start_char - person.end_char <= 20
+        and preceding_text.endswith(" z ")
+        and distance <= 28
+    ):
         return True
 
     if party_context_window_supports(

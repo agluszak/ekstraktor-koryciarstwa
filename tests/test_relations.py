@@ -2530,6 +2530,425 @@ def test_candidacy_does_not_fire_for_supervisory_board_candidates() -> None:
     assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
 
 
+def test_candidacy_does_not_fire_from_election_mentions_alone() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = "Radny PiS Jan Kowalski w ostatnich wyborach dostał się do rady powiatu."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-candidacy-elections-only"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        parsed_sentences={
+            0: [
+                ParsedWord(1, "Radny", "radny", "NOUN", 4, "appos", 0, 5),
+                ParsedWord(2, "PiS", "PiS", "PROPN", 1, "nmod", 6, 9),
+                ParsedWord(3, "Jan", "Jan", "PROPN", 4, "flat", 10, 13),
+                ParsedWord(4, "Kowalski", "Kowalski", "PROPN", 8, "nsubj", 14, 22),
+                ParsedWord(5, "w", "w", "ADP", 7, "case", 23, 24),
+                ParsedWord(6, "ostatnich", "ostatni", "ADJ", 7, "amod", 25, 34),
+                ParsedWord(7, "wyborach", "wybory", "NOUN", 8, "obl", 35, 43),
+                ParsedWord(8, "dostał", "dostać", "VERB", 0, "root", 44, 50),
+                ParsedWord(9, "się", "się", "PART", 8, "expl:pv", 51, 54),
+            ]
+        },
+        entities=[
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+            ),
+            Entity(
+                entity_id=EntityID("role-1"),
+                entity_type=EntityType.POSITION,
+                canonical_name="Radny",
+                normalized_name="Radny",
+                role_kind=RoleKind.RADNY,
+            ),
+            Entity(
+                entity_id=EntityID("party-1"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Prawo i Sprawiedliwość",
+                normalized_name="Prawo i Sprawiedliwość",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Jan Kowalski",
+                normalized_text="Jan Kowalski",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=10,
+                end_char=22,
+                entity_id=EntityID("person-1"),
+            ),
+            Mention(
+                text="Radny",
+                normalized_text="Radny",
+                entity_type=EntityType.POSITION,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=5,
+                entity_id=EntityID("role-1"),
+            ),
+            Mention(
+                text="PiS",
+                normalized_text="Prawo i Sprawiedliwość",
+                entity_type=EntityType.POLITICAL_PARTY,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=6,
+                end_char=9,
+                entity_id=EntityID("party-1"),
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(document)
+
+    assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
+
+
+def test_party_membership_prefers_local_person_in_coordinated_sentence() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = "Działacz Lewicy Stanisław Mazur i działacz PSL Andrzej Kloc będą kierować funduszem."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-party-coordination"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        parsed_sentences={
+            0: [
+                ParsedWord(1, "Działacz", "działacz", "NOUN", 4, "appos", 0, 8),
+                ParsedWord(2, "Lewicy", "Lewica", "PROPN", 1, "nmod", 9, 15),
+                ParsedWord(3, "Stanisław", "Stanisław", "PROPN", 4, "flat", 16, 25),
+                ParsedWord(4, "Mazur", "Mazur", "PROPN", 10, "nsubj", 26, 31),
+                ParsedWord(5, "i", "i", "CCONJ", 10, "cc", 32, 33),
+                ParsedWord(6, "działacz", "działacz", "NOUN", 9, "appos", 34, 42),
+                ParsedWord(7, "PSL", "PSL", "PROPN", 6, "nmod", 43, 46),
+                ParsedWord(8, "Andrzej", "Andrzej", "PROPN", 9, "flat", 47, 54),
+                ParsedWord(9, "Kloc", "Kloc", "PROPN", 4, "conj", 55, 59),
+                ParsedWord(10, "będą", "być", "VERB", 0, "root", 60, 64),
+                ParsedWord(11, "kierować", "kierować", "VERB", 10, "xcomp", 65, 73),
+                ParsedWord(12, "funduszem", "fundusz", "NOUN", 11, "obl", 74, 83),
+            ]
+        },
+        entities=[
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Stanisław Mazur",
+                normalized_name="Stanisław Mazur",
+            ),
+            Entity(
+                entity_id=EntityID("person-2"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Andrzej Kloc",
+                normalized_name="Andrzej Kloc",
+            ),
+            Entity(
+                entity_id=EntityID("party-1"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Lewica",
+                normalized_name="Lewica",
+            ),
+            Entity(
+                entity_id=EntityID("party-2"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Polskie Stronnictwo Ludowe",
+                normalized_name="Polskie Stronnictwo Ludowe",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Stanisław Mazur",
+                normalized_text="Stanisław Mazur",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=16,
+                end_char=31,
+                entity_id=EntityID("person-1"),
+            ),
+            Mention(
+                text="Andrzej Kloc",
+                normalized_text="Andrzej Kloc",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=47,
+                end_char=59,
+                entity_id=EntityID("person-2"),
+            ),
+            Mention(
+                text="Lewicy",
+                normalized_text="Lewica",
+                entity_type=EntityType.POLITICAL_PARTY,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=9,
+                end_char=15,
+                entity_id=EntityID("party-1"),
+            ),
+            Mention(
+                text="PSL",
+                normalized_text="Polskie Stronnictwo Ludowe",
+                entity_type=EntityType.POLITICAL_PARTY,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=43,
+                end_char=46,
+                entity_id=EntityID("party-2"),
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(document)
+
+    memberships = [fact for fact in extracted.facts if fact.fact_type == FactType.PARTY_MEMBERSHIP]
+    party_map = {
+        fact.subject_entity_id: fact.object_entity_id
+        for fact in memberships
+        if fact.object_entity_id is not None
+    }
+    assert party_map.get(EntityID("person-1")) == EntityID("party-1")
+    assert party_map.get(EntityID("person-2")) == EntityID("party-2")
+    assert len(memberships) == 2
+
+
+def test_party_membership_does_not_attach_preceding_z_party_to_later_person() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = (
+        "Stanisław Mazur, hotelarz-milioner z Lewicy, i działacz PSL Andrzej Kloc "
+        "będą kierować funduszem."
+    )
+    document = ArticleDocument(
+        document_id=DocumentID("doc-party-z-fallback"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        parsed_sentences={
+            0: [
+                ParsedWord(1, "Stanisław", "Stanisław", "PROPN", 2, "flat", 0, 9),
+                ParsedWord(2, "Mazur", "Mazur", "PROPN", 12, "nsubj", 10, 15),
+                ParsedWord(3, "hotelarz", "hotelarz", "NOUN", 2, "appos", 17, 25),
+                ParsedWord(4, "milioner", "milioner", "NOUN", 3, "conj", 26, 35),
+                ParsedWord(5, "z", "z", "ADP", 6, "case", 36, 37),
+                ParsedWord(6, "Lewicy", "Lewica", "PROPN", 4, "nmod", 38, 44),
+                ParsedWord(7, "i", "i", "CCONJ", 9, "cc", 46, 47),
+                ParsedWord(8, "działacz", "działacz", "NOUN", 10, "appos", 48, 56),
+                ParsedWord(9, "PSL", "PSL", "PROPN", 8, "nmod", 57, 60),
+                ParsedWord(10, "Andrzej", "Andrzej", "PROPN", 11, "flat", 61, 68),
+                ParsedWord(11, "Kloc", "Kloc", "PROPN", 12, "conj", 69, 73),
+                ParsedWord(12, "będą", "być", "VERB", 0, "root", 74, 78),
+                ParsedWord(13, "kierować", "kierować", "VERB", 12, "xcomp", 79, 87),
+                ParsedWord(14, "funduszem", "fundusz", "NOUN", 13, "obl", 88, 97),
+            ]
+        },
+        entities=[
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Stanisław Mazur",
+                normalized_name="Stanisław Mazur",
+            ),
+            Entity(
+                entity_id=EntityID("person-2"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Andrzej Kloc",
+                normalized_name="Andrzej Kloc",
+            ),
+            Entity(
+                entity_id=EntityID("party-1"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Lewica",
+                normalized_name="Lewica",
+            ),
+            Entity(
+                entity_id=EntityID("party-2"),
+                entity_type=EntityType.POLITICAL_PARTY,
+                canonical_name="Polskie Stronnictwo Ludowe",
+                normalized_name="Polskie Stronnictwo Ludowe",
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Stanisław Mazur",
+                normalized_text="Stanisław Mazur",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=0,
+                end_char=15,
+                entity_id=EntityID("person-1"),
+            ),
+            Mention(
+                text="Andrzej Kloc",
+                normalized_text="Andrzej Kloc",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=61,
+                end_char=73,
+                entity_id=EntityID("person-2"),
+            ),
+            Mention(
+                text="Lewicy",
+                normalized_text="Lewica",
+                entity_type=EntityType.POLITICAL_PARTY,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=38,
+                end_char=44,
+                entity_id=EntityID("party-1"),
+            ),
+            Mention(
+                text="PSL",
+                normalized_text="Polskie Stronnictwo Ludowe",
+                entity_type=EntityType.POLITICAL_PARTY,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=57,
+                end_char=60,
+                entity_id=EntityID("party-2"),
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(document)
+
+    memberships = [
+        fact
+        for fact in extracted.facts
+        if fact.fact_type == FactType.PARTY_MEMBERSHIP
+        and fact.subject_entity_id == EntityID("person-2")
+    ]
+    attached_parties = {fact.object_entity_id for fact in memberships}
+
+    assert EntityID("party-2") in attached_parties
+    assert EntityID("party-1") not in attached_parties
+
+
+def test_political_office_ignores_corporate_president_roles() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = "Dotychczasowy prezes Olgierd Cieślik został odwołany."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-corporate-office"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        parsed_sentences={
+            0: [
+                ParsedWord(1, "Dotychczasowy", "dotychczasowy", "ADJ", 2, "amod", 0, 12),
+                ParsedWord(2, "prezes", "prezes", "NOUN", 4, "appos", 13, 19),
+                ParsedWord(3, "Olgierd", "Olgierd", "PROPN", 4, "flat", 20, 27),
+                ParsedWord(4, "Cieślik", "Cieślik", "PROPN", 5, "nsubj:pass", 28, 35),
+                ParsedWord(5, "został", "zostać", "VERB", 0, "root", 36, 42),
+                ParsedWord(6, "odwołany", "odwołać", "ADJ", 5, "xcomp", 43, 51),
+            ]
+        },
+        entities=[
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Olgierd Cieślik",
+                normalized_name="Olgierd Cieślik",
+            ),
+            Entity(
+                entity_id=EntityID("role-1"),
+                entity_type=EntityType.POSITION,
+                canonical_name="Prezes",
+                normalized_name="Prezes",
+                role_kind=RoleKind.PREZES,
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Olgierd Cieślik",
+                normalized_text="Olgierd Cieślik",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=20,
+                end_char=35,
+                entity_id=EntityID("person-1"),
+            ),
+            Mention(
+                text="prezes",
+                normalized_text="Prezes",
+                entity_type=EntityType.POSITION,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=13,
+                end_char=19,
+                entity_id=EntityID("role-1"),
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(document)
+
+    assert not any(fact.fact_type == FactType.POLITICAL_OFFICE for fact in extracted.facts)
+
+
 def test_party_membership_does_not_cross_attach_between_multiple_people() -> None:
     config = PipelineConfig.from_file("config.yaml")
     extractor = PolishFactExtractor(config)

@@ -160,3 +160,31 @@ def test_public_fund_governance_article_passes_relevance_from_lead_signals() -> 
 
     assert document.relevance is not None
     assert document.relevance.is_relevant is True
+
+
+def test_legal_analysis_article_is_filtered_out() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    relevance_filter = KeywordRelevanceFilter(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-rp-tk-negative"),
+        source_url=None,
+        raw_html="",
+        title=("Czy status sędziego TK może rozstrzygnąć sąd pracy, a może cywilny? Analiza"),
+        publication_date=None,
+        cleaned_text=(
+            "Sąd pracy rozważa status sędziego Trybunału Konstytucyjnego. "
+            "To analiza drogi sądowej, stosunku pracowniczego i skutków dla orzekania. "
+            "Spór dotyczy wynagrodzenia i publicznoprawnego statusu urzędu."
+        ),
+        paragraphs=[
+            "Sąd pracy rozważa status sędziego Trybunału Konstytucyjnego.",
+            "To analiza drogi sądowej, stosunku pracowniczego i skutków dla orzekania.",
+            "Spór dotyczy wynagrodzenia i publicznoprawnego statusu urzędu.",
+        ],
+    )
+
+    document = relevance_filter.run(document)
+
+    assert document.relevance is not None
+    assert document.relevance.is_relevant is False
+    assert "legal-analysis negative guard" in document.relevance.reasons

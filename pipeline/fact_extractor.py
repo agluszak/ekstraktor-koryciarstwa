@@ -31,7 +31,9 @@ class PolishFactExtractor(FactExtractor):
             facts.extend(builder.build(document, extraction_context))
 
         document.facts = self._deduplicate_facts(facts)
-        return self.canonicalizer.run(document)
+        canonicalized = self.canonicalizer.run(document)
+        canonicalized.facts = self._deduplicate_facts(canonicalized.facts)
+        return canonicalized
 
     @staticmethod
     def _deduplicate_facts(facts: list[Fact]) -> list[Fact]:

@@ -1306,7 +1306,6 @@ def test_rp_tk_negative(benchmark_results: dict[str, Any], subtests: Subtests) -
         pytest.skip(f"{key} not found")
 
     doc = benchmark_results[key]
-    # Known relevance false positive in current version
     target_assert(
         subtests, doc["relevance"]["is_relevant"] is False, "Should be irrelevant (legal analysis)"
     )

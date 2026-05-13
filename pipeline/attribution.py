@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
-from pipeline.domain_lexicons import KINSHIP_LEMMAS
-from pipeline.domain_types import EntityType, OrganizationKind, RoleKind
+from pipeline.domain_lexicons import KINSHIP_LEMMAS, PUBLIC_OFFICE_ROLE_KINDS
+from pipeline.domain_types import EntityType, OrganizationKind
 from pipeline.entity_classifiers import is_party_like_name, is_public_employer_name
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
@@ -19,7 +19,6 @@ from pipeline.nlp_rules import (
 )
 from pipeline.relation_signals import (
     _other_person_between,
-    _supports_descriptive_tail_link,
     candidate_head_word,
     candidate_words,
     party_context_window_supports,
@@ -29,19 +28,7 @@ from pipeline.relation_signals import (
 )
 from pipeline.secondary_fact_helpers import SecondaryFactScore
 
-POLITICAL_ROLE_KINDS = frozenset(
-    {
-        RoleKind.RADNY,
-        RoleKind.POSEL,
-        RoleKind.SENATOR,
-        RoleKind.MINISTER,
-        RoleKind.PREZYDENT_MIASTA,
-        RoleKind.WOJEWODA,
-        RoleKind.WOJT,
-        RoleKind.STAROSTA,
-        RoleKind.MARSZALEK_WOJEWODZTWA,
-    }
-)
+POLITICAL_ROLE_KINDS = PUBLIC_OFFICE_ROLE_KINDS
 ELECTION_CONTEXT_MARKERS = frozenset(
     {
         "wybor",
@@ -120,6 +107,16 @@ def resolve_party_attributions(
             continue
         if _party_belongs_to_closer_previous_person(person, party, persons):
             continue
+        if _party_prefers_other_person(
+            parsed_words,
+            sentence.text,
+            lowered_text,
+            person,
+            party,
+            persons,
+            sentence_start=sentence.start_char,
+        ):
+            continue
         attributed.append(ResolvedPartyAttribution(person=person, party=party, score=score))
     return attributed
 
@@ -190,24 +187,10 @@ def resolve_political_role_attributions(
 
     attributed: list[ResolvedRoleAttribution] = []
     for role in positions:
+        if role.role_kind not in POLITICAL_ROLE_KINDS:
+            continue
         if role.start_char < person.start_char and person.start_char - role.end_char > 16:
             continue
-        # Precision: ignore very generic roles if they don't have enough context
-        generic_roles = {"prezes", "dyrektor", "kierownik", "członek", "pracownik"}
-        if role.normalized_name.lower() in generic_roles:
-            # Check for linked organization in same sentence
-            orgs = context.mention_views_in_sentence(
-                sentence.sentence_index, {EntityType.ORGANIZATION, EntityType.PUBLIC_INSTITUTION}
-            )
-            has_org_link = any(
-                _supports_descriptive_tail_link(
-                    parsed_words, role, org, sentence_start=sentence.start_char
-                )
-                for org in orgs
-            )
-            if not (governance_signal or has_org_link):
-                continue
-
         if not supports_person_role_link(
             parsed_words=parsed_words,
             sentence_text=sentence.text,
@@ -253,12 +236,10 @@ def resolve_candidacy_score(
         view.entity_type == EntityType.POLITICAL_PARTY for view in sentence_views
     )
     has_election_text_context = any(marker in lowered_text for marker in ELECTION_CONTEXT_MARKERS)
-    if not (
-        OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
-        or "kandydat" in lowered_text
-        or "wybory" in lowered_text
-        or has_election_text_context
-    ):
+    has_candidate_trigger = bool(
+        OFFICE_CANDIDACY_LEMMAS.intersection(lemmas) or "kandydat" in lowered_text
+    )
+    if not has_candidate_trigger:
         return None
     if not (has_political_role_context or has_party_context or has_election_text_context):
         return None
@@ -267,11 +248,7 @@ def resolve_candidacy_score(
         for word in parsed_words
         if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
     ]
-    if (
-        "wybory" not in lowered_text
-        and "kandydat" not in lowered_text
-        and not has_election_text_context
-    ):
+    if not governing_words:
         return None
     if _looks_like_support_for_someone_else(sentence, person):
         return None
@@ -288,7 +265,7 @@ def resolve_candidacy_score(
         for word in governing_words
     ):
         return _score(0.52, "proximity_heuristic", "same_sentence", "candidacy")
-    return _score(0.42, "same_sentence_context", "same_sentence", "election_context")
+    return None
 
 
 def _party_belongs_to_closer_previous_person(
@@ -307,6 +284,74 @@ def _party_belongs_to_closer_previous_person(
         return False
     closest_previous = max(previous_people, key=lambda candidate: candidate.end_char)
     return party.start_char - closest_previous.end_char <= 8
+
+
+def _party_prefers_other_person(
+    parsed_words: list[ParsedWord],
+    sentence_text: str,
+    lowered_text: str,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
+    sentence_persons: list[ClusterMentionView],
+    *,
+    sentence_start: int,
+) -> bool:
+    current_priority = _party_link_priority(
+        parsed_words,
+        sentence_text,
+        lowered_text,
+        person,
+        party,
+        sentence_start=sentence_start,
+    )
+    if current_priority[0] <= 0:
+        return False
+    for candidate in sentence_persons:
+        if candidate.cluster_id == person.cluster_id:
+            continue
+        candidate_priority = _party_link_priority(
+            parsed_words,
+            sentence_text,
+            lowered_text,
+            candidate,
+            party,
+            sentence_start=sentence_start,
+        )
+        if candidate_priority > current_priority:
+            return True
+    return False
+
+
+def _party_link_priority(
+    parsed_words: list[ParsedWord],
+    sentence_text: str,
+    lowered_text: str,
+    person: ClusterMentionView,
+    party: ClusterMentionView,
+    *,
+    sentence_start: int,
+) -> tuple[int, int]:
+    syntactic_signal = party_syntactic_signal(
+        parsed_words=parsed_words,
+        sentence_text=sentence_text,
+        lowered_text=lowered_text,
+        person=person,
+        party=party,
+        sentence_start=sentence_start,
+    )
+    if syntactic_signal == "syntactic_direct":
+        return (3, -abs(person.start_char - party.start_char))
+    if syntactic_signal == "appositive_context":
+        return (2, -abs(person.start_char - party.start_char))
+    if party_context_window_supports(
+        parsed_words=parsed_words,
+        lowered_text=lowered_text,
+        person=person,
+        party=party,
+        sentence_start=sentence_start,
+    ):
+        return (1, -abs(person.start_char - party.start_char))
+    return (0, -9999)
 
 
 def _looks_like_support_for_someone_else(
