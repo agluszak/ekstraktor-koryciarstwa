@@ -2386,6 +2386,150 @@ def test_candidacy_requires_explicit_election_context() -> None:
     assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
 
 
+def test_candidacy_proximity_without_dependency_edge_is_lower_confidence() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = "Wyborczy kandydat pojawił się obok Jana Kowalskiego podczas konferencji."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-candidacy-proximity"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        parsed_sentences={
+            0: [
+                ParsedWord(1, "Wyborczy", "wyborczy", "ADJ", 2, "amod", 0, 8),
+                ParsedWord(2, "kandydat", "kandydat", "NOUN", 3, "nsubj", 9, 17),
+                ParsedWord(3, "pojawił", "pojawić", "VERB", 0, "root", 18, 25),
+                ParsedWord(4, "się", "się", "PART", 3, "expl:pv", 26, 29),
+                ParsedWord(5, "obok", "obok", "ADP", 7, "case", 30, 34),
+                ParsedWord(6, "Jana", "Jan", "PROPN", 7, "flat", 35, 39),
+                ParsedWord(7, "Kowalskiego", "Kowalski", "PROPN", 3, "obl", 40, 51),
+            ]
+        },
+        entities=[
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+            )
+        ],
+        mentions=[
+            Mention(
+                text="Jana Kowalskiego",
+                normalized_text="Jan Kowalski",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=35,
+                end_char=51,
+                entity_id=EntityID("person-1"),
+            )
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(document)
+
+    candidacies = [
+        fact for fact in extracted.facts if fact.fact_type == FactType.ELECTION_CANDIDACY
+    ]
+    assert len(candidacies) == 1
+    assert candidacies[0].confidence == 0.52
+
+
+def test_candidacy_does_not_fire_for_supervisory_board_candidates() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    extractor = PolishFactExtractor(config)
+    text = "PZU poinformowało o kandydatach do rady nadzorczej spółki, w tym Janie Kowalskim."
+    document = ArticleDocument(
+        document_id=DocumentID("doc-candidacy-board"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=[text],
+        sentences=[
+            SentenceFragment(
+                text=text,
+                paragraph_index=0,
+                sentence_index=0,
+                start_char=0,
+                end_char=len(text),
+            )
+        ],
+        parsed_sentences={
+            0: [
+                ParsedWord(1, "PZU", "PZU", "PROPN", 2, "nsubj", 0, 3),
+                ParsedWord(2, "poinformowało", "poinformować", "VERB", 0, "root", 4, 16),
+                ParsedWord(3, "o", "o", "ADP", 4, "case", 17, 18),
+                ParsedWord(4, "kandydatach", "kandydat", "NOUN", 2, "obl", 19, 30),
+                ParsedWord(5, "do", "do", "ADP", 6, "case", 31, 33),
+                ParsedWord(6, "rady", "rada", "NOUN", 4, "nmod", 34, 38),
+                ParsedWord(7, "nadzorczej", "nadzorczy", "ADJ", 6, "amod", 39, 49),
+                ParsedWord(8, "spółki", "spółka", "NOUN", 6, "nmod", 50, 56),
+                ParsedWord(9, "Janie", "Jan", "PROPN", 4, "nmod", 65, 70),
+                ParsedWord(10, "Kowalskim", "Kowalski", "PROPN", 9, "flat", 71, 81),
+            ]
+        },
+        entities=[
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Jan Kowalski",
+                normalized_name="Jan Kowalski",
+            ),
+            Entity(
+                entity_id=EntityID("position-1"),
+                entity_type=EntityType.POSITION,
+                canonical_name="Rada Nadzorcza",
+                normalized_name="Rada Nadzorcza",
+                role_kind=RoleKind.RADA_NADZORCZA,
+            ),
+        ],
+        mentions=[
+            Mention(
+                text="Janie Kowalskim",
+                normalized_text="Jan Kowalski",
+                entity_type=EntityType.PERSON,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=65,
+                end_char=81,
+                entity_id=EntityID("person-1"),
+            ),
+            Mention(
+                text="rady nadzorczej",
+                normalized_text="Rada Nadzorcza",
+                entity_type=EntityType.POSITION,
+                sentence_index=0,
+                paragraph_index=0,
+                start_char=34,
+                end_char=49,
+                entity_id=EntityID("position-1"),
+            ),
+        ],
+    )
+
+    document = prepare_for_relation_extraction(config, document)
+    extracted = extractor.run(document)
+
+    assert not any(fact.fact_type == FactType.ELECTION_CANDIDACY for fact in extracted.facts)
+
+
 def test_party_membership_does_not_cross_attach_between_multiple_people() -> None:
     config = PipelineConfig.from_file("config.yaml")
     extractor = PolishFactExtractor(config)

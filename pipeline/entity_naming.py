@@ -60,6 +60,28 @@ NOISY_CANONICAL_TOKENS = frozenset(
         "zobacz",
     }
 )
+FOUNDATION_DESCRIPTOR_TOKENS = frozenset(
+    {
+        "burmistrz",
+        "dyrektor",
+        "marszałek",
+        "minister",
+        "pogotowie",
+        "prezes",
+        "prezydent",
+        "radny",
+        "ratunkowy",
+        "sekretarz",
+        "senator",
+        "spółka",
+        "starosta",
+        "urząd",
+        "warszawski",
+        "wojewoda",
+        "wójt",
+        "wojt",
+    }
+)
 
 POLISH_ORG_INFLECTION_SUFFIXES = (
     ("owym", "owy"),
@@ -234,7 +256,7 @@ class OrganizationNamingPolicy:
         entity: Entity,
         name: str,
         candidates: list[str],
-    ) -> tuple[int, int, int, int, int, int, int, int, int, int]:
+    ) -> tuple[int, int, int, int, int, int, int, int, int, int, int]:
         tokens = [token for token in name.split() if token]
         lower_tokens = {token.lower() for token in tokens}
         generic_count = len(lower_tokens & GENERIC_ORGANIZATION_TOKENS)
@@ -245,6 +267,7 @@ class OrganizationNamingPolicy:
         shape_bonus = self._organization_shape_bonus(name)
         prefix_penalty = self._organization_prefix_junk_penalty(name, candidates)
         foundation_penalty = self._foundation_public_body_penalty(tokens)
+        foundation_descriptor_penalty = self._foundation_descriptor_penalty(tokens)
         evidence_bonus = self._organization_evidence_bonus(entity, name)
         return (
             -noisy_penalty,
@@ -252,6 +275,7 @@ class OrganizationNamingPolicy:
             shape_bonus,
             -prefix_penalty,
             -foundation_penalty,
+            -foundation_descriptor_penalty,
             -generic_count,
             len(tokens),
             -inflection_penalty,
@@ -337,6 +361,16 @@ class OrganizationNamingPolicy:
         if second.startswith(("kancelar", "minister", "urz", "fundusz", "instytut")):
             return 2
         return 0
+
+    @staticmethod
+    def _foundation_descriptor_penalty(tokens: list[str]) -> int:
+        if len(tokens) < 3:
+            return 0
+        head = org_token_base(tokens[0].lower().strip(".,;:"))
+        if head not in {"fundacja", "stowarzyszenie"}:
+            return 0
+        middle_tokens = [token.lower().strip(".,;:") for token in tokens[1:-1]]
+        return sum(1 for token in middle_tokens if token in FOUNDATION_DESCRIPTOR_TOKENS)
 
     @staticmethod
     def _bare_organization_head_superseded(name: str, candidates: list[str]) -> bool:

@@ -4,7 +4,12 @@ from pipeline.domain_types import EntityType
 from pipeline.entity_naming import NOISY_CANONICAL_TOKENS, org_token_base
 from pipeline.models import Entity
 from pipeline.nlp_services import MorphologicalAnalysis, MorphologyAnalyzer
-from pipeline.utils import compact_whitespace, normalize_entity_name, normalize_party_name
+from pipeline.utils import (
+    compact_whitespace,
+    join_hyphenated_parts,
+    normalize_entity_name,
+    normalize_party_name,
+)
 
 PARTY_TOKEN_VARIANTS = {
     "prawa": "prawo",
@@ -75,6 +80,27 @@ class PartyNamingPolicy:
 
 
 class PersonNamePolicy:
+    REFERENCE_ROLE_TOKENS = frozenset(
+        {
+            "burmistrz",
+            "dyrektor",
+            "marszałek",
+            "minister",
+            "pani",
+            "pan",
+            "poseł",
+            "prezes",
+            "prezydent",
+            "radny",
+            "sekretarz",
+            "senator",
+            "starosta",
+            "wojewoda",
+            "wójt",
+            "wojt",
+        }
+    )
+
     def __init__(self, morphology: MorphologyAnalyzer | None = None) -> None:
         self.morphology = morphology
         self._gender_cache: dict[str, str | None] = {}
@@ -97,11 +123,25 @@ class PersonNamePolicy:
         for name in names:
             if not name or not compact_whitespace(name):
                 continue
-            analysis = self.morphology.analyze(name)
-            lemma = analysis.full_lemma
+            analysis = self._analysis_for_name(name)
+            if analysis is None:
+                continue
+            lemma = self.normalize_person_name(analysis.full_lemma)
             if lemma and lemma.lower() != name.lower():
+                self._analysis_for_name(lemma)
                 candidates.append(lemma)
         return candidates
+
+    def _analysis_for_name(self, name: str) -> MorphologicalAnalysis | None:
+        if self.morphology is None:
+            return None
+        analysis = self._morphology_cache.get(name)
+        if analysis is None:
+            analysis = self.morphology.analyze(name)
+            self._morphology_cache[name] = analysis
+            self._gender_cache[name] = analysis.gender
+            self._nominative_cache[name] = analysis.is_nominative
+        return analysis
 
     def nominative_candidates(self, names: list[str]) -> list[str]:
         candidates: list[str] = []
@@ -131,13 +171,25 @@ class PersonNamePolicy:
                 candidates.append(f"{first_token} {surname}")
         return candidates
 
-    def best_person_name(self, names: list[str]) -> str:
-        normalized = [normalize_entity_name(name) for name in names if compact_whitespace(name)]
+    def best_person_name(self, names: list[str], observed_names: list[str] | None = None) -> str:
+        normalized = [
+            self.normalize_person_name(name) for name in names if compact_whitespace(name)
+        ]
         if not normalized:
             return ""
         surface_repair = self.surface_repair_for_broken_name(normalized)
         if surface_repair is not None:
             return surface_repair
+        observed = (
+            [
+                self.normalize_person_name(name)
+                for name in observed_names
+                if compact_whitespace(name)
+            ]
+            if observed_names is not None
+            else normalized
+        )
+        lemma_support = self.lemma_support_counts(observed)
         observed_tokens = {
             token.rstrip(".").lower() for name in normalized for token in name.split() if token
         }
@@ -145,7 +197,10 @@ class PersonNamePolicy:
             normalized,
             key=lambda name: (
                 -canonical_noise_score(name),
+                lemma_support.get(name.casefold(), (0, 0, 0))[0],
+                lemma_support.get(name.casefold(), (0, 0, 0))[2],
                 self._nominative_cache.get(name, False),
+                lemma_support.get(name.casefold(), (0, 0, 0))[1],
                 not self.looks_like_inflected_single_token(name),
                 len(name.split()) >= 2,
                 self.observed_variant_bonus(name, observed_tokens),
@@ -160,13 +215,65 @@ class PersonNamePolicy:
                     return candidate
         return best
 
+    def lemma_support_counts(self, names: list[str]) -> dict[str, tuple[int, int, int]]:
+        support: dict[str, list[int]] = {}
+        for name in names:
+            normalized = self.normalize_person_name(name)
+            if not normalized:
+                continue
+            name_key = normalized.casefold()
+            entry = support.setdefault(name_key, [0, 0, 0])
+            analysis = self._analysis_for_name(normalized)
+            if analysis is not None and analysis.is_nominative:
+                entry[0] += 1
+            entry[1] += 1
+            if analysis is None or not analysis.full_lemma:
+                continue
+            lemma = self.normalize_person_name(analysis.full_lemma)
+            if not lemma:
+                continue
+            lemma_key = lemma.casefold()
+            if lemma_key == name_key:
+                continue
+            lemma_entry = support.setdefault(lemma_key, [0, 0, 0])
+            lemma_entry[2] += 1
+        return {key: (counts[0], counts[1], counts[2]) for key, counts in support.items()}
+
+    def best_reference_name(self, names: list[str]) -> str:
+        normalized = [
+            self.normalize_person_name(name) for name in names if compact_whitespace(name)
+        ]
+        if not normalized:
+            return ""
+        return max(
+            normalized,
+            key=lambda name: (
+                -canonical_noise_score(name),
+                not self.person_name_has_broken_surface_stem(name),
+                not self.reference_name_has_embedded_role(name),
+                len(name.split()) >= 2,
+                len(name),
+            ),
+        )
+
     @staticmethod
     def person_lemmas(name: str) -> list[str]:
         return [
             token.lower()
-            for token in normalize_entity_name(name).replace("-", " ").split()
+            for token in PersonNamePolicy.normalize_person_name(name).replace("-", " ").split()
             if token
         ]
+
+    @staticmethod
+    def normalize_person_name(name: str) -> str:
+        return normalize_entity_name(join_hyphenated_parts(name.split()))
+
+    @classmethod
+    def reference_name_has_embedded_role(cls, name: str) -> bool:
+        tokens = [token.rstrip(".").casefold() for token in name.split() if token]
+        if len(tokens) <= 2:
+            return False
+        return any(token in cls.REFERENCE_ROLE_TOKENS for token in tokens[1:-1])
 
     @classmethod
     def ambiguous_person_singletons(cls, entities: list[Entity]) -> set[str]:

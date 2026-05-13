@@ -107,6 +107,9 @@ class DocumentEntityCanonicalizer:
         return document
 
     def normalize_entity(self, entity: Entity) -> None:
+        raw_names = self._raw_names_for_entity(entity)
+        observed_names = self._observed_names_for_entity(entity, fallback=raw_names)
+        morphology_lemma_candidates = self._morphology_lemma_candidates(raw_names)
         alias_pool = unique_preserve_order(
             [
                 entity.canonical_name,
@@ -114,8 +117,8 @@ class DocumentEntityCanonicalizer:
                 *entity.aliases,
                 *self._lemma_name_candidates(entity),
                 *self._case_repaired_candidates(entity),
-                *self._person_nominative_candidates(self._raw_names_for_entity(entity)),
-                *self._morphology_lemma_candidates(self._raw_names_for_entity(entity)),
+                *self._person_nominative_candidates(raw_names),
+                *morphology_lemma_candidates,
             ]
         )
         if entity.entity_type == EntityType.POLITICAL_PARTY:
@@ -127,7 +130,26 @@ class DocumentEntityCanonicalizer:
             return
 
         if entity.entity_type == EntityType.PERSON:
-            canonical = self.person_naming.best_person_name(alias_pool)
+            canonical = (
+                self.person_naming.best_reference_name(alias_pool)
+                if entity.is_proxy_person or entity.is_honorific_person_ref
+                else self.person_naming.best_person_name(alias_pool, observed_names=observed_names)
+            )
+            if (
+                not entity.is_proxy_person
+                and not entity.is_honorific_person_ref
+                and self.person_naming.person_name_has_broken_surface_stem(canonical)
+            ):
+                repaired_candidates = [
+                    candidate
+                    for candidate in morphology_lemma_candidates
+                    if not self.person_naming.person_name_has_broken_surface_stem(candidate)
+                ]
+                if repaired_candidates:
+                    canonical = self.person_naming.best_person_name(
+                        repaired_candidates,
+                        observed_names=observed_names,
+                    )
             entity.canonical_name = canonical
             entity.normalized_name = canonical
             entity.aliases = unique_preserve_order([*alias_pool, canonical])
@@ -422,6 +444,20 @@ class DocumentEntityCanonicalizer:
         return unique_preserve_order(
             [entity.canonical_name, entity.normalized_name, *entity.aliases]
         )
+
+    @staticmethod
+    def _observed_names_for_entity(entity: Entity, *, fallback: list[str]) -> list[str]:
+        evidence_names = [
+            text
+            for evidence in entity.evidence
+            if isinstance((text := getattr(evidence, "text", None)), str)
+            and compact_whitespace(text)
+            and "\n" not in text
+            and "\r" not in text
+        ]
+        if evidence_names:
+            return unique_preserve_order(evidence_names)
+        return fallback
 
     @staticmethod
     def _shared_acronym(left_names: list[str], right_names: list[str]) -> bool:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_types import (
@@ -579,7 +580,9 @@ class CompensationFactBuilder:
         frame: CompensationFrame,
         context: ExtractionContext,
     ) -> Fact | None:
-        subject_id = frame.person_entity_id or frame.role_entity_id or frame.organization_entity_id
+        subject_id = frame.person_entity_id
+        if subject_id is None and frame.role_entity_id is None:
+            subject_id = frame.organization_entity_id
         if subject_id is None:
             return None
         org_id = frame.organization_entity_id
@@ -635,14 +638,33 @@ class CompensationFactBuilder:
 
     @staticmethod
     def _deduplicate_compensation_facts(facts: list[Fact]) -> list[Fact]:
-        deduplicated: dict[tuple[str, str | None, str | None, str], Fact] = {}
+        deduplicated: dict[tuple[str, str | None, str | None, str | None, str | None], Fact] = {}
         for fact in facts:
             key = (
                 fact.subject_entity_id,
                 fact.object_entity_id,
                 fact.value_normalized,
-                fact.evidence.text,
+                fact.period,
+                fact.role,
             )
-            if key not in deduplicated or deduplicated[key].confidence < fact.confidence:
+            existing = deduplicated.get(key)
+            if existing is None:
                 deduplicated[key] = fact
+                continue
+            preferred = max(
+                (existing, fact),
+                key=lambda candidate: (
+                    candidate.confidence,
+                    candidate.object_entity_id is not None,
+                    candidate.position_entity_id is not None,
+                    len(candidate.evidence.text),
+                ),
+            )
+            fallback = fact if preferred is existing else existing
+            deduplicated[key] = replace(
+                preferred,
+                object_entity_id=preferred.object_entity_id or fallback.object_entity_id,
+                position_entity_id=preferred.position_entity_id or fallback.position_entity_id,
+                role=preferred.role or fallback.role,
+            )
         return list(deduplicated.values())

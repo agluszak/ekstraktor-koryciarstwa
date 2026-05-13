@@ -248,6 +248,39 @@ def test_family_proxy_can_anchor_through_public_office_phrase() -> None:
     assert proxy.proxy_anchor_entity_id == "person-monika"
 
 
+def test_child_proxy_shortens_anchor_role_phrase_to_family_surname() -> None:
+    text = "Syn sekretarz Joanny Pszczółkowskiej został koordynatorem."
+    doc = _document(
+        [text],
+        {
+            0: [
+                _word(1, "Syn", "syn", "NOUN", 6, "nsubj", 0),
+                _word(2, "sekretarz", "sekretarz", "NOUN", 1, "nmod", 4),
+                _word(3, "Joanny", "Joanna", "PROPN", 2, "nmod", 14),
+                _word(4, "Pszczółkowskiej", "Pszczółkowska", "PROPN", 3, "flat", 21),
+                _word(5, "został", "zostać", "AUX", 6, "aux", 36),
+                _word(6, "koordynatorem", "koordynator", "NOUN", 0, "root", 43),
+            ]
+        },
+    )
+    entity, cluster = _person_cluster(
+        "person-joanna",
+        "Joanna Pszczółkowska",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=14,
+    )
+    doc.entities.append(entity)
+    doc.clusters.append(cluster)
+
+    resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+    proxy = next(entity for entity in resolved.entities if entity.is_proxy_person)
+    assert proxy.kinship_detail == KinshipDetail.CHILD_SON
+    assert proxy.proxy_anchor_entity_id == "person-joanna"
+    assert proxy.canonical_name == "Syn Pszczółkowski"
+
+
 def test_possessive_proxy_anchors_to_sentence_subject_with_global_mentions() -> None:
     text = "Tomasz Kościelniak zatrudnił swoją dziewczynę."
     doc = _document(
@@ -412,6 +445,41 @@ def test_possessive_partner_is_probable_same_person_as_spouse_proxy() -> None:
         and hypothesis.reason == EntityResolutionReason.SAME_ANCHOR_COMPATIBLE_FAMILY_PROXY
         for hypothesis in resolved.entity_resolution_hypotheses
     )
+
+
+def test_possessive_daughter_in_law_keeps_kinship_label_in_proxy_name() -> None:
+    sentences = ["Moja synowa pracuje w urzędzie - mówi Sławomir Morawski."]
+    doc = _document(
+        sentences,
+        {
+            0: [
+                _word(1, "Moja", "mój", "DET", 2, "det:poss", 0),
+                _word(2, "synowa", "synowa", "NOUN", 3, "nsubj", 5),
+                _word(3, "pracuje", "pracować", "VERB", 7, "parataxis", 12),
+                _word(7, "mówi", "mówić", "VERB", 0, "root", 33),
+                _word(8, "Sławomir", "Sławomir", "PROPN", 7, "nsubj", 38),
+                _word(9, "Morawski", "Morawski", "PROPN", 8, "flat", 47),
+            ]
+        },
+    )
+    entity, cluster = _person_cluster(
+        "person-slawomir",
+        "Sławomir Morawski",
+        sentence_index=0,
+        paragraph_index=0,
+        start_char=38,
+    )
+    doc.entities.append(entity)
+    doc.clusters.append(cluster)
+
+    resolved = PolishFamilyIdentityResolver(PipelineConfig.from_file("config.yaml")).run(doc)
+
+    proxy = next(
+        entity
+        for entity in resolved.entities
+        if entity.is_proxy_person and entity.kinship_detail == KinshipDetail.DAUGHTER_IN_LAW
+    )
+    assert proxy.canonical_name == "Synowa Morawska"
 
 
 def test_possessive_spouse_without_resolved_speaker_does_not_attach_to_nearest_person() -> None:

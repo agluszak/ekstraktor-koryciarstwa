@@ -139,12 +139,12 @@ def build_pipeline(
                 StanzaClauseParser(config, runtime=shared_runtime),
                 PolishPositionExtractor(config),
                 StanzaCoreferenceResolver(config, runtime=shared_runtime),
-                PolishEntityClusterer(config, runtime=shared_runtime),
+                PolishEntityClusterer(config, runtime=shared_runtime, morphology=morphology),
                 PolishFamilyIdentityResolver(config),
                 SharedEntityEnricher(config, runtime=shared_runtime),
                 PolishFrameExtractor(config, runtime=shared_runtime, registry=domain_registry),
                 PolishFactExtractor(config, registry=domain_registry),
-                InMemoryEntityLinker(config, runtime=shared_runtime),
+                InMemoryEntityLinker(config, runtime=shared_runtime, morphology=morphology),
             ]
         )
     elif engine == "llm":

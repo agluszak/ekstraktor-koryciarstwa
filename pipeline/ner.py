@@ -3,6 +3,7 @@ from __future__ import annotations
 from pipeline.base import NERExtractor
 from pipeline.config import PipelineConfig
 from pipeline.document_graph import sync_entity_mentions
+from pipeline.domain_lexicons import KINSHIP_LEMMAS
 from pipeline.domain_types import EntityType, MentionKind, NERLabel
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Mention, TemporalExpression
 from pipeline.nlp_services import MorphologyAnalyzer, StanzaPolishMorphologyAnalyzer
@@ -28,8 +29,8 @@ class SpacyPolishNERExtractor(NERExtractor):
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
 
-        analyzer = morphology or StanzaPolishMorphologyAnalyzer(self.runtime)
-        self.canonicalizer = DocumentEntityCanonicalizer(config, analyzer)
+        self.morphology = morphology or StanzaPolishMorphologyAnalyzer(self.runtime)
+        self.canonicalizer = DocumentEntityCanonicalizer(config, self.morphology)
 
     def name(self) -> str:
         return "spacy_polish_ner_extractor"
@@ -79,6 +80,8 @@ class SpacyPolishNERExtractor(NERExtractor):
             if entity_type == EntityType.PERSON:
                 lexical = [t for t in ent if t.text.strip()]
                 if lexical and not any(t.pos_ == "PROPN" for t in lexical):
+                    continue
+                if self._person_span_is_kinship_phrase(lexical):
                     continue
 
             # Reclassify: if spaCy labeled an ORG that matches a known party
@@ -204,6 +207,17 @@ class SpacyPolishNERExtractor(NERExtractor):
         return any(right_context.startswith(term) for term in org_context_after)
 
     @staticmethod
+    def _person_span_is_kinship_phrase(lexical_tokens) -> bool:
+        if len(lexical_tokens) < 2:
+            return False
+        first = lexical_tokens[0]
+        if first.pos_ != "NOUN":
+            return False
+        if first.lemma_.casefold() not in KINSHIP_LEMMAS:
+            return False
+        return any(token.pos_ == "PROPN" for token in lexical_tokens[1:])
+
+    @staticmethod
     def _entity_forms(ent, entity_type: EntityType) -> tuple[str, str, int, list[str]]:
         lemmas = [t.lemma_.lower() for t in ent if t.text.strip()]
         if entity_type == EntityType.PERSON:
@@ -216,7 +230,13 @@ class SpacyPolishNERExtractor(NERExtractor):
     @staticmethod
     def _person_merge_key(ent) -> str:
         parts = [
-            token.lemma_.strip() if token.lemma_.strip() else token.text.strip()
+            (
+                token.text.strip()
+                if "-" in token.text and "-" not in token.lemma_.strip()
+                else token.lemma_.strip()
+                if token.lemma_.strip()
+                else token.text.strip()
+            )
             for token in ent
             if token.text.strip()
         ]

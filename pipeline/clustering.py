@@ -22,16 +22,25 @@ from pipeline.models import (
     EvidenceSpan,
     Mention,
 )
+from pipeline.nlp_services import MorphologyAnalyzer, StanzaPolishMorphologyAnalyzer
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import stable_id, unique_preserve_order
 
 
 class PolishEntityClusterer(EntityClusterer):
-    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+        morphology: MorphologyAnalyzer | None = None,
+    ) -> None:
         self.config = config
         self.runtime = runtime
-        self.canonicalizer = DocumentEntityCanonicalizer(config)
+        analyzer = morphology or (
+            StanzaPolishMorphologyAnalyzer(runtime) if runtime is not None else None
+        )
+        self.canonicalizer = DocumentEntityCanonicalizer(config, analyzer)
         self._org_similarity_threshold = 0.85
 
     def name(self) -> str:

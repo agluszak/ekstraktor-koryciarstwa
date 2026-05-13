@@ -9,7 +9,24 @@ from pipeline.domain_types import (
 )
 from pipeline.entity_name_policies import PersonNamePolicy
 from pipeline.models import ArticleDocument, Entity, EvidenceSpan, Fact, Mention
+from pipeline.nlp_services import MorphologicalAnalysis, WordMorphology
 from pipeline.normalization import DocumentEntityCanonicalizer
+
+
+class StubMorphologyAnalyzer:
+    def __init__(self, analyses: dict[str, MorphologicalAnalysis]) -> None:
+        self.analyses = analyses
+
+    def analyze(self, text: str) -> MorphologicalAnalysis:
+        return self.analyses.get(
+            text,
+            MorphologicalAnalysis(
+                full_lemma=text,
+                gender=None,
+                is_nominative=False,
+                word_analyses=[],
+            ),
+        )
 
 
 def test_party_aliases_expand_to_canonical_name() -> None:
@@ -60,6 +77,388 @@ def test_person_name_policy_prefers_observed_complete_inflected_names() -> None:
         == "Małgorzata Kurzynoga"
     )
     assert policy.best_person_name(["Anit Elżanowski", "Anita Elżanowska"]) == "Anita Elżanowska"
+
+
+def test_person_name_policy_prefers_lemma_backed_name_over_misanalyzed_broken_form() -> None:
+    morphology = StubMorphologyAnalyzer(
+        {
+            "Magdalen Skokowski": MorphologicalAnalysis(
+                full_lemma="Magdalen Skokowski",
+                gender="Masc",
+                is_nominative=True,
+                word_analyses=[
+                    WordMorphology(
+                        text="Magdalen",
+                        lemma="Magdalen",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Skokowski",
+                        lemma="Skokowski",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                ],
+            ),
+            "Magdalena Skokowska": MorphologicalAnalysis(
+                full_lemma="Magdalena Skokowska",
+                gender="Fem",
+                is_nominative=True,
+                word_analyses=[
+                    WordMorphology(
+                        text="Magdalena",
+                        lemma="Magdalena",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Skokowska",
+                        lemma="Skokowska",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                ],
+            ),
+            "Magdaleny Skokowskiej": MorphologicalAnalysis(
+                full_lemma="Magdalena Skokowska",
+                gender="Fem",
+                is_nominative=False,
+                word_analyses=[
+                    WordMorphology(
+                        text="Magdaleny",
+                        lemma="Magdalena",
+                        pos="PROPN",
+                        case="Gen",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Skokowskiej",
+                        lemma="Skokowska",
+                        pos="PROPN",
+                        case="Gen",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                ],
+            ),
+            "Magdalenę Skokowską": MorphologicalAnalysis(
+                full_lemma="Magdalena Skokowska",
+                gender="Fem",
+                is_nominative=False,
+                word_analyses=[
+                    WordMorphology(
+                        text="Magdalenę",
+                        lemma="Magdalena",
+                        pos="PROPN",
+                        case="Acc",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Skokowską",
+                        lemma="Skokowska",
+                        pos="PROPN",
+                        case="Acc",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                ],
+            ),
+        }
+    )
+    policy = PersonNamePolicy(morphology)
+    names = [
+        "Magdalen Skokowski",
+        "Magdalena Skokowska",
+        "Magdaleny Skokowskiej",
+        "Magdalenę Skokowską",
+    ]
+    policy.preload(set(names))
+
+    assert policy.best_person_name(names, observed_names=names) == "Magdalena Skokowska"
+
+
+def test_person_name_policy_prefers_lemma_backed_nominative_for_inflected_mentions() -> None:
+    morphology = StubMorphologyAnalyzer(
+        {
+            "Arturem Sosną": MorphologicalAnalysis(
+                full_lemma="Artur Sosna",
+                gender="Masc",
+                is_nominative=False,
+                word_analyses=[
+                    WordMorphology(
+                        text="Arturem",
+                        lemma="Artur",
+                        pos="PROPN",
+                        case="Ins",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Sosną",
+                        lemma="Sosna",
+                        pos="PROPN",
+                        case="Ins",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                ],
+            ),
+            "Artura Sosny": MorphologicalAnalysis(
+                full_lemma="Artur Sosna",
+                gender="Masc",
+                is_nominative=False,
+                word_analyses=[
+                    WordMorphology(
+                        text="Artura",
+                        lemma="Artur",
+                        pos="PROPN",
+                        case="Gen",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Sosny",
+                        lemma="Sosna",
+                        pos="PROPN",
+                        case="Gen",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                ],
+            ),
+            "Artur Sosna": MorphologicalAnalysis(
+                full_lemma="Artur Sosna",
+                gender="Masc",
+                is_nominative=True,
+                word_analyses=[
+                    WordMorphology(
+                        text="Artur",
+                        lemma="Artur",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Sosna",
+                        lemma="Sosna",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                ],
+            ),
+        }
+    )
+    policy = PersonNamePolicy(morphology)
+    observed = ["Arturem Sosną", "Artura Sosny"]
+    alias_pool = [*observed, "Artur Sosna"]
+    policy.preload(set(alias_pool))
+
+    assert policy.best_person_name(alias_pool, observed_names=observed) == "Artur Sosna"
+
+
+def test_person_normalization_uses_morphology_lemma_candidates_for_broken_surface() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    morphology = StubMorphologyAnalyzer(
+        {
+            "Magdalen Skokowski": MorphologicalAnalysis(
+                full_lemma="Magdalen Skokowski",
+                gender="Masc",
+                is_nominative=True,
+                word_analyses=[
+                    WordMorphology(
+                        text="Magdalen",
+                        lemma="Magdalen",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Skokowski",
+                        lemma="Skokowski",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Masc",
+                        number="Sing",
+                    ),
+                ],
+            ),
+            "Magdaleny Skokowskiej": MorphologicalAnalysis(
+                full_lemma="Magdalena Skokowska",
+                gender="Fem",
+                is_nominative=False,
+                word_analyses=[
+                    WordMorphology(
+                        text="Magdaleny",
+                        lemma="Magdalena",
+                        pos="PROPN",
+                        case="Gen",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Skokowskiej",
+                        lemma="Skokowska",
+                        pos="PROPN",
+                        case="Gen",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                ],
+            ),
+            "Magdalena Skokowska": MorphologicalAnalysis(
+                full_lemma="Magdalena Skokowska",
+                gender="Fem",
+                is_nominative=True,
+                word_analyses=[
+                    WordMorphology(
+                        text="Magdalena",
+                        lemma="Magdalena",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                    WordMorphology(
+                        text="Skokowska",
+                        lemma="Skokowska",
+                        pos="PROPN",
+                        case="Nom",
+                        gender="Fem",
+                        number="Sing",
+                    ),
+                ],
+            ),
+        }
+    )
+    canonicalizer = DocumentEntityCanonicalizer(config, morphology)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-morph-person"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Magdaleny Skokowskiej",
+        paragraphs=["Magdaleny Skokowskiej"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-1"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Magdalen Skokowski",
+                normalized_name="Magdalen Skokowski",
+                aliases=[
+                    "Magdalena Skokowska",
+                    "Magdaleny Skokowskiej",
+                    "Magdalenę Skokowską",
+                ],
+            )
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert normalized.entities[0].canonical_name == "Magdalena Skokowska"
+
+
+def test_proxy_person_normalization_preserves_reference_surface() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-proxy-person"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Żona Skokowskiego",
+        paragraphs=["Żona Skokowskiego"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-proxy"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Żon Skokowski",
+                normalized_name="Żon Skokowski",
+                aliases=["Żona Skokowskiego"],
+                is_proxy_person=True,
+            )
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert normalized.entities[0].canonical_name == "Żona Skokowskiego"
+
+
+def test_proxy_person_normalization_prefers_short_family_reference_over_role_phrase() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-proxy-short-family-ref"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="Syn sekretarz Pszczółkowskiej",
+        paragraphs=["Syn sekretarz Pszczółkowskiej"],
+        entities=[
+            Entity(
+                entity_id=EntityID("person-proxy-short"),
+                entity_type=EntityType.PERSON,
+                canonical_name="Syn Sekretarz Pszczółkowskiej",
+                normalized_name="Syn Sekretarz Pszczółkowskiej",
+                aliases=["Syn Pszczółkowski"],
+                is_proxy_person=True,
+            )
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert normalized.entities[0].canonical_name == "Syn Pszczółkowski"
+
+
+def test_organization_normalization_prefers_compact_foundation_person_name() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    canonicalizer = DocumentEntityCanonicalizer(config)
+    document = ArticleDocument(
+        document_id=DocumentID("doc-foundation-person-name"),
+        source_url=None,
+        raw_html="",
+        title="Test",
+        publication_date=None,
+        cleaned_text="fundacja Karola Bielskiego",
+        paragraphs=["fundacja Karola Bielskiego"],
+        entities=[
+            Entity(
+                entity_id=EntityID("org-foundation"),
+                entity_type=EntityType.ORGANIZATION,
+                canonical_name="Fundacja Dyrektor Warszawski Pogotowie Karol",
+                normalized_name="Fundacja Dyrektor Warszawski Pogotowie Karol",
+                aliases=["Fundacja Karola Bielskiego", "Fundacja Bielskiego"],
+                evidence=[
+                    EvidenceSpan(text="fundacji dyrektora warszawskiego pogotowia Karola"),
+                    EvidenceSpan(text="fundacja Karola Bielskiego"),
+                ],
+            )
+        ],
+    )
+
+    normalized = canonicalizer.run(document)
+
+    assert normalized.entities[0].canonical_name == "Fundacja Karola Bielskiego"
 
 
 def test_wfosigw_acronym_and_full_name_are_deduplicated() -> None:

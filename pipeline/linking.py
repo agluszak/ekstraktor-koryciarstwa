@@ -10,6 +10,7 @@ from pipeline.domain_types import EntityID, EntityType
 from pipeline.entity_graph_remapper import EntityGraphRemapper
 from pipeline.entity_naming import org_token_base
 from pipeline.models import ArticleDocument, Entity
+from pipeline.nlp_services import MorphologyAnalyzer, StanzaPolishMorphologyAnalyzer
 from pipeline.normalization import DocumentEntityCanonicalizer
 from pipeline.runtime import PipelineRuntime
 from pipeline.utils import normalize_party_name, stable_id
@@ -29,7 +30,12 @@ class _RegistryEntry(TypedDict):
 
 
 class InMemoryEntityLinker(EntityLinker):
-    def __init__(self, config: PipelineConfig, runtime: PipelineRuntime | None = None) -> None:
+    def __init__(
+        self,
+        config: PipelineConfig,
+        runtime: PipelineRuntime | None = None,
+        morphology: MorphologyAnalyzer | None = None,
+    ) -> None:
         self.config = config
         self.runtime = runtime or PipelineRuntime(config)
         # registry_id -> entry
@@ -38,7 +44,8 @@ class InMemoryEntityLinker(EntityLinker):
         # (UNIQUE(registry_id, alias) semantics: a registry_id appears at most once per alias)
         self._alias_to_registry: dict[str, list[str]] = {}
         self._knowledge_seeded = False
-        self.canonicalizer = DocumentEntityCanonicalizer(config)
+        analyzer = morphology or StanzaPolishMorphologyAnalyzer(self.runtime)
+        self.canonicalizer = DocumentEntityCanonicalizer(config, analyzer)
         self.organization_naming = self.canonicalizer.organization_naming
 
     def name(self) -> str:

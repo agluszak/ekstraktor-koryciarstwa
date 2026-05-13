@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from pipeline.config import PipelineConfig
 from pipeline.domain_lexicons import KINSHIP_LEMMAS
-from pipeline.domain_types import EntityType, OrganizationKind
+from pipeline.domain_types import EntityType, OrganizationKind, RoleKind
 from pipeline.entity_classifiers import is_party_like_name, is_public_employer_name
 from pipeline.extraction_context import ExtractionContext
 from pipeline.models import (
@@ -28,6 +28,31 @@ from pipeline.relation_signals import (
     supports_person_role_link,
 )
 from pipeline.secondary_fact_helpers import SecondaryFactScore
+
+POLITICAL_ROLE_KINDS = frozenset(
+    {
+        RoleKind.RADNY,
+        RoleKind.POSEL,
+        RoleKind.SENATOR,
+        RoleKind.MINISTER,
+        RoleKind.PREZYDENT_MIASTA,
+        RoleKind.WOJEWODA,
+        RoleKind.WOJT,
+        RoleKind.STAROSTA,
+        RoleKind.MARSZALEK_WOJEWODZTWA,
+    }
+)
+ELECTION_CONTEXT_MARKERS = frozenset(
+    {
+        "wybor",
+        "kampani",
+        "komitet",
+        "samorządow",
+        "parlamentarn",
+        "senack",
+        "prezydenck",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,27 +242,53 @@ def resolve_candidacy_score(
     parsed_words = context.document.parsed_sentences.get(sentence.sentence_index, [])
     lowered_text = sentence.text.lower()
     lemmas = {word.lemma for word in parsed_words}
+    sentence_views = context.mention_views_in_sentence(
+        sentence.sentence_index, {EntityType.POSITION, EntityType.POLITICAL_PARTY}
+    )
+    has_political_role_context = any(
+        view.entity_type == EntityType.POSITION and view.role_kind in POLITICAL_ROLE_KINDS
+        for view in sentence_views
+    )
+    has_party_context = any(
+        view.entity_type == EntityType.POLITICAL_PARTY for view in sentence_views
+    )
+    has_election_text_context = any(marker in lowered_text for marker in ELECTION_CONTEXT_MARKERS)
     if not (
         OFFICE_CANDIDACY_LEMMAS.intersection(lemmas)
         or "kandydat" in lowered_text
         or "wybory" in lowered_text
+        or has_election_text_context
     ):
+        return None
+    if not (has_political_role_context or has_party_context or has_election_text_context):
         return None
     governing_words = [
         word
         for word in parsed_words
         if word.lemma in OFFICE_CANDIDACY_LEMMAS or word.lemma == "kandydat"
     ]
-    if "wybory" not in lowered_text and "kandydat" not in lowered_text:
+    if (
+        "wybory" not in lowered_text
+        and "kandydat" not in lowered_text
+        and not has_election_text_context
+    ):
         return None
     if _looks_like_support_for_someone_else(sentence, person):
         return None
+    person_words = candidate_words(parsed_words, person, sentence_start=sentence.start_char)
+    person_indices = {word.index for word in person_words}
+    if person_indices and any(
+        word.head in person_indices
+        or any(person_word.head == word.index for person_word in person_words)
+        for word in governing_words
+    ):
+        return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
     if any(
         abs(person.start_char - (sentence.start_char + word.start)) <= 28
         for word in governing_words
     ):
-        return _score(0.72, "dependency_edge", "same_sentence", "candidacy")
-    return _score(0.55, "same_sentence", "same_sentence", "election_context")
+        return _score(0.52, "proximity_heuristic", "same_sentence", "candidacy")
+    return _score(0.42, "same_sentence_context", "same_sentence", "election_context")
 
 
 def _party_belongs_to_closer_previous_person(

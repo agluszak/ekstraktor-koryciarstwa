@@ -89,6 +89,12 @@ PUBLIC_MONEY_CONTRACT_TEXT_MARKERS = frozenset(
     }
 )
 PUBLIC_MONEY_FUNDING_TEXT_MARKERS = frozenset({"dotacj", "dofinansowa", "darowizn"})
+PUBLIC_MONEY_COMPENSATION_TEXT_MARKERS = frozenset(
+    {"zarob", "wynagrodz", "pensj", "uposaż", "prezes"}
+)
+PUBLIC_MONEY_COMPENSATION_LEMMAS = frozenset(
+    {"zarabiać", "zarobić", "wynagrodzenie", "pensja", "płaca", "uposażenie"}
+)
 PUBLIC_MONEY_AMOUNT_PATTERN = re.compile(
     r"\b(?P<amount>(?:ponad\s+)?\d+(?:[ .,]\d+)*\s*"
     r"(?:tysi(?:ąc|ęcy)|tys\.)\s*zł(?:otych)?\.?)\b",
@@ -456,6 +462,8 @@ def _public_money_flow_signal(
         amount_match,
     ) and not _has_explicit_public_money_noun(parsed_words, lowered):
         return None
+    if looks_like_compensation_burden(parsed_words, lowered):
+        return None
 
     org_clusters = _public_money_clusters(document, clause, grounded_orgs, context)
     if len(org_clusters) < 2:
@@ -525,6 +533,14 @@ def _has_explicit_public_money_noun(parsed_words: list[ParsedWord], lowered: str
         or any(marker in lowered for marker in PUBLIC_MONEY_FUNDING_TEXT_MARKERS)
         or any(marker in lowered for marker in CONTRACT_TEXT_MARKERS)
     )
+
+
+def looks_like_compensation_burden(parsed_words: list[ParsedWord], lowered: str) -> bool:
+    lemmas = lemma_set(parsed_words)
+    return bool(
+        lemmas.intersection(PUBLIC_MONEY_COMPENSATION_LEMMAS)
+        or any(marker in lowered for marker in PUBLIC_MONEY_COMPENSATION_TEXT_MARKERS)
+    ) and not _has_explicit_public_money_noun(parsed_words, lowered)
 
 
 def _has_contract_money_signal(parsed_words: list[ParsedWord], lowered: str) -> bool:

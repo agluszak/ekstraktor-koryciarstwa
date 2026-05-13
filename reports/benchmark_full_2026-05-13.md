@@ -7,8 +7,7 @@ uv run ruff check . --fix
 uv run ruff format .
 uv run ruff check .
 uv run ty check
-uv run pytest tests/test_clustering_semantic.py tests/test_family_identity.py tests/test_kinship_resolution.py tests/test_entity_normalization.py tests/test_relations.py -q
-uv run pytest tests/integration/test_benchmark.py::test_wp_zona_sekretarza_krasnik_entity_resolution -q
+uv run pytest
 uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
 ```
 
@@ -26,15 +25,30 @@ uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
    - `MOPS` and `MOSiR w Kraśniku` remain separate entities.
    - The `10 189,50 Zł Brutto` compensation fact is attached to Magdalena Skokowska rather than Piotr Janczarek.
    - The lower-case `razem` / `PO` leakage called out in the article-specific report was not reproduced in the current output.
+   - The main person canonical is now `Magdalena Skokowska`; the earlier `Magdalen Skokowski` / broken spouse proxy canonicals are gone.
 
 2. **The previously weak Onet Lublin article is no longer filtered out.**
    - `wiadomosci.onet.pl__lublin__...__cpw9ltt` is now relevant and emits appointment/dismissal output.
    - This closes one of the most important known failures from the earlier benchmark notes.
 
-3. **The previously empty Pleszew article now emits governance facts.**
+3. **The previously empty Pleszew article now emits governance facts with readable names.**
    - `pleszew24.info__...stadniny-koni` is relevant and now produces `APPOINTMENT` plus `DISMISSAL`.
+   - `Przemysław Pacia` now survives as the dismissal subject instead of degrading to `Przemysław Pata`.
 
-4. **Stable positives still look alive after the uncertainty changes.**
+4. **Political-profile noise is materially lower in one of the worst offenders.**
+   - `businessinsider_kadrowa_czystka_panstwowa_spolka` no longer emits the earlier flood of supervisory-board `ELECTION_CANDIDACY` false positives.
+   - Current output there is down to governance + office facts, which is much closer to the article shape.
+
+5. **The Olsztyn salary article no longer leaks a fake funding fact.**
+   - `olsztyn_wodkan` still emits `COMPENSATION`, but the weak `FUNDING` fact from the salary-burden clause is gone.
+   - Role-only `Prezes` compensation subjects remain removed.
+
+6. **Benchmark regressions introduced during the canonicalization pass were fixed before the final rerun.**
+   - `ai42...czy-wojt-ukrywa-nepotyzm` again recovers `Artur Sosna`.
+   - `tvnwarszawa_fundacja_bielskiego_20260425` now recovers `Karol Bielski` and a Bielsk-linked `Fundacja ...` entity.
+   - `interwencja.polsatnews.pl__...bardzo-rodzinne-starostwo_1329791` now keeps `Syn Pszczółkowski`, `Synowa Morawska`, and `Jakub Mieszko Pszczółkowski`.
+
+7. **Stable positives still look alive after the uncertainty changes.**
    - `oko_miliony_pajeczyna_rydzyka`: still emits `FUNDING` output.
    - `tvnwarszawa_fundacja_bielskiego_20260425`: still emits public-money output.
    - `zona-posla-pis`: still emits appointment/dismissal plus family/network facts.
@@ -42,29 +56,25 @@ uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
 
 ## What regressed or still looks wrong
 
-1. **WP Kraśnik still has person-canonicalization noise.**
-   - Current output still contains malformed person canonicals such as `Magdalen Skokowski`, `Żon Skokowski`, and `Mąż Skokowski`.
-   - The uncertainty plumbing is now better, but the name policy still degrades readability and downstream interpretability.
-
-2. **WP Kraśnik still has political-profile noise.**
+1. **WP Kraśnik still has political-profile noise.**
    - `ELECTION_CANDIDACY` facts for `Stawiarski` / `Staruch` are still overgenerated.
    - The critical relationship output is better, but candidacy extraction is still too loose around reference resolution.
 
-3. **`rp_tk_negative` is still a relevance false positive.**
+2. **`rp_tk_negative` is still a relevance false positive.**
    - The article remains marked relevant while producing no facts.
    - This is still a benchmark mismatch and suggests the relevance gate remains too permissive for that pattern.
 
-4. **`olsztyn_wodkan` is still noisy in public-money extraction.**
-   - Compensation output remains duplicated and partially degraded to role-like subjects (`Prezes`).
-   - A weak `FUNDING` fact is still emitted in a salary article, which looks like a false positive.
-
-5. **`onet_totalizator_leca_glowy` still under-recovers network context.**
+3. **`onet_totalizator_leca_glowy` still under-recovers network context.**
    - The article remains relevant and emits appointments/dismissals, but output is still thin relative to expectations.
    - Current facts are dominated by governance and office signals; party-network and compensation coverage still look weak.
 
-6. **`wiadomosci.onet.pl__lublin__...__cpw9ltt` improved on relevance but remains noisy.**
+4. **`wiadomosci.onet.pl__lublin__...__cpw9ltt` improved on relevance but remains noisy.**
    - The article now emits useful governance facts, but also overproduces party memberships and some implausible targets.
    - This looks like a precision problem after the relevance gate, not a relevance failure anymore.
+
+5. **`onet_totalizator` is still the loudest remaining political-profile outlier.**
+   - It still emits very high `PARTY_MEMBERSHIP`, `POLITICAL_OFFICE`, and `ELECTION_CANDIDACY` counts.
+   - The new candidacy guard helped in board-candidate articles, but this broader political-profile inflation still needs a deeper precision pass.
 
 ## Batch totals
 
@@ -86,11 +96,11 @@ The three zero-fact outputs are:
 ### Useful / mostly healthy outputs
 
 - `ai42.pl__2024__08__04__czy-wojt-ukrywa-nepotyzm`  
-  Nepotism story stays relevant and emits cousin/appointment output, but still repeats `Wójt` office facts and surname-only variants.
+  Nepotism story stays relevant and again recovers `Artur Sosna`; it still repeats `Wójt` office facts and surname-only variants.
 - `dziennikpolski24...charsznicy...`  
   Partner and father-in-law ties plus local appointments are present; proxy-style canonicals like `Swoją "dziewczynę` still look rough.
 - `interwencja.polsatnews.pl__...bardzo-rodzinne-starostwo_1329791`  
-  Family ties, appointments, and role-held output are all present; office extraction is a bit repetitive but the article shape is captured.
+  Family ties, appointments, and role-held output are all present; `Syn Pszczółkowski` / `Synowa Morawska` are now explicit, though office extraction is still a bit repetitive.
 - `natemat_giermasinska`  
   Family-network and appointment coverage is non-empty with PSL context, though one kinship tie looks misattached.
 - `niezalezna_polski2050_synekury`  
@@ -125,7 +135,7 @@ The three zero-fact outputs are:
 - `dziennikzachodni.pl__nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zawiadomienie-cba__c1-16375383`  
   Public-contract and anti-corruption output exists, but `Radny` is duplicated heavily and surname/person references are noisy.
 - `olsztyn_wodkan`  
-  Salary article stays relevant, but compensation output is duplicated, degrades to role-like subjects (`Prezes`), and still emits a likely false-positive `FUNDING` fact.
+  Salary article stays relevant and now avoids the earlier false-positive `FUNDING` fact; compensation output is still a bit dense but cleaner than before.
 - `onet_totalizator`  
   Coverage is broad (`52` facts) but precision is shaky: many long/noisy targets, party/office inflation, and duplicate/overstretched appointments.
 - `onet_totalizator_leca_glowy`  
@@ -135,7 +145,7 @@ The three zero-fact outputs are:
 - `tvn24.pl__polska__kolesiostwo-i-rozdawanie-posad-miasto-umiera-radna-po-ze-slaska-pisze-do-premiera-ra323735-ls3431831__webarchive_20250427191848`  
   Party and associate-network output exists, but names and affiliations are still noisy enough to create contradictory-looking facts.
 - `tvnwarszawa_fundacja_bielskiego_20260425`  
-  The key public-contract fact is good (`100 tysięcy złotych`), but party-membership output is inflated by duplicates.
+  The key public-contract fact is good (`100 tysięcy złotych`); `Karol Bielski` and a Bielsk-linked foundation entity are now recovered, though party-membership output is still inflated by duplicates.
 - `wiadomosci.onet.pl__kraj__tak-psl-obsadzil-panstwowa-spolke-prace-dostal-min-29-letni-brat-wiceministra__ezt8y9t`  
   Family/network and governance output is present, but the article is over-dense (`42` facts) with duplicated Natura Tour events and too many office facts.
 - `wiadomosci.onet.pl__lublin__nowe-wladze-wfosigw-w-lublinie-bez-konkursu-i-bez-wysluchania-kandydatow__cpw9ltt`  
@@ -192,10 +202,9 @@ All `inputs/*.html` outputs were summarized. Representative facts were inspected
 
 ## Next bottleneck
 
-The next highest-leverage cleanup is **person canonicalization plus downstream political-profile precision**, not entity-resolution schema plumbing.
+The next highest-leverage cleanup is **downstream political-profile precision**, not entity-resolution schema plumbing.
 
 Concretely:
 
-- fix malformed person canonicals without article-specific patches,
 - reduce candidacy/party overgeneration around pronouns and surname-only mentions,
 - keep deduplication uncertainty-aware so richer facts do not lose `possible_entity_matches` during merge.

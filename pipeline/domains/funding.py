@@ -16,6 +16,7 @@ from pipeline.domains.public_money import (
     _public_money_flow_signal,
     is_reporting_przekazac_context,
     is_reporting_przekazac_without_amount,
+    looks_like_compensation_burden,
 )
 from pipeline.entity_classifiers import is_public_funder_name
 from pipeline.extraction_context import ExtractionContext
@@ -96,6 +97,11 @@ class PolishFundingFrameExtractor:
             ):
                 continue
             if is_reporting_przekazac_without_amount(document, clause, amount_match):
+                continue
+            if looks_like_compensation_burden(
+                document.parsed_sentences.get(clause.sentence_index, []),
+                clause.text.casefold(),
+            ):
                 continue
             frame = self._extract_frame_from_clause(
                 document,

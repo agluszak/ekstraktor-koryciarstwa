@@ -1193,6 +1193,74 @@ def test_compensation_fact_builder_prefers_preserved_temporal_expression() -> No
     assert facts[0].event_date == "2019-02-25"
 
 
+def test_compensation_fact_builder_skips_role_only_subjects_and_deduplicates_same_amount() -> None:
+    person = cluster(
+        "cluster-person",
+        "Łukasz Bałajewicz",
+        EntityType.PERSON,
+        entity_id=EntityID("person-1"),
+    )
+    organization = cluster("cluster-org", "KZN", entity_id=EntityID("org-1"))
+    role = cluster("cluster-role", "Prezes", EntityType.POSITION, entity_id=EntityID("position-1"))
+    doc = document([person, organization, role])
+    doc.compensation_frames = [
+        CompensationFrame(
+            frame_id=FrameID("comp-frame-person"),
+            amount_text="31 tys. zł brutto",
+            amount_normalized="31 Tys. Zł Brutto",
+            period="Miesięcznie",
+            person_entity_id=EntityID("person-1"),
+            role_entity_id=EntityID("position-1"),
+            organization_entity_id=EntityID("org-1"),
+            role_label="Prezes",
+            organization_kind=OrganizationKind.ORGANIZATION,
+            confidence=0.85,
+            evidence=[EvidenceSpan(text="Łukasz Bałajewicz zarabia 31 tys. zł brutto.")],
+            extraction_signal="syntactic_direct",
+            evidence_scope="same_clause",
+            score_reason="person_amount_role_org_same_clause",
+        ),
+        CompensationFrame(
+            frame_id=FrameID("comp-frame-duplicate"),
+            amount_text="31 tys. zł brutto",
+            amount_normalized="31 Tys. Zł Brutto",
+            period="Miesięcznie",
+            person_entity_id=EntityID("person-1"),
+            role_entity_id=EntityID("position-1"),
+            organization_entity_id=EntityID("org-1"),
+            role_label="Prezes",
+            organization_kind=OrganizationKind.ORGANIZATION,
+            confidence=0.7,
+            evidence=[EvidenceSpan(text="Prezes KZN zarabia 31 tys. zł brutto miesięcznie.")],
+            extraction_signal="cross_clause_carryover",
+            evidence_scope="same_sentence",
+            score_reason="carried_person_amount_role_org",
+        ),
+        CompensationFrame(
+            frame_id=FrameID("comp-frame-role-only"),
+            amount_text="31 tys. zł brutto",
+            amount_normalized="31 Tys. Zł Brutto",
+            period="Miesięcznie",
+            person_entity_id=None,
+            role_entity_id=EntityID("position-1"),
+            organization_entity_id=EntityID("org-1"),
+            role_label="Prezes",
+            organization_kind=OrganizationKind.ORGANIZATION,
+            confidence=0.65,
+            evidence=[EvidenceSpan(text="Prezes zarabia 31 tys. zł brutto.")],
+            extraction_signal="role_only",
+            evidence_scope="same_clause",
+            score_reason="role_amount_only",
+        ),
+    ]
+
+    facts = CompensationFactBuilder().build(doc, ExtractionContext.build(doc))
+
+    assert len(facts) == 1
+    assert facts[0].subject_entity_id == "person-1"
+    assert facts[0].object_entity_id == "org-1"
+
+
 def test_compensation_frame_extractor_ignores_funding_amounts() -> None:
     config = PipelineConfig.from_file("config.yaml")
     fundacja = cluster("cluster-org", "Fundacja Lux Veritatis", entity_id=EntityID("org-1"))
@@ -1376,6 +1444,52 @@ def test_funding_frame_extractor_handles_postposed_funder_with_relative_token_of
     assert len(doc.funding_frames) == 1
     assert doc.funding_frames[0].funder_entity_id == "org-funder"
     assert doc.funding_frames[0].recipient_entity_id == "org-recipient"
+
+
+def test_funding_frame_extractor_skips_compensation_burden_clauses() -> None:
+    config = PipelineConfig.from_file("config.yaml")
+    text = (
+        "Wodociągi Kieleckie i Stowarzyszenie Przyjazne Kielce muszą wyłożyć 3,33 zł "
+        "na zarobki prezesa."
+    )
+    org_primary = cluster(
+        "cluster-org-primary",
+        "Wodociągi Kieleckie",
+        entity_id=EntityID("org-primary"),
+    )
+    org_secondary = cluster(
+        "cluster-org-secondary",
+        "Stowarzyszenie Przyjazne Kielce",
+        entity_id=EntityID("org-secondary"),
+    )
+    doc = document([org_primary, org_secondary])
+    doc.parsed_sentences = {
+        0: [
+            ParsedWord(1, "Wodociągi", "wodociąg", "PROPN", 5, "nsubj", 0, 9),
+            ParsedWord(2, "Kieleckie", "kielecki", "ADJ", 1, "amod", 10, 20),
+            ParsedWord(3, "Stowarzyszenie", "stowarzyszenie", "PROPN", 1, "conj", 23, 38),
+            ParsedWord(4, "Przyjazne", "przyjazny", "ADJ", 3, "amod", 39, 48),
+            ParsedWord(5, "wyłożyć", "wyłożyć", "VERB", 0, "root", 61, 68),
+            ParsedWord(6, "zarobki", "zarobek", "NOUN", 5, "obl", 80, 87),
+            ParsedWord(7, "prezesa", "prezes", "NOUN", 6, "nmod", 88, 95),
+        ]
+    }
+    doc.clause_units = [
+        ClauseUnit(
+            clause_id=ClauseID("clause-funding-comp-burden"),
+            text=text,
+            trigger_head_text="wyłożyć",
+            trigger_head_lemma="wyłożyć",
+            sentence_index=0,
+            paragraph_index=0,
+            start_char=0,
+            end_char=len(text),
+        )
+    ]
+
+    doc = PolishFundingFrameExtractor(config).run(doc, ExtractionContext.build(doc))
+
+    assert doc.funding_frames == []
 
 
 def test_funding_fact_builder_emits_recipient_funded_by_funder_fact() -> None:

@@ -162,7 +162,12 @@ class PolishFamilyIdentityResolver(IdentityResolver):
         anchor: EntityCluster,
     ) -> _ProxyRecord:
         anchor_entity_id = self._best_entity_id(anchor)
-        canonical_name = normalize_entity_name(surface)
+        canonical_name = self._proxy_canonical_name(
+            document,
+            surface=surface,
+            kinship_detail=kinship_detail,
+            anchor_entity_id=anchor_entity_id,
+        )
         entity_id = EntityID(
             stable_id(
                 "proxy_person",
@@ -211,6 +216,87 @@ class PolishFamilyIdentityResolver(IdentityResolver):
             anchor_entity_id=anchor_entity_id,
             anchor_cluster_id=anchor.cluster_id,
         )
+
+    def _proxy_canonical_name(
+        self,
+        document: ArticleDocument,
+        *,
+        surface: str,
+        kinship_detail: KinshipDetail,
+        anchor_entity_id: str,
+    ) -> str:
+        canonical = normalize_entity_name(surface)
+        shortened = self._short_family_proxy_name(
+            document,
+            surface=canonical,
+            kinship_detail=kinship_detail,
+            anchor_entity_id=anchor_entity_id,
+        )
+        return shortened or canonical
+
+    def _short_family_proxy_name(
+        self,
+        document: ArticleDocument,
+        *,
+        surface: str,
+        kinship_detail: KinshipDetail,
+        anchor_entity_id: str,
+    ) -> str | None:
+        if kinship_detail in {KinshipDetail.SPOUSE, KinshipDetail.PARTNER}:
+            return None
+        anchor_entity = lookup_entity_by_id(document, EntityID(anchor_entity_id))
+        if anchor_entity is None:
+            return None
+        anchor_tokens = anchor_entity.canonical_name.split()
+        surface_tokens = surface.split()
+        if len(anchor_tokens) < 2 or not surface_tokens:
+            return None
+        label = self._family_proxy_label(surface_tokens)
+        surname = self._family_proxy_surname(
+            anchor_tokens[-1],
+            feminine=self._family_proxy_prefers_feminine(label, kinship_detail),
+        )
+        if not surname:
+            return None
+        return f"{label} {surname}"
+
+    @staticmethod
+    def _family_proxy_label(surface_tokens: list[str]) -> str:
+        for token in surface_tokens:
+            if token.casefold() in KINSHIP_BY_LEMMA:
+                return token
+        return surface_tokens[0]
+
+    @staticmethod
+    def _family_proxy_prefers_feminine(label: str, kinship_detail: KinshipDetail) -> bool:
+        if kinship_detail in {
+            KinshipDetail.CHILD_DAUGHTER,
+            KinshipDetail.SIBLING_SISTER,
+            KinshipDetail.SISTER_IN_LAW,
+            KinshipDetail.DAUGHTER_IN_LAW,
+        }:
+            return True
+        if kinship_detail in {
+            KinshipDetail.CHILD_SON,
+            KinshipDetail.SIBLING_BROTHER,
+            KinshipDetail.FATHER_IN_LAW,
+            KinshipDetail.BROTHER_IN_LAW,
+        }:
+            return False
+        return label.casefold().endswith("a")
+
+    @staticmethod
+    def _family_proxy_surname(surname: str, *, feminine: bool) -> str:
+        lowered = surname.casefold()
+        if feminine:
+            for masculine, feminine_ending in (("ski", "ska"), ("cki", "cka"), ("dzki", "dzka")):
+                if lowered.endswith(masculine):
+                    return f"{surname[: -len(masculine)]}{feminine_ending}"
+            return surname
+        for feminine_ending, masculine in (("ska", "ski"), ("cka", "cki"), ("dzka", "dzki")):
+            if lowered.endswith(feminine_ending):
+                return f"{surname[: -len(feminine_ending)]}{masculine}"
+        return surname
 
     def _add_proxy_family_facts(
         self,
