@@ -303,6 +303,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
+    { name = "morfeusz2" },
     { name = "numpy" },
     { name = "peft" },
     { name = "pydantic" },
@@ -324,6 +325,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.3" },
+    { name = "morfeusz2", specifier = ">=1.99.12" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "peft", specifier = ">=0.17.1" },
     { name = "pydantic", specifier = ">=2.13.0" },
@@ -600,6 +602,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "morfeusz2"
+version = "1.99.12"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/bf/72a86e4a6cb472ac895336e774e25d3c23ba24a46d2df3ed510d5bcd883f/morfeusz2-1.99.12-20251109-cp313-cp313-win_amd64.whl", hash = "sha256:a6702cc97b1379ae713768c127605bceeb4cab068f2d45edf8a8f6667ee2b159", size = 9379840, upload-time = "2025-11-13T09:44:19.813Z" },
+    { url = "https://files.pythonhosted.org/packages/08/d6/af24fb23423ffb404b601ef75da20a7339b40e2e3992cd0213db9ab0b889/morfeusz2-1.99.12-cp36-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:c311700e2450e20e4584c9841dff78e74261dc1781d78057c60b0d8effe8d007", size = 9216917, upload-time = "2025-11-13T09:44:51.226Z" },
 ]
 
 [[package]]

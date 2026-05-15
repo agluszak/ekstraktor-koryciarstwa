@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+from pipeline_v2.document import ArticleDocument
+from pipeline_v2.fact_scoring import FactScoringStage
+from pipeline_v2.ids import DocumentId, EntityCandidateId
+from pipeline_v2.morphology import MorfeuszMorphologyStage
+from pipeline_v2.ner import NamedEntityCandidateStage
+from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.party import PartyCandidateStage
+from pipeline_v2.segmentation import ParagraphSentenceSegmenter
+from pipeline_v2.types import EntityKind, FactKind, NerLabel
+
+
+class StaticEntityProvider:
+    def __init__(self, entities: tuple[NamedEntitySpan, ...]) -> None:
+        self.entities = entities
+
+    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
+        _ = text
+        return self.entities
+
+
+def run_party_stage(text: str, entities: tuple[NamedEntitySpan, ...] = ()) -> ArticleDocument:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=(text,),
+    )
+    morphology = Morfeusz2MorphologyAdapter()
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(entities),
+        morphology=morphology,
+    ).run(document)
+    PartyCandidateStage(morphology).run(document)
+    return document
+
+
+def person_span(text: str, name: str) -> NamedEntitySpan:
+    return NamedEntitySpan(
+        text=name,
+        label=NerLabel.PERSON,
+        span=Span(text.index(name), text.index(name) + len(name)),
+    )
+
+
+def test_party_stage_emits_party_entity_and_direct_membership_from_z_party_phrase() -> None:
+    text = "Jan Kowalski z PSL został powołany do rady."
+    document = run_party_stage(text, (person_span(text, "Jan Kowalski"),))
+
+    parties = tuple(
+        entity
+        for entity in document.store.entity_candidates.values()
+        if entity.kind == EntityKind.POLITICAL_PARTY
+    )
+    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+
+    assert tuple(party.canonical_hint for party in parties) == ("Polskie Stronnictwo Ludowe",)
+    assert record.kind is FactKind.PARTY_AFFILIATION
+    assert tuple(argument.to_json() for argument in record.arguments) == (
+        {"role": "subject", "entity_id": "entity-0"},
+        {"role": "object", "entity_id": "entity-1"},
+    )
+    assert tuple(signal.name for signal in record.signals) == (
+        "party_alias_match",
+        "direct_prepositional_attachment",
+    )
+
+
+def test_party_stage_matches_inflected_full_party_name_in_direct_attachment() -> None:
+    text = "Adam Struzik z Polskiego Stronnictwa Ludowego krytykował decyzję urzędu."
+    document = run_party_stage(text, (person_span(text, "Adam Struzik"),))
+
+    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+
+    assert record.kind is FactKind.PARTY_AFFILIATION
+    assert tuple(argument.to_json() for argument in record.arguments) == (
+        {"role": "subject", "entity_id": "entity-0"},
+        {"role": "object", "entity_id": "entity-1"},
+    )
+    assert (
+        document.store.entity_candidates[EntityCandidateId("entity-1")].canonical_hint
+        == "Polskie Stronnictwo Ludowe"
+    )
+
+
+def test_party_stage_attaches_profile_phrases_to_nearest_correct_people() -> None:
+    text = "Działacz Lewicy Stanisław Mazur i działacz PSL Andrzej Kloc będą kierować funduszem."
+    document = run_party_stage(
+        text,
+        (
+            person_span(text, "Stanisław Mazur"),
+            person_span(text, "Andrzej Kloc"),
+        ),
+    )
+
+    records = tuple(
+        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
+    )
+
+    assert tuple(record.kind for record in records) == (
+        FactKind.PARTY_AFFILIATION,
+        FactKind.PARTY_AFFILIATION,
+    )
+    record_arguments = tuple(
+        tuple(argument.to_json() for argument in record.arguments) for record in records
+    )
+    assert record_arguments == (
+        (
+            {"role": "subject", "entity_id": "entity-0"},
+            {"role": "object", "entity_id": "entity-2"},
+        ),
+        (
+            {"role": "subject", "entity_id": "entity-1"},
+            {"role": "object", "entity_id": "entity-3"},
+        ),
+    )
+
+
+def test_party_stage_attaches_reverse_profile_phrase_to_preceding_person() -> None:
+    text = "Marcelina Zawisza, posłanka partii Razem, zwróciła uwagę na problem."
+    document = run_party_stage(text, (person_span(text, "Marcelina Zawisza"),))
+
+    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+
+    assert record.kind is FactKind.PARTY_AFFILIATION
+    assert tuple(argument.to_json() for argument in record.arguments) == (
+        {"role": "subject", "entity_id": "entity-0"},
+        {"role": "object", "entity_id": "entity-1"},
+    )
+    assert document.store.entity_candidates[EntityCandidateId("entity-1")].canonical_hint == "Razem"
+
+
+def test_party_stage_does_not_turn_party_cooccurrence_into_membership() -> None:
+    text = "Donald Tusk skrytykował PSL za decyzję w sprawie budżetu."
+    document = run_party_stage(text, (person_span(text, "Donald Tusk"),))
+
+    assert (
+        tuple(
+            candidate.to_fact_record().kind for candidate in document.store.fact_candidates.values()
+        )
+        == ()
+    )
+
+
+def test_party_stage_ignores_lowercase_preposition_po() -> None:
+    text = "Jan Kowalski poszedł po dokumenty do urzędu."
+    document = run_party_stage(text, (person_span(text, "Jan Kowalski"),))
+
+    assert (
+        tuple(
+            entity
+            for entity in document.store.entity_candidates.values()
+            if entity.kind == EntityKind.POLITICAL_PARTY
+        )
+        == ()
+    )
+
+
+def test_party_stage_does_not_retype_party_alias_inside_organization_name() -> None:
+    text = "Marcin Horyń pracował w PSL Fundacji Rozwoju."
+    document = run_party_stage(text, (person_span(text, "Marcin Horyń"),))
+
+    assert (
+        tuple(
+            entity
+            for entity in document.store.entity_candidates.values()
+            if entity.kind == EntityKind.POLITICAL_PARTY
+        )
+        == ()
+    )
+
+
+def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> None:
+    text = "Kandydatka PSL Anna Nowak wystartowała w wyborach."
+    document = run_party_stage(text, (person_span(text, "Anna Nowak"),))
+
+    FactScoringStage().run(document)
+    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+
+    assert record.kind is FactKind.POLITICAL_SUPPORT
+    assert document.fact_assessments[0].assessment.score < 0.7
+
+
+def test_party_stage_keeps_collective_party_context_weak_without_attaching_later_person() -> None:
+    text = "Radni PiS zapowiedzieli zawiadomienie do CBA w sprawie zatrudnienia Jana Nowaka."
+    document = run_party_stage(text, (person_span(text, "Jana Nowaka"),))
+
+    FactScoringStage().run(document)
+    records = tuple(
+        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
+    )
+    support_record = next(record for record in records if record.kind is FactKind.POLITICAL_SUPPORT)
+
+    assert tuple(record.kind for record in records) == (FactKind.POLITICAL_SUPPORT,)
+    assert tuple(argument.to_json() for argument in support_record.arguments) == (
+        {"role": "subject", "entity_id": "entity-1"},
+    )
+    assert tuple(signal.name for signal in support_record.signals) == (
+        "party_alias_match",
+        "collective_party_context",
+    )
+    assert document.fact_assessments[0].assessment.score < 0.7

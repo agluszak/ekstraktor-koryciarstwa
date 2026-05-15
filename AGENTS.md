@@ -62,6 +62,106 @@ When extraction, preprocessing, linking, scoring, or output logic changes:
 
 Do not treat `pytest` success as sufficient for extraction changes. The checked-in benchmark report is part of regression testing and must be consulted after significant pipeline changes.
 
+## V2 Knowledge Graph Design
+
+When working in `pipeline_v2/`, preserve the graph-like architecture and do not grow "god objects". Do not keep adding fields to `EntityCandidate`, fact candidates, `ArticleDocument`, or `ExtractionStore` just because a new producer needs state.
+
+Core rules:
+- Entities are identity hypotheses only.
+- Facts are event/relation hypotheses only.
+- Evidence is text-grounding only.
+- Scores are assessments only.
+- Links between these things should be explicit typed records, not hidden mutable fields.
+
+Preferred graph shape:
+- Vertex-like records:
+  - `EvidenceSpan`: exact text span and source location.
+  - `Mention`: observed named/entity-like span.
+  - `ReferenceMention`: pronoun, surname-only, descriptor, omitted subject, or proxy phrase.
+  - `EntityCandidate`: local hypothesis for a person, organization, party, role, etc.
+  - `FactCandidate`: local hypothesis for a relation or event.
+  - `Assessment`: score plus positive/negative signals.
+  - `ResolutionClaim`: scored possible identity/reference link.
+- Edge-like records:
+  - `Mention -> EvidenceSpan` via `evidence_id`.
+  - `EntityCandidate -> Mention` via `mention_ids`.
+  - `EntityCandidate -> ReferenceMention` via `reference_ids`.
+  - `FactCandidate -> EntityCandidate/Text` via typed fact arguments.
+  - `FactCandidate -> EvidenceSpan` via `evidence_ids`.
+  - `ResolutionClaim -> EntityCandidate/ReferenceMention` via explicit endpoint IDs.
+  - `Assessment -> candidate/claim` through small wrapper records such as `FactAssessment`.
+
+Do not solve graph needs by adding fields like:
+- `entity.party`
+- `entity.office`
+- `entity.role`
+- `entity.organization`
+- `entity.is_public`
+- `entity.family_member`
+- `entity.confidence`
+- `entity.merged_into`
+- `fact.person_name`
+- `fact.party_name`
+- `document.all_party_context`
+
+Instead:
+- Party membership is a `PARTY_AFFILIATION` fact candidate.
+- Public-office role is a `ROLE` entity candidate linked through a governance fact argument.
+- Public/public-controlled status should become a separate typed candidate or claim if needed, not an entity boolean.
+- Family/proxy status should be represented by proxy/reference candidates and `PERSONAL_OR_POLITICAL_TIE` facts or resolution claims.
+- Confidence belongs in assessments, not on the underlying candidate object.
+- Possible merges belong in resolution claims, not by mutating candidate identity.
+
+`ExtractionStore` guidance:
+- The store may own stable indexes needed for traversal/performance.
+- The store must not become a domain god object.
+- Add retriever/query classes for domain-specific traversal instead of adding every lookup as a store field.
+- Acceptable store indexes are generic and structural:
+  - by sentence ID
+  - by mention ID
+  - by reference ID
+  - by entity ID
+  - by fact participant ID
+  - by stable typed blocking/reuse key
+- Domain-specific retrieval belongs in classes such as:
+  - `SentenceEntityRetriever`
+  - `PartyContextRetriever`
+  - `GovernanceContextRetriever`
+  - `MoneyTransferArgumentRetriever`
+  - `ReferenceCandidateRetriever`
+- If a producer needs "nearby party/person/org/role", add or extend a retriever, not `EntityCandidate`.
+
+Candidate and claim guidance:
+- Candidate records should stay small and typed.
+- If a new candidate family needs different arguments, prefer a new candidate dataclass with `to_fact_record()` over adding nullable fields to an existing one.
+- If multiple candidate families share an output shape, convert them to a common `FactCandidateRecord` at the serialization/scoring boundary.
+- Use explicit typed arguments instead of custom fields, for example:
+  - `EntityFactArgument(FactArgumentRole.PERSON, person_id)`
+  - `EntityFactArgument(FactArgumentRole.ORGANIZATION, org_id)`
+  - `TextFactArgument(FactArgumentRole.CONTEXT, text)`
+- Do not add "just in case" optional fields.
+
+Scoring guidance:
+- Scores are not fields on entities/facts.
+- Scoring emits assessment records: candidate ID, score, positive signals, negative signals, scorer ID, and optional explanation.
+- Multiple scorers should be possible later, so keep scoring output separate from candidate identity.
+- If confidence changes, update assessment logic, not candidate structure.
+
+Output guidance:
+- Output should expose graph records and scored links explicitly.
+- Consumers should be able to inspect:
+  - what candidates were produced
+  - what evidence supports them
+  - what links are uncertain
+  - what score/signals each scorer assigned
+- Do not hide merges or reference resolution inside canonical names.
+
+Rule of thumb:
+- If the field answers "what is this object intrinsically?", it may belong on the object.
+- If it answers "how does this object relate to another object?", it should usually be an edge, claim, or fact.
+- If it answers "how confident are we?", it belongs in an assessment.
+- If it answers "how do I find related things efficiently?", it belongs in a retriever or generic index.
+
 ## Current Architecture
 
 The pipeline is no longer just "NER plus relation rules". The current internal shape is frame-first:
