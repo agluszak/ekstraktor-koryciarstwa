@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -81,6 +82,7 @@ class ResolutionRelation(StrEnum):
     SAME_AS = "same_as"
     ALIAS_OF = "alias_of"
     REFERENT_OF = "referent_of"
+    SAME_FACT = "same_fact"
 
 
 class GroundingKind(StrEnum):
@@ -110,7 +112,8 @@ class Signal:
 
     @property
     def name(self) -> str:
-        return self.__class__.__name__.lower().replace("signal", "")
+        base_name = re.sub(r"Signal$", "", type(self).__name__)
+        return re.sub(r"(?<!^)(?=[A-Z])", "_", base_name).lower()
 
     def to_json(self) -> dict[str, str | float | None]:
         import dataclasses
@@ -137,6 +140,21 @@ class PositiveSignal(Signal):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NegativeSignal(Signal):
     polarity: SignalPolarity = SignalPolarity.NEGATIVE
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PartyOrganizationSignal(NegativeSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EmbeddedInOrganizationNameSignal(NegativeSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NominalKinshipSignal(PositiveSignal):
+    lemma: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +289,15 @@ class SameNameContrastContextSignal(NegativeSignal):
     def name(self) -> str:
         return "same_name_contrast_context"
 
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConflictingPartyAffiliationSignal(NegativeSignal):
+    left_party_hint: str
+    right_party_hint: str
+
+    @property
+    def name(self) -> str:
+        return "conflicting_party_affiliation"
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,6 +524,15 @@ class ExplicitNonPartyContextSignal(NegativeSignal):
 
 
 @dataclass(frozen=True, slots=True)
+class MicroAmountSignal(NegativeSignal):
+    amount: str
+
+    @property
+    def name(self) -> str:
+        return f"micro_amount:{self.amount}"
+
+
+@dataclass(frozen=True, slots=True)
 class CoreferenceProviderLinkSignal(PositiveSignal):
     @property
     def name(self) -> str:
@@ -508,6 +544,7 @@ class ThirdPersonPronounSignal(PositiveSignal):
     @property
     def name(self) -> str:
         return "third_person_pronoun"
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RelevanceSignal(Signal):
@@ -585,3 +622,53 @@ class NearbyPersonCandidateSignal(PositiveSignal):
     @property
     def name(self) -> str:
         return "nearby_person_candidate"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DependencySubjectSignal(PositiveSignal):
+    relation: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DependencyObjectSignal(PositiveSignal):
+    relation: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PrepositionalOrganizationSignal(PositiveSignal):
+    preposition_lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PossessiveKinshipSignal(PositiveSignal):
+    kinship_lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowFallbackSignal(PositiveSignal):
+    distance: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WeakSyntacticBindingSignal(NegativeSignal):
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AppointerContextSignal(NegativeSignal):
+    role_lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ControllerContextSignal(NegativeSignal):
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PseudonymousSourceSignal(NegativeSignal):
+    cue_lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DuplicateFactSignal(PositiveSignal):
+    signature: str

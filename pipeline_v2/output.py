@@ -35,11 +35,10 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                 sentence_to_json(sentence) for sentence in document.store.sentences.values()
             ],
             "tokens": {
-                str(token_id): token_to_json(token) for token_id, token in document.store.tokens.items()
+                str(token_id): token_to_json(token)
+                for token_id, token in document.store.tokens.items()
             },
-            "mentions": [
-                mention_to_json(mention) for mention in document.store.mentions.values()
-            ],
+            "mentions": [mention_to_json(mention) for mention in document.store.mentions.values()],
             "evidence": [
                 evidence_to_json(evidence) for evidence in document.store.evidence.values()
             ],
@@ -84,6 +83,18 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                     "source": str(claim.source),
                 }
                 for claim in document.store.reference_resolution_claims.values()
+            ],
+            "fact_resolution_claims": [
+                {
+                    "id": str(claim.id),
+                    "left_fact_id": str(claim.left_fact_id),
+                    "right_fact_id": str(claim.right_fact_id),
+                    "relation": claim.relation.value,
+                    "evidence_ids": [str(evidence_id) for evidence_id in claim.evidence_ids],
+                    "assessment": assessment_to_json(claim.assessment),
+                    "source": str(claim.source),
+                }
+                for claim in document.store.fact_resolution_claims.values()
             ],
             "fact_candidates": [
                 fact_record_to_json(candidate.to_fact_record())

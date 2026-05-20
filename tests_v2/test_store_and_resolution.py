@@ -28,6 +28,7 @@ from pipeline_v2.types import (
     MentionKind,
     ReferenceKind,
     ResolutionRelation,
+    SameNameContradictionSignal,
 )
 
 
@@ -87,7 +88,7 @@ def _add_mention(
     return mention_id
 
 
-def test_full_inflected_name_reuses_candidate_by_complete_key() -> None:
+def test_full_inflected_name_creates_resolution_proposal_instead_of_reuse() -> None:
     store = ExtractionStore()
     producer = SimpleEntityCandidateProducer()
     first_sentence = _add_sentence(store, "Krzysztof Staruch wygrał wybory.")
@@ -119,11 +120,16 @@ def test_full_inflected_name_reuses_candidate_by_complete_key() -> None:
         canonical_hint="Krzysztof Staruch",
     )
 
-    assert first_id == second_id
-    assert store.entity_candidates[first_id].mention_ids == (first_mention, second_mention)
-    assert store.entity_ids_for_mention(first_mention) == store.entity_ids_for_mention(
-        second_mention
+    assert first_id != second_id
+    assert store.entity_candidates[first_id].mention_ids == (first_mention,)
+    assert store.entity_candidates[second_id].mention_ids == (second_mention,)
+
+    proposals = EntityCandidateRetriever(store).proposals_for_entity(
+        store.entity_candidates[second_id]
     )
+    assert len(proposals) == 1
+    assert proposals[0].left_entity_id == second_id
+    assert proposals[0].right_entity_id == first_id
 
 
 def test_surname_only_candidate_creates_resolution_claim_instead_of_reuse() -> None:
@@ -236,7 +242,7 @@ def test_same_name_contrast_context_does_not_confirm_identity() -> None:
     )
     assessment = V2Orchestrator(store).entity_resolution_scorer.score(enriched)
     assert assessment.score < 0.5
-    assert any(signal.name == "same_name_contradiction" for signal in assessment.negative_signals)
+    assert SameNameContradictionSignal() in assessment.negative_signals
 
 
 def test_reference_mentions_are_typed_not_stringly_typed() -> None:

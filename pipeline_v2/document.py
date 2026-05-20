@@ -7,6 +7,7 @@ from pipeline_v2.candidates import Assessment, FactCandidate, ReferenceResolutio
 from pipeline_v2.embeddings import EvidenceVectorIndex
 from pipeline_v2.ids import DocumentId, FactCandidateId
 from pipeline_v2.store import ExtractionStore
+from pipeline_v2.types import RelevanceSignal
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,9 +16,6 @@ class PipelineInput:
     source_url: str | None = None
     publication_date: str | None = None
     document_id: DocumentId | None = None
-
-
-from pipeline_v2.types import RelevanceSignal, Signal
 
 
 @dataclass(frozen=True, slots=True)

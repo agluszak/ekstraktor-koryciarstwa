@@ -8,7 +8,7 @@ from pipeline_v2.candidates import (
     AntiCorruptionReferralCandidate,
 )
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import EntityCandidateId, EvidenceId, FactCandidateId, ProducerId, TokenId
+from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (

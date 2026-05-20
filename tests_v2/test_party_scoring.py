@@ -12,7 +12,7 @@ from pipeline_v2.ids import (
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.orchestrator import V2Orchestrator
 from pipeline_v2.store import ExtractionStore
-from pipeline_v2.types import EntityKind, GroundingKind, MentionKind
+from pipeline_v2.types import EntityKind, ExplicitNonPartyContextSignal, GroundingKind, MentionKind
 
 
 def test_party_scorer_separates_noisy_candidate_from_final_reliability() -> None:
@@ -92,4 +92,4 @@ def test_party_scorer_separates_noisy_candidate_from_final_reliability() -> None
     assessment = assessed.assessment
 
     assert assessment.score < 0.5
-    assert any(signal.name == "explicit_nonparty_context" for signal in assessment.negative_signals)
+    assert ExplicitNonPartyContextSignal() in assessment.negative_signals

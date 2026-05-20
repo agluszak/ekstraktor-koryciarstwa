@@ -20,14 +20,26 @@ def main(argv: list[str] | None = None) -> int:
         choices=[mode.value for mode in CoreferenceMode],
         default=CoreferenceMode.OFF.value,
     )
+    parser.add_argument(
+        "--stanza-coref-model-path",
+        default="models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.patched.pt",
+    )
     parser.add_argument("--enable-syntax", action="store_true")
     args = parser.parse_args(argv)
+
+    coreference_mode = CoreferenceMode(args.coreference_mode)
+    provider = None
+    if coreference_mode == CoreferenceMode.STANZA:
+        from pipeline_v2.coreference_provider import StanzaCoreferenceProvider
+
+        provider = StanzaCoreferenceProvider(args.stanza_coref_model_path)
 
     pipeline = build_v2_pipeline(
         V2PipelineConfig(
             spacy_model=args.spacy_model,
             sentence_transformer_model=args.sentence_transformer_model,
-            coreference_mode=CoreferenceMode(args.coreference_mode),
+            coreference_mode=coreference_mode,
+            coreference_provider=provider,
             enable_syntax=args.enable_syntax,
         )
     )

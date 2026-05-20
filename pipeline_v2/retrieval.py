@@ -90,7 +90,12 @@ class SentenceEntityRetriever:
             if evidence.sentence_id is None:
                 continue
             evidence_sentence = self.store.sentences[evidence.sentence_id]
-            if evidence_sentence.paragraph_index != anchor_sentence.paragraph_index:
+            idx_dist = abs(evidence_sentence.sentence_index - anchor_sentence.sentence_index)
+            is_same_para = evidence_sentence.paragraph_index == anchor_sentence.paragraph_index
+            # Allow adjacent sentences (distance ≤ 1) to cross paragraph boundaries —
+            # news articles often break paragraphs mid-thought, so the subject may
+            # appear at end of paragraph N-1 and the fact in paragraph N.
+            if not (is_same_para or idx_dist <= 1):
                 continue
             if min_index <= evidence_sentence.sentence_index <= max_index:
                 spans.append((evidence.span.start_char, evidence.span.end_char))
@@ -120,7 +125,9 @@ class EntityCandidateRetriever:
         entity: EntityCandidate,
     ) -> tuple[EntityResolutionProposal, ...]:
         reuse_key = entity.reuse_key
-        surname_base = entity.person_surname_base()
+        surname_base = entity.person_surname_base() or self._surname_base_for_surname_only_entity(
+            entity
+        )
 
         proposals: list[EntityResolutionProposal] = []
         for candidate in self.store.candidates_by_kind(EntityKind.PERSON):
@@ -128,13 +135,26 @@ class EntityCandidateRetriever:
             if candidate_id == entity.id:
                 continue
 
+            # If both have different full names, do not propose merging them!
+            if (
+                reuse_key is not None
+                and candidate.reuse_key is not None
+                and reuse_key.given_name_lemma != candidate.reuse_key.given_name_lemma
+            ):
+                continue
+
             # 1. Full name match via reuse_key
             if reuse_key is not None and candidate.reuse_key == reuse_key:
-                proposals.append(self._build_proposal(entity, candidate, FullNameReuseMatchSignal()))
+                proposals.append(
+                    self._build_proposal(entity, candidate, FullNameReuseMatchSignal())
+                )
                 continue
 
             # 2. Surname base match
-            candidate_surname_base = candidate.person_surname_base()
+            candidate_surname_base = (
+                candidate.person_surname_base()
+                or self._surname_base_for_surname_only_entity(candidate)
+            )
             if surname_base is not None and candidate_surname_base == surname_base:
                 distance = self._minimum_paragraph_distance(entity, candidate)
                 if distance is not None and distance <= 3:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import SentenceId
 from pipeline_v2.nlp import Sentence, Span
 
 UPPERCASE_LETTERS = "A-ZĄĆĘŁŃÓŚŻŹ"

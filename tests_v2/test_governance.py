@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+from pipeline_v2.candidates import FactCandidateRecord
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId
+from pipeline_v2.ids import DocumentId, EntityCandidateId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
-from pipeline_v2.types import FactKind, NerLabel
+from pipeline_v2.types import (
+    AppointmentLemmaSignal,
+    FactKind,
+    LocalOrganizationSignal,
+    LocalPersonSignal,
+    LocalRoleSignal,
+    NerLabel,
+    PartyOrganizationSignal,
+    WindowOrganizationSignal,
+    WindowPersonSignal,
+    WindowRoleSignal,
+)
 
 
 class StaticEntityProvider:
@@ -47,6 +59,13 @@ def run_governance_stage(
     return document
 
 
+def entity_argument_id(record: FactCandidateRecord, role: str) -> EntityCandidateId:
+    argument = next(
+        argument.to_json() for argument in record.arguments if argument.to_json()["role"] == role
+    )
+    return EntityCandidateId(argument["entity_id"])
+
+
 def test_governance_stage_emits_appointment_candidate_with_sentence_local_entities() -> None:
     text = "Jan Kowalski został powołany do zarządu spółki Wodkan."
     document = run_governance_stage(
@@ -73,12 +92,12 @@ def test_governance_stage_emits_appointment_candidate_with_sentence_local_entiti
         {"role": "organization", "entity_id": "entity-1"},
         {"role": "role", "entity_id": "entity-2"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "appointment_lemma",
-        "sentence_local_person",
-        "sentence_local_organization",
-        "sentence_local_role",
-    )
+    assert set(record.signals) == {
+        AppointmentLemmaSignal(lemma="powołać"),
+        LocalPersonSignal(),
+        LocalOrganizationSignal(),
+        LocalRoleSignal(),
+    }
 
 
 def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
@@ -100,10 +119,21 @@ def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
     )
 
     FactScoringStage().run(document)
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    # Both GOVERNANCE_APPOINTMENT (from 'zostać') and GOVERNANCE_DISMISSAL
+    # (from 'odwołać') are emitted; find the dismissal specifically.
+    dismissal_record = next(
+        c.to_fact_record()
+        for c in document.store.fact_candidates.values()
+        if c.to_fact_record().kind is FactKind.GOVERNANCE_DISMISSAL
+    )
 
-    assert record.kind is FactKind.GOVERNANCE_DISMISSAL
-    assert document.fact_assessments[0].assessment.score >= 0.6
+    assert dismissal_record.kind is FactKind.GOVERNANCE_DISMISSAL
+    dismissal_assessment = next(
+        a.assessment
+        for a in document.fact_assessments
+        if a.fact_candidate_id == dismissal_record.id
+    )
+    assert dismissal_assessment.score >= 0.6
 
 
 def test_governance_stage_does_not_emit_candidate_without_person_entity() -> None:
@@ -115,6 +145,22 @@ def test_governance_stage_does_not_emit_candidate_without_person_entity() -> Non
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
                 span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+            ),
+        ),
+    )
+
+    assert tuple(document.store.fact_candidates.values()) == ()
+
+
+def test_governance_stage_does_not_emit_person_only_appointment() -> None:
+    text = "Stanisław Mazur został powołany w maju."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Stanisław Mazur",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Stanisław Mazur"), text.index("Stanisław Mazur") + 15),
             ),
         ),
     )
@@ -150,12 +196,12 @@ def test_governance_stage_uses_adjacent_sentence_context_for_split_appointment()
         {"role": "organization", "entity_id": "entity-1"},
         {"role": "role", "entity_id": "entity-2"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "appointment_lemma",
-        "discourse_window_person",
-        "discourse_window_organization",
-        "discourse_window_role",
-    )
+    assert set(record.signals) == {
+        AppointmentLemmaSignal(lemma="powołać"),
+        WindowPersonSignal(),
+        WindowOrganizationSignal(),
+        WindowRoleSignal(),
+    }
 
 
 def test_governance_stage_does_not_use_previous_paragraph_for_missing_person() -> None:
@@ -180,3 +226,164 @@ def test_governance_stage_does_not_use_previous_paragraph_for_missing_person() -
     )
 
     assert tuple(document.store.fact_candidates.values()) == ()
+
+
+def test_governance_stage_ignores_following_sentence_background_organization() -> None:
+    first = "Z funkcji odwołany został dotychczasowy prezes Olgierd Cieślik."
+    second = "Wcześniej pełnił kierownicze stanowiska w Poczcie Polskiej."
+    text = f"{first} {second}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Olgierd Cieślik",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Olgierd Cieślik"), text.index("Olgierd Cieślik") + 15),
+            ),
+            NamedEntitySpan(
+                text="Poczcie Polskiej",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Poczcie Polskiej"), text.index("Poczcie Polskiej") + 16),
+            ),
+        ),
+    )
+
+    # 'odwołany został' fires both a dismissal ('odwołać') and an appointment
+    # ('zostać').  The test verifies the dismissal specifically, and that the
+    # following-sentence organisation is NOT used as an org argument.
+    dismissal_candidate = next(
+        c
+        for c in document.store.fact_candidates.values()
+        if c.to_fact_record().kind is FactKind.GOVERNANCE_DISMISSAL
+    )
+    record = dismissal_candidate.to_fact_record()
+
+    assert record.kind is FactKind.GOVERNANCE_DISMISSAL
+    assert tuple(argument.to_json() for argument in record.arguments) == (
+        {"role": "person", "entity_id": "entity-0"},
+        {"role": "role", "entity_id": "entity-2"},
+    )
+
+
+def test_governance_stage_marks_party_name_as_organization() -> None:
+    text = "Sławomir Czwal, działacz Koalicji Obywatelskiej, został powołany na dyrektora."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Sławomir Czwal",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Sławomir Czwal"), text.index("Sławomir Czwal") + 15),
+            ),
+            NamedEntitySpan(
+                text="Koalicji Obywatelskiej",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Koalicji Obywatelskiej"),
+                    text.index("Koalicji Obywatelskiej") + 22,
+                ),
+            ),
+        ),
+    )
+
+    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+
+    assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    assert PartyOrganizationSignal() in record.signals
+
+
+def test_governance_stage_generates_multiple_candidates_in_window() -> None:
+    first = "WFOŚiGW w Lublinie ma kłopoty."
+    second = "Poczta Polska ogłasza wyniki."
+    third = "Jan Kowalski został powołany na prezesa."
+    text = f"{first} {second} {third}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="WFOŚiGW w Lublinie",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("WFOŚiGW w Lublinie"), text.index("WFOŚiGW w Lublinie") + 18),
+            ),
+            NamedEntitySpan(
+                text="Poczta Polska",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Poczta Polska"), text.index("Poczta Polska") + 13),
+            ),
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+        ),
+    )
+
+    facts = list(document.store.fact_candidates.values())
+    assert len(facts) == 2
+
+    org_ids = set()
+    for fact in facts:
+        record = fact.to_fact_record()
+        org_ids.add(entity_argument_id(record, "organization"))
+
+    assert len(org_ids) == 2
+    assert WindowOrganizationSignal() in record.signals
+
+
+def test_governance_window_only_org_and_role_near_public_office_actor_scores_low() -> None:
+    first = "Dyrektorem Gminnego Ośrodka Kultury był Szymon Kubit."
+    second = "Tomasz Kościelniak, wójt, został wybrany w drugiej turze."
+    text = f"{first} {second}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Gminnego Ośrodka Kultury",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Gminnego Ośrodka Kultury"),
+                    text.index("Gminnego Ośrodka Kultury") + len("Gminnego Ośrodka Kultury"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Szymon Kubit",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Szymon Kubit"), text.index("Szymon Kubit") + 12),
+            ),
+            NamedEntitySpan(
+                text="Tomasz Kościelniak",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Tomasz Kościelniak"),
+                    text.index("Tomasz Kościelniak") + len("Tomasz Kościelniak"),
+                ),
+            ),
+        ),
+    )
+    FactScoringStage().run(document)
+
+    bad_candidate = next(
+        (
+            candidate
+            for candidate in document.store.fact_candidates.values()
+            if _has_argument(candidate.to_fact_record(), "person", "entity-2")
+            and _has_argument(candidate.to_fact_record(), "organization", "entity-0")
+        ),
+        None,
+    )
+    if bad_candidate is None:
+        return
+    bad_assessment = next(
+        assessment.assessment
+        for assessment in document.fact_assessments
+        if assessment.fact_candidate_id == bad_candidate.id
+    )
+
+    assert bad_assessment.score < 0.5
+
+
+def _has_argument(record: FactCandidateRecord, role: str, entity_id: str) -> bool:
+    return any(
+        argument.to_json() == {"role": role, "entity_id": entity_id}
+        for argument in record.arguments
+    )

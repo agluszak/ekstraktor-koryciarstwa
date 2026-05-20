@@ -86,22 +86,19 @@ class PartyAffiliationCandidate:
 class PoliticalSupportCandidate:
     id: FactCandidateId
     supporter_entity_id: EntityCandidateId
-    supported_entity_id: EntityCandidateId | None
+    supported_entity_id: EntityCandidateId
     evidence_ids: tuple[EvidenceId, ...]
     source: ProducerId
     signals: tuple[Signal, ...] = ()
 
     def participating_entity_ids(self) -> tuple[EntityCandidateId, ...]:
-        if self.supported_entity_id is None:
-            return (self.supporter_entity_id,)
         return (self.supporter_entity_id, self.supported_entity_id)
 
     def to_fact_record(self) -> "FactCandidateRecord":
         arguments: list[FactArgument] = [
-            EntityFactArgument(FactArgumentRole.SUBJECT, self.supporter_entity_id)
+            EntityFactArgument(FactArgumentRole.SUBJECT, self.supporter_entity_id),
+            EntityFactArgument(FactArgumentRole.OBJECT, self.supported_entity_id),
         ]
-        if self.supported_entity_id is not None:
-            arguments.append(EntityFactArgument(FactArgumentRole.OBJECT, self.supported_entity_id))
         return FactCandidateRecord(
             id=self.id,
             kind=FactKind.POLITICAL_SUPPORT,
@@ -490,6 +487,27 @@ class ReferenceResolutionClaim:
     id: ResolutionClaimId
     reference_id: MentionId
     candidate_entity_id: EntityCandidateId
+    relation: ResolutionRelation
+    evidence_ids: tuple[EvidenceId, ...]
+    assessment: Assessment
+    source: ProducerId
+
+
+@dataclass(frozen=True, slots=True)
+class FactResolutionProposal:
+    left_fact_id: FactCandidateId
+    right_fact_id: FactCandidateId
+    relation: ResolutionRelation
+    evidence_ids: tuple[EvidenceId, ...]
+    retrieval_signals: tuple[Signal, ...] = ()
+    context_signals: tuple[Signal, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FactResolutionClaim:
+    id: ResolutionClaimId
+    left_fact_id: FactCandidateId
+    right_fact_id: FactCandidateId
     relation: ResolutionRelation
     evidence_ids: tuple[EvidenceId, ...]
     assessment: Assessment

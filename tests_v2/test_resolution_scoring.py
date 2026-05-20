@@ -12,7 +12,12 @@ from pipeline_v2.ids import (
 from pipeline_v2.nlp import EvidenceSpan, Mention, ReferenceMention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
 from pipeline_v2.resolution_scoring import ResolutionScoringStage
-from pipeline_v2.types import MentionKind, ReferenceKind, ResolutionRelation, positive_signal
+from pipeline_v2.types import (
+    CoreferenceProviderLinkSignal,
+    MentionKind,
+    ReferenceKind,
+    ResolutionRelation,
+)
 
 
 def test_resolution_scoring_stage_emits_scored_entity_resolution_claims() -> None:
@@ -92,8 +97,7 @@ def test_resolution_scoring_stage_emits_scored_entity_resolution_claims() -> Non
 
     claims = tuple(document.store.resolution_claims.values())
     assert len(claims) == 1
-    assert claims[0].left_entity_id == partial_id
-    assert claims[0].right_entity_id == full_id
+    assert {claims[0].left_entity_id, claims[0].right_entity_id} == {partial_id, full_id}
     assert claims[0].relation is ResolutionRelation.SAME_AS
     assert claims[0].assessment.score >= 0.5
 
@@ -140,7 +144,7 @@ def test_resolution_scoring_stage_emits_scored_reference_resolution_claims() -> 
             reference_id=reference_id,
             candidate_entity_id=candidate_id,
             evidence_ids=(reference_evidence_id,),
-            retrieval_signals=(positive_signal("coreference_provider_link"),),
+            retrieval_signals=(CoreferenceProviderLinkSignal(),),
         )
     )
 

@@ -4,7 +4,7 @@ from typing import Protocol
 
 from pipeline_v2.candidates import ReferenceResolutionProposal
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import EntityCandidateId, EvidenceId, MentionId, ProducerId, SentenceId
+from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, SentenceId
 from pipeline_v2.nlp import (
     CoreferenceSpanLink,
     EvidenceSpan,
@@ -19,6 +19,7 @@ from pipeline_v2.types import (
     EntityKind,
     NearbyPersonCandidateSignal,
     ReferenceKind,
+    RelationshipDetail,
     ThirdPersonPronounSignal,
 )
 
@@ -29,6 +30,24 @@ class CoreferenceProvider(Protocol):
 
 class CoreferenceReferenceStage:
     producer_id = ProducerId("coreference_reference_stage_v2")
+
+    _family_details_by_lemma = {
+        "brat": RelationshipDetail.SIBLING,
+        "córka": RelationshipDetail.CHILD,
+        "dziewczyna": RelationshipDetail.SPOUSE,
+        "kuzyn": RelationshipDetail.FAMILY,
+        "kuzynka": RelationshipDetail.FAMILY,
+        "matka": RelationshipDetail.PARENT,
+        "mąż": RelationshipDetail.SPOUSE,
+        "ojciec": RelationshipDetail.PARENT,
+        "partner": RelationshipDetail.SPOUSE,
+        "partnerka": RelationshipDetail.SPOUSE,
+        "siostra": RelationshipDetail.SIBLING,
+        "syn": RelationshipDetail.CHILD,
+        "teść": RelationshipDetail.FAMILY,
+        "teściowa": RelationshipDetail.FAMILY,
+        "żona": RelationshipDetail.SPOUSE,
+    }
 
     def __init__(
         self,
@@ -58,19 +77,39 @@ class CoreferenceReferenceStage:
             document.store.add_evidence(evidence)
             reference_id = document.store.next_reference_id()
             head_lemma = self.mention_factory.head_lemma(link.reference_text)
+
+            token_ids = document.store.token_ids_for_span(
+                sentence_id=sentence_id,
+                span=evidence,
+            )
+
+            ref_kind = link.reference_kind
+            relationship_detail = link.relationship_detail
+
+            family_detail = None
+            for tid in token_ids:
+                token = document.store.tokens[tid]
+                for analysis in token.morph:
+                    if analysis.lemma in self._family_details_by_lemma:
+                        family_detail = self._family_details_by_lemma[analysis.lemma]
+                        break
+                if family_detail is not None:
+                    break
+
+            if family_detail is not None:
+                ref_kind = ReferenceKind.PROXY_FAMILY_PHRASE
+                relationship_detail = family_detail
+
             document.store.add_reference(
                 ReferenceMention(
                     id=reference_id,
                     text=link.reference_text,
-                    kind=link.reference_kind,
+                    kind=ref_kind,
                     evidence_id=evidence.id,
                     sentence_id=sentence_id,
-                    token_ids=document.store.token_ids_for_span(
-                        sentence_id=sentence_id,
-                        span=evidence,
-                    ),
+                    token_ids=token_ids,
                     head_lemma=head_lemma,
-                    relationship_detail=link.relationship_detail,
+                    relationship_detail=relationship_detail,
                 )
             )
             antecedent_evidence = EvidenceSpan(

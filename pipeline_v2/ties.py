@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import PersonalTieFactCandidate
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import FactCandidateId, ProducerId
+from pipeline_v2.ids import ProducerId
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
+    EntityKind,
     ExplicitPatronageLemmaSignal,
     GroundingKind,
     LocalObjectSignal,
     LocalSubjectSignal,
     NamedKinshipLemmaSignal,
+    PseudonymousSourceSignal,
     RelationshipDetail,
     Signal,
 )
@@ -21,13 +23,18 @@ class PersonalTieCandidateStage:
     _family_details_by_lemma = {
         "brat": RelationshipDetail.SIBLING,
         "córka": RelationshipDetail.CHILD,
-        "krewny": RelationshipDetail.FAMILY,
+        "dziewczyna": RelationshipDetail.SPOUSE,
+        "kuzyn": RelationshipDetail.FAMILY,
+        "kuzynka": RelationshipDetail.FAMILY,
         "matka": RelationshipDetail.PARENT,
         "mąż": RelationshipDetail.SPOUSE,
         "ojciec": RelationshipDetail.PARENT,
-        "rodzina": RelationshipDetail.FAMILY,
+        "partner": RelationshipDetail.SPOUSE,
+        "partnerka": RelationshipDetail.SPOUSE,
         "siostra": RelationshipDetail.SIBLING,
         "syn": RelationshipDetail.CHILD,
+        "teść": RelationshipDetail.FAMILY,
+        "teściowa": RelationshipDetail.FAMILY,
         "żona": RelationshipDetail.SPOUSE,
     }
     _patronage_lemmas = frozenset(
@@ -58,6 +65,7 @@ class PersonalTieCandidateStage:
                     document,
                     subject=people[0],
                     object_entity=people[1],
+                    sentence=sentence,
                     sentence_id=sentence.id,
                     relationship_detail=family_detail,
                     signal=NamedKinshipLemmaSignal(lemma=family_detail.value),
@@ -69,6 +77,7 @@ class PersonalTieCandidateStage:
                     document,
                     subject=people[0],
                     object_entity=people[1],
+                    sentence=sentence,
                     sentence_id=sentence.id,
                     relationship_detail=None,
                     signal=ExplicitPatronageLemmaSignal(lemma=patronage_lemma),
@@ -82,11 +91,20 @@ class PersonalTieCandidateStage:
         *,
         subject: SentenceEntity,
         object_entity: SentenceEntity,
+        sentence,
         sentence_id,
         relationship_detail: RelationshipDetail | None,
         signal: Signal,
         context_text: str | None = None,
     ) -> None:
+        signals: list[Signal] = [
+            signal,
+            LocalSubjectSignal(),
+            LocalObjectSignal(),
+        ]
+        pseudonymous_signal = self._pseudonymous_source_signal(document, sentence, subject)
+        if pseudonymous_signal is not None:
+            signals.append(pseudonymous_signal)
         document.store.add_fact_candidate(
             PersonalTieFactCandidate(
                 id=document.store.next_fact_candidate_id(),
@@ -105,13 +123,25 @@ class PersonalTieCandidateStage:
                 source=self.producer_id,
                 relationship_detail=relationship_detail,
                 context_text=context_text,
-                signals=(
-                    signal,
-                    LocalSubjectSignal(),
-                    LocalObjectSignal(),
-                ),
+                signals=tuple(signals),
             )
         )
+
+    def _pseudonymous_source_signal(
+        self,
+        document: ArticleDocument,
+        sentence,
+        subject: SentenceEntity,
+    ) -> PseudonymousSourceSignal | None:
+        lemmas = self._sentence_lemmas(document, sentence)
+        if not (lemmas & {"osoba", "podpisać", "podpisany"}):
+            return None
+        subject_evidence = document.store.evidence_for_entity(subject.id)
+        if not any(evidence.sentence_id == sentence.id for evidence in subject_evidence):
+            return None
+        if "podpis" not in sentence.text.casefold():
+            return None
+        return PseudonymousSourceSignal(cue_lemma="podpisać")
 
     def _observed_people(
         self,
@@ -121,7 +151,8 @@ class PersonalTieCandidateStage:
         return tuple(
             entity
             for entity in entities
-            if document.store.entity_candidates[entity.id].grounding is GroundingKind.OBSERVED
+            if entity.kind == EntityKind.PERSON
+            and document.store.entity_candidates[entity.id].grounding is GroundingKind.OBSERVED
         )
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence) -> frozenset[str]:

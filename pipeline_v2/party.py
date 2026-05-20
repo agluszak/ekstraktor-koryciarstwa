@@ -11,9 +11,6 @@ from pipeline_v2.candidates import (
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
     EntityCandidateId,
-    EvidenceId,
-    FactCandidateId,
-    MentionId,
     ProducerId,
     TokenId,
 )
@@ -21,8 +18,8 @@ from pipeline_v2.nlp import EvidenceSpan, MentionFactory, MorphologyAdapter, Sen
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
     CandidacyContextSignal,
-    CollectivePartyContextSignal,
     DirectPrepositionalAttachmentSignal,
+    EmbeddedInOrganizationNameSignal,
     EntityKind,
     GroundingKind,
     MentionKind,
@@ -127,13 +124,13 @@ class PartyCandidateStage:
             for match in pattern.finditer(sentence.text):
                 start_char = sentence.span.start_char + match.start()
                 end_char = sentence.span.start_char + match.end()
-                if self._is_embedded_in_organization_name(document, sentence, end_char):
-                    continue
+                is_embedded = self._is_embedded_in_organization_name(document, sentence, end_char)
                 matches.append(
                     PartyAliasMatch(
                         alias=alias,
                         span=Span(start_char, end_char),
                         text=document.cleaned_text[start_char:end_char],
+                        is_embedded=is_embedded,
                     )
                 )
         for alias in self.lemma_aliases:
@@ -210,39 +207,26 @@ class PartyCandidateStage:
                 )
             )
             return
-        if self._has_profile_context(document, sentence, match) and self._has_following_person(
-            entities,
-            match,
-        ):
-            document.store.add_evidence(evidence)
-            document.store.add_fact_candidate(
-                PoliticalSupportCandidate(
-                    id=document.store.next_fact_candidate_id(),
-                    supporter_entity_id=party_id,
-                    supported_entity_id=None,
-                    evidence_ids=(evidence.id,),
-                    source=self.producer_id,
-                    signals=(
-                        PartyAliasMatchSignal(),
-                        CollectivePartyContextSignal(),
-                    ),
-                )
-            )
-            return
+
         if self._has_support_context(document, sentence, match):
+            people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
+            supported = self._nearest_person(people, match.span.start_char)
+            if supported is None:
+                return
+
+            signals: list[Signal] = [PartyAliasMatchSignal(), CandidacyContextSignal()]
+            if match.is_embedded:
+                signals.append(EmbeddedInOrganizationNameSignal())
+
             document.store.add_evidence(evidence)
-            supported = self._nearest_person(entities, match.span.start_char)
             document.store.add_fact_candidate(
                 PoliticalSupportCandidate(
                     id=document.store.next_fact_candidate_id(),
                     supporter_entity_id=party_id,
-                    supported_entity_id=supported.id if supported is not None else None,
+                    supported_entity_id=supported.id,
                     evidence_ids=(evidence.id,),
                     source=self.producer_id,
-                    signals=(
-                        PartyAliasMatchSignal(),
-                        CandidacyContextSignal(),
-                    ),
+                    signals=tuple(signals),
                 )
             )
 
@@ -318,6 +302,10 @@ class PartyCandidateStage:
             signals.append(PartyProfileLemmaSignal(lemma=match.alias.alias))
         else:
             signals.append(DirectPrepositionalAttachmentSignal())
+
+        if match.is_embedded:
+            signals.append(EmbeddedInOrganizationNameSignal())
+
         return tuple(signals)
 
     def _has_profile_context(
@@ -490,13 +478,13 @@ class PartyCandidateStage:
                 continue
             start_char = document.store.tokens[window[0]].span.start_char
             end_char = document.store.tokens[window[-1]].span.end_char
-            if self._is_embedded_in_organization_name(document, sentence, end_char):
-                continue
+            is_embedded = self._is_embedded_in_organization_name(document, sentence, end_char)
             matches.append(
                 PartyAliasMatch(
                     alias=alias.alias,
                     span=Span(start_char, end_char),
                     text=document.cleaned_text[start_char:end_char],
+                    is_embedded=is_embedded,
                 )
             )
         return tuple(matches)
@@ -518,3 +506,4 @@ class PartyAliasMatch:
     alias: PartyAlias
     span: Span
     text: str
+    is_embedded: bool = False

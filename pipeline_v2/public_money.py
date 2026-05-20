@@ -4,11 +4,10 @@ import re
 
 from pipeline_v2.candidates import EntityCandidate, MoneyTransferFactCandidate
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
     EntityCandidateId,
     EvidenceId,
-    FactCandidateId,
-    MentionId,
     ProducerId,
     TokenId,
 )
@@ -20,6 +19,7 @@ from pipeline_v2.types import (
     CompensationSourceSignal,
     ContractCounterpartySignal,
     ContractorSignal,
+    ControllerContextSignal,
     EntityKind,
     FactKind,
     FunderSignal,
@@ -28,10 +28,14 @@ from pipeline_v2.types import (
     LocalPhraseFunderSignal,
     LocalPhraseRecipientSignal,
     MentionKind,
+    MicroAmountSignal,
     MoneyAmountSignal,
+    PartyOrganizationSignal,
     PublicContractLemmaSignal,
     RecipientSignal,
     Signal,
+    WindowOrganizationSignal,
+    WindowPersonSignal,
 )
 
 
@@ -113,28 +117,58 @@ class PublicMoneyCandidateStage:
             )
             document.store.add_evidence(evidence)
             for kind, signals in kinds:
-                source_entity_id, target_entity_id, role_signals = self._select_parties(
+                for source_entity_id, target_entity_id, role_signals in self._select_parties(
                     document,
                     sentence,
                     kind,
-                )
-                document.store.add_fact_candidate(
-                    MoneyTransferFactCandidate(
-                        id=document.store.next_fact_candidate_id(),
-                        kind=kind,
-                        source_entity_id=source_entity_id,
-                        target_entity_id=target_entity_id,
-                        amount_text=amount_texts[0],
-                        evidence_ids=(evidence.id,),
-                        source=self.producer_id,
-                        signals=(
-                            MoneyAmountSignal(amount=amount_texts[0]),
-                            *signals,
-                            *role_signals,
-                        ),
+                ):
+                    extra_signals: list[Signal] = []
+                    if kind == FactKind.COMPENSATION:
+                        micro = self._micro_amount_signal(amount_texts[0])
+                        if micro is not None:
+                            extra_signals.append(micro)
+                    document.store.add_fact_candidate(
+                        MoneyTransferFactCandidate(
+                            id=document.store.next_fact_candidate_id(),
+                            kind=kind,
+                            source_entity_id=source_entity_id,
+                            target_entity_id=target_entity_id,
+                            amount_text=amount_texts[0],
+                            evidence_ids=(evidence.id,),
+                            source=self.producer_id,
+                            signals=(
+                                MoneyAmountSignal(amount=amount_texts[0]),
+                                *signals,
+                                *role_signals,
+                                *extra_signals,
+                            ),
+                        )
                     )
-                )
         return document
+
+    _scale_pattern = re.compile(r"tys\.?|tysi[eę]cy|mln|milion", re.IGNORECASE)
+    _numeric_pattern = re.compile(r"[\d\s\xa0]+(?:[,.]\d+)?")
+
+    def _micro_amount_signal(self, amount_text: str) -> MicroAmountSignal | None:
+        """Return a MicroAmountSignal when the amount is below 100 PLN and has no scale word.
+
+        This covers citizen-cost statistics like "1,88 zł" that should not be
+        treated as executive compensation.  Candidate emission is intentionally
+        left unchanged; penalisation is the scorer's job.
+        """
+        if self._scale_pattern.search(amount_text):
+            return None
+        m = self._numeric_pattern.match(amount_text.strip())
+        if m is None:
+            return None
+        raw = m.group(0).replace("\xa0", "").replace(" ", "").replace(",", ".")
+        try:
+            value = float(raw)
+        except ValueError:
+            return None
+        if value < 100.0:
+            return MicroAmountSignal(amount=amount_text.strip())
+        return None
 
     def _amount_texts(self, sentence: Sentence) -> tuple[str, ...]:
         return tuple(match.group(0) for match in self._amount_pattern.finditer(sentence.text))
@@ -197,23 +231,26 @@ class PublicMoneyCandidateStage:
         document: ArticleDocument,
         sentence: Sentence,
         kind: FactKind,
-    ) -> tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]]:
-        entities = SentenceEntityRetriever(document.store).entities_for_sentence(sentence)
+    ) -> tuple[tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]], ...]:
+        retriever = SentenceEntityRetriever(document.store)
+        entities = retriever.entities_for_sentence(sentence)
         if kind == FactKind.COMPENSATION:
-            return self._select_compensation_parties(entities)
+            return self._select_compensation_parties(document, sentence, retriever, entities)
         organizations = tuple(
             entity for entity in entities if entity.kind == EntityKind.ORGANIZATION
         )
         if kind == FactKind.PUBLIC_CONTRACT:
-            return self._select_contract_parties(organizations)
+            res = self._select_contract_parties(organizations)
+            return (res,) if res[2] else ((None, None, ()),)
         if kind == FactKind.FUNDING:
-            return self._select_funding_parties(
+            res = self._select_funding_parties(
                 document,
                 sentence,
                 organizations,
                 lemmas=self._sentence_lemmas(document, sentence),
             )
-        return None, None, ()
+            return (res,) if res[2] else ((None, None, ()),)
+        return ((None, None, ()),)
 
     def _select_contract_parties(
         self,
@@ -432,17 +469,110 @@ class PublicMoneyCandidateStage:
 
     def _select_compensation_parties(
         self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        retriever: SentenceEntityRetriever,
         entities: tuple[SentenceEntity, ...],
-    ) -> tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]]:
+    ) -> tuple[tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]], ...]:
+        """Select funder (organisation) and recipient (person) for a compensation fact.
+
+        Checks local sentence entities first; falls back to a 3-sentence window
+        so that subjects introduced in a previous sentence (or paragraph) are
+        still linked. Returns Cartesian product of all matched entities.
+        """
         organizations = tuple(
             entity for entity in entities if entity.kind == EntityKind.ORGANIZATION
         )
         people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
-        source_id = organizations[0].id if organizations else None
-        target_id = people[0].id if people else None
-        signals: list[Signal] = []
-        if source_id is not None:
-            signals.append(CompensationSourceSignal())
-        if target_id is not None:
-            signals.append(CompensationRecipientSignal())
-        return source_id, target_id, tuple(signals)
+
+        # Fall back to window when local sentence lacks entities
+        source_signal: Signal
+        target_signal: Signal
+        if not organizations:
+            window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+            organizations = tuple(
+                entity for entity in window if entity.kind == EntityKind.ORGANIZATION
+            )
+            source_signal = WindowOrganizationSignal()
+        else:
+            source_signal = CompensationSourceSignal()
+
+        if not people:
+            window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+            people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
+            target_signal = WindowPersonSignal()
+        else:
+            target_signal = CompensationRecipientSignal()
+
+        combinations = []
+        for person in people if people else [None]:
+            for org in organizations if organizations else [None]:
+                signals: list[Signal] = []
+                if org is not None:
+                    signals.append(source_signal)
+                    if self._is_party_like_organization(document, org.id):
+                        signals.append(PartyOrganizationSignal())
+                    if source_signal == WindowOrganizationSignal() and self._is_controller_context(
+                        document,
+                        org.id,
+                    ):
+                        signals.append(
+                            ControllerContextSignal(
+                                reason="window organization appears as controller/supervisor"
+                            )
+                        )
+                if person is not None:
+                    signals.append(target_signal)
+                combinations.append(
+                    (org.id if org else None, person.id if person else None, tuple(signals))
+                )
+        return tuple(combinations) if combinations else ((None, None, ()),)
+
+    def _is_controller_context(
+        self,
+        document: ArticleDocument,
+        candidate_id: EntityCandidateId,
+    ) -> bool:
+        candidate = document.store.entity_candidates[candidate_id]
+        canonical_hint = (candidate.canonical_hint or "").casefold()
+        if any(
+            word in canonical_hint
+            for word in ("ministerstwo", "ministerstwu", "resort", "urząd nadzorujący")
+        ):
+            return True
+        return False
+
+    def _is_party_like_organization(
+        self, document: ArticleDocument, candidate_id: EntityCandidateId
+    ) -> bool:
+        party_names = GovernanceCandidateStage._party_like_organization_names
+        candidate = document.store.entity_candidates[candidate_id]
+        canonical_hint = (candidate.canonical_hint or "").casefold()
+
+        # 1. Exact match in the set of party-like organization names
+        if canonical_hint in party_names:
+            return True
+
+        # 2. Check whole-word overlap with known party-like organization names.
+        hint_words = set(canonical_hint.split())
+        for party_name in party_names:
+            party_words = set(party_name.split())
+            intersect = hint_words & party_words
+            intersect = {w for w in intersect if len(w) > 2 and w not in {"dla", "oraz", "pod"}}
+            if intersect:
+                return True
+
+        # 3. Check if it overlaps with any political party candidate in the document
+        organization_evidence = tuple(document.store.evidence_for_entity(candidate_id))
+        for party_candidate in document.store.candidates_by_kind(EntityKind.POLITICAL_PARTY):
+            for party_evidence in document.store.evidence_for_entity(party_candidate.id):
+                for organization_span in organization_evidence:
+                    if organization_span.sentence_id != party_evidence.sentence_id:
+                        continue
+                    if organization_span.span.end_char <= party_evidence.span.start_char:
+                        continue
+                    if party_evidence.span.end_char <= organization_span.span.start_char:
+                        continue
+                    return True
+
+        return False
