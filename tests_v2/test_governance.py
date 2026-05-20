@@ -292,7 +292,7 @@ def test_governance_stage_marks_party_name_as_organization() -> None:
     assert PartyOrganizationSignal() in record.signals
 
 
-def test_governance_stage_generates_multiple_candidates_in_window() -> None:
+def test_governance_stage_prefers_one_window_organization_candidate() -> None:
     first = "WFOŚiGW w Lublinie ma kłopoty."
     second = "Poczta Polska ogłasza wyniki."
     third = "Jan Kowalski został powołany na prezesa."
@@ -319,14 +319,8 @@ def test_governance_stage_generates_multiple_candidates_in_window() -> None:
     )
 
     facts = list(document.store.fact_candidates.values())
-    assert len(facts) == 2
-
-    org_ids = set()
-    for fact in facts:
-        record = fact.to_fact_record()
-        org_ids.add(entity_argument_id(record, "organization"))
-
-    assert len(org_ids) == 2
+    assert len(facts) == 1
+    record = facts[0].to_fact_record()
     assert WindowOrganizationSignal() in record.signals
 
 

@@ -96,6 +96,14 @@ class GovernanceCandidateStage:
             "szef",
         }
     )
+    _governing_body_head_lemmas = frozenset(
+        {
+            "rada",
+            "zarząd",
+            "komisja",
+            "komitet",
+        }
+    )
 
     def name(self) -> str:
         return "governance_candidate_stage_v2"
@@ -291,27 +299,62 @@ class GovernanceCandidateStage:
                     if not syntax.is_passive_sentence(sentence, trigger_token.id):
                         # Person is the appointer, skip them as a governance appointment candidate
                         continue
+                if self._is_background_local_person(
+                    document,
+                    sentence,
+                    person,
+                    entities,
+                    trigger_token.span.start_char,
+                ):
+                    continue
 
-            for org, o_signals in organizations if organizations else ((None, ()),):
-                for role, r_signals in roles if roles else ((None, ()),):
-                    # A local role should bind to its own sentence-local person.
-                    if (
-                        person_is_window_only
-                        and local_people_ids
-                        and role is not None
-                        and role.id in local_role_ids
-                    ):
-                        continue
-                    # Skip: window-only role from a sentence that has its own person
-                    # (that person is the actual appointee, not the window person)
-                    if (
-                        role is not None
-                        and role.id not in local_role_ids
-                        and (role_sentence_people := _role_source_sentence_person_ids(role))
-                        and person.id not in role_sentence_people
-                    ):
-                        continue
+            role_candidates = self._role_candidates_for_person(
+                document=document,
+                sentence=sentence,
+                person=person,
+                roles=roles,
+                local_people_ids=local_people_ids,
+                local_role_ids=local_role_ids,
+                role_source_sentence_person_ids=_role_source_sentence_person_ids,
+                trigger_start_char=(
+                    trigger_token.span.start_char if trigger_token is not None else None
+                ),
+            )
+            if not role_candidates:
+                role_candidates = ((None, ()),)
+
+            for role, r_signals in role_candidates:
+                organization_candidates = self._organization_candidates_for_person(
+                    document=document,
+                    sentence=sentence,
+                    person=person,
+                    role=role,
+                    organizations=organizations,
+                    trigger_start_char=(
+                        trigger_token.span.start_char if trigger_token is not None else None
+                    ),
+                )
+                if not organization_candidates:
+                    organization_candidates = ((None, ()),)
+                for org, o_signals in organization_candidates:
                     signals = [*p_signals, *o_signals, *r_signals]
+                    appointer_role = self._public_office_role_near_person(
+                        document,
+                        sentence,
+                        person.id,
+                    )
+                    if (
+                        not person_is_window_only
+                        and org is not None
+                        and org.id not in frozenset(e.id for e in entities)
+                        and appointer_role is not None
+                        and (
+                            role is None
+                            or role.id not in local_role_ids
+                            or not self._has_governance_role(document, role.id)
+                        )
+                    ):
+                        continue
                     if (
                         not person_is_window_only
                         and org is not None
@@ -323,11 +366,6 @@ class GovernanceCandidateStage:
                             WeakSyntacticBindingSignal(
                                 reason="local person with only window organization and role"
                             )
-                        )
-                        appointer_role = self._public_office_role_near_person(
-                            document,
-                            sentence,
-                            person.id,
                         )
                         if appointer_role is not None:
                             signals.append(AppointerContextSignal(role_lemma=appointer_role))
@@ -342,6 +380,70 @@ class GovernanceCandidateStage:
                         )
                     )
         return tuple(combinations)
+
+    def _role_candidates_for_person(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person: SentenceEntity,
+        roles: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
+        local_people_ids: frozenset[EntityCandidateId],
+        local_role_ids: frozenset[EntityCandidateId],
+        role_source_sentence_person_ids,
+        trigger_start_char: int | None,
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        compatible_roles: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
+        for role, role_signals in roles:
+            person_is_window_only = person.id not in local_people_ids
+            if person_is_window_only and local_people_ids and role.id in local_role_ids:
+                continue
+            if (
+                role.id not in local_role_ids
+                and (role_sentence_people := role_source_sentence_person_ids(role))
+                and person.id not in role_sentence_people
+            ):
+                continue
+            compatible_roles.append((role, role_signals))
+        if not compatible_roles:
+            return ()
+        best_role, best_signals = min(
+            compatible_roles,
+            key=lambda item: self._role_score(
+                person=person,
+                role=item[0],
+                trigger_start_char=trigger_start_char,
+            ),
+        )
+        return ((best_role, best_signals),)
+
+    def _organization_candidates_for_person(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person: SentenceEntity,
+        role: SentenceEntity | None,
+        organizations: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
+        trigger_start_char: int | None,
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        viable_organizations = tuple(
+            (organization, signals)
+            for organization, signals in organizations
+            if not self._is_governing_body_organization(document, organization.id)
+        )
+        if not viable_organizations:
+            return ()
+        best_organization, best_signals = min(
+            viable_organizations,
+            key=lambda item: self._organization_score(
+                person=person,
+                role=role,
+                organization=item[0],
+                trigger_start_char=trigger_start_char,
+            ),
+        )
+        return ((best_organization, best_signals),)
 
     def _select_entities(
         self,
@@ -445,6 +547,90 @@ class GovernanceCandidateStage:
             for token in document.store.tokens_for_mention(mention.id):
                 if any(analysis.lemma in self._governance_role_lemmas for analysis in token.morph):
                     return True
+        return False
+
+    def _organization_lemmas(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> frozenset[str]:
+        lemmas: set[str] = set()
+        for mention in document.store.candidate_mentions(entity_id):
+            for token in document.store.tokens_for_mention(mention.id):
+                for analysis in token.morph:
+                    lemmas.add(analysis.lemma)
+        return frozenset(lemmas)
+
+    def _is_governing_body_organization(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        candidate = document.store.entity_candidates[entity_id]
+        canonical_hint = (candidate.canonical_hint or "").casefold()
+        if canonical_hint.startswith("rada ") or canonical_hint.startswith("zarząd "):
+            return True
+        lemmas = self._organization_lemmas(document, entity_id)
+        if not lemmas:
+            return False
+        if "nadzorczy" in lemmas and "rada" in lemmas:
+            return True
+        return bool(lemmas & self._governing_body_head_lemmas and lemmas & {"nadzorczy", "członek"})
+
+    @staticmethod
+    def _entity_midpoint(entity: SentenceEntity) -> int:
+        return (entity.start_char + entity.end_char) // 2
+
+    def _role_score(
+        self,
+        *,
+        person: SentenceEntity,
+        role: SentenceEntity,
+        trigger_start_char: int | None,
+    ) -> tuple[int, int, int]:
+        person_distance = abs(self._entity_midpoint(role) - self._entity_midpoint(person))
+        trigger_distance = (
+            abs(self._entity_midpoint(role) - trigger_start_char)
+            if trigger_start_char is not None
+            else 9999
+        )
+        return (person_distance, trigger_distance, role.start_char)
+
+    def _organization_score(
+        self,
+        *,
+        person: SentenceEntity,
+        role: SentenceEntity | None,
+        organization: SentenceEntity,
+        trigger_start_char: int | None,
+    ) -> tuple[int, int, int]:
+        anchor_char = (
+            self._entity_midpoint(role) if role is not None else self._entity_midpoint(person)
+        )
+        anchor_distance = abs(self._entity_midpoint(organization) - anchor_char)
+        trigger_distance = (
+            abs(self._entity_midpoint(organization) - trigger_start_char)
+            if trigger_start_char is not None
+            else 9999
+        )
+        return (anchor_distance, trigger_distance, organization.start_char)
+
+    def _is_background_local_person(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person: SentenceEntity,
+        entities: tuple[SentenceEntity, ...],
+        trigger_start_char: int,
+    ) -> bool:
+        if person.end_char >= trigger_start_char:
+            return False
+        for other in entities:
+            if other.kind != EntityKind.PERSON or other.id == person.id:
+                continue
+            if other.start_char <= trigger_start_char:
+                continue
+            return True
         return False
 
     def _is_party_like_organization(
