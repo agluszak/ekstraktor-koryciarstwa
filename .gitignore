@@ -15,6 +15,7 @@ wheels/
 
 # Local outputs and downloaded artifacts
 output/
+output_v2*
 models/
 article_*.html
 

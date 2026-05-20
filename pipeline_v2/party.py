@@ -20,11 +20,15 @@ from pipeline_v2.ids import (
 from pipeline_v2.nlp import EvidenceSpan, MentionFactory, MorphologyAdapter, Sentence, Span
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
+    CandidacyContextSignal,
+    CollectivePartyContextSignal,
+    DirectPrepositionalAttachmentSignal,
     EntityKind,
     GroundingKind,
     MentionKind,
+    PartyAliasMatchSignal,
+    PartyProfileLemmaSignal,
     Signal,
-    positive_signal,
 )
 
 
@@ -143,15 +147,15 @@ class PartyCandidateStage:
         match: "PartyAliasMatch",
     ) -> EntityCandidateId:
         evidence = EvidenceSpan(
-            id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+            id=document.store.next_evidence_id(),
             text=match.text,
             span=match.span,
             sentence_id=sentence.id,
             paragraph_index=sentence.paragraph_index,
-            source=self.name(),
+            source=self.producer_id,
         )
         document.store.add_evidence(evidence)
-        mention_id = MentionId(f"mention-{len(document.store.mentions)}")
+        mention_id = document.store.next_mention_id()
         document.store.add_mention(
             self.mention_factory.build_mention(
                 mention_id=mention_id,
@@ -167,7 +171,7 @@ class PartyCandidateStage:
         )
         return document.store.add_entity_candidate(
             EntityCandidate(
-                id=EntityCandidateId(f"entity-{len(document.store.entity_candidates)}"),
+                id=document.store.next_entity_candidate_id(),
                 kind=EntityKind.POLITICAL_PARTY,
                 mention_ids=(mention_id,),
                 canonical_hint=match.alias.canonical_name,
@@ -184,12 +188,12 @@ class PartyCandidateStage:
         match: "PartyAliasMatch",
     ) -> None:
         evidence = EvidenceSpan(
-            id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+            id=document.store.next_evidence_id(),
             text=sentence.text,
             span=sentence.span,
             sentence_id=sentence.id,
             paragraph_index=sentence.paragraph_index,
-            source=self.name(),
+            source=self.producer_id,
         )
         entities = SentenceEntityRetriever(document.store).entities_for_sentence(sentence)
         person = self._direct_affiliation_person(document, sentence, entities, match)
@@ -197,7 +201,7 @@ class PartyCandidateStage:
             document.store.add_evidence(evidence)
             document.store.add_fact_candidate(
                 PartyAffiliationCandidate(
-                    id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                    id=document.store.next_fact_candidate_id(),
                     subject_entity_id=person.id,
                     party_entity_id=party_id,
                     evidence_ids=(evidence.id,),
@@ -213,14 +217,14 @@ class PartyCandidateStage:
             document.store.add_evidence(evidence)
             document.store.add_fact_candidate(
                 PoliticalSupportCandidate(
-                    id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                    id=document.store.next_fact_candidate_id(),
                     supporter_entity_id=party_id,
                     supported_entity_id=None,
                     evidence_ids=(evidence.id,),
                     source=self.producer_id,
                     signals=(
-                        positive_signal("party_alias_match"),
-                        positive_signal("collective_party_context"),
+                        PartyAliasMatchSignal(),
+                        CollectivePartyContextSignal(),
                     ),
                 )
             )
@@ -230,14 +234,14 @@ class PartyCandidateStage:
             supported = self._nearest_person(entities, match.span.start_char)
             document.store.add_fact_candidate(
                 PoliticalSupportCandidate(
-                    id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                    id=document.store.next_fact_candidate_id(),
                     supporter_entity_id=party_id,
                     supported_entity_id=supported.id if supported is not None else None,
                     evidence_ids=(evidence.id,),
                     source=self.producer_id,
                     signals=(
-                        positive_signal("party_alias_match"),
-                        positive_signal("candidacy_context"),
+                        PartyAliasMatchSignal(),
+                        CandidacyContextSignal(),
                     ),
                 )
             )
@@ -309,11 +313,11 @@ class PartyCandidateStage:
         sentence: Sentence,
         match: "PartyAliasMatch",
     ) -> tuple[Signal, ...]:
-        signals = [positive_signal("party_alias_match")]
+        signals: list[Signal] = [PartyAliasMatchSignal()]
         if self._has_profile_context(document, sentence, match):
-            signals.append(positive_signal("party_profile_lemma"))
+            signals.append(PartyProfileLemmaSignal(lemma=match.alias.alias))
         else:
-            signals.append(positive_signal("direct_prepositional_attachment"))
+            signals.append(DirectPrepositionalAttachmentSignal())
         return tuple(signals)
 
     def _has_profile_context(

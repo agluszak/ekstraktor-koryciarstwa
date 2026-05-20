@@ -6,7 +6,7 @@ from typing import cast
 
 from pipeline_v2.candidates import Assessment, EntityCandidate, FactCandidateRecord
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.nlp import EvidenceSpan, Mention, ReferenceMention, Sentence
+from pipeline_v2.nlp import EvidenceSpan, Mention, MorphAnalysis, ReferenceMention, Sentence, Token
 from pipeline_v2.types import Signal
 
 type JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -33,6 +33,12 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
             "relevance": relevance_to_json(document),
             "sentences": [
                 sentence_to_json(sentence) for sentence in document.store.sentences.values()
+            ],
+            "tokens": {
+                str(token_id): token_to_json(token) for token_id, token in document.store.tokens.items()
+            },
+            "mentions": [
+                mention_to_json(mention) for mention in document.store.mentions.values()
             ],
             "evidence": [
                 evidence_to_json(evidence) for evidence in document.store.evidence.values()
@@ -109,7 +115,7 @@ def relevance_to_json(document: ArticleDocument) -> JsonObject:
     return {
         "is_relevant": document.relevance.is_relevant,
         "score": document.relevance.score,
-        "reasons": list(document.relevance.reasons),
+        "reasons": [signal_to_json(reason) for reason in document.relevance.reasons],
     }
 
 
@@ -121,6 +127,28 @@ def sentence_to_json(sentence: Sentence) -> JsonObject:
         "text": sentence.text,
         "span": span_to_json(sentence.span.start_char, sentence.span.end_char),
         "token_ids": [str(token_id) for token_id in sentence.token_ids],
+    }
+
+
+def token_to_json(token: Token) -> JsonObject:
+    return {
+        "id": str(token.id),
+        "text": token.text,
+        "span": span_to_json(token.span.start_char, token.span.end_char),
+        "morph": [morph_analysis_to_json(analysis) for analysis in token.morph],
+    }
+
+
+def morph_analysis_to_json(analysis: MorphAnalysis) -> JsonObject:
+    return {
+        "lemma": analysis.lemma,
+        "pos": analysis.pos,
+        "case": analysis.case,
+        "gender": analysis.gender,
+        "number": analysis.number,
+        "person": analysis.person,
+        "tag": analysis.tag,
+        "labels": list(analysis.labels),
     }
 
 
@@ -201,12 +229,7 @@ def fact_record_to_json(record: FactCandidateRecord) -> JsonObject:
 
 
 def signal_to_json(signal: Signal) -> JsonObject:
-    return {
-        "name": signal.name,
-        "polarity": signal.polarity.value,
-        "weight": signal.weight,
-        "details": signal.details,
-    }
+    return cast(JsonObject, signal.to_json())
 
 
 def span_to_json(start_char: int, end_char: int) -> JsonObject:

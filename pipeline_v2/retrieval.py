@@ -9,7 +9,13 @@ from pipeline_v2.candidates import (
 from pipeline_v2.ids import EntityCandidateId
 from pipeline_v2.nlp import Sentence
 from pipeline_v2.store import ExtractionStore
-from pipeline_v2.types import EntityKind, MentionKind, positive_signal
+from pipeline_v2.types import (
+    EntityKind,
+    FullNameReuseMatchSignal,
+    MentionKind,
+    Signal,
+    SurnameBaseMatchSignal,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,46 +111,68 @@ class EntityCandidateRetriever:
     def proposals_for_entity(self, entity: EntityCandidate) -> tuple[EntityResolutionProposal, ...]:
         if entity.kind == EntityKind.PERSON:
             return self._person_proposals(entity)
+        if entity.kind == EntityKind.ORGANIZATION:
+            return self._organization_proposals(entity)
         return ()
 
     def _person_proposals(
         self,
         entity: EntityCandidate,
     ) -> tuple[EntityResolutionProposal, ...]:
-        surname_base = self._surname_base_for_surname_only_entity(entity)
-        if surname_base is None:
-            return ()
+        reuse_key = entity.reuse_key
+        surname_base = entity.person_surname_base()
 
         proposals: list[EntityResolutionProposal] = []
         for candidate in self.store.candidates_by_kind(EntityKind.PERSON):
             candidate_id = candidate.id
             if candidate_id == entity.id:
                 continue
+
+            # 1. Full name match via reuse_key
+            if reuse_key is not None and candidate.reuse_key == reuse_key:
+                proposals.append(self._build_proposal(entity, candidate, FullNameReuseMatchSignal()))
+                continue
+
+            # 2. Surname base match
             candidate_surname_base = candidate.person_surname_base()
-            if candidate_surname_base != surname_base:
+            if surname_base is not None and candidate_surname_base == surname_base:
+                distance = self._minimum_paragraph_distance(entity, candidate)
+                if distance is not None and distance <= 3:
+                    proposals.append(
+                        self._build_proposal(
+                            entity, candidate, SurnameBaseMatchSignal(distance=distance)
+                        )
+                    )
                 continue
-            distance = self._minimum_paragraph_distance(entity, candidate)
-            if distance is None or distance > 1:
-                continue
-            evidence_ids = tuple(
-                mention.evidence_id
-                for mention in [
-                    *self.store.candidate_mentions(entity.id),
-                    *self.store.candidate_mentions(candidate.id),
-                ]
-            )
-            proposals.append(
-                EntityResolutionProposal(
-                    left_entity_id=entity.id,
-                    right_entity_id=candidate.id,
-                    evidence_ids=evidence_ids,
-                    retrieval_signals=(
-                        positive_signal("same_surname_base"),
-                        positive_signal(f"paragraph_distance:{distance}"),
-                    ),
-                )
-            )
+
         return tuple(proposals)
+
+    def _organization_proposals(
+        self,
+        entity: EntityCandidate,
+    ) -> tuple[EntityResolutionProposal, ...]:
+        # TODO: Implement organization acronym matching
+        return ()
+
+    def _build_proposal(
+        self,
+        left: EntityCandidate,
+        right: EntityCandidate,
+        signal: Signal,
+    ) -> EntityResolutionProposal:
+        evidence_ids = tuple(
+            mention.evidence_id
+            for mention in [
+                *self.store.candidate_mentions(left.id),
+                *self.store.candidate_mentions(right.id),
+            ]
+        )
+        return EntityResolutionProposal(
+            left_entity_id=left.id,
+            right_entity_id=right.id,
+            evidence_ids=evidence_ids,
+            retrieval_signals=(signal,),
+        )
 
     def _surname_base_for_surname_only_entity(self, entity: EntityCandidate) -> str | None:
         for mention in self.store.candidate_mentions(entity.id):

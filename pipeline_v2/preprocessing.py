@@ -45,6 +45,10 @@ class HtmlArticlePreprocessor:
         candidates = extracted.splitlines() if extracted else []
         if not candidates:
             candidates = [node.get_text(" ") for node in soup.find_all("p")]
+        if not candidates:
+            desc = cls._description(soup)
+            if desc:
+                candidates = [desc]
         return cls._clean_paragraphs(candidates, title)
 
     @staticmethod
@@ -76,6 +80,18 @@ class HtmlArticlePreprocessor:
             return compact_text(heading.get_text(" "))
         if soup.title is not None and soup.title.string is not None:
             return compact_text(soup.title.string)
+        return ""
+
+    @staticmethod
+    def _description(soup: BeautifulSoup) -> str:
+        for selector in (
+            'meta[property="og:description"]',
+            'meta[name="description"]',
+            'meta[name="twitter:description"]',
+        ):
+            node = soup.select_one(selector)
+            if node is not None and node.get("content"):
+                return compact_text(str(node["content"]))
         return ""
 
     @staticmethod

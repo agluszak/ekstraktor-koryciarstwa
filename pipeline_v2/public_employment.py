@@ -7,7 +7,15 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, FactCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan, Sentence
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
-from pipeline_v2.types import EntityKind, Signal, positive_signal
+from pipeline_v2.types import (
+    EmploymentContractFormSignal,
+    EntityKind,
+    LocalOrganizationSignal,
+    LocalPersonSignal,
+    LocalRoleSignal,
+    PublicEmploymentLemmaSignal,
+    Signal,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,28 +77,26 @@ class PublicEmploymentCandidateStage:
             if self._is_governance_role(document, role.id if role is not None else None):
                 continue
             evidence = EvidenceSpan(
-                id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+                id=document.store.next_evidence_id(),
                 text=sentence.text,
                 span=sentence.span,
                 sentence_id=sentence.id,
                 paragraph_index=sentence.paragraph_index,
-                source=self.name(),
+                source=self.producer_id,
             )
             document.store.add_evidence(evidence)
             signals: list[Signal] = [
-                positive_signal("public_employment_lemma", details=cue.detail),
-                positive_signal("sentence_local_person"),
-                positive_signal("sentence_local_organization"),
+                PublicEmploymentLemmaSignal(lemma=cue.detail),
+                LocalPersonSignal(),
+                LocalOrganizationSignal(),
             ]
             if role is not None:
-                signals.append(positive_signal("sentence_local_role"))
+                signals.append(LocalRoleSignal())
             if cue.context_text is not None:
-                signals.append(
-                    positive_signal("employment_contract_form", details=cue.context_text)
-                )
+                signals.append(EmploymentContractFormSignal(form=cue.context_text))
             document.store.add_fact_candidate(
                 PublicEmploymentFactCandidate(
-                    id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                    id=document.store.next_fact_candidate_id(),
                     person_entity_id=person.id,
                     organization_entity_id=organization.id,
                     role_entity_id=role.id if role is not None else None,

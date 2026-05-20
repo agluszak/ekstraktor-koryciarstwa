@@ -17,11 +17,14 @@ class PipelineInput:
     document_id: DocumentId | None = None
 
 
+from pipeline_v2.types import RelevanceSignal, Signal
+
+
 @dataclass(frozen=True, slots=True)
 class RelevanceDecision:
     is_relevant: bool
     score: float
-    reasons: tuple[str, ...] = ()
+    reasons: tuple[RelevanceSignal, ...] = ()
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.score <= 1.0:

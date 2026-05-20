@@ -54,15 +54,15 @@ class RoleCandidateStage:
                 end_char = document.store.tokens[token_ids[-1]].span.end_char
                 text = document.cleaned_text[start_char:end_char]
                 evidence = EvidenceSpan(
-                    id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+                    id=document.store.next_evidence_id(),
                     text=text,
                     span=Span(start_char, end_char),
                     sentence_id=sentence.id,
                     paragraph_index=sentence.paragraph_index,
-                    source=self.name(),
+                    source=self.producer_id,
                 )
                 document.store.add_evidence(evidence)
-                mention_id = MentionId(f"mention-{len(document.store.mentions)}")
+                mention_id = document.store.next_mention_id()
                 document.store.add_mention(
                     self.mention_factory.build_mention(
                         mention_id=mention_id,
@@ -75,7 +75,7 @@ class RoleCandidateStage:
                 )
                 document.store.add_entity_candidate(
                     EntityCandidate(
-                        id=EntityCandidateId(f"entity-{len(document.store.entity_candidates)}"),
+                        id=document.store.next_entity_candidate_id(),
                         kind=EntityKind.ROLE,
                         mention_ids=(mention_id,),
                         canonical_hint=text,

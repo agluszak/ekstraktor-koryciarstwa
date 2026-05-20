@@ -21,7 +21,7 @@ class ResolutionScoringStage:
         for entity_assessment in result.entity_resolution_assessments:
             document.store.add_resolution_claim(
                 EntityResolutionClaim(
-                    id=ResolutionClaimId(f"resolution-{len(document.store.resolution_claims)}"),
+                    id=document.store.next_resolution_claim_id(),
                     left_entity_id=entity_assessment.proposal.left_entity_id,
                     right_entity_id=entity_assessment.proposal.right_entity_id,
                     relation=ResolutionRelation.SAME_AS,
@@ -33,9 +33,7 @@ class ResolutionScoringStage:
         for reference_assessment in result.reference_resolution_assessments:
             document.store.add_reference_resolution_claim(
                 ReferenceResolutionClaim(
-                    id=ResolutionClaimId(
-                        f"reference-resolution-{len(document.store.reference_resolution_claims)}"
-                    ),
+                    id=document.store.next_reference_resolution_claim_id(),
                     reference_id=reference_assessment.proposal.reference_id,
                     candidate_entity_id=reference_assessment.proposal.candidate_entity_id,
                     relation=ResolutionRelation.REFERENT_OF,

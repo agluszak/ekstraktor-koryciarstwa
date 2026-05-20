@@ -5,7 +5,7 @@ from typing import Protocol
 
 import morfeusz2
 
-from pipeline_v2.ids import EvidenceId, MentionId, SentenceId, TokenId
+from pipeline_v2.ids import EvidenceId, MentionId, ProducerId, SentenceId, TokenId
 from pipeline_v2.types import MentionKind, NerLabel, ReferenceKind, RelationshipDetail
 
 
@@ -96,7 +96,7 @@ class EvidenceSpan:
     span: Span
     sentence_id: SentenceId | None = None
     paragraph_index: int | None = None
-    source: str | None = None
+    source: ProducerId | None = None
 
 
 @dataclass(frozen=True, slots=True)

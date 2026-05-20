@@ -63,17 +63,17 @@ class NamedEntityCandidateStage:
             sentence_id = document.store.sentence_id_for_offset(entity_span.span.start_char)
             if sentence_id is None:
                 continue
-            evidence_id = EvidenceId(f"evidence-{len(document.store.evidence)}")
+            evidence_id = document.store.next_evidence_id()
             evidence = EvidenceSpan(
                 id=evidence_id,
                 text=entity_span.text,
                 span=entity_span.span,
                 sentence_id=sentence_id,
                 paragraph_index=document.store.sentences[sentence_id].paragraph_index,
-                source=self.name(),
+                source=self.config.producer_id,
             )
             document.store.add_evidence(evidence)
-            mention_id = MentionId(f"mention-{len(document.store.mentions)}")
+            mention_id = document.store.next_mention_id()
             document.store.add_mention(
                 self.mention_factory.build_mention(
                     mention_id=mention_id,
@@ -91,7 +91,7 @@ class NamedEntityCandidateStage:
             if entity_kind is None:
                 continue
             candidate = EntityCandidate(
-                id=EntityCandidateId(f"entity-{len(document.store.entity_candidates)}"),
+                id=document.store.next_entity_candidate_id(),
                 kind=entity_kind,
                 mention_ids=(mention_id,),
                 canonical_hint=entity_span.text,
