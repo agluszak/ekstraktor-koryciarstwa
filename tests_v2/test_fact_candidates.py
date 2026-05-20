@@ -91,7 +91,7 @@ def test_personal_tie_fact_candidate_preserves_relationship_detail_in_record() -
     assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "subject", "entity_id": "left"},
         {"role": "object", "entity_id": "right"},
-        {"role": "context", "value": "spouse"},
+        {"role": "relationship_detail", "value": "spouse"},
     )
 
 
