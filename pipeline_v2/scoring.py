@@ -338,7 +338,11 @@ class FactRecordScorer:
                 case WindowFallbackSignal(distance=d):
                     score += max(0.0, 0.08 - 0.02 * d)
 
-        from pipeline_v2.types import EmbeddedInOrganizationNameSignal, PartyOrganizationSignal
+        from pipeline_v2.types import (
+            DiscourseOrganizationSignal,
+            EmbeddedInOrganizationNameSignal,
+            PartyOrganizationSignal,
+        )
 
         for signal in negative:
             match signal:
@@ -349,12 +353,14 @@ class FactRecordScorer:
                         score -= 0.6
                 case PartyOrganizationSignal():
                     score -= 0.6
+                case DiscourseOrganizationSignal():
+                    score -= 0.15
                 case EmbeddedInOrganizationNameSignal():
                     score -= 0.6
                 case WeakSyntacticBindingSignal():
                     score -= 0.35
                 case AppointerContextSignal():
-                    score -= 0.35
+                    score -= 0.6
                 case ControllerContextSignal():
                     score -= 0.55
                 case PseudonymousSourceSignal():

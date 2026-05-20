@@ -246,7 +246,10 @@ class PersonalTieFactCandidate:
         ]
         if self.relationship_detail is not None:
             arguments.append(
-                TextFactArgument(FactArgumentRole.CONTEXT, self.relationship_detail.value)
+                TextFactArgument(
+                    FactArgumentRole.RELATIONSHIP_DETAIL,
+                    self.relationship_detail.value,
+                )
             )
         if self.context_text is not None:
             arguments.append(TextFactArgument(FactArgumentRole.CONTEXT, self.context_text))

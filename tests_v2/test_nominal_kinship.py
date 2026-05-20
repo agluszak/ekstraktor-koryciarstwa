@@ -78,7 +78,7 @@ def test_nominal_kinship_within_40_chars_links_named_referent() -> None:
     assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "subject", "entity_id": "entity-1"},
         {"role": "object", "entity_id": "entity-0"},
-        {"role": "context", "value": "spouse"},
+        {"role": "relationship_detail", "value": "spouse"},
         {"role": "context", "value": "żona"},
     )
 

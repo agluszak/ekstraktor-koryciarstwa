@@ -5,9 +5,11 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan, Sentence
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
+from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
     AppointerContextSignal,
     AppointmentLemmaSignal,
+    DiscourseOrganizationSignal,
     DismissalLemmaSignal,
     EntityKind,
     FactKind,
@@ -18,6 +20,7 @@ from pipeline_v2.types import (
     PartyOrganizationSignal,
     Signal,
     WeakSyntacticBindingSignal,
+    WindowFallbackSignal,
     WindowOrganizationSignal,
     WindowPersonSignal,
     WindowRoleSignal,
@@ -226,6 +229,19 @@ class GovernanceCandidateStage:
             local_signal=LocalOrganizationSignal(),
             window_signal=WindowOrganizationSignal(),
         )
+        if not organizations:
+            fallback_org = self._find_fallback_organization(document, sentence)
+            if fallback_org is not None:
+                organization, distance = fallback_org
+                organizations = (
+                    (
+                        organization,
+                        (
+                            DiscourseOrganizationSignal(),
+                            WindowFallbackSignal(distance=distance),
+                        ),
+                    ),
+                )
         roles = self._select_entities(
             document,
             sentence,
@@ -260,10 +276,24 @@ class GovernanceCandidateStage:
                         person_ids.add(e.id)
             return frozenset(person_ids)
 
-        for person, p_signal in people:
+        syntax = SyntaxView(document.store)
+        for person, p_signals in people:
             person_is_window_only = person.id not in local_people_ids
-            for org, o_signal in organizations if organizations else [(None, None)]:
-                for role, r_signal in roles if roles else [(None, None)]:
+            # Exclude appointer (nominative subject in active sentence with appointment lemma)
+            trigger_token = syntax.first_token_with_lemmas(sentence, self._appointment_lemmas)
+            if trigger_token is not None and not person_is_window_only:
+                relation = syntax.dependency_relation(
+                    sentence=sentence,
+                    trigger_token_id=trigger_token.id,
+                    entity_id=person.id,
+                )
+                if relation is not None and syntax.is_subject_relation(relation):
+                    if not syntax.is_passive_sentence(sentence, trigger_token.id):
+                        # Person is the appointer, skip them as a governance appointment candidate
+                        continue
+
+            for org, o_signals in organizations if organizations else ((None, ()),):
+                for role, r_signals in roles if roles else ((None, ()),):
                     # A local role should bind to its own sentence-local person.
                     if (
                         person_is_window_only
@@ -281,7 +311,7 @@ class GovernanceCandidateStage:
                         and person.id not in role_sentence_people
                     ):
                         continue
-                    signals = [s for s in (p_signal, o_signal, r_signal) if s is not None]
+                    signals = [*p_signals, *o_signals, *r_signals]
                     if (
                         not person_is_window_only
                         and org is not None
@@ -323,13 +353,13 @@ class GovernanceCandidateStage:
         *,
         local_signal: Signal,
         window_signal: Signal,
-    ) -> tuple[tuple[SentenceEntity, Signal], ...]:
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
         local = tuple(entity for entity in local_entities if entity.kind == kind)
         if local:
-            return tuple((e, local_signal) for e in local)
+            return tuple((entity, (local_signal,)) for entity in local)
         window = tuple(entity for entity in window_entities if entity.kind == kind)
         if window:
-            results = []
+            results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
             for entity in window:
                 entity_min_dist = 999
                 for evidence in document.store.evidence_for_entity(entity.id):
@@ -343,7 +373,7 @@ class GovernanceCandidateStage:
                         entity_min_dist = dist
                 if entity_min_dist < 999:
                     signal = local_signal if entity_min_dist == 0 else window_signal
-                    results.append((entity, signal))
+                    results.append((entity, (signal,)))
             return tuple(results)
         return ()
 
@@ -376,7 +406,6 @@ class GovernanceCandidateStage:
                     if analysis.lemma in public_office_lemmas
                 )
         return None
-        return ()
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence: Sentence) -> frozenset[str]:
         lemmas: set[str] = set()
@@ -448,3 +477,77 @@ class GovernanceCandidateStage:
                         continue
                     return True
         return False
+
+    def _find_fallback_organization(
+        self,
+        document: ArticleDocument,
+        anchor_sentence: Sentence,
+    ) -> tuple[SentenceEntity, int] | None:
+        retriever = SentenceEntityRetriever(document.store)
+        same_paragraph_sentences = sorted(
+            (
+                sentence
+                for sentence in document.store.sentences.values()
+                if sentence.paragraph_index == anchor_sentence.paragraph_index
+                and sentence.sentence_index < anchor_sentence.sentence_index
+            ),
+            key=lambda sentence: sentence.sentence_index,
+            reverse=True,
+        )
+        for sentence in same_paragraph_sentences:
+            organization = self._fallback_organization_in_sentence(
+                document,
+                retriever,
+                sentence,
+            )
+            if organization is not None:
+                return (
+                    organization,
+                    anchor_sentence.sentence_index - sentence.sentence_index,
+                )
+
+        for paragraph_index in range(anchor_sentence.paragraph_index - 1, -1, -1):
+            lead_sentence = self._paragraph_lead_sentence(document, paragraph_index)
+            if lead_sentence is None:
+                continue
+            organization = self._fallback_organization_in_sentence(
+                document,
+                retriever,
+                lead_sentence,
+            )
+            if organization is not None:
+                return (
+                    organization,
+                    anchor_sentence.sentence_index - lead_sentence.sentence_index,
+                )
+        return None
+
+    def _fallback_organization_in_sentence(
+        self,
+        document: ArticleDocument,
+        retriever: SentenceEntityRetriever,
+        sentence: Sentence,
+    ) -> SentenceEntity | None:
+        organizations = tuple(
+            entity
+            for entity in retriever.entities_for_sentence(sentence)
+            if entity.kind == EntityKind.ORGANIZATION
+            and not self._is_party_like_organization(document, entity.id)
+        )
+        if organizations:
+            return organizations[-1]
+        return None
+
+    @staticmethod
+    def _paragraph_lead_sentence(
+        document: ArticleDocument,
+        paragraph_index: int,
+    ) -> Sentence | None:
+        paragraph_sentences = tuple(
+            sentence
+            for sentence in document.store.sentences.values()
+            if sentence.paragraph_index == paragraph_index
+        )
+        if not paragraph_sentences:
+            return None
+        return min(paragraph_sentences, key=lambda sentence: sentence.sentence_index)

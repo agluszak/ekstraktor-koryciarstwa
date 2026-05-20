@@ -302,7 +302,7 @@ def test_benchmark_proxy_family_tie_scenario() -> None:
     assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "subject", "entity_id": "proxy-1"},
         {"role": "object", "entity_id": "entity-0"},
-        {"role": "context", "value": "spouse"},
+        {"role": "relationship_detail", "value": "spouse"},
     )
     assert assessment.score >= 0.7
 
@@ -454,7 +454,7 @@ def test_benchmark_family_name_overlap_tie_scenario() -> None:
     assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "subject", "entity_id": "entity-0"},
         {"role": "object", "entity_id": "entity-1"},
-        {"role": "context", "value": "child"},
+        {"role": "relationship_detail", "value": "child"},
     )
     assert assessment.score >= 0.7
 

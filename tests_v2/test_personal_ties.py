@@ -103,7 +103,7 @@ def test_personal_tie_stage_emits_proxy_family_tie_from_family_reference() -> No
     assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "subject", "entity_id": "proxy-1"},
         {"role": "object", "entity_id": "entity-0"},
-        {"role": "context", "value": "spouse"},
+        {"role": "relationship_detail", "value": "spouse"},
     )
     assert assessment.score >= 0.7
 
@@ -126,7 +126,7 @@ def test_personal_tie_stage_emits_named_kinship_tie_from_two_people_and_family_l
     assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "subject", "entity_id": "entity-0"},
         {"role": "object", "entity_id": "entity-1"},
-        {"role": "context", "value": "child"},
+        {"role": "relationship_detail", "value": "child"},
     )
 
 

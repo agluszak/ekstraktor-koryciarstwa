@@ -45,6 +45,7 @@ class FactArgumentRole(StrEnum):
     INSTITUTION = "institution"
     ACTOR = "actor"
     CONTEXT = "context"
+    RELATIONSHIP_DETAIL = "relationship_detail"
 
 
 class NerLabel(StrEnum):
@@ -144,6 +145,11 @@ class NegativeSignal(Signal):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PartyOrganizationSignal(NegativeSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DiscourseOrganizationSignal(NegativeSignal):
     pass
 
 

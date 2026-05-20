@@ -92,5 +92,5 @@ def test_family_reference_materializes_proxy_person_linked_to_anchor() -> None:
     assert tuple(argument.to_json() for argument in tie_record.arguments) == (
         {"role": "subject", "entity_id": "proxy-1"},
         {"role": "object", "entity_id": "entity-0"},
-        {"role": "context", "value": "spouse"},
+        {"role": "relationship_detail", "value": "spouse"},
     )
