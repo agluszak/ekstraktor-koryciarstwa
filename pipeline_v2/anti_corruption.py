@@ -57,6 +57,16 @@ class AntiCorruptionCandidateStage:
             "wszcząć",
         }
     )
+    _control_request_lemmas = frozenset(
+        {
+            "chcieć",
+            "domagać",
+            "oczekiwać",
+            "wnioskować",
+            "zażądać",
+            "żądać",
+        }
+    )
     _reporting_lemmas = frozenset(
         {
             "informować",
@@ -85,10 +95,17 @@ class AntiCorruptionCandidateStage:
             lemmas = self._sentence_lemmas(document, sentence)
             matched_referral_lemmas = tuple(sorted(lemmas & self._referral_lemmas))
             matched_investigation_lemmas = tuple(sorted(lemmas & self._investigation_lemmas))
-            if not matched_referral_lemmas and not matched_investigation_lemmas:
+            matched_control_request_lemmas = tuple(sorted(lemmas & self._control_request_lemmas))
+            if (
+                not matched_referral_lemmas
+                and not matched_investigation_lemmas
+                and not matched_control_request_lemmas
+            ):
                 continue
             institutions = self._institution_matches(document, sentence)
-            if not institutions:
+            if not institutions and not (
+                matched_investigation_lemmas and matched_control_request_lemmas
+            ):
                 continue
             evidence = EvidenceSpan(
                 id=document.store.next_evidence_id(),
@@ -141,23 +158,42 @@ class AntiCorruptionCandidateStage:
                         )
                     )
             if (
-                matched_investigation_lemmas
+                (matched_investigation_lemmas or matched_control_request_lemmas)
                 and not referral_emitted
                 and not self._has_reporting_lemma(lemmas)
             ):
-                for institution in institutions:
-                    institution_id = self._institution_entity_id(document, sentence, institution)
+                investigation_institutions = institutions or (
+                    InstitutionMatch(
+                        text="",
+                        span=sentence.span,
+                        canonical_name="",
+                        index=0,
+                    ),
+                )
+                for institution in investigation_institutions:
+                    institution_id = (
+                        self._institution_entity_id(document, sentence, institution)
+                        if institution.text
+                        else None
+                    )
                     target = self._select_investigation_target(
                         entities,
-                        institution,
+                        institution if institution.text else None,
                         institution_id,
                     )
+                    if target is None and institution_id is None:
+                        continue
                     signals = [
                         AntiCorruptionInvestigationLemmaSignal(
-                            lemma=matched_investigation_lemmas[0],
+                            lemma=(
+                                matched_investigation_lemmas[0]
+                                if matched_investigation_lemmas
+                                else matched_control_request_lemmas[0]
+                            ),
                         ),
-                        OversightInstitutionSignal(),
                     ]
+                    if institution.text:
+                        signals.append(OversightInstitutionSignal())
                     if target is not None:
                         signals.append(LocalTargetSignal())
                     if institution_id is not None:
@@ -168,7 +204,9 @@ class AntiCorruptionCandidateStage:
                             target_entity_id=target.id if target is not None else None,
                             institution_entity_id=institution_id,
                             institution_text=(
-                                None if institution_id is not None else institution.text
+                                None
+                                if institution_id is not None or not institution.text
+                                else institution.text
                             ),
                             context_text=context_text,
                             evidence_ids=(evidence.id,),
@@ -266,7 +304,7 @@ class AntiCorruptionCandidateStage:
     def _select_investigation_target(
         self,
         entities: tuple[SentenceEntity, ...],
-        institution: InstitutionMatch,
+        institution: InstitutionMatch | None,
         institution_id: EntityCandidateId | None,
     ) -> SentenceEntity | None:
         candidates = [
@@ -277,6 +315,8 @@ class AntiCorruptionCandidateStage:
         ]
         if not candidates:
             return None
+        if institution is None:
+            return min(candidates, key=lambda entity: entity.start_char)
         return min(
             candidates,
             key=lambda entity: abs(entity.start_char - institution.span.start_char),

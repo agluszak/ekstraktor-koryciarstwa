@@ -63,11 +63,21 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
     )
 
 
+def entity_hint_for_role(document: ArticleDocument, candidate, role: str) -> str | None:
+    for argument in candidate.to_fact_record().arguments:
+        payload = argument.to_json()
+        if payload["role"] != role or "entity_id" not in payload:
+            continue
+        return document.store.entity_candidates[payload["entity_id"]].canonical_hint
+    return None
+
+
 def run_article_pipeline(
     *,
     title: str,
     paragraphs: tuple[str, ...],
     entities: tuple[NamedEntitySpan, ...] = (),
+    apply_relevance: bool = True,
 ) -> ArticleDocument:
     document = ArticleDocument(
         document_id=DocumentId("article-fixture"),
@@ -81,25 +91,27 @@ def run_article_pipeline(
     pipeline = V2Pipeline(
         preprocessor=StaticPreprocessor(document),
         stages=(
-            ProfileRelevanceFilter(),
-            ParagraphSentenceSegmenter(),
-            MorfeuszMorphologyStage(morphology),
-            NamedEntityCandidateStage(
-                provider=StaticEntityProvider(entities),
-                morphology=morphology,
-            ),
-            PartyCandidateStage(morphology),
-            RoleCandidateStage(morphology),
-            NominalKinshipCandidateStage(),
-            GovernanceCandidateStage(),
-            PublicEmploymentCandidateStage(),
-            PublicMoneyCandidateStage(),
-            AntiCorruptionCandidateStage(),
-            FamilyProxyCandidateStage(),
-            PersonalTieCandidateStage(),
-            ResolutionScoringStage(),
-            FactResolutionStage(),
-            FactScoringStage(),
+            ((ProfileRelevanceFilter(),) if apply_relevance else ())
+            + (
+                ParagraphSentenceSegmenter(),
+                MorfeuszMorphologyStage(morphology),
+                NamedEntityCandidateStage(
+                    provider=StaticEntityProvider(entities),
+                    morphology=morphology,
+                ),
+                PartyCandidateStage(morphology),
+                RoleCandidateStage(morphology),
+                NominalKinshipCandidateStage(),
+                FamilyProxyCandidateStage(),
+                GovernanceCandidateStage(),
+                PublicEmploymentCandidateStage(),
+                PublicMoneyCandidateStage(),
+                AntiCorruptionCandidateStage(),
+                PersonalTieCandidateStage(),
+                ResolutionScoringStage(),
+                FactResolutionStage(),
+                FactScoringStage(),
+            )
         ),
     )
     return pipeline.run_document(PipelineInput(raw_html="<html></html>"))
@@ -223,5 +235,139 @@ def test_article_fixture_keeps_governance_control_article_relevant() -> None:
     assert any(
         candidate.to_fact_record().kind
         in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
+        for candidate in document.store.fact_candidates.values()
+    )
+
+
+def test_article_fixture_does_not_promote_background_political_person_to_appointee() -> None:
+    title = "Synekury Polski 2050"
+    paragraphs = (
+        "3 stycznia 2024 roku, niespełna miesiąc po zaprzysiężeniu rządu Donalda Tuska, "
+        "pełniącym obowiązki prezesa KZN został Łukasz Bałajewicz.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Donalda Tuska"),
+            person_span(text, "Łukasz Bałajewicz"),
+            organization_span(text, "KZN"),
+        ),
+        apply_relevance=False,
+    )
+
+    governance_people = {
+        entity_hint_for_role(document, candidate, "person")
+        for candidate in document.store.fact_candidates.values()
+        if candidate.to_fact_record().kind is FactKind.GOVERNANCE_APPOINTMENT
+    }
+    assert "Łukasz Bałajewicz" in governance_people
+    assert "Donalda Tuska" not in governance_people
+
+
+def test_article_fixture_does_not_use_governing_body_as_governance_destination() -> None:
+    title = "KZN"
+    paragraphs = (
+        "W Radzie Nadzorczej KZN, która wybrała Bałajewicza na prezesa, zasiada też Emil Rojek.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Bałajewicza"),
+            person_span(text, "Emil Rojek"),
+            organization_span(text, "Radzie Nadzorczej KZN"),
+        ),
+        apply_relevance=False,
+    )
+
+    governance_organizations = [
+        entity_hint_for_role(document, candidate, "organization")
+        for candidate in document.store.fact_candidates.values()
+        if candidate.to_fact_record().kind is FactKind.GOVERNANCE_APPOINTMENT
+    ]
+    assert governance_organizations
+    assert all(organization is None for organization in governance_organizations)
+
+
+def test_article_fixture_merges_named_and_proxy_family_ties_without_pseudonymous_noise() -> None:
+    title = "Czy wójt ukrywa nepotyzm?"
+    paragraphs = (
+        "Rafał Dobosz, kuzyn wójta Sosny, od pierwszych dni pracy w urzędzie wzbudzał emocje.",
+        "Czy wójt Sosna rzeczywiście ukrywa nepotyzm, zatrudniając swojego kuzyna na stanowisku?",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Rafał Dobosz"),
+            person_span(text, "Sosny"),
+            person_span(text, "Sosna"),
+        ),
+        apply_relevance=False,
+    )
+
+    tie_claims = [
+        claim
+        for claim in document.store.fact_resolution_claims.values()
+        if claim.relation.value == "same_fact"
+    ]
+    assert tie_claims
+
+
+def test_article_fixture_keeps_public_employment_local_to_first_clause() -> None:
+    title = "Charsznica"
+    paragraphs = (
+        "Wójt zatrudnił swojego przyszłego teścia w urzędzie gminy na stanowisko "
+        "pracownika gospodarczego, "
+        "a szwagierce dał zatrudnienie w Urzędzie Stanu Cywilnego.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Wójt"),
+            organization_span(text, "Urzędzie Stanu Cywilnego"),
+        ),
+        apply_relevance=False,
+    )
+
+    employment_records = [
+        candidate.to_fact_record()
+        for candidate in document.store.fact_candidates.values()
+        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+    ]
+    assert employment_records
+    employment_organizations = {
+        entity_hint_for_role(document, candidate, "organization")
+        for candidate in document.store.fact_candidates.values()
+        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+    }
+    assert "Urzędzie Stanu Cywilnego" not in employment_organizations
+
+
+def test_article_fixture_emits_anti_corruption_for_control_demand_language() -> None:
+    title = "Kontrola umów"
+    paragraphs = (
+        "Marcelina Zawisza z partii Razem chce kontroli umów w urzędzie marszałkowskim po "
+        "ujawnieniu dotacji dla fundacji dyrektora pogotowia.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Marcelina Zawisza"),
+            organization_span(text, "urzędzie marszałkowskim"),
+        ),
+        apply_relevance=False,
+    )
+
+    assert any(
+        candidate.to_fact_record().kind is FactKind.ANTI_CORRUPTION_INVESTIGATION
         for candidate in document.store.fact_candidates.values()
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import (
     Assessment,
+    EntityCandidate,
     EntityResolutionClaim,
     GovernanceFactCandidate,
     PersonalTieFactCandidate,
@@ -17,7 +18,13 @@ from pipeline_v2.ids import (
     ResolutionClaimId,
     ScorerId,
 )
-from pipeline_v2.types import FactKind, RelationshipDetail, ResolutionRelation
+from pipeline_v2.types import (
+    EntityKind,
+    FactKind,
+    GroundingKind,
+    RelationshipDetail,
+    ResolutionRelation,
+)
 
 
 def _test_assessment() -> Assessment:
@@ -169,6 +176,36 @@ def test_fact_resolution_stage_merges_proxy_and_named_ties_after_same_as_resolut
         source=ProducerId("test"),
         relationship_detail=RelationshipDetail.FAMILY,
         context_text="kuzyn Rafał Dobosz",
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("proxy-subject"),
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="kuzyn of target",
+            grounding=GroundingKind.PROXY,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("named-subject"),
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Rafal Dobosz",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("target"),
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Target",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
     )
     document.store.add_fact_candidate(proxy_tie)
     document.store.add_fact_candidate(named_tie)

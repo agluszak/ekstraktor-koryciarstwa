@@ -38,7 +38,7 @@ class EmploymentCue:
 class PublicEmploymentCandidateStage:
     producer_id = ProducerId("public_employment_candidate_stage_v2")
 
-    _employment_lemmas = frozenset({"etat", "zatrudnić"})
+    _employment_lemmas = frozenset({"etat", "zatrudnić", "zatrudnienie"})
     _employment_role_lemmas = frozenset({"doradca", "konsultant", "konsultantka", "pełnomocnik"})
     _public_org_head_lemmas = frozenset({"gmina", "samorząd", "starostwo", "urząd"})
     _supporting_lemmas = frozenset({"praca", "pracować", "stanowisko", "zostać"})
@@ -301,10 +301,6 @@ class PublicEmploymentCandidateStage:
             entities,
             anchor_char,
             kinds=frozenset({EntityKind.ORGANIZATION}),
-        ) or self._nearest_following_entity(
-            entities,
-            anchor_char,
-            kinds=frozenset({EntityKind.ORGANIZATION}),
         )
         if local is not None:
             return local, LocalOrganizationSignal()
@@ -313,10 +309,44 @@ class PublicEmploymentCandidateStage:
         if inferred is not None:
             return inferred, LocalOrganizationSignal()
 
-        # Look both before and after for organizations in nearby sentences.
-        # Articles often mention the employing organization before OR after the hiring verb.
-        window = retriever.entities_for_sentence_window(sentence, before=3, after=2)
-        orgs = tuple(entity for entity in window if entity.kind == EntityKind.ORGANIZATION)
+        following_local = self._nearest_following_entity(
+            entities,
+            anchor_char,
+            kinds=frozenset({EntityKind.ORGANIZATION}),
+        )
+        if (
+            following_local is not None
+            and not self._is_after_next_employment_cue(
+                document,
+                sentence,
+                anchor_char,
+                following_local,
+            )
+            and not self._crosses_clause_boundary(
+                document,
+                sentence,
+                anchor_char,
+                following_local.start_char,
+            )
+            and following_local.start_char - anchor_char <= 80
+        ):
+            return following_local, LocalOrganizationSignal()
+
+        window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+        orgs = tuple(
+            entity
+            for entity in window
+            if entity.kind == EntityKind.ORGANIZATION
+            and not (
+                entity.start_char > anchor_char
+                and self._crosses_clause_boundary(
+                    document,
+                    sentence,
+                    anchor_char,
+                    entity.start_char,
+                )
+            )
+        )
         if orgs:
             # Prefer the closest one by absolute character distance
             anchor = anchor_char
@@ -326,6 +356,18 @@ class PublicEmploymentCandidateStage:
             )
             return closest, WindowOrganizationSignal()
         return None
+
+    def _is_after_next_employment_cue(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        anchor_char: int,
+        organization: SentenceEntity,
+    ) -> bool:
+        next_employment_anchor = self._next_employment_anchor(document, sentence, anchor_char)
+        if next_employment_anchor is None:
+            return False
+        return organization.start_char >= next_employment_anchor
 
     def _infer_public_organization(
         self,
@@ -409,10 +451,49 @@ class PublicEmploymentCandidateStage:
             token = document.store.tokens[token_id]
             if not ({analysis.lemma for analysis in token.morph} & self._public_org_head_lemmas):
                 continue
+            if token.span.start_char > anchor_char and self._crosses_clause_boundary(
+                document,
+                sentence,
+                anchor_char,
+                token.span.start_char,
+            ):
+                continue
             matches.append((abs(token.span.start_char - anchor_char), token_id))
         if not matches:
             return None
         return min(matches, key=lambda item: item[0])[1]
+
+    def _next_employment_anchor(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        anchor_char: int,
+    ) -> int | None:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if token.span.start_char <= anchor_char:
+                continue
+            token_lemmas = {analysis.lemma for analysis in token.morph}
+            if token_lemmas & self._employment_lemmas:
+                return token.span.start_char
+            if (
+                token_lemmas & self._supporting_lemmas
+                and token_lemmas & self._employment_role_lemmas
+            ):
+                return token.span.start_char
+        return None
+
+    def _crosses_clause_boundary(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        anchor_char: int,
+        target_char: int,
+    ) -> bool:
+        between = document.cleaned_text[anchor_char:target_char].casefold()
+        if "," not in between and ";" not in between and ":" not in between:
+            return False
+        return any(conjunction in between for conjunction in (" a ", " ale ", " oraz ", " zaś "))
 
     def _nearest_location_hint(
         self,

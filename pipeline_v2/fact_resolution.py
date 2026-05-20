@@ -10,9 +10,16 @@ from pipeline_v2.candidates import (
     TextFactArgument,
 )
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import ProducerId
+from pipeline_v2.ids import FactCandidateId, ProducerId
 from pipeline_v2.scoring import FactResolutionScorer
-from pipeline_v2.types import DuplicateFactSignal, FactArgumentRole, FactKind, ResolutionRelation
+from pipeline_v2.types import (
+    DuplicateFactSignal,
+    FactArgumentRole,
+    FactKind,
+    GroundingKind,
+    PseudonymousSourceSignal,
+    ResolutionRelation,
+)
 
 
 class FactResolutionStage:
@@ -46,31 +53,67 @@ class FactResolutionStage:
                 continue
             first = records[0]
             for duplicate in records[1:]:
-                pair = frozenset((first.id, duplicate.id))
-                if pair in existing_pairs:
+                if self._has_existing_pair(existing_pairs, first.id, duplicate.id):
                     continue
-                proposal = FactResolutionProposal(
-                    left_fact_id=first.id,
-                    right_fact_id=duplicate.id,
-                    relation=ResolutionRelation.SAME_FACT,
-                    evidence_ids=tuple(
-                        dict.fromkeys([*first.evidence_ids, *duplicate.evidence_ids])
-                    ),
-                    retrieval_signals=(DuplicateFactSignal(signature=signature),),
+                self._add_claim(
+                    document=document,
+                    scorer=scorer,
+                    left=first,
+                    right=duplicate,
+                    signature=signature,
+                    existing_pairs=existing_pairs,
                 )
-                assessment = scorer.score(proposal)
-                document.store.add_fact_resolution_claim(
-                    FactResolutionClaim(
-                        id=document.store.next_fact_resolution_claim_id(),
-                        left_fact_id=proposal.left_fact_id,
-                        right_fact_id=proposal.right_fact_id,
-                        relation=proposal.relation,
-                        evidence_ids=proposal.evidence_ids,
-                        assessment=assessment,
-                        source=self.producer_id,
-                    )
-                )
+        for left, right, signature in self._proxy_named_tie_pairs(document):
+            if self._has_existing_pair(existing_pairs, left.id, right.id):
+                continue
+            self._add_claim(
+                document=document,
+                scorer=scorer,
+                left=left,
+                right=right,
+                signature=signature,
+                existing_pairs=existing_pairs,
+            )
         return document
+
+    def _add_claim(
+        self,
+        *,
+        document: ArticleDocument,
+        scorer: FactResolutionScorer,
+        left: FactCandidateRecord,
+        right: FactCandidateRecord,
+        signature: str,
+        existing_pairs: set[frozenset[FactCandidateId]],
+    ) -> None:
+        proposal = FactResolutionProposal(
+            left_fact_id=left.id,
+            right_fact_id=right.id,
+            relation=ResolutionRelation.SAME_FACT,
+            evidence_ids=tuple(dict.fromkeys([*left.evidence_ids, *right.evidence_ids])),
+            retrieval_signals=(DuplicateFactSignal(signature=signature),),
+        )
+        assessment = scorer.score(proposal)
+        document.store.add_fact_resolution_claim(
+            FactResolutionClaim(
+                id=document.store.next_fact_resolution_claim_id(),
+                left_fact_id=proposal.left_fact_id,
+                right_fact_id=proposal.right_fact_id,
+                relation=proposal.relation,
+                evidence_ids=proposal.evidence_ids,
+                assessment=assessment,
+                source=self.producer_id,
+            )
+        )
+        existing_pairs.add(frozenset((left.id, right.id)))
+
+    @staticmethod
+    def _has_existing_pair(
+        existing_pairs: set[frozenset[FactCandidateId]],
+        left_id: FactCandidateId,
+        right_id: FactCandidateId,
+    ) -> bool:
+        return frozenset((left_id, right_id)) in existing_pairs
 
     def _build_same_as_neighbors(self, document: ArticleDocument) -> dict[str, set[str]]:
         neighbors: dict[str, set[str]] = defaultdict(set)
@@ -178,3 +221,123 @@ class FactResolutionStage:
                 case TextFactArgument(role=FactArgumentRole.RELATIONSHIP_DETAIL):
                     return True
         return False
+
+    def _proxy_named_tie_pairs(
+        self,
+        document: ArticleDocument,
+    ) -> tuple[tuple[FactCandidateRecord, FactCandidateRecord, str], ...]:
+        tie_records = [
+            candidate.to_fact_record()
+            for candidate in document.store.fact_candidates.values()
+            if candidate.to_fact_record().kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+        ]
+        pairs: list[tuple[FactCandidateRecord, FactCandidateRecord, str]] = []
+        for index, left in enumerate(tie_records):
+            left_subject = self._entity_argument_id(left, FactArgumentRole.SUBJECT)
+            left_object = self._entity_argument_id(left, FactArgumentRole.OBJECT)
+            left_detail = self._text_argument_value(left, FactArgumentRole.RELATIONSHIP_DETAIL)
+            if left_subject is None or left_object is None or left_detail is None:
+                continue
+            if (
+                left_subject not in document.store.entity_candidates
+                or left_object not in document.store.entity_candidates
+            ):
+                continue
+            left_grounding = document.store.entity_candidates[left_subject].grounding
+            if left_grounding is not GroundingKind.PROXY:
+                continue
+            for right in tie_records[index + 1 :]:
+                right_subject = self._entity_argument_id(right, FactArgumentRole.SUBJECT)
+                right_object = self._entity_argument_id(right, FactArgumentRole.OBJECT)
+                right_detail = self._text_argument_value(
+                    right,
+                    FactArgumentRole.RELATIONSHIP_DETAIL,
+                )
+                if right_subject is None or right_object is None or right_detail is None:
+                    continue
+                if (
+                    right_subject not in document.store.entity_candidates
+                    or right_object not in document.store.entity_candidates
+                ):
+                    continue
+                right_grounding = document.store.entity_candidates[right_subject].grounding
+                if right_grounding is GroundingKind.PROXY:
+                    continue
+                if self._resolved_entity_id(str(left_object)) != self._resolved_entity_id(
+                    str(right_object)
+                ):
+                    continue
+                if left_detail.casefold() != right_detail.casefold():
+                    continue
+                if self._has_pseudonymous_signal(right):
+                    continue
+                if self._fact_paragraph_distance(document, left, right) > 1:
+                    continue
+                signature = repr(
+                    (
+                        FactKind.PERSONAL_OR_POLITICAL_TIE.value,
+                        "proxy_named_overlap",
+                        self._resolved_entity_id(str(left_object)),
+                        left_detail.casefold(),
+                    )
+                )
+                pairs.append((left, right, signature))
+        return tuple(pairs)
+
+    def _entity_argument_id(
+        self,
+        record: FactCandidateRecord,
+        role: FactArgumentRole,
+    ):
+        for argument in record.arguments:
+            match argument:
+                case EntityFactArgument(role=arg_role, entity_id=entity_id) if arg_role is role:
+                    return entity_id
+        return None
+
+    def _text_argument_value(
+        self,
+        record: FactCandidateRecord,
+        role: FactArgumentRole,
+    ) -> str | None:
+        for argument in record.arguments:
+            match argument:
+                case TextFactArgument(role=arg_role, value=value) if arg_role is role:
+                    return value
+        return None
+
+    @staticmethod
+    def _has_pseudonymous_signal(record: FactCandidateRecord) -> bool:
+        for signal in record.signals:
+            match signal:
+                case PseudonymousSourceSignal():
+                    return True
+        return False
+
+    def _fact_paragraph_distance(
+        self,
+        document: ArticleDocument,
+        left: FactCandidateRecord,
+        right: FactCandidateRecord,
+    ) -> int:
+        left_paragraphs = [
+            paragraph_index
+            for evidence_id in left.evidence_ids
+            if evidence_id in document.store.evidence
+            and (paragraph_index := document.store.evidence[evidence_id].paragraph_index)
+            is not None
+        ]
+        right_paragraphs = [
+            paragraph_index
+            for evidence_id in right.evidence_ids
+            if evidence_id in document.store.evidence
+            and (paragraph_index := document.store.evidence[evidence_id].paragraph_index)
+            is not None
+        ]
+        if not left_paragraphs or not right_paragraphs:
+            return 999
+        return min(
+            abs(left_paragraph - right_paragraph)
+            for left_paragraph in left_paragraphs
+            for right_paragraph in right_paragraphs
+        )
