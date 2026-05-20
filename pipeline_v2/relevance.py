@@ -3,6 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline_v2.document import ArticleDocument, RelevanceDecision
+from pipeline_v2.types import (
+    AntiCorruptionRelevanceSignal,
+    AppointmentRelevanceSignal,
+    CombinedRelevanceSignal,
+    LegalNegativeRelevanceSignal,
+    NoRelevanceIndicatorsSignal,
+    PublicMoneyRelevanceSignal,
+    PublicOrgRelevanceSignal,
+    RelevanceSignal,
+    StrongCombinedRelevanceSignal,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,11 +26,90 @@ class RelevanceProfile:
 
 
 DEFAULT_RELEVANCE_PROFILE = RelevanceProfile(
-    public_money_terms=("dotacja", "umowa", "kontrakt", "publiczne pieniądze", "zł"),
-    public_org_terms=("urząd", "ministerstwo", "spółka", "fundacja", "rada", "zarząd"),
-    appointment_terms=("powołał", "powołana", "zatrudnił", "zatrudniona", "stanowisko"),
-    anti_corruption_terms=("cba", "kontrola", "nepotyzm", "konflikt interesów"),
-    negative_legal_terms=("trybunał konstytucyjny", "sąd pracy", "analiza prawna"),
+    public_money_terms=(
+        "dotacj",
+        "umow",
+        "kontrakt",
+        "publiczne pieniądz",
+        "zł",
+        "zarobk",
+        "pensj",
+        "wynagrodzeni",
+        "finansowani",
+        "grant",
+        "subwencj",
+        "pieniądz",
+        "środki publiczn",
+        "kosztuje",
+        "płacą",
+        "wyłożyć",
+        "milion",
+        "tysiąc",
+    ),
+    public_org_terms=(
+        "urząd",
+        "ministerstw",
+        "spółk",
+        "fundacj",
+        "rada",
+        "zarząd",
+        "prezes",
+        "dyrektor",
+        "ratusz",
+        "starostw",
+        "gmin",
+        "powiat",
+        "województw",
+        "instytucj",
+        "wodociąg",
+        "elektrociepłowni",
+        "energetyk",
+        "państwow",
+        "miejsk",
+    ),
+    appointment_terms=(
+        "powoła",
+        "zatrudni",
+        "stanowisk",
+        "nominacj",
+        "posad",
+        "funkcj",
+        "rekrutacj",
+        "konkurs",
+        "kadrow",
+        "obsad",
+        "odwołan",
+        "dymisj",
+        "awans",
+        "zatrudnieni",
+    ),
+    anti_corruption_terms=(
+        "cba",
+        "kontrol",
+        "nepotyzm",
+        "konflikt interesów",
+        "korupcj",
+        "łapówk",
+        "kolesiostw",
+        "układ",
+        "synekur",
+        "tłuste koty",
+        "partyjn",
+        "polityczn",
+        "działacz",
+        "powiązani",
+        "koalicj",
+        "znajom",
+        "rodzin",
+        "partnerk",
+    ),
+    negative_legal_terms=(
+        "trybunał konstytucyjny",
+        "sąd pracy",
+        "analiza prawna",
+        "pozew",
+        "sędzi",
+    ),
 )
 
 
@@ -43,37 +133,40 @@ class ProfileRelevanceFilter:
         legal_hits = matching_terms(text, self.profile.negative_legal_terms)
 
         score = 0.0
-        reasons: list[str] = []
+        reasons: list[RelevanceSignal] = []
         if money_hits:
-            score += min(0.3, 0.12 * len(money_hits))
-            reasons.append("public-money context")
+            score += min(0.35, 0.15 * len(money_hits))
+            reasons.append(PublicMoneyRelevanceSignal())
         if org_hits:
-            score += min(0.25, 0.08 * len(org_hits))
-            reasons.append("public or organizational context")
+            score += min(0.3, 0.1 * len(org_hits))
+            reasons.append(PublicOrgRelevanceSignal())
         if appointment_hits:
-            score += min(0.25, 0.12 * len(appointment_hits))
-            reasons.append("appointment or employment context")
+            score += min(0.3, 0.15 * len(appointment_hits))
+            reasons.append(AppointmentRelevanceSignal())
         if anti_corruption_hits:
-            score += min(0.25, 0.15 * len(anti_corruption_hits))
-            reasons.append("anti-corruption context")
-        if (
-            sum(
-                bool(hits)
-                for hits in (money_hits, org_hits, appointment_hits, anti_corruption_hits)
-            )
-            >= 3
-        ):
-            score += 0.18
-            reasons.append("combined relevance context")
-        if legal_hits and not (money_hits or appointment_hits or anti_corruption_hits):
+            score += min(0.35, 0.2 * len(anti_corruption_hits))
+            reasons.append(AntiCorruptionRelevanceSignal())
+
+        hits_by_category = sum(
+            bool(hits)
+            for hits in (money_hits, org_hits, appointment_hits, anti_corruption_hits)
+        )
+        if hits_by_category >= 3:
+            score += 0.25
+            reasons.append(StrongCombinedRelevanceSignal())
+        elif hits_by_category >= 2:
+            score += 0.1
+            reasons.append(CombinedRelevanceSignal())
+
+        if legal_hits and not (anti_corruption_hits or appointment_hits):
             score = min(score, 0.2)
-            reasons.append("legal-analysis negative context")
+            reasons.append(LegalNegativeRelevanceSignal())
 
         normalized_score = round(min(score, 1.0), 3)
         return RelevanceDecision(
-            is_relevant=normalized_score >= 0.45,
+            is_relevant=normalized_score >= 0.4,
             score=normalized_score,
-            reasons=tuple(reasons) or ("no relevance indicators found",),
+            reasons=tuple(reasons) or (NoRelevanceIndicatorsSignal(),),
         )
 
 

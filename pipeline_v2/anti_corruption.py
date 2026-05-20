@@ -11,7 +11,16 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, FactCandidateId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
-from pipeline_v2.types import EntityKind, Signal, positive_signal
+from pipeline_v2.types import (
+    AntiCorruptionInvestigationLemmaSignal,
+    AntiCorruptionReferralLemmaSignal,
+    EntityKind,
+    LocalActorSignal,
+    LocalInstitutionSignal,
+    LocalTargetSignal,
+    OversightInstitutionSignal,
+    Signal,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,12 +91,12 @@ class AntiCorruptionCandidateStage:
             if not institutions:
                 continue
             evidence = EvidenceSpan(
-                id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+                id=document.store.next_evidence_id(),
                 text=sentence.text,
                 span=sentence.span,
                 sentence_id=sentence.id,
                 paragraph_index=sentence.paragraph_index,
-                source=self.name(),
+                source=self.producer_id,
             )
             document.store.add_evidence(evidence)
             entities = retriever.entities_for_sentence(sentence)
@@ -105,24 +114,20 @@ class AntiCorruptionCandidateStage:
                     actor, target = self._select_actor_and_target(entities, institution)
                     institution_id = self._institution_entity_id(document, sentence, institution)
                     signals: list[Signal] = [
-                        positive_signal(
-                            "anti_corruption_referral_lemma",
-                            details=matched_referral_lemmas[0],
+                        AntiCorruptionReferralLemmaSignal(
+                            lemma=matched_referral_lemmas[0],
                         ),
-                        positive_signal(
-                            "oversight_institution",
-                            details=institution.canonical_name,
-                        ),
+                        OversightInstitutionSignal(),
                     ]
                     if actor is not None:
-                        signals.append(positive_signal("sentence_local_actor"))
+                        signals.append(LocalActorSignal())
                     if target is not None:
-                        signals.append(positive_signal("sentence_local_target"))
+                        signals.append(LocalTargetSignal())
                     if institution_id is not None:
-                        signals.append(positive_signal("sentence_local_institution"))
+                        signals.append(LocalInstitutionSignal())
                     document.store.add_fact_candidate(
                         AntiCorruptionReferralCandidate(
-                            id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                            id=document.store.next_fact_candidate_id(),
                             actor_entity_id=actor.id if actor is not None else None,
                             target_entity_id=target.id if target is not None else None,
                             institution_entity_id=institution_id,
@@ -148,22 +153,18 @@ class AntiCorruptionCandidateStage:
                         institution_id,
                     )
                     signals = [
-                        positive_signal(
-                            "anti_corruption_investigation_lemma",
-                            details=matched_investigation_lemmas[0],
+                        AntiCorruptionInvestigationLemmaSignal(
+                            lemma=matched_investigation_lemmas[0],
                         ),
-                        positive_signal(
-                            "oversight_institution",
-                            details=institution.canonical_name,
-                        ),
+                        OversightInstitutionSignal(),
                     ]
                     if target is not None:
-                        signals.append(positive_signal("sentence_local_target"))
+                        signals.append(LocalTargetSignal())
                     if institution_id is not None:
-                        signals.append(positive_signal("sentence_local_institution"))
+                        signals.append(LocalInstitutionSignal())
                     document.store.add_fact_candidate(
                         AntiCorruptionInvestigationCandidate(
-                            id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                            id=document.store.next_fact_candidate_id(),
                             target_entity_id=target.id if target is not None else None,
                             institution_entity_id=institution_id,
                             institution_text=(
@@ -317,7 +318,7 @@ class AntiCorruptionCandidateStage:
             span=institution.span,
             sentence_id=sentence.id,
             paragraph_index=sentence.paragraph_index,
-            source=self.name(),
+            source=self.producer_id,
         )
         candidate_ids = document.store.candidate_ids_with_evidence_overlapping_span(probe)
         for candidate_id in candidate_ids:

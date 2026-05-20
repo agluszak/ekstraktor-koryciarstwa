@@ -14,7 +14,13 @@ from pipeline_v2.nlp import (
     ReferenceMention,
     Token,
 )
-from pipeline_v2.types import EntityKind, ReferenceKind, positive_signal
+from pipeline_v2.types import (
+    CoreferenceProviderLinkSignal,
+    EntityKind,
+    NearbyPersonCandidateSignal,
+    ReferenceKind,
+    ThirdPersonPronounSignal,
+)
 
 
 class CoreferenceProvider(Protocol):
@@ -42,15 +48,15 @@ class CoreferenceReferenceStage:
             if sentence_id is None:
                 continue
             evidence = EvidenceSpan(
-                id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+                id=document.store.next_evidence_id(),
                 text=link.reference_text,
                 span=link.reference_span,
                 sentence_id=sentence_id,
                 paragraph_index=document.store.sentences[sentence_id].paragraph_index,
-                source=self.name(),
+                source=self.producer_id,
             )
             document.store.add_evidence(evidence)
-            reference_id = MentionId(f"reference-{len(document.store.references)}")
+            reference_id = document.store.next_reference_id()
             head_lemma = self.mention_factory.head_lemma(link.reference_text)
             document.store.add_reference(
                 ReferenceMention(
@@ -80,7 +86,7 @@ class CoreferenceReferenceStage:
                         reference_id=reference_id,
                         candidate_entity_id=candidate_id,
                         evidence_ids=(evidence.id,),
-                        retrieval_signals=(positive_signal("coreference_provider_link"),),
+                        retrieval_signals=(CoreferenceProviderLinkSignal(),),
                     )
                 )
         return document
@@ -109,15 +115,15 @@ class LightReferenceStage:
                 if not self._is_third_person_pronoun(token.morph):
                     continue
                 evidence = EvidenceSpan(
-                    id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+                    id=document.store.next_evidence_id(),
                     text=token.text,
                     span=token.span,
                     sentence_id=sentence.id,
                     paragraph_index=sentence.paragraph_index,
-                    source=self.name(),
+                    source=self.producer_id,
                 )
                 document.store.add_evidence(evidence)
-                reference_id = MentionId(f"reference-{len(document.store.references)}")
+                reference_id = document.store.next_reference_id()
                 document.store.add_reference(
                     ReferenceMention(
                         id=reference_id,
@@ -136,8 +142,8 @@ class LightReferenceStage:
                             candidate_entity_id=candidate_id,
                             evidence_ids=(evidence.id,),
                             retrieval_signals=(
-                                positive_signal("third_person_pronoun"),
-                                positive_signal("nearby_person_candidate"),
+                                ThirdPersonPronounSignal(),
+                                NearbyPersonCandidateSignal(),
                             ),
                         )
                     )

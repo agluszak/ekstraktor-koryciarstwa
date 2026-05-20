@@ -4,7 +4,15 @@ from pipeline_v2.candidates import PersonalTieFactCandidate
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import FactCandidateId, ProducerId
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
-from pipeline_v2.types import GroundingKind, RelationshipDetail, positive_signal
+from pipeline_v2.types import (
+    ExplicitPatronageLemmaSignal,
+    GroundingKind,
+    LocalObjectSignal,
+    LocalSubjectSignal,
+    NamedKinshipLemmaSignal,
+    RelationshipDetail,
+    Signal,
+)
 
 
 class PersonalTieCandidateStage:
@@ -52,8 +60,7 @@ class PersonalTieCandidateStage:
                     object_entity=people[1],
                     sentence_id=sentence.id,
                     relationship_detail=family_detail,
-                    signal_name="named_kinship_lemma",
-                    signal_detail=family_detail.value,
+                    signal=NamedKinshipLemmaSignal(lemma=family_detail.value),
                 )
                 continue
             patronage_lemma = self._patronage_detail(lemmas)
@@ -64,8 +71,7 @@ class PersonalTieCandidateStage:
                     object_entity=people[1],
                     sentence_id=sentence.id,
                     relationship_detail=None,
-                    signal_name="explicit_patronage_lemma",
-                    signal_detail=patronage_lemma,
+                    signal=ExplicitPatronageLemmaSignal(lemma=patronage_lemma),
                     context_text=patronage_lemma,
                 )
         return document
@@ -78,13 +84,12 @@ class PersonalTieCandidateStage:
         object_entity: SentenceEntity,
         sentence_id,
         relationship_detail: RelationshipDetail | None,
-        signal_name: str,
-        signal_detail: str,
+        signal: Signal,
         context_text: str | None = None,
     ) -> None:
         document.store.add_fact_candidate(
             PersonalTieFactCandidate(
-                id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                id=document.store.next_fact_candidate_id(),
                 subject_entity_id=subject.id,
                 object_entity_id=object_entity.id,
                 evidence_ids=tuple(
@@ -101,9 +106,9 @@ class PersonalTieCandidateStage:
                 relationship_detail=relationship_detail,
                 context_text=context_text,
                 signals=(
-                    positive_signal(signal_name, details=signal_detail),
-                    positive_signal("sentence_local_subject"),
-                    positive_signal("sentence_local_object"),
+                    signal,
+                    LocalSubjectSignal(),
+                    LocalObjectSignal(),
                 ),
             )
         )

@@ -15,12 +15,23 @@ from pipeline_v2.ids import (
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
+    CompensationLemmaSignal,
+    CompensationRecipientSignal,
+    CompensationSourceSignal,
+    ContractCounterpartySignal,
+    ContractorSignal,
     EntityKind,
     FactKind,
+    FunderSignal,
+    FundingLemmaSignal,
     GroundingKind,
+    LocalPhraseFunderSignal,
+    LocalPhraseRecipientSignal,
     MentionKind,
+    MoneyAmountSignal,
+    PublicContractLemmaSignal,
+    RecipientSignal,
     Signal,
-    positive_signal,
 )
 
 
@@ -28,7 +39,7 @@ class PublicMoneyCandidateStage:
     producer_id = ProducerId("public_money_candidate_stage_v2")
 
     _amount_pattern = re.compile(
-        r"\b\d+(?:[,.]\d+)?(?:\s*(?:tys\.?|tysi[eę]cy|mln|milion(?:y|ów)?))?\s*"
+        r"\b\d+(?:[\s\xa0]\d+)*(?:[,.]\d+)?(?:\s*(?:tys\.?|tysi[eę]cy|mln|milion(?:y|ów)?))?\s*"
         r"(?:zł|złotych|pln)\b",
         re.IGNORECASE,
     )
@@ -74,6 +85,7 @@ class PublicMoneyCandidateStage:
             "wynagrodzenie",
             "pensja",
             "zarobek",
+            "zarabiać",
             "odprawa",
             "premia",
             "pobrać",
@@ -92,12 +104,12 @@ class PublicMoneyCandidateStage:
             if not kinds:
                 continue
             evidence = EvidenceSpan(
-                id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+                id=document.store.next_evidence_id(),
                 text=sentence.text,
                 span=sentence.span,
                 sentence_id=sentence.id,
                 paragraph_index=sentence.paragraph_index,
-                source=self.name(),
+                source=self.producer_id,
             )
             document.store.add_evidence(evidence)
             for kind, signals in kinds:
@@ -108,7 +120,7 @@ class PublicMoneyCandidateStage:
                 )
                 document.store.add_fact_candidate(
                     MoneyTransferFactCandidate(
-                        id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                        id=document.store.next_fact_candidate_id(),
                         kind=kind,
                         source_entity_id=source_entity_id,
                         target_entity_id=target_entity_id,
@@ -116,7 +128,7 @@ class PublicMoneyCandidateStage:
                         evidence_ids=(evidence.id,),
                         source=self.producer_id,
                         signals=(
-                            positive_signal("money_amount", details=amount_texts[0]),
+                            MoneyAmountSignal(amount=amount_texts[0]),
                             *signals,
                             *role_signals,
                         ),
@@ -139,9 +151,8 @@ class PublicMoneyCandidateStage:
                 (
                     FactKind.FUNDING,
                     (
-                        positive_signal(
-                            "funding_lemma",
-                            details=self._matched_detail(lemmas, self._funding_lemmas),
+                        FundingLemmaSignal(
+                            lemma=self._matched_detail(lemmas, self._funding_lemmas),
                         ),
                     ),
                 )
@@ -151,9 +162,8 @@ class PublicMoneyCandidateStage:
                 (
                     FactKind.PUBLIC_CONTRACT,
                     (
-                        positive_signal(
-                            "public_contract_lemma",
-                            details=self._matched_detail(lemmas, self._contract_lemmas),
+                        PublicContractLemmaSignal(
+                            lemma=self._matched_detail(lemmas, self._contract_lemmas),
                         ),
                     ),
                 )
@@ -163,9 +173,8 @@ class PublicMoneyCandidateStage:
                 (
                     FactKind.COMPENSATION,
                     (
-                        positive_signal(
-                            "compensation_lemma",
-                            details=self._matched_detail(lemmas, self._compensation_lemmas),
+                        CompensationLemmaSignal(
+                            lemma=self._matched_detail(lemmas, self._compensation_lemmas),
                         ),
                     ),
                 )
@@ -215,15 +224,15 @@ class PublicMoneyCandidateStage:
                 organizations[0].id,
                 organizations[1].id,
                 (
-                    positive_signal("sentence_local_contract_counterparty"),
-                    positive_signal("sentence_local_contractor"),
+                    ContractCounterpartySignal(),
+                    ContractorSignal(),
                 ),
             )
         if len(organizations) == 1:
             return (
                 organizations[0].id,
                 None,
-                (positive_signal("sentence_local_contract_counterparty"),),
+                (ContractCounterpartySignal(),),
             )
         return None, None, ()
 
@@ -240,15 +249,15 @@ class PublicMoneyCandidateStage:
                 organizations[0].id,
                 organizations[1].id,
                 (
-                    positive_signal("sentence_local_funder"),
-                    positive_signal("sentence_local_recipient"),
+                    FunderSignal(),
+                    RecipientSignal(),
                 ),
             )
         if len(organizations) == 1 and lemmas & self._recipient_action_lemmas:
             return (
                 None,
                 organizations[0].id,
-                (positive_signal("sentence_local_recipient"),),
+                (RecipientSignal(),),
             )
         inferred_funder_id = self._infer_source_organization(document, sentence)
         inferred_recipient_id = self._infer_recipient_organization(
@@ -258,16 +267,16 @@ class PublicMoneyCandidateStage:
         )
         signals: list[Signal] = []
         if inferred_funder_id is not None:
-            signals.append(positive_signal("local_phrase_funder"))
+            signals.append(LocalPhraseFunderSignal())
         if inferred_recipient_id is not None:
-            signals.append(positive_signal("local_phrase_recipient"))
+            signals.append(LocalPhraseRecipientSignal())
         if inferred_funder_id is not None or inferred_recipient_id is not None:
             return inferred_funder_id, inferred_recipient_id, tuple(signals)
         if len(organizations) == 1:
             return (
                 organizations[0].id,
                 None,
-                (positive_signal("sentence_local_funder"),),
+                (FunderSignal(),),
             )
         return None, None, ()
 
@@ -359,22 +368,22 @@ class PublicMoneyCandidateStage:
             span=span,
             sentence_id=sentence.id,
             paragraph_index=sentence.paragraph_index,
-            source=self.name(),
+            source=self.producer_id,
         )
         for candidate_id in document.store.candidate_ids_with_evidence_overlapping_span(probe):
             candidate = document.store.entity_candidates[candidate_id]
             if candidate.kind == EntityKind.ORGANIZATION:
                 return candidate_id
         evidence = EvidenceSpan(
-            id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+            id=document.store.next_evidence_id(),
             text=document.cleaned_text[span.start_char : span.end_char],
             span=span,
             sentence_id=sentence.id,
             paragraph_index=sentence.paragraph_index,
-            source=self.name(),
+            source=self.producer_id,
         )
         document.store.add_evidence(evidence)
-        mention_id = MentionId(f"mention-{len(document.store.mentions)}")
+        mention_id = document.store.next_mention_id()
         mention = Mention(
             id=mention_id,
             text=evidence.text,
@@ -387,7 +396,7 @@ class PublicMoneyCandidateStage:
         document.store.add_mention(mention)
         return document.store.add_entity_candidate(
             EntityCandidate(
-                id=EntityCandidateId(f"entity-{len(document.store.entity_candidates)}"),
+                id=document.store.next_entity_candidate_id(),
                 kind=EntityKind.ORGANIZATION,
                 mention_ids=(mention_id,),
                 canonical_hint=evidence.text,
@@ -433,7 +442,7 @@ class PublicMoneyCandidateStage:
         target_id = people[0].id if people else None
         signals: list[Signal] = []
         if source_id is not None:
-            signals.append(positive_signal("sentence_local_compensation_source"))
+            signals.append(CompensationSourceSignal())
         if target_id is not None:
-            signals.append(positive_signal("sentence_local_compensation_recipient"))
+            signals.append(CompensationRecipientSignal())
         return source_id, target_id, tuple(signals)

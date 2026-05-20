@@ -5,7 +5,19 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, FactCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan, Sentence
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
-from pipeline_v2.types import EntityKind, FactKind, Signal, positive_signal
+from pipeline_v2.types import (
+    AppointmentLemmaSignal,
+    DismissalLemmaSignal,
+    EntityKind,
+    FactKind,
+    LocalOrganizationSignal,
+    LocalPersonSignal,
+    LocalRoleSignal,
+    Signal,
+    WindowOrganizationSignal,
+    WindowPersonSignal,
+    WindowRoleSignal,
+)
 
 
 class GovernanceCandidateStage:
@@ -37,6 +49,11 @@ class GovernanceCandidateStage:
             "prezes",
             "rada",
             "zarząd",
+            "dyrektor",
+            "wicedyrektor",
+            "wiceprezes",
+            "kierownik",
+            "szef",
         }
     )
 
@@ -55,12 +72,12 @@ class GovernanceCandidateStage:
             if person_id is None:
                 continue
             evidence = EvidenceSpan(
-                id=EvidenceId(f"evidence-{len(document.store.evidence)}"),
+                id=document.store.next_evidence_id(),
                 text=sentence.text,
                 span=sentence.span,
                 sentence_id=sentence.id,
                 paragraph_index=sentence.paragraph_index,
-                source=self.name(),
+                source=self.producer_id,
             )
             document.store.add_evidence(evidence)
             for kind, signals in kinds:
@@ -72,7 +89,7 @@ class GovernanceCandidateStage:
                     continue
                 document.store.add_fact_candidate(
                     GovernanceFactCandidate(
-                        id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                        id=document.store.next_fact_candidate_id(),
                         kind=kind,
                         person_entity_id=person_id,
                         organization_entity_id=organization_id,
@@ -96,9 +113,8 @@ class GovernanceCandidateStage:
                 (
                     FactKind.GOVERNANCE_APPOINTMENT,
                     (
-                        positive_signal(
-                            "appointment_lemma",
-                            details=self._matched_detail(lemmas, self._appointment_lemmas),
+                        AppointmentLemmaSignal(
+                            lemma=self._matched_detail(lemmas, self._appointment_lemmas),
                         ),
                     ),
                 )
@@ -108,9 +124,8 @@ class GovernanceCandidateStage:
                 (
                     FactKind.GOVERNANCE_DISMISSAL,
                     (
-                        positive_signal(
-                            "dismissal_lemma",
-                            details=self._matched_detail(lemmas, self._dismissal_lemmas),
+                        DismissalLemmaSignal(
+                            lemma=self._matched_detail(lemmas, self._dismissal_lemmas),
                         ),
                     ),
                 )
@@ -129,35 +144,34 @@ class GovernanceCandidateStage:
     ]:
         retriever = SentenceEntityRetriever(document.store)
         entities = retriever.entities_for_sentence(sentence)
-        window_entities = retriever.entities_for_sentence_window(sentence, before=1, after=1)
         person, person_signal = self._select_entity(
             entities,
-            window_entities,
+            retriever.entities_for_sentence_window(sentence, before=1, after=0),
             EntityKind.PERSON,
-            local_signal="sentence_local_person",
-            window_signal="discourse_window_person",
+            local_signal=LocalPersonSignal(),
+            window_signal=WindowPersonSignal(),
         )
         organization, organization_signal = self._select_entity(
             entities,
-            window_entities,
+            retriever.entities_for_sentence_window(sentence, before=1, after=1),
             EntityKind.ORGANIZATION,
-            local_signal="sentence_local_organization",
-            window_signal="discourse_window_organization",
+            local_signal=LocalOrganizationSignal(),
+            window_signal=WindowOrganizationSignal(),
         )
         role, role_signal = self._select_entity(
             entities,
-            window_entities,
+            retriever.entities_for_sentence_window(sentence, before=1, after=1),
             EntityKind.ROLE,
-            local_signal="sentence_local_role",
-            window_signal="discourse_window_role",
+            local_signal=LocalRoleSignal(),
+            window_signal=WindowRoleSignal(),
         )
         person_id = person.id if person is not None else None
         organization_id = organization.id if organization is not None else None
         role_id = role.id if role is not None else None
         signals: list[Signal] = []
-        for signal_name in (person_signal, organization_signal, role_signal):
-            if signal_name is not None:
-                signals.append(positive_signal(signal_name))
+        for signal in (person_signal, organization_signal, role_signal):
+            if signal is not None:
+                signals.append(signal)
         return person_id, organization_id, role_id, tuple(signals)
 
     def _select_entity(
@@ -166,9 +180,9 @@ class GovernanceCandidateStage:
         window_entities: tuple[SentenceEntity, ...],
         kind: EntityKind,
         *,
-        local_signal: str,
-        window_signal: str,
-    ) -> tuple[SentenceEntity | None, str | None]:
+        local_signal: Signal,
+        window_signal: Signal,
+    ) -> tuple[SentenceEntity | None, Signal | None]:
         local = tuple(entity for entity in local_entities if entity.kind == kind)
         if local:
             return local[0], local_signal
@@ -189,10 +203,11 @@ class GovernanceCandidateStage:
         return next(iter(sorted(lemmas & vocabulary)))
 
     def _is_employment_overlap(self, signals: tuple[Signal, ...]) -> bool:
-        return any(
-            signal.name == "appointment_lemma" and signal.details == "zatrudnić"
-            for signal in signals
-        )
+        for signal in signals:
+            match signal:
+                case AppointmentLemmaSignal(lemma="zatrudnić"):
+                    return True
+        return False
 
     def _has_governance_role(
         self,

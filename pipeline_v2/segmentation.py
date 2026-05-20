@@ -28,7 +28,7 @@ class ParagraphSentenceSegmenter:
                 end_char = start_char + len(sentence_text)
                 document.store.add_sentence(
                     Sentence(
-                        id=SentenceId(f"sentence-{len(document.store.sentences)}"),
+                        id=document.store.next_sentence_id(),
                         sentence_index=len(document.store.sentences),
                         paragraph_index=paragraph_index,
                         text=sentence_text,

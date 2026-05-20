@@ -9,7 +9,16 @@ from pipeline_v2.candidates import (
 )
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, FactCandidateId, MentionId, ProducerId
 from pipeline_v2.store import ExtractionStore
-from pipeline_v2.types import EntityKind, GroundingKind, Signal, negative_signal, positive_signal
+from pipeline_v2.types import (
+    DirectPrepositionalAttachmentSignal,
+    EntityKind,
+    ExplicitNonPartyContextSignal,
+    GroundingKind,
+    PartyAliasMatchSignal,
+    SameNameContradictionSignal,
+    SameNameContrastContextSignal,
+    Signal,
+)
 
 
 class SimpleEntityCandidateProducer:
@@ -81,9 +90,9 @@ class SimplePartyAffiliationProducer:
         evidence_ids: tuple[EvidenceId, ...],
         direct_attachment: bool = False,
     ) -> FactCandidateId:
-        signals = [positive_signal("party_alias_match")]
+        signals: list[Signal] = [PartyAliasMatchSignal()]
         if direct_attachment:
-            signals.append(positive_signal("direct_prepositional_attachment"))
+            signals.append(DirectPrepositionalAttachmentSignal())
         return store.add_fact_candidate(
             PartyAffiliationCandidate(
                 id=candidate_id,
@@ -108,10 +117,10 @@ class EvidenceSignalProducer:
         for evidence_id in evidence_ids:
             evidence_text = store.evidence[evidence_id].text.casefold()
             if "bezpartyjny" in evidence_text:
-                signals.append(negative_signal("explicit_nonparty_context"))
+                signals.append(ExplicitNonPartyContextSignal())
             if "nie mylić" in evidence_text or "nie mylic" in evidence_text:
-                signals.append(negative_signal("same_name_contradiction"))
-                signals.append(negative_signal("same_name_contrast_context"))
+                signals.append(SameNameContradictionSignal())
+                signals.append(SameNameContrastContextSignal())
         return tuple(dict.fromkeys(signals))
 
     def enrich_party_affiliation(

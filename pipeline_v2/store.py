@@ -236,6 +236,33 @@ class ExtractionStore:
             for claim_id in self.reference_resolution_ids_by_reference_id.get(reference_id, set())
         )
 
+    def next_sentence_id(self) -> SentenceId:
+        return SentenceId(f"sentence-{len(self.sentences)}")
+
+    def next_evidence_id(self) -> EvidenceId:
+        return EvidenceId(f"evidence-{len(self.evidence)}")
+
+    def next_mention_id(self) -> MentionId:
+        return MentionId(f"mention-{len(self.mentions)}")
+
+    def next_reference_id(self) -> MentionId:
+        return MentionId(f"reference-{len(self.references)}")
+
+    def next_entity_candidate_id(self) -> EntityCandidateId:
+        return EntityCandidateId(f"entity-{len(self.entity_candidates)}")
+
+    def next_proxy_candidate_id(self) -> EntityCandidateId:
+        return EntityCandidateId(f"proxy-{len(self.entity_candidates)}")
+
+    def next_fact_candidate_id(self) -> FactCandidateId:
+        return FactCandidateId(f"fact-{len(self.fact_candidates)}")
+
+    def next_resolution_claim_id(self) -> ResolutionClaimId:
+        return ResolutionClaimId(f"resolution-{len(self.resolution_claims)}")
+
+    def next_reference_resolution_claim_id(self) -> ResolutionClaimId:
+        return ResolutionClaimId(f"reference-resolution-{len(self.reference_resolution_claims)}")
+
     def candidates_by_kind(self, kind: EntityKind) -> tuple[EntityCandidate, ...]:
         return tuple(
             candidate for candidate in self.entity_candidates.values() if candidate.kind == kind

@@ -3,7 +3,13 @@ from __future__ import annotations
 from pipeline_v2.candidates import EntityCandidate, PersonalTieFactCandidate
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, FactCandidateId, ProducerId
-from pipeline_v2.types import EntityKind, GroundingKind, ReferenceKind, positive_signal
+from pipeline_v2.types import (
+    EntityKind,
+    GroundingKind,
+    ProxyFamilyEntitySignal,
+    ReferenceKind,
+    RelationshipDetailSignal,
+)
 
 
 class FamilyProxyCandidateStage:
@@ -23,7 +29,7 @@ class FamilyProxyCandidateStage:
             canonical_hint = self._canonical_hint(reference.relationship_detail.value, anchor)
             proxy_id = document.store.add_entity_candidate(
                 EntityCandidate(
-                    id=EntityCandidateId(f"proxy-{len(document.store.entity_candidates)}"),
+                    id=document.store.next_proxy_candidate_id(),
                     kind=EntityKind.PERSON,
                     mention_ids=(),
                     reference_ids=(reference.id,),
@@ -34,18 +40,15 @@ class FamilyProxyCandidateStage:
             )
             document.store.add_fact_candidate(
                 PersonalTieFactCandidate(
-                    id=FactCandidateId(f"fact-{len(document.store.fact_candidates)}"),
+                    id=document.store.next_fact_candidate_id(),
                     subject_entity_id=proxy_id,
                     object_entity_id=anchor.id,
                     evidence_ids=(reference.evidence_id,),
                     source=self.producer_id,
                     relationship_detail=reference.relationship_detail,
                     signals=(
-                        positive_signal("proxy_family_entity"),
-                        positive_signal(
-                            "relationship_detail",
-                            details=reference.relationship_detail.value,
-                        ),
+                        ProxyFamilyEntitySignal(),
+                        RelationshipDetailSignal(detail=reference.relationship_detail),
                     ),
                 )
             )

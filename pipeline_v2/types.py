@@ -103,29 +103,485 @@ class SignalPolarity(StrEnum):
     NEGATIVE = "negative"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Signal:
-    name: str
     polarity: SignalPolarity
     weight: float | None = None
-    details: str | None = None
+
+    @property
+    def name(self) -> str:
+        return self.__class__.__name__.lower().replace("signal", "")
 
     def to_json(self) -> dict[str, str | float | None]:
-        return {
+        import dataclasses
+
+        data: dict[str, str | float | None] = {
             "name": self.name,
             "polarity": self.polarity.value,
             "weight": self.weight,
-            "details": self.details,
         }
+        details = {}
+        for field in dataclasses.fields(self):
+            if field.name not in {"polarity", "weight"} and not field.name.startswith("_"):
+                details[field.name] = getattr(self, field.name)
+        if details:
+            data["details"] = str(details)
+        return data
 
 
-def positive_signal(
-    name: str, *, weight: float | None = None, details: str | None = None
-) -> Signal:
-    return Signal(name=name, polarity=SignalPolarity.POSITIVE, weight=weight, details=details)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PositiveSignal(Signal):
+    polarity: SignalPolarity = SignalPolarity.POSITIVE
 
 
-def negative_signal(
-    name: str, *, weight: float | None = None, details: str | None = None
-) -> Signal:
-    return Signal(name=name, polarity=SignalPolarity.NEGATIVE, weight=weight, details=details)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NegativeSignal(Signal):
+    polarity: SignalPolarity = SignalPolarity.NEGATIVE
+
+
+@dataclass(frozen=True, slots=True)
+class TextMatchSignal(PositiveSignal):
+    text: str
+
+    @property
+    def name(self) -> str:
+        return "text_match"
+
+
+@dataclass(frozen=True, slots=True)
+class LemmaMatchSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "lemma_match"
+
+
+@dataclass(frozen=True, slots=True)
+class SurnameBaseMatchSignal(PositiveSignal):
+    distance: int
+
+    @property
+    def name(self) -> str:
+        return f"surname_base_match_dist:{self.distance}"
+
+
+@dataclass(frozen=True, slots=True)
+class FullNameReuseMatchSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "full_name_reuse_key_match"
+
+
+@dataclass(frozen=True, slots=True)
+class MoneyAmountSignal(PositiveSignal):
+    amount: str
+
+    @property
+    def name(self) -> str:
+        return "money_amount"
+
+
+@dataclass(frozen=True, slots=True)
+class AppointmentLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "appointment_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class DismissalLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "dismissal_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class CompensationLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "compensation_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalPersonSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_person"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalOrganizationSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_organization"
+
+
+@dataclass(frozen=True, slots=True)
+class WindowPersonSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "discourse_window_person"
+
+
+@dataclass(frozen=True, slots=True)
+class WindowOrganizationSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "discourse_window_organization"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalRoleSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_role"
+
+
+@dataclass(frozen=True, slots=True)
+class PartyAliasMatchSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "party_alias_match"
+
+
+@dataclass(frozen=True, slots=True)
+class CollectivePartyContextSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "collective_party_context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SameNameContradictionSignal(NegativeSignal):
+    @property
+    def name(self) -> str:
+        return "same_name_contradiction"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SameNameContrastContextSignal(NegativeSignal):
+    @property
+    def name(self) -> str:
+        return "same_name_contrast_context"
+
+
+
+@dataclass(frozen=True, slots=True)
+class FundingLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "funding_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class PublicContractLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "public_contract_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class WindowRoleSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "discourse_window_role"
+
+
+@dataclass(frozen=True, slots=True)
+class CompensationSourceSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_compensation_source"
+
+
+@dataclass(frozen=True, slots=True)
+class CompensationRecipientSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_compensation_recipient"
+
+
+@dataclass(frozen=True, slots=True)
+class ContractCounterpartySignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_contract_counterparty"
+
+
+@dataclass(frozen=True, slots=True)
+class ContractorSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_contractor"
+
+
+@dataclass(frozen=True, slots=True)
+class FunderSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_funder"
+
+
+@dataclass(frozen=True, slots=True)
+class RecipientSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_recipient"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalPhraseFunderSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "local_phrase_funder"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalPhraseRecipientSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "local_phrase_recipient"
+
+
+@dataclass(frozen=True, slots=True)
+class DirectPrepositionalAttachmentSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "direct_prepositional_attachment"
+
+
+@dataclass(frozen=True, slots=True)
+class PartyProfileLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "party_profile_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class CandidacyContextSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "candidacy_context"
+
+
+@dataclass(frozen=True, slots=True)
+class AntiCorruptionReferralLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "anti_corruption_referral_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class AntiCorruptionInvestigationLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "anti_corruption_investigation_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class OversightInstitutionSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "oversight_institution"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalActorSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_actor"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalTargetSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_target"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalInstitutionSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_institution"
+
+
+@dataclass(frozen=True, slots=True)
+class PublicEmploymentLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "public_employment_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class EmploymentContractFormSignal(PositiveSignal):
+    form: str
+
+    @property
+    def name(self) -> str:
+        return "employment_contract_form"
+
+
+@dataclass(frozen=True, slots=True)
+class ProxyFamilyEntitySignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "proxy_family_entity"
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipDetailSignal(PositiveSignal):
+    detail: RelationshipDetail
+
+    @property
+    def name(self) -> str:
+        return "relationship_detail"
+
+
+@dataclass(frozen=True, slots=True)
+class NamedKinshipLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "named_kinship_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class ExplicitPatronageLemmaSignal(PositiveSignal):
+    lemma: str
+
+    @property
+    def name(self) -> str:
+        return "explicit_patronage_lemma"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalSubjectSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_subject"
+
+
+@dataclass(frozen=True, slots=True)
+class LocalObjectSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "sentence_local_object"
+
+
+@dataclass(frozen=True, slots=True)
+class ExplicitNonPartyContextSignal(NegativeSignal):
+    @property
+    def name(self) -> str:
+        return "explicit_nonparty_context"
+
+
+@dataclass(frozen=True, slots=True)
+class CoreferenceProviderLinkSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "coreference_provider_link"
+
+
+@dataclass(frozen=True, slots=True)
+class ThirdPersonPronounSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "third_person_pronoun"
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RelevanceSignal(Signal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PositiveRelevanceSignal(RelevanceSignal):
+    polarity: SignalPolarity = SignalPolarity.POSITIVE
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NegativeRelevanceSignal(RelevanceSignal):
+    polarity: SignalPolarity = SignalPolarity.NEGATIVE
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PublicMoneyRelevanceSignal(PositiveRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "public-money context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PublicOrgRelevanceSignal(PositiveRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "public or organizational context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AppointmentRelevanceSignal(PositiveRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "appointment or employment context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AntiCorruptionRelevanceSignal(PositiveRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "anti-corruption context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CombinedRelevanceSignal(PositiveRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "combined relevance context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StrongCombinedRelevanceSignal(PositiveRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "strong combined relevance context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LegalNegativeRelevanceSignal(NegativeRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "legal-analysis negative context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NoRelevanceIndicatorsSignal(NegativeRelevanceSignal):
+    @property
+    def name(self) -> str:
+        return "no relevance indicators found"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NearbyPersonCandidateSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "nearby_person_candidate"
