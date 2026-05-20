@@ -7,6 +7,7 @@ from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.retrieval import EntityCandidateRetriever
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import NerLabel
 
@@ -20,7 +21,7 @@ class StaticEntityProvider:
         return self.entities
 
 
-def test_named_entity_stage_reuses_inflected_full_person_mentions_by_morphology() -> None:
+def test_named_entity_stage_emits_resolution_proposal_for_inflected_full_person_mentions() -> None:
     cleaned_text = "Krzysztof Staruch wygrał wybory. Krzysztofa Starucha poparł komitet."
     document = ArticleDocument(
         document_id=DocumentId("doc"),
@@ -56,11 +57,13 @@ def test_named_entity_stage_reuses_inflected_full_person_mentions_by_morphology(
     mention_ids = tuple(document.store.mentions)
 
     assert len(mention_ids) == 2
-    assert document.store.entity_ids_for_mention(
-        mention_ids[0]
-    ) == document.store.entity_ids_for_mention(
-        mention_ids[1],
-    )
+    first_ids = document.store.entity_ids_for_mention(mention_ids[0])
+    second_ids = document.store.entity_ids_for_mention(mention_ids[1])
+
+    assert first_ids != second_ids
+    second_entity = document.store.entity_candidates[next(iter(second_ids))]
+    proposals = EntityCandidateRetriever(document.store).proposals_for_entity(second_entity)
+    assert len(proposals) == 1
 
 
 def test_named_entity_stage_records_organization_evidence_in_sentence_context() -> None:

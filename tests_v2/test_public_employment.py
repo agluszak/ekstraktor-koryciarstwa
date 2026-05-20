@@ -3,15 +3,23 @@ from __future__ import annotations
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId
+from pipeline_v2.ids import DocumentId, EntityCandidateId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.nominal_coreference import NominalKinshipCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
-from pipeline_v2.types import FactKind, NerLabel
+from pipeline_v2.types import (
+    FactKind,
+    LocalOrganizationSignal,
+    LocalPersonSignal,
+    LocalRoleSignal,
+    NerLabel,
+    PublicEmploymentLemmaSignal,
+)
 
 
 class StaticEntityProvider:
@@ -29,6 +37,7 @@ def run_public_employment_stage(
     *,
     include_governance: bool = False,
     include_public_money: bool = False,
+    include_nominal_kinship: bool = False,
 ) -> ArticleDocument:
     document = ArticleDocument(
         document_id=DocumentId("doc"),
@@ -46,6 +55,8 @@ def run_public_employment_stage(
         morphology=morphology,
     ).run(document)
     RoleCandidateStage(morphology).run(document)
+    if include_nominal_kinship:
+        NominalKinshipCandidateStage().run(document)
     if include_governance:
         GovernanceCandidateStage().run(document)
     PublicEmploymentCandidateStage().run(document)
@@ -71,6 +82,14 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
     )
 
 
+def location_span(text: str, name: str) -> NamedEntitySpan:
+    return NamedEntitySpan(
+        text=name,
+        label=NerLabel.LOCATION,
+        span=Span(text.index(name), text.index(name) + len(name)),
+    )
+
+
 def test_public_employment_stage_emits_staffing_candidate_for_hire_into_advisory_role() -> None:
     text = "Urząd miasta zatrudnił Marka Nowaka jako doradcę burmistrza."
     document = run_public_employment_stage(
@@ -81,8 +100,17 @@ def test_public_employment_stage_emits_staffing_candidate_for_hire_into_advisory
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
-    assessment = document.fact_assessments[0].assessment
+    candidate = next(
+        candidate
+        for candidate in document.store.fact_candidates.values()
+        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+    )
+    record = candidate.to_fact_record()
+    assessment = next(
+        item.assessment
+        for item in document.fact_assessments
+        if item.fact_candidate_id == candidate.id
+    )
 
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -90,12 +118,12 @@ def test_public_employment_stage_emits_staffing_candidate_for_hire_into_advisory
         {"role": "organization", "entity_id": "entity-0"},
         {"role": "role", "entity_id": "entity-2"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "public_employment_lemma",
-        "sentence_local_person",
-        "sentence_local_organization",
-        "sentence_local_role",
-    )
+    assert set(record.signals) == {
+        PublicEmploymentLemmaSignal(lemma="zatrudnić"),
+        LocalPersonSignal(),
+        LocalOrganizationSignal(),
+        LocalRoleSignal(),
+    }
     assert assessment.score >= 0.8
 
 
@@ -159,3 +187,112 @@ def test_public_employment_stage_does_not_emit_for_procurement_without_person() 
     )
 
     assert tuple(record.kind for record in records) == (FactKind.PUBLIC_CONTRACT,)
+
+
+def test_public_employment_stage_rejects_active_nominative_subject() -> None:
+    # "Tomasz Kościelniak zatrudnił partnerkę w urzędzie."
+    # Tomasz Kościelniak is Nominative and the sentence has an active verb "zatrudnił".
+    # Therefore he is the subject/employer and should be rejected as the employee.
+    text = "Tomasz Kościelniak zatrudnił partnerkę w urzędzie."
+    document = run_public_employment_stage(
+        text,
+        (
+            person_span(text, "Tomasz Kościelniak"),
+            organization_span(text, "urzędzie"),
+        ),
+    )
+    records = tuple(
+        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
+    )
+    # The fact candidate should be empty because the person entity is the active subject,
+    # and "partnerkę" is unnamed (so not a person candidate yet).
+    assert len(records) == 0
+
+
+def test_public_employment_stage_binds_possessive_kinship_proxy_as_hired_person() -> None:
+    text = "Tomasz Kościelniak zatrudnił swojego przyszłego teścia w Urzędzie Stanu Cywilnego."
+    document = run_public_employment_stage(
+        text,
+        (
+            person_span(text, "Tomasz Kościelniak"),
+            organization_span(text, "Urzędzie Stanu Cywilnego"),
+        ),
+        include_nominal_kinship=True,
+    )
+
+    candidate = next(
+        candidate
+        for candidate in document.store.fact_candidates.values()
+        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+    )
+    record = candidate.to_fact_record()
+    person_argument = next(
+        argument for argument in record.arguments if argument.to_json()["role"] == "person"
+    )
+    proxy_entity = document.store.entity_candidates[
+        EntityCandidateId(person_argument.to_json()["entity_id"])
+    ]
+    assessment = next(
+        item.assessment
+        for item in document.fact_assessments
+        if item.fact_candidate_id == candidate.id
+    )
+
+    assert record.kind is FactKind.PUBLIC_EMPLOYMENT
+    assert proxy_entity.canonical_hint == "teść of Tomasz Kościelniak"
+    assert assessment.score >= 0.8
+
+
+def test_public_employment_stage_handles_impersonal_passive_hiring_sentence() -> None:
+    text = (
+        "Na początku lipca w samorządzie Gminy Poczesna zatrudniono Rafała Dobosza "
+        "na stanowisku pomocy administracyjnej."
+    )
+    document = run_public_employment_stage(
+        text,
+        (
+            organization_span(text, "Gminy Poczesna"),
+            person_span(text, "Rafała Dobosza"),
+        ),
+    )
+
+    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    assessment = document.fact_assessments[0].assessment
+
+    assert record.kind is FactKind.PUBLIC_EMPLOYMENT
+    assert tuple(argument.to_json() for argument in record.arguments) == (
+        {"role": "person", "entity_id": "entity-1"},
+        {"role": "organization", "entity_id": "entity-0"},
+        {"role": "role", "entity_id": "entity-2"},
+    )
+    assert assessment.score >= 0.8
+
+
+def test_public_employment_stage_materializes_public_org_from_samorzad_and_location() -> None:
+    text = (
+        "Kontrowersje w gminy Poczesna. "
+        "Na początku lipca w samorządzie zatrudniono Rafała Dobosza "
+        "na stanowisku pomocy administracyjnej."
+    )
+    document = run_public_employment_stage(
+        text,
+        (
+            location_span(text, "gminy Poczesna"),
+            person_span(text, "Rafała Dobosza"),
+        ),
+    )
+
+    candidate = next(iter(document.store.fact_candidates.values()))
+    record = candidate.to_fact_record()
+    organization_id = EntityCandidateId(
+        next(
+            argument.to_json()["entity_id"]
+            for argument in record.arguments
+            if argument.to_json()["role"] == "organization"
+        )
+    )
+
+    assert record.kind is FactKind.PUBLIC_EMPLOYMENT
+    assert document.store.entity_candidates[organization_id].canonical_hint == (
+        "samorządzie gminy Poczesna"
+    )

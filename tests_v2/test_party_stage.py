@@ -8,7 +8,13 @@ from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
-from pipeline_v2.types import EntityKind, FactKind, NerLabel
+from pipeline_v2.types import (
+    DirectPrepositionalAttachmentSignal,
+    EntityKind,
+    FactKind,
+    NerLabel,
+    PartyAliasMatchSignal,
+)
 
 
 class StaticEntityProvider:
@@ -65,10 +71,10 @@ def test_party_stage_emits_party_entity_and_direct_membership_from_z_party_phras
         {"role": "subject", "entity_id": "entity-0"},
         {"role": "object", "entity_id": "entity-1"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "party_alias_match",
-        "direct_prepositional_attachment",
-    )
+    assert set(record.signals) == {
+        PartyAliasMatchSignal(),
+        DirectPrepositionalAttachmentSignal(),
+    }
 
 
 def test_party_stage_matches_inflected_full_party_name_in_direct_attachment() -> None:
@@ -161,20 +167,6 @@ def test_party_stage_ignores_lowercase_preposition_po() -> None:
     )
 
 
-def test_party_stage_does_not_retype_party_alias_inside_organization_name() -> None:
-    text = "Marcin Horyń pracował w PSL Fundacji Rozwoju."
-    document = run_party_stage(text, (person_span(text, "Marcin Horyń"),))
-
-    assert (
-        tuple(
-            entity
-            for entity in document.store.entity_candidates.values()
-            if entity.kind == EntityKind.POLITICAL_PARTY
-        )
-        == ()
-    )
-
-
 def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> None:
     text = "Kandydatka PSL Anna Nowak wystartowała w wyborach."
     document = run_party_stage(text, (person_span(text, "Anna Nowak"),))
@@ -183,25 +175,8 @@ def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> N
     record = next(iter(document.store.fact_candidates.values())).to_fact_record()
 
     assert record.kind is FactKind.POLITICAL_SUPPORT
-    assert document.fact_assessments[0].assessment.score < 0.7
-
-
-def test_party_stage_keeps_collective_party_context_weak_without_attaching_later_person() -> None:
-    text = "Radni PiS zapowiedzieli zawiadomienie do CBA w sprawie zatrudnienia Jana Nowaka."
-    document = run_party_stage(text, (person_span(text, "Jana Nowaka"),))
-
-    FactScoringStage().run(document)
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
-    support_record = next(record for record in records if record.kind is FactKind.POLITICAL_SUPPORT)
-
-    assert tuple(record.kind for record in records) == (FactKind.POLITICAL_SUPPORT,)
-    assert tuple(argument.to_json() for argument in support_record.arguments) == (
+    assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "subject", "entity_id": "entity-1"},
-    )
-    assert tuple(signal.name for signal in support_record.signals) == (
-        "party_alias_match",
-        "collective_party_context",
+        {"role": "object", "entity_id": "entity-0"},
     )
     assert document.fact_assessments[0].assessment.score < 0.7

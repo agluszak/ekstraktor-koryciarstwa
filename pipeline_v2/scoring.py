@@ -4,6 +4,7 @@ from pipeline_v2.candidates import (
     Assessment,
     EntityResolutionProposal,
     FactCandidateRecord,
+    FactResolutionProposal,
     PartyAffiliationCandidate,
     ReferenceResolutionProposal,
 )
@@ -12,13 +13,19 @@ from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
     AntiCorruptionInvestigationLemmaSignal,
     AntiCorruptionReferralLemmaSignal,
+    AppointerContextSignal,
     AppointmentLemmaSignal,
     CandidacyContextSignal,
     CollectivePartyContextSignal,
     CompensationLemmaSignal,
+    ConflictingPartyAffiliationSignal,
+    ControllerContextSignal,
     CoreferenceProviderLinkSignal,
+    DependencyObjectSignal,
+    DependencySubjectSignal,
     DirectPrepositionalAttachmentSignal,
     DismissalLemmaSignal,
+    DuplicateFactSignal,
     EmploymentContractFormSignal,
     ExplicitNonPartyContextSignal,
     ExplicitPatronageLemmaSignal,
@@ -33,20 +40,28 @@ from pipeline_v2.types import (
     LocalRoleSignal,
     LocalSubjectSignal,
     LocalTargetSignal,
+    MicroAmountSignal,
     MoneyAmountSignal,
     NamedKinshipLemmaSignal,
     NearbyPersonCandidateSignal,
+    NominalKinshipSignal,
     OversightInstitutionSignal,
     PartyAliasMatchSignal,
     PartyProfileLemmaSignal,
+    PossessiveKinshipSignal,
+    PrepositionalOrganizationSignal,
     ProxyFamilyEntitySignal,
+    PseudonymousSourceSignal,
     PublicContractLemmaSignal,
     PublicEmploymentLemmaSignal,
     RelationshipDetailSignal,
     SameNameContradictionSignal,
+    SameNameContrastContextSignal,
     SignalPolarity,
     SurnameBaseMatchSignal,
     ThirdPersonPronounSignal,
+    WeakSyntacticBindingSignal,
+    WindowFallbackSignal,
     WindowOrganizationSignal,
     WindowPersonSignal,
     WindowRoleSignal,
@@ -79,6 +94,8 @@ class EntityResolutionScorer:
             match signal:
                 case SameNameContradictionSignal():
                     score -= 0.45
+                case ConflictingPartyAffiliationSignal():
+                    score -= 0.5
         return Assessment(
             score=max(0.0, min(1.0, round(score, 3))),
             positive_signals=tuple(positive),
@@ -109,10 +126,16 @@ class PartyAffiliationScorer:
                 case DirectPrepositionalAttachmentSignal():
                     score += 0.25
 
+        from pipeline_v2.types import EmbeddedInOrganizationNameSignal
+
         for signal in negative:
             match signal:
                 case ExplicitNonPartyContextSignal():
                     score -= 0.35
+                case SameNameContrastContextSignal():
+                    score -= 0.2
+                case EmbeddedInOrganizationNameSignal():
+                    score -= 0.5
         return Assessment(
             score=max(0.0, min(1.0, round(score, 3))),
             positive_signals=tuple(positive),
@@ -161,6 +184,34 @@ class ReferenceResolutionScorer:
             negative_signals=tuple(negative),
             scorer_id=self.scorer_id,
             explanation="reference resolution scored from typed provider and context signals",
+        )
+
+
+class FactResolutionScorer:
+    scorer_id = ScorerId("fact_resolution_scorer_v2")
+
+    def score(self, proposal: FactResolutionProposal) -> Assessment:
+        positive = [
+            signal
+            for signal in proposal.retrieval_signals
+            if signal.polarity == SignalPolarity.POSITIVE
+        ]
+        negative = [
+            signal
+            for signal in proposal.context_signals
+            if signal.polarity == SignalPolarity.NEGATIVE
+        ]
+        score = 0.35
+        for signal in positive:
+            match signal:
+                case DuplicateFactSignal():
+                    score += 0.55
+        return Assessment(
+            score=max(0.0, min(1.0, round(score, 3))),
+            positive_signals=tuple(positive),
+            negative_signals=tuple(negative),
+            scorer_id=self.scorer_id,
+            explanation="fact resolution scored from typed duplicate evidence",
         )
 
 
@@ -268,7 +319,7 @@ class FactRecordScorer:
                     score += 0.25
                 case RelationshipDetailSignal():
                     score += 0.15
-                case NamedKinshipLemmaSignal():
+                case NamedKinshipLemmaSignal() | NominalKinshipSignal():
                     score += 0.25
                 case ExplicitPatronageLemmaSignal():
                     score += 0.2
@@ -276,11 +327,38 @@ class FactRecordScorer:
                     score += 0.1
                 case LocalObjectSignal():
                     score += 0.1
+                case DependencySubjectSignal():
+                    score += 0.18
+                case DependencyObjectSignal():
+                    score += 0.18
+                case PrepositionalOrganizationSignal():
+                    score += 0.12
+                case PossessiveKinshipSignal():
+                    score += 0.15
+                case WindowFallbackSignal(distance=d):
+                    score += max(0.0, 0.08 - 0.02 * d)
+
+        from pipeline_v2.types import EmbeddedInOrganizationNameSignal, PartyOrganizationSignal
 
         for signal in negative:
             match signal:
                 case ExplicitNonPartyContextSignal():
                     score -= 0.35
+                case MicroAmountSignal():
+                    if record.kind == FactKind.COMPENSATION:
+                        score -= 0.6
+                case PartyOrganizationSignal():
+                    score -= 0.6
+                case EmbeddedInOrganizationNameSignal():
+                    score -= 0.6
+                case WeakSyntacticBindingSignal():
+                    score -= 0.35
+                case AppointerContextSignal():
+                    score -= 0.35
+                case ControllerContextSignal():
+                    score -= 0.55
+                case PseudonymousSourceSignal():
+                    score -= 0.55
         return Assessment(
             score=max(0.0, min(1.0, round(score, 3))),
             positive_signals=tuple(positive),

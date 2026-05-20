@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import EntityResolutionClaim, ReferenceResolutionClaim
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import ProducerId, ResolutionClaimId
+from pipeline_v2.ids import ProducerId
 from pipeline_v2.orchestrator import V2Orchestrator
 from pipeline_v2.types import ResolutionRelation
 
@@ -18,7 +18,14 @@ class ResolutionScoringStage:
             entities=tuple(document.store.entity_candidates.values()),
             reference_resolutions=tuple(document.reference_resolution_proposals),
         )
+        seen_pairs: set[tuple[str, str]] = set()
         for entity_assessment in result.entity_resolution_assessments:
+            left_id = str(entity_assessment.proposal.left_entity_id)
+            right_id = str(entity_assessment.proposal.right_entity_id)
+            pair = (left_id, right_id) if left_id <= right_id else (right_id, left_id)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
             document.store.add_resolution_claim(
                 EntityResolutionClaim(
                     id=document.store.next_resolution_claim_id(),

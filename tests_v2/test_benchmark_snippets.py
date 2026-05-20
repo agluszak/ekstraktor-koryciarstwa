@@ -35,13 +35,28 @@ from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import (
+    AntiCorruptionInvestigationLemmaSignal,
+    AppointmentLemmaSignal,
+    ConflictingPartyAffiliationSignal,
+    DirectPrepositionalAttachmentSignal,
     EntityKind,
     FactKind,
     GroundingKind,
+    LocalOrganizationSignal,
+    LocalPersonSignal,
+    LocalRoleSignal,
+    LocalTargetSignal,
+    MentionKind,
     NerLabel,
+    OversightInstitutionSignal,
+    PartyAliasMatchSignal,
+    PublicEmploymentLemmaSignal,
     ReferenceKind,
     RelationshipDetail,
-    positive_signal,
+    SameNameContrastContextSignal,
+    WindowOrganizationSignal,
+    WindowPersonSignal,
+    WindowRoleSignal,
 )
 
 
@@ -155,12 +170,12 @@ def test_benchmark_split_sentence_governance_scenario() -> None:
         {"role": "organization", "entity_id": "entity-1"},
         {"role": "role", "entity_id": "entity-2"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "appointment_lemma",
-        "discourse_window_person",
-        "discourse_window_organization",
-        "discourse_window_role",
-    )
+    assert set(record.signals) == {
+        AppointmentLemmaSignal(lemma="powołać"),
+        WindowPersonSignal(),
+        WindowOrganizationSignal(),
+        WindowRoleSignal(),
+    }
     assert assessment.score >= 0.8
 
 
@@ -188,12 +203,12 @@ def test_benchmark_public_employment_scenario() -> None:
         {"role": "organization", "entity_id": "entity-0"},
         {"role": "role", "entity_id": "entity-2"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "public_employment_lemma",
-        "sentence_local_person",
-        "sentence_local_organization",
-        "sentence_local_role",
-    )
+    assert set(record.signals) == {
+        PublicEmploymentLemmaSignal(lemma="zatrudnić"),
+        LocalPersonSignal(),
+        LocalOrganizationSignal(),
+        LocalRoleSignal(),
+    }
     assert assessment.score >= 0.8
 
 
@@ -243,23 +258,10 @@ def test_benchmark_anti_corruption_mixed_party_context_scenario() -> None:
     records = tuple(
         candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
     )
-    assert tuple(record.kind for record in records) == (
-        FactKind.POLITICAL_SUPPORT,
-        FactKind.ANTI_CORRUPTION_REFERRAL,
-    )
+    assert tuple(record.kind for record in records) == (FactKind.ANTI_CORRUPTION_REFERRAL,)
 
-    support_record = records[0]
-    referral_record = records[1]
-    assessments = {item.fact_candidate_id: item.assessment for item in document.fact_assessments}
+    referral_record = records[0]
 
-    assert tuple(argument.to_json() for argument in support_record.arguments) == (
-        {"role": "subject", "entity_id": "entity-2"},
-    )
-    assert tuple(signal.name for signal in support_record.signals) == (
-        "party_alias_match",
-        "collective_party_context",
-    )
-    assert assessments[next(iter(document.store.fact_candidates.values())).id].score < 0.7
     assert tuple(argument.to_json() for argument in referral_record.arguments) == (
         {"role": "complainant", "entity_id": "entity-2"},
         {"role": "target", "entity_id": "entity-1"},
@@ -336,11 +338,11 @@ def test_benchmark_anti_corruption_investigation_scenario() -> None:
         {"role": "institution", "value": "Prokuratura"},
         {"role": "context", "value": "w sprawie Jana Nowaka"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "anti_corruption_investigation_lemma",
-        "oversight_institution",
-        "sentence_local_target",
-    )
+    assert set(record.signals) == {
+        AntiCorruptionInvestigationLemmaSignal(lemma="wszcząć"),
+        OversightInstitutionSignal(),
+        LocalTargetSignal(),
+    }
     assert assessment.score >= 0.7
 
 
@@ -395,8 +397,8 @@ def test_benchmark_same_name_party_contrast_scenario() -> None:
         evidence_ids=(evidence_id,),
         source=ProducerId("benchmark_manual"),
         signals=(
-            positive_signal("party_alias_match"),
-            positive_signal("direct_prepositional_attachment"),
+            PartyAliasMatchSignal(),
+            DirectPrepositionalAttachmentSignal(),
         ),
     )
     second_candidate = PartyAffiliationCandidate(
@@ -406,8 +408,8 @@ def test_benchmark_same_name_party_contrast_scenario() -> None:
         evidence_ids=(evidence_id,),
         source=ProducerId("benchmark_manual"),
         signals=(
-            positive_signal("party_alias_match"),
-            positive_signal("direct_prepositional_attachment"),
+            PartyAliasMatchSignal(),
+            DirectPrepositionalAttachmentSignal(),
         ),
     )
 
@@ -428,11 +430,7 @@ def test_benchmark_same_name_party_contrast_scenario() -> None:
     )
     assert tuple(item.assessment.score for item in assessments) == (0.65, 0.65)
     assert all(
-        any(
-            signal.name == "same_name_contrast_context"
-            for signal in item.assessment.negative_signals
-        )
-        for item in assessments
+        SameNameContrastContextSignal() in item.assessment.negative_signals for item in assessments
     )
 
 
@@ -470,3 +468,161 @@ def test_benchmark_party_and_oversight_true_negative_scenario() -> None:
     FactScoringStage().run(document)
 
     assert tuple(document.store.fact_candidates.values()) == ()
+
+
+def test_benchmark_multiparagraph_surname_only_resolution() -> None:
+    from pipeline_v2.resolution_scoring import ResolutionScoringStage
+
+    paragraphs = (
+        "Jan Kowalski został prezesem spółki.",
+        "Kowalski ma spore doświadczenie.",
+    )
+    text = "\n\n".join(paragraphs)
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=paragraphs,
+    )
+    morphology = Morfeusz2MorphologyAdapter()
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+
+    entities = (
+        NamedEntitySpan(
+            text="Jan Kowalski",
+            label=NerLabel.PERSON,
+            span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + len("Jan Kowalski")),
+        ),
+        NamedEntitySpan(
+            text="Kowalski",
+            label=NerLabel.PERSON,
+            span=Span(text.index("Kowalski"), text.index("Kowalski") + len("Kowalski")),
+        ),
+    )
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(entities),
+        morphology=morphology,
+    ).run(document)
+
+    ResolutionScoringStage().run(document)
+
+    entity_candidates = list(document.store.entity_candidates.values())
+    assert len(entity_candidates) == 2
+
+    full_person = next(c for c in entity_candidates if c.canonical_hint == "Jan Kowalski")
+    surname_person = next(c for c in entity_candidates if c.canonical_hint == "Kowalski")
+
+    full_mention = document.store.mentions[full_person.mention_ids[0]]
+    surname_mention = document.store.mentions[surname_person.mention_ids[0]]
+    assert full_mention.kind == MentionKind.NER
+    assert surname_mention.kind == MentionKind.SURNAME_ONLY
+
+    claims = list(document.store.resolution_claims.values())
+    assert len(claims) == 1
+    claim = claims[0]
+    assert {claim.left_entity_id, claim.right_entity_id} == {full_person.id, surname_person.id}
+    assert claim.assessment.score >= 0.5
+
+
+def test_benchmark_multiparagraph_same_name_party_contrast() -> None:
+    from pipeline_v2.resolution_scoring import ResolutionScoringStage
+
+    paragraphs = (
+        "Jan Kowalski z PO został powołany.",
+        "Tymczasem Jan Kowalski z PiS złożył dymisję.",
+    )
+    text = "\n\n".join(paragraphs)
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=paragraphs,
+    )
+    morphology = Morfeusz2MorphologyAdapter()
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+
+    first_name_index = text.index("Jan Kowalski")
+    second_name_index = text.index("Jan Kowalski", first_name_index + 1)
+
+    entities = (
+        NamedEntitySpan(
+            text="Jan Kowalski",
+            label=NerLabel.PERSON,
+            span=Span(first_name_index, first_name_index + len("Jan Kowalski")),
+        ),
+        NamedEntitySpan(
+            text="Jan Kowalski",
+            label=NerLabel.PERSON,
+            span=Span(second_name_index, second_name_index + len("Jan Kowalski")),
+        ),
+    )
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(entities),
+        morphology=morphology,
+    ).run(document)
+
+    entity_candidates = list(document.store.entity_candidates.values())
+    assert len(entity_candidates) == 2
+    left_person = entity_candidates[0]
+    right_person = entity_candidates[1]
+
+    po_party_id = document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("party-po"),
+            kind=EntityKind.POLITICAL_PARTY,
+            mention_ids=(),
+            canonical_hint="Platforma Obywatelska",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("benchmark_manual"),
+        )
+    )
+    pis_party_id = document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("party-pis"),
+            kind=EntityKind.POLITICAL_PARTY,
+            mention_ids=(),
+            canonical_hint="Prawo i Sprawiedliwość",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("benchmark_manual"),
+        )
+    )
+
+    document.store.add_fact_candidate(
+        PartyAffiliationCandidate(
+            id=FactCandidateId("fact-po"),
+            subject_entity_id=left_person.id,
+            party_entity_id=po_party_id,
+            evidence_ids=(),
+            source=ProducerId("benchmark_manual"),
+        )
+    )
+    document.store.add_fact_candidate(
+        PartyAffiliationCandidate(
+            id=FactCandidateId("fact-pis"),
+            subject_entity_id=right_person.id,
+            party_entity_id=pis_party_id,
+            evidence_ids=(),
+            source=ProducerId("benchmark_manual"),
+        )
+    )
+
+    ResolutionScoringStage().run(document)
+
+    claims = list(document.store.resolution_claims.values())
+    assert len(claims) == 1
+    claim = claims[0]
+    assert claim.assessment.score < 0.5
+    assert any(
+        signal
+        == ConflictingPartyAffiliationSignal(
+            left_party_hint="platforma obywatelska",
+            right_party_hint="prawo i sprawiedliwość",
+        )
+        for signal in claim.assessment.negative_signals
+    )

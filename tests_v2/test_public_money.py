@@ -8,7 +8,17 @@ from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
-from pipeline_v2.types import FactArgumentRole, FactKind, NerLabel
+from pipeline_v2.types import (
+    ContractCounterpartySignal,
+    ContractorSignal,
+    FactArgumentRole,
+    FactKind,
+    FundingLemmaSignal,
+    LocalPhraseRecipientSignal,
+    MoneyAmountSignal,
+    NerLabel,
+    PublicContractLemmaSignal,
+)
 
 
 class StaticEntityProvider:
@@ -101,11 +111,11 @@ def test_public_money_facts_are_scored_from_evidence_signals() -> None:
     assert len(document.fact_assessments) == 1
     assessment = document.fact_assessments[0].assessment
     assert assessment.score >= 0.7
-    assert tuple(signal.name for signal in assessment.positive_signals) == (
-        "money_amount",
-        "funding_lemma",
-        "local_phrase_recipient",
-    )
+    assert set(assessment.positive_signals) == {
+        MoneyAmountSignal(amount="100 tys. zł"),
+        FundingLemmaSignal(lemma="dotacja"),
+        LocalPhraseRecipientSignal(),
+    }
 
 
 def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_arguments() -> None:
@@ -134,12 +144,12 @@ def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_argumen
         {"role": "contractor", "entity_id": "entity-1"},
         {"role": "amount", "value": "49 tys. zł"},
     )
-    assert tuple(signal.name for signal in record.signals) == (
-        "money_amount",
-        "public_contract_lemma",
-        "sentence_local_contract_counterparty",
-        "sentence_local_contractor",
-    )
+    assert set(record.signals) == {
+        MoneyAmountSignal(amount="49 tys. zł"),
+        PublicContractLemmaSignal(lemma="podpisać"),
+        ContractCounterpartySignal(),
+        ContractorSignal(),
+    }
 
 
 def test_public_money_stage_marks_single_receiving_organization_as_recipient() -> None:
@@ -196,3 +206,53 @@ def test_public_money_stage_infers_local_organization_phrases_when_ner_misses_pa
         document.store.entity_candidates[EntityCandidateId("entity-1")].grounding.value
         == "inferred"
     )
+
+
+def test_compensation_scores_controller_organization_below_direct_employer() -> None:
+    text = (
+        "AMW Rewita podległa Ministerstwu Obrony Narodowej zatrudniła Rząsowskiego. "
+        "Poprzednik Rząsowskiego zarabiał 24 tys. zł wynagrodzenia."
+    )
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="AMW Rewita",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("AMW Rewita"), text.index("AMW Rewita") + 10),
+            ),
+            NamedEntitySpan(
+                text="Ministerstwu Obrony Narodowej",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Ministerstwu Obrony Narodowej"),
+                    text.index("Ministerstwu Obrony Narodowej")
+                    + len("Ministerstwu Obrony Narodowej"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Rząsowskiego",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Rząsowskiego"), text.index("Rząsowskiego") + 11),
+            ),
+        ),
+    )
+    FactScoringStage().run(document)
+
+    scores_by_funder_id = {}
+    for candidate in document.store.fact_candidates.values():
+        record = candidate.to_fact_record()
+        funder = next(
+            argument.to_json()["entity_id"]
+            for argument in record.arguments
+            if argument.to_json()["role"] == "funder"
+        )
+        assessment = next(
+            item.assessment
+            for item in document.fact_assessments
+            if item.fact_candidate_id == candidate.id
+        )
+        scores_by_funder_id[funder] = assessment.score
+
+    assert scores_by_funder_id["entity-0"] >= 0.7
+    assert scores_by_funder_id["entity-1"] < 0.5

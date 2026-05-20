@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from pipeline_v2.candidates import EntityCandidate
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import EntityCandidateId, EvidenceId, MentionId, ProducerId, TokenId
+from pipeline_v2.ids import ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, MentionFactory, MorphologyAdapter, Sentence, Span
 from pipeline_v2.types import EntityKind, GroundingKind, MentionKind
 
@@ -31,6 +31,7 @@ class RoleCandidateStage:
                 RolePattern(("pełnomocnik",)),
                 RolePattern(("sekretarz",)),
                 RolePattern(("burmistrz",)),
+                RolePattern(("pomoc", "administracyjny")),
             ),
             key=lambda pattern: len(pattern.lemma_sequence),
             reverse=True,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import EntityCandidate, PersonalTieFactCandidate
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import EntityCandidateId, FactCandidateId, ProducerId
+from pipeline_v2.ids import ProducerId
 from pipeline_v2.types import (
     EntityKind,
     GroundingKind,

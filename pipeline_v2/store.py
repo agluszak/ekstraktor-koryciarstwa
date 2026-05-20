@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import replace
 
 from pipeline_v2.candidates import (
     EntityBlockingKey,
     EntityCandidate,
     EntityResolutionClaim,
     FactCandidate,
+    FactResolutionClaim,
     FullPersonNameKey,
     OrganizationAcronymKey,
     ReferenceResolutionClaim,
@@ -45,6 +45,7 @@ class ExtractionStore:
         self.fact_candidates: dict[FactCandidateId, FactCandidate] = {}
         self.resolution_claims: dict[ResolutionClaimId, EntityResolutionClaim] = {}
         self.reference_resolution_claims: dict[ResolutionClaimId, ReferenceResolutionClaim] = {}
+        self.fact_resolution_claims: dict[ResolutionClaimId, FactResolutionClaim] = {}
 
         self.mention_ids_by_sentence_id: dict[SentenceId, set[MentionId]] = defaultdict(set)
         self.reference_ids_by_sentence_id: dict[SentenceId, set[MentionId]] = defaultdict(set)
@@ -53,12 +54,17 @@ class ExtractionStore:
         self.entity_ids_by_blocking_key: dict[EntityBlockingKey, set[EntityCandidateId]] = (
             defaultdict(set)
         )
-        self.entity_id_by_reuse_key: dict[FullPersonNameKey, EntityCandidateId] = {}
+        self.entity_ids_by_reuse_key: dict[FullPersonNameKey, list[EntityCandidateId]] = (
+            defaultdict(list)
+        )
         self.fact_ids_by_entity_id: dict[EntityCandidateId, set[FactCandidateId]] = defaultdict(set)
         self.resolution_ids_by_entity_id: dict[EntityCandidateId, set[ResolutionClaimId]] = (
             defaultdict(set)
         )
         self.reference_resolution_ids_by_reference_id: dict[MentionId, set[ResolutionClaimId]] = (
+            defaultdict(set)
+        )
+        self.fact_resolution_ids_by_fact_id: dict[FactCandidateId, set[ResolutionClaimId]] = (
             defaultdict(set)
         )
 
@@ -91,28 +97,6 @@ class ExtractionStore:
         return reference.id
 
     def add_entity_candidate(self, candidate: EntityCandidate) -> EntityCandidateId:
-        if candidate.reuse_key is not None:
-            existing_id = self.entity_id_by_reuse_key.get(candidate.reuse_key)
-            if existing_id is not None:
-                existing = self.entity_candidates[existing_id]
-                merged_mentions = tuple(
-                    dict.fromkeys([*existing.mention_ids, *candidate.mention_ids])
-                )
-                merged_references = tuple(
-                    dict.fromkeys([*existing.reference_ids, *candidate.reference_ids])
-                )
-                self.entity_candidates[existing_id] = replace(
-                    existing,
-                    mention_ids=merged_mentions,
-                    reference_ids=merged_references,
-                    canonical_hint=existing.canonical_hint or candidate.canonical_hint,
-                )
-                for mention_id in candidate.mention_ids:
-                    self.entity_ids_by_mention_id[mention_id].add(existing_id)
-                for reference_id in candidate.reference_ids:
-                    self.entity_ids_by_reference_id[reference_id].add(existing_id)
-                return existing_id
-
         self.entity_candidates[candidate.id] = candidate
         for mention_id in candidate.mention_ids:
             self.entity_ids_by_mention_id[mention_id].add(candidate.id)
@@ -121,7 +105,7 @@ class ExtractionStore:
         for blocking_key in self._expanded_blocking_keys(candidate.blocking_key):
             self.entity_ids_by_blocking_key[blocking_key].add(candidate.id)
         if candidate.reuse_key is not None:
-            self.entity_id_by_reuse_key[candidate.reuse_key] = candidate.id
+            self.entity_ids_by_reuse_key[candidate.reuse_key].append(candidate.id)
         return candidate.id
 
     def add_fact_candidate(self, candidate: FactCandidate) -> FactCandidateId:
@@ -142,6 +126,12 @@ class ExtractionStore:
     ) -> ResolutionClaimId:
         self.reference_resolution_claims[claim.id] = claim
         self.reference_resolution_ids_by_reference_id[claim.reference_id].add(claim.id)
+        return claim.id
+
+    def add_fact_resolution_claim(self, claim: FactResolutionClaim) -> ResolutionClaimId:
+        self.fact_resolution_claims[claim.id] = claim
+        self.fact_resolution_ids_by_fact_id[claim.left_fact_id].add(claim.id)
+        self.fact_resolution_ids_by_fact_id[claim.right_fact_id].add(claim.id)
         return claim.id
 
     def entity_ids_for_blocking_key(self, key: EntityBlockingKey) -> set[EntityCandidateId]:
@@ -236,6 +226,15 @@ class ExtractionStore:
             for claim_id in self.reference_resolution_ids_by_reference_id.get(reference_id, set())
         )
 
+    def fact_resolution_claims_for_fact(
+        self,
+        fact_id: FactCandidateId,
+    ) -> tuple[FactResolutionClaim, ...]:
+        return tuple(
+            self.fact_resolution_claims[claim_id]
+            for claim_id in self.fact_resolution_ids_by_fact_id.get(fact_id, set())
+        )
+
     def next_sentence_id(self) -> SentenceId:
         return SentenceId(f"sentence-{len(self.sentences)}")
 
@@ -262,6 +261,9 @@ class ExtractionStore:
 
     def next_reference_resolution_claim_id(self) -> ResolutionClaimId:
         return ResolutionClaimId(f"reference-resolution-{len(self.reference_resolution_claims)}")
+
+    def next_fact_resolution_claim_id(self) -> ResolutionClaimId:
+        return ResolutionClaimId(f"fact-resolution-{len(self.fact_resolution_claims)}")
 
     def candidates_by_kind(self, kind: EntityKind) -> tuple[EntityCandidate, ...]:
         return tuple(

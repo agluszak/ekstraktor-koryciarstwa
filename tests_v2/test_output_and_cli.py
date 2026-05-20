@@ -14,9 +14,17 @@ from pipeline_v2.document import (
     StageDiagnostic,
     StageDiagnosticStatus,
 )
-from pipeline_v2.ids import DocumentId, EvidenceId, FactCandidateId, ScorerId, SentenceId
+from pipeline_v2.ids import (
+    DocumentId,
+    EvidenceId,
+    FactCandidateId,
+    ProducerId,
+    ScorerId,
+    SentenceId,
+)
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span
 from pipeline_v2.output import document_to_json
+from pipeline_v2.types import PublicMoneyRelevanceSignal
 
 
 def test_document_output_includes_evidence_and_fact_candidates() -> None:
@@ -27,7 +35,11 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
         publication_date="2026-05-15",
         cleaned_text="Text.",
         paragraphs=("Text.",),
-        relevance=RelevanceDecision(is_relevant=True, score=0.8, reasons=("public context",)),
+        relevance=RelevanceDecision(
+            is_relevant=True,
+            score=0.8,
+            reasons=(PublicMoneyRelevanceSignal(),),
+        ),
     )
     document.store.add_sentence(
         Sentence(
@@ -45,7 +57,7 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
             span=Span(0, 4),
             sentence_id=SentenceId("sentence-1"),
             paragraph_index=0,
-            source="test",
+            source=ProducerId("test"),
         )
     )
     document.fact_assessments.append(
@@ -73,7 +85,13 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
     assert rendered["relevance"] == {
         "is_relevant": True,
         "score": 0.8,
-        "reasons": ["public context"],
+        "reasons": [
+            {
+                "name": "public-money context",
+                "polarity": "positive",
+                "weight": None,
+            }
+        ],
     }
     assert rendered["evidence"] == [
         {

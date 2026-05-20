@@ -11,11 +11,13 @@ from pipeline_v2.coreference import (
 )
 from pipeline_v2.document import StageDiagnosticStatus
 from pipeline_v2.embeddings import SentenceTransformerEmbeddingProvider
+from pipeline_v2.fact_resolution import FactResolutionStage
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage, SpacyNamedEntityProvider
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter
+from pipeline_v2.nominal_coreference import NominalKinshipCandidateStage
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.preprocessing import HtmlArticlePreprocessor
 from pipeline_v2.proxy import FamilyProxyCandidateStage
@@ -37,6 +39,23 @@ class CoreferenceMode(StrEnum):
     STANZA = "stanza"
 
 
+class V2StagePhase(StrEnum):
+    RELEVANCE = "relevance"
+    LINGUISTIC_ANALYSIS = "linguistic_analysis"
+    ENTITY_CANDIDATES = "entity_candidates"
+    DOMAIN_CANDIDATES = "domain_candidates"
+    REFERENCES = "references"
+    TIE_CANDIDATES = "tie_candidates"
+    SEMANTIC_ENRICHMENT = "semantic_enrichment"
+    SCORING = "scoring"
+
+
+@dataclass(frozen=True, slots=True)
+class OrderedStage:
+    phase: V2StagePhase
+    stage: DocumentStage
+
+
 @dataclass(frozen=True, slots=True)
 class V2PipelineConfig:
     spacy_model: str = "pl_core_news_lg"
@@ -46,63 +65,94 @@ class V2PipelineConfig:
     enable_syntax: bool = False
 
 
-def build_v2_pipeline(config: V2PipelineConfig = V2PipelineConfig()) -> V2Pipeline:
-    morphology = Morfeusz2MorphologyAdapter()
-    stages: list[DocumentStage] = [
-        ProfileRelevanceFilter(),
-        ParagraphSentenceSegmenter(),
-        MorfeuszMorphologyStage(morphology),
-    ]
-    if config.enable_syntax:
-        stages.append(DependencyParseStage(StanzaDependencyProvider()))
-    stages.append(
-        NamedEntityCandidateStage(
-            provider=SpacyNamedEntityProvider(config.spacy_model),
+def _coreference_stage(
+    config: V2PipelineConfig,
+    morphology: Morfeusz2MorphologyAdapter,
+) -> DocumentStage:
+    if config.coreference_mode == CoreferenceMode.OFF:
+        return DiagnosticStage(
+            stage_name="coreference_stage_v2",
+            status=StageDiagnosticStatus.SKIPPED,
+            reason="disabled by config",
+        )
+    if config.coreference_mode == CoreferenceMode.LIGHT:
+        return LightReferenceStage()
+    if config.coreference_provider is not None:
+        return CoreferenceReferenceStage(
+            provider=config.coreference_provider,
             morphology=morphology,
         )
+    return DiagnosticStage(
+        stage_name="coreference_stage_v2",
+        status=StageDiagnosticStatus.UNAVAILABLE,
+        reason="provider not configured",
     )
-    stages.append(PartyCandidateStage(morphology))
-    stages.append(RoleCandidateStage(morphology))
-    stages.append(GovernanceCandidateStage())
-    stages.append(PublicEmploymentCandidateStage())
-    stages.append(PublicMoneyCandidateStage())
-    stages.append(AntiCorruptionCandidateStage())
-    if config.coreference_mode == CoreferenceMode.OFF:
-        stages.append(
-            DiagnosticStage(
-                stage_name="coreference_stage_v2",
-                status=StageDiagnosticStatus.SKIPPED,
-                reason="disabled by config",
+
+
+def _ordered_stages(
+    config: V2PipelineConfig,
+    morphology: Morfeusz2MorphologyAdapter,
+) -> tuple[OrderedStage, ...]:
+    plan: list[OrderedStage] = [
+        OrderedStage(V2StagePhase.RELEVANCE, ProfileRelevanceFilter()),
+        OrderedStage(V2StagePhase.LINGUISTIC_ANALYSIS, ParagraphSentenceSegmenter()),
+        OrderedStage(V2StagePhase.LINGUISTIC_ANALYSIS, MorfeuszMorphologyStage(morphology)),
+    ]
+    if config.enable_syntax:
+        plan.append(
+            OrderedStage(
+                V2StagePhase.LINGUISTIC_ANALYSIS,
+                DependencyParseStage(StanzaDependencyProvider()),
             )
         )
-    elif config.coreference_mode == CoreferenceMode.LIGHT:
-        stages.append(LightReferenceStage())
-    elif config.coreference_provider is not None:
-        stages.append(
-            CoreferenceReferenceStage(
-                provider=config.coreference_provider,
-                morphology=morphology,
-            )
+    plan.extend(
+        (
+            OrderedStage(
+                V2StagePhase.ENTITY_CANDIDATES,
+                NamedEntityCandidateStage(
+                    provider=SpacyNamedEntityProvider(config.spacy_model),
+                    morphology=morphology,
+                ),
+            ),
         )
-    else:
-        stages.append(
-            DiagnosticStage(
-                stage_name="coreference_stage_v2",
-                status=StageDiagnosticStatus.UNAVAILABLE,
-                reason="provider not configured",
-            )
+    )
+    plan.extend(
+        (
+            OrderedStage(V2StagePhase.DOMAIN_CANDIDATES, PartyCandidateStage(morphology)),
+            OrderedStage(V2StagePhase.DOMAIN_CANDIDATES, RoleCandidateStage(morphology)),
+            OrderedStage(V2StagePhase.REFERENCES, _coreference_stage(config, morphology)),
+            OrderedStage(V2StagePhase.REFERENCES, NominalKinshipCandidateStage()),
+            OrderedStage(V2StagePhase.REFERENCES, FamilyProxyCandidateStage()),
+            OrderedStage(V2StagePhase.DOMAIN_CANDIDATES, GovernanceCandidateStage()),
+            OrderedStage(V2StagePhase.DOMAIN_CANDIDATES, PublicEmploymentCandidateStage()),
+            OrderedStage(V2StagePhase.DOMAIN_CANDIDATES, PublicMoneyCandidateStage()),
+            OrderedStage(V2StagePhase.DOMAIN_CANDIDATES, AntiCorruptionCandidateStage()),
+            OrderedStage(V2StagePhase.TIE_CANDIDATES, PersonalTieCandidateStage()),
         )
-    stages.append(FamilyProxyCandidateStage())
-    stages.append(PersonalTieCandidateStage())
+    )
     if config.sentence_transformer_model is not None:
-        stages.append(
-            EvidenceEmbeddingStage(
-                SentenceTransformerEmbeddingProvider(config.sentence_transformer_model)
+        plan.append(
+            OrderedStage(
+                V2StagePhase.SEMANTIC_ENRICHMENT,
+                EvidenceEmbeddingStage(
+                    SentenceTransformerEmbeddingProvider(config.sentence_transformer_model)
+                ),
             )
         )
-    stages.append(ResolutionScoringStage())
-    stages.append(FactScoringStage())
+    plan.extend(
+        (
+            OrderedStage(V2StagePhase.SCORING, ResolutionScoringStage()),
+            OrderedStage(V2StagePhase.SCORING, FactResolutionStage()),
+            OrderedStage(V2StagePhase.SCORING, FactScoringStage()),
+        )
+    )
+    return tuple(plan)
+
+
+def build_v2_pipeline(config: V2PipelineConfig = V2PipelineConfig()) -> V2Pipeline:
+    morphology = Morfeusz2MorphologyAdapter()
+    stages = tuple(ordered.stage for ordered in _ordered_stages(config, morphology))
     return V2Pipeline(
         preprocessor=HtmlArticlePreprocessor(),
-        stages=tuple(stages),
+        stages=stages,
     )

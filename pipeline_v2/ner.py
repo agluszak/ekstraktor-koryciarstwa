@@ -8,7 +8,7 @@ from spacy.language import Language
 
 from pipeline_v2.candidates import EntityCandidate, FullPersonNameKey
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import EntityCandidateId, EvidenceId, MentionId, ProducerId
+from pipeline_v2.ids import MentionId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan, MentionFactory, MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.types import EntityKind, GroundingKind, MentionKind, NerLabel
 
@@ -73,21 +73,26 @@ class NamedEntityCandidateStage:
                 source=self.config.producer_id,
             )
             document.store.add_evidence(evidence)
+            entity_kind = ner_label_to_entity_kind(entity_span.label)
+            token_ids = document.store.token_ids_for_span(
+                sentence_id=sentence_id,
+                span=evidence,
+            )
+            mention_kind = MentionKind.NER
+            if entity_kind == EntityKind.PERSON and len(token_ids) == 1:
+                mention_kind = MentionKind.SURNAME_ONLY
+
             mention_id = document.store.next_mention_id()
             document.store.add_mention(
                 self.mention_factory.build_mention(
                     mention_id=mention_id,
                     text=entity_span.text,
-                    kind=MentionKind.NER,
+                    kind=mention_kind,
                     evidence_id=evidence_id,
                     sentence_id=sentence_id,
-                    token_ids=document.store.token_ids_for_span(
-                        sentence_id=sentence_id,
-                        span=evidence,
-                    ),
+                    token_ids=token_ids,
                 )
             )
-            entity_kind = ner_label_to_entity_kind(entity_span.label)
             if entity_kind is None:
                 continue
             candidate = EntityCandidate(
@@ -112,7 +117,13 @@ def spacy_label_to_ner_label(label: str) -> NerLabel | None:
         return NerLabel.PERSON
     if "org" in normalized:
         return NerLabel.ORGANIZATION
-    if normalized in {"loc", "gpe", "location", "place"} or "geog" in normalized:
+    if (
+        "loc" in normalized
+        or "gpe" in normalized
+        or "location" in normalized
+        or "place" in normalized
+        or "geog" in normalized
+    ):
         return NerLabel.LOCATION
     return None
 

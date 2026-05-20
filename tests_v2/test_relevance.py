@@ -26,6 +26,7 @@ def test_relevance_filter_accepts_public_money_employment_context() -> None:
     assert document.relevance is not None
     assert document.relevance.is_relevant is True
     assert document.relevance.score >= 0.45
+    assert any(reason.name == "public-money context" for reason in document.relevance.reasons)
 
 
 def test_relevance_filter_rejects_legal_analysis_without_public_money_or_employment() -> None:
@@ -42,4 +43,6 @@ def test_relevance_filter_rejects_legal_analysis_without_public_money_or_employm
 
     assert document.relevance is not None
     assert document.relevance.is_relevant is False
-    assert "legal-analysis negative context" in document.relevance.reasons
+    assert any(
+        reason.name == "legal-analysis negative context" for reason in document.relevance.reasons
+    )

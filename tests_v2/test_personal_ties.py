@@ -63,6 +63,14 @@ def person_span(text: str, name: str) -> NamedEntitySpan:
     )
 
 
+def organization_span(text: str, name: str) -> NamedEntitySpan:
+    return NamedEntitySpan(
+        text=name,
+        label=NerLabel.ORGANIZATION,
+        span=Span(text.index(name), text.index(name) + len(name)),
+    )
+
+
 def test_personal_tie_stage_emits_proxy_family_tie_from_family_reference() -> None:
     text = "Jan Kowalski został burmistrzem. Jego żona pracuje w urzędzie."
     document, morphology = build_document(text, (person_span(text, "Jan Kowalski"),))
@@ -150,6 +158,21 @@ def test_personal_tie_stage_does_not_emit_for_plain_two_person_cooccurrence() ->
         (
             person_span(text, "Jan Kowalski"),
             person_span(text, "Marka Nowaka"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+
+    assert tuple(document.store.fact_candidates.values()) == ()
+
+
+def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organization() -> None:
+    text = "Jan Kowalski, człowiek PiS, zabrał głos na sesji rady miasta."
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Jan Kowalski"),
+            organization_span(text, "PiS"),
         ),
     )
 
