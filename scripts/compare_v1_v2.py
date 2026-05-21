@@ -15,7 +15,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -52,7 +51,7 @@ def _resolve_v2_file(v2_dir: Path, article_name: str) -> Path | None:
     # V2 names by document_id; find by scanning the dir
     for p in sorted(v2_dir.glob("*.json")):
         data = json.loads(p.read_text(encoding="utf-8"))
-        src = data.get("source_url") or data.get("title") or ""
+        data.get("source_url") or data.get("title") or ""
         # Try to match by article name fragment
         if article_name.replace("_", "-") in (data.get("title") or "").replace(" ", "-").lower():
             return p
@@ -103,7 +102,6 @@ def compare_article(
 
     # --- V2 ---
     # V2 batch outputs one file per article; find by scanning all files
-    v2_path = None
     all_v2 = sorted(v2_dir.glob("*.json"))
     
     # Map article name to a v2 file by matching source_url or title
@@ -114,13 +112,11 @@ def compare_article(
         v1_url = v1_data.get("source_url")
         v2_url = d.get("source_url")
         if v1_url and v2_url and v1_url == v2_url:
-            v2_path = p
             v2_data = d
             break
             
         title = (d.get("title") or "").casefold()
         if any(part in title for part in article_name.replace("_", " ").split()):
-            v2_path = p
             v2_data = d
             break
     else:

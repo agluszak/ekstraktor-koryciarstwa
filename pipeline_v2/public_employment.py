@@ -297,8 +297,9 @@ class PublicEmploymentCandidateStage:
         anchor_char: int,
     ) -> tuple[SentenceEntity, Signal] | None:
         entities = retriever.entities_for_sentence(sentence)
+        local_candidates = tuple(e for e in entities if e.kind == EntityKind.ORGANIZATION and not self._is_party_like_organization(document, e.id))
         local = self._nearest_preceding_entity(
-            entities,
+            local_candidates,
             anchor_char,
             kinds=frozenset({EntityKind.ORGANIZATION}),
         )
@@ -310,7 +311,7 @@ class PublicEmploymentCandidateStage:
             return inferred, LocalOrganizationSignal()
 
         following_local = self._nearest_following_entity(
-            entities,
+            local_candidates,
             anchor_char,
             kinds=frozenset({EntityKind.ORGANIZATION}),
         )
@@ -337,6 +338,7 @@ class PublicEmploymentCandidateStage:
             entity
             for entity in window
             if entity.kind == EntityKind.ORGANIZATION
+            and not self._is_party_like_organization(document, entity.id)
             and not (
                 entity.start_char > anchor_char
                 and self._crosses_clause_boundary(
@@ -562,5 +564,52 @@ class PublicEmploymentCandidateStage:
         for mention in document.store.candidate_mentions(role_id):
             for token in document.store.tokens_for_mention(mention.id):
                 if any(analysis.lemma in self._governance_role_lemmas for analysis in token.morph):
+                    return True
+        return False
+
+    def _is_party_like_organization(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        candidate = document.store.entity_candidates[entity_id]
+        canonical_hint = (candidate.canonical_hint or "").casefold()
+        party_like_organization_names = frozenset(
+            {
+                "koalicja obywatelska",
+                "koalicji obywatelskiej",
+                "lewica",
+                "platforma obywatelska",
+                "platformy obywatelskiej",
+                "polska 2050",
+                "polskie stronnictwo ludowe",
+                "polskiego stronnictwa ludowego",
+                "prawo i sprawiedliwość",
+                "prawa i sprawiedliwości",
+                "pis",
+                "po",
+                "psl",
+                "razem",
+            }
+        )
+        if canonical_hint in party_like_organization_names:
+            return True
+        return self._overlaps_political_party(document, entity_id)
+
+    def _overlaps_political_party(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        organization_evidence = tuple(document.store.evidence_for_entity(entity_id))
+        for candidate in document.store.candidates_by_kind(EntityKind.POLITICAL_PARTY):
+            for party_evidence in document.store.evidence_for_entity(candidate.id):
+                for organization_span in organization_evidence:
+                    if organization_span.sentence_id != party_evidence.sentence_id:
+                        continue
+                    if organization_span.span.end_char <= party_evidence.span.start_char:
+                        continue
+                    if party_evidence.span.end_char <= organization_span.span.start_char:
+                        continue
                     return True
         return False

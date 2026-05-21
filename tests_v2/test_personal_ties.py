@@ -179,3 +179,19 @@ def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organizat
     PersonalTieCandidateStage().run(document)
 
     assert tuple(document.store.fact_candidates.values()) == ()
+
+def test_personal_tie_stage_emits_multiple_kinship_ties_for_multiple_relatives() -> None:
+    text = "Jan Kowalski, jego brat Piotr Kowalski i syn Adam Kowalski poszli do kina."
+    document, _ = build_document(
+        text,
+        (
+            person_span(text, "Jan Kowalski"),
+            person_span(text, "Piotr Kowalski"),
+            person_span(text, "Adam Kowalski"),
+        ),
+    )
+    PersonalTieCandidateStage().run(document)
+
+    records = [c.to_fact_record() for c in document.store.fact_candidates.values()]
+    # There are 3 people, so we expect 3 combinations: (Jan, Piotr), (Jan, Adam), (Piotr, Adam)
+    assert len(records) == 2
