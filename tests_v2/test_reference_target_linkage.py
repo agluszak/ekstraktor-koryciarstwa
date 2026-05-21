@@ -3,7 +3,6 @@ from __future__ import annotations
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityCandidate,
-    EntityFactArgument,
     EntityFiller,
     EventCandidate,
     ReferenceResolutionProposal,
@@ -15,7 +14,6 @@ from pipeline_v2.ids import (
     EntityCandidateId,
     EventCandidateId,
     EvidenceId,
-    FactCandidateId,
     MentionId,
     ProducerId,
     SentenceId,
@@ -26,12 +24,12 @@ from pipeline_v2.types import (
     CoreferenceProviderLinkSignal,
     EntityKind,
     EventRole,
-    FactArgumentRole,
     FactKind,
     GroundingKind,
     MentionKind,
     ThirdPersonPronounSignal,
 )
+from tests_v2.materialized import entity_argument
 
 
 def test_reference_target_probability_propagation() -> None:
@@ -144,7 +142,6 @@ def test_reference_target_probability_propagation() -> None:
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
-            source_fact_id=FactCandidateId("fact-1"),
         )
     )
     document.store.add_argument_binding(
@@ -169,20 +166,12 @@ def test_reference_target_probability_propagation() -> None:
     # has a governance dismissal event) to the resolved 'anchor'.
     # Since the fact is materialized, we should verify that we get a
     # governance dismissal for 'Jan Kowalski'.
-    # If same-entity resolution is propagated, then 'proxy' and 'anchor' are merged.
-    # Let's inspect materialized facts.
     facts = document.materialized_fact_records
-    print("MATERIALIZED FACTS:", [f.to_json() for f in facts])
     assert len(facts) >= 1
     governance_facts = [f for f in facts if f.kind is FactKind.GOVERNANCE_DISMISSAL]
     assert len(governance_facts) >= 1
 
-    # Ensure the dismissal was assigned to the resolved person (Jan Kowalski)
-    # The materialized fact arguments should map 'person' to the canonical name of 'anchor'
     assert any(
-        isinstance(arg, EntityFactArgument)
-        and arg.role == FactArgumentRole.PERSON
-        and arg.entity_id == EntityCandidateId("anchor")
-        for f in governance_facts
-        for arg in f.arguments
+        entity_argument(governance_fact, "person") == EntityCandidateId("anchor")
+        for governance_fact in governance_facts
     )

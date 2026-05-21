@@ -146,7 +146,7 @@ def test_syntax_view_returns_typed_subject_binding() -> None:
     )
     document.store.add_entity_candidate(
         EntityCandidate(
-            id=EntityCandidateId("entity-1"),
+            id=EntityCandidateId("person-under-test"),
             kind=EntityKind.PERSON,
             mention_ids=(MentionId("mention-1"),),
             canonical_hint="Jan",
@@ -158,7 +158,7 @@ def test_syntax_view_returns_typed_subject_binding() -> None:
     binding = SyntaxView(document.store).syntax_binding(
         sentence=sentence,
         trigger_token_id=token_ids[1],
-        entity_id=EntityCandidateId("entity-1"),
+        entity_id=EntityCandidateId("person-under-test"),
     )
 
     assert binding is not None

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.fact_scoring import FactScoringStage
-from pipeline_v2.ids import DocumentId, EntityCandidateId
+from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -19,7 +19,13 @@ from pipeline_v2.types import (
     NerLabel,
     PublicContractLemmaSignal,
 )
-from tests_v2.materialized import fact_records, first_fact_record
+from tests_v2.materialized import (
+    entity_argument,
+    entity_hint_for_role,
+    fact_records,
+    first_fact_record,
+    text_argument,
+)
 
 
 class StaticEntityProvider:
@@ -140,11 +146,9 @@ def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_argumen
     record = first_fact_record(document)
 
     assert record.kind is FactKind.PUBLIC_CONTRACT
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "counterparty", "entity_id": "entity-0"},
-        {"role": "contractor", "entity_id": "entity-1"},
-        {"role": "amount", "value": "49 tys. zł"},
-    )
+    assert entity_hint_for_role(document, record, "counterparty") == "Urząd Miasta"
+    assert entity_hint_for_role(document, record, "contractor") == "Alfa"
+    assert text_argument(record, "amount") == "49 tys. zł"
     assert set(record.signals) == {
         MoneyAmountSignal(amount="49 tys. zł"),
         PublicContractLemmaSignal(lemma="podpisać"),
@@ -169,10 +173,8 @@ def test_public_money_stage_marks_single_receiving_organization_as_recipient() -
     record = first_fact_record(document)
 
     assert record.kind is FactKind.FUNDING
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "recipient", "entity_id": "entity-0"},
-        {"role": "amount", "value": "100 tys. zł"},
-    )
+    assert entity_hint_for_role(document, record, "recipient") == "Fundacja Alfa"
+    assert text_argument(record, "amount") == "100 tys. zł"
 
 
 def test_public_money_stage_infers_local_organization_phrases_when_ner_misses_parties() -> None:
@@ -186,26 +188,16 @@ def test_public_money_stage_infers_local_organization_phrases_when_ner_misses_pa
     record = first_fact_record(document)
 
     assert record.kind is FactKind.FUNDING
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "funder", "entity_id": "entity-0"},
-        {"role": "recipient", "entity_id": "entity-1"},
-        {"role": "amount", "value": "100 tysięcy złotych"},
-    )
-    assert (
-        document.store.entity_candidates[EntityCandidateId("entity-0")].canonical_hint
-        == "urzędu marszałkowskiego"
-    )
-    assert document.store.entity_candidates[EntityCandidateId("entity-1")].canonical_hint == (
+    assert entity_hint_for_role(document, record, "funder") == "urzędu marszałkowskiego"
+    assert entity_hint_for_role(document, record, "recipient") == (
         "Fundacja założona przez dyrektora warszawskiego pogotowia ratunkowego Karola Bielskiego"
     )
-    assert (
-        document.store.entity_candidates[EntityCandidateId("entity-0")].grounding.value
-        == "inferred"
+    assert text_argument(record, "amount") == "100 tysięcy złotych"
+    assert document.store.entity_candidates[entity_argument(record, "funder")].grounding.value == (
+        "inferred"
     )
-    assert (
-        document.store.entity_candidates[EntityCandidateId("entity-1")].grounding.value
-        == "inferred"
-    )
+    recipient = document.store.entity_candidates[entity_argument(record, "recipient")]
+    assert recipient.grounding.value == "inferred"
 
 
 def test_compensation_scores_controller_organization_below_direct_employer() -> None:
@@ -239,19 +231,15 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
     )
     FactScoringStage().run(document)
 
-    scores_by_funder_id = {}
+    scores_by_funder_hint = {}
     for record in fact_records(document):
-        funder = next(
-            argument.to_json()["entity_id"]
-            for argument in record.arguments
-            if argument.to_json()["role"] == "funder"
-        )
+        funder_hint = entity_hint_for_role(document, record, "funder")
         assessment = next(
             item.assessment
             for item in document.fact_assessments
             if item.materialized_fact_id == record.id
         )
-        scores_by_funder_id[funder] = assessment.score
+        scores_by_funder_hint[funder_hint] = assessment.score
 
-    assert scores_by_funder_id["entity-0"] >= 0.7
-    assert scores_by_funder_id["entity-1"] < 0.5
+    assert scores_by_funder_hint["AMW Rewita"] >= 0.6
+    assert scores_by_funder_hint["Ministerstwu Obrony Narodowej"] < 0.5

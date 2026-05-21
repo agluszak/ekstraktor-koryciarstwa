@@ -1,302 +1,339 @@
 # Repository Instructions
 
-- Use uv in the repo root
-- If a task starts needing environment or sandbox workarounds, stop and notify the user instead of adding a workaround.
-- When lint or formatting tools support autofix, run the autofix path first and only do manual cleanup for remaining issues.
-- `uv sync` does not install the spaCy/Stanza model assets required by this repo. In any fresh or rebuilt `.venv`, run `uv run python scripts/setup_models.py` before running the pipeline or tests. Do not skip model-dependent tests; provision the models instead.
-- **Typing Hygiene**: Avoid "messy" weak typing like `dict[str, Any]` or broad unions in dictionaries. Prefer `NewType` for IDs and structured `TypedDict` or `dataclasses` for nested metadata.
-- **ID Typing**: Preserve `NewType` ID aliases (`EntityID`, `ClusterID`, `FactID`, `DocumentID`, etc. in V1, and `EntityCandidateId`, `FactCandidateId`, `MentionId`, `SentenceId`, `EvidenceId`, etc. in V2) through local variables, helper signatures, sets, and return types. Do not weaken typed IDs to plain `str` just to satisfy type tooling; fix the annotations at the boundary instead.
-- **Proper Logic**: Do not use `try-except` blocks for expected control flow (e.g., checking if a value is in an Enum). Use explicit checks or safe helper methods (e.g., `Enum.from_str()`) to handle optionality.
-- Do not implement any kind of compatibility shims. We're not interested in backwards compatibility for now. When a test needs fixing, refactor it.
+This repository is the V2 implementation of a Polish public-interest extraction
+pipeline. The active code is `pipeline_v2/` and the active tests are `tests_v2/`.
 
-# Project Context
+The legacy `pipeline/` and `tests/` trees are reference material only. Do not modify
+V1, do not run V1 tests as part of normal validation, and do not preserve backwards
+compatibility with V1 APIs.
 
-This repository houses an information extraction pipeline ("ekstraktor-koryciarstwa") focused on analyzing Polish news articles. Its primary domain is monitoring "koryciarstwo" / public money extraction: nepotism, patronage, appointments to state-owned companies, and the flow of public funds.
+## Operating Rules
 
-## Domain Model (V1 & V2)
+- Use `uv` from the repository root.
+- If a task starts needing environment or sandbox workarounds, stop and notify the
+  user instead of adding a workaround.
+- `uv sync` does not install the spaCy/Stanza model assets required by this repo. In
+  any fresh or rebuilt `.venv`, run `uv run python scripts/setup_models.py` before
+  running model-dependent tests or the pipeline.
+- When lint or formatting tools support autofix, run the autofix path first and do
+  manual cleanup only for remaining issues.
+- Do not add compatibility shims. We are not preserving old internal APIs. If tests
+  depend on obsolete structure, refactor the tests.
+- Do not use JSON-like dictionaries as internal graph data. JSON belongs at the final
+  output boundary only.
+- Do not add source-code scan tests that assert implementation strings, constructors,
+  or imports.
 
-### Entities
-- **People**: Names of political appointees, relatives, or politicians.
-- **Organizations**: State-owned enterprises, public institutions, municipal utilities, foundations, etc.
-- **Political Parties**: Direct political affiliations (e.g., KO, PO, PSL, Lewica, Polska 2050, PiS).
-- **Roles**: Public/corporate positions or titles.
-- **Salary figures**: Monetary amounts corresponding to compensation or public funding.
+Recommended validation commands:
 
-### Fact Kinds
-- **V1 (Legacy)**:
-  - `APPOINTMENT`: Board/governance appointments.
-  - `DISMISSAL`: Removals from management or supervisory boards.
-  - `PARTY_MEMBERSHIP`: Political party affiliations.
-  - `PERSONAL_OR_POLITICAL_TIE`: Acquaintances, family ties, and patronage networks.
-- **V2 (Graph/Stage-Based)** (represented by `FactKind` enum):
-  - `GOVERNANCE_APPOINTMENT` / `GOVERNANCE_DISMISSAL`: Governance changes.
-  - `PARTY_AFFILIATION` / `POLITICAL_SUPPORT`: Political connections.
-  - `PERSONAL_OR_POLITICAL_TIE`: Kinship and clientelism networks.
-  - `PUBLIC_EMPLOYMENT`: Public-sector jobs.
-  - `FUNDING` / `PUBLIC_CONTRACT` / `COMPENSATION`: Financial flows (grants, contracts, salaries).
-  - `ANTI_CORRUPTION_REFERRAL` / `ANTI_CORRUPTION_INVESTIGATION`: External oversight events.
+```bash
+uv run python scripts/setup_models.py
+uv run ruff check pipeline_v2 tests_v2 --fix
+uv run ruff format pipeline_v2 tests_v2
+uv run ruff check pipeline_v2 tests_v2
+uv run ty check
+uv run pytest -c pytest-v2.ini -q
+uv run extractor-v2 --input-dir inputs --glob "*.html" --output-dir output
+```
 
-## Benchmarks and Evaluation
-The `reports/` folder contains benchmark files (e.g., `expected_article_findings.md` and progress tracking reports) used to evaluate pipeline extraction quality. They document:
-- Expected extraction scenarios for various high-signal articles (like appointments without competition, party-affiliated staffing in public trusts or utilities).
-- True negative examples that should not trigger extraction (e.g., generic legal analysis or international news).
-- Current parsing performance metrics, issues (like false-positive facts or noisy entity spans), and immediate focus areas for improvement.
+For small changes, run the narrowest relevant subset first, then broaden if behavior
+or shared contracts changed.
 
-Always consult the benchmark reports when modifying extraction rules or parsing logic to ensure changes align with expected outcomes and to avoid regressions.
+## Project Goal
 
-## Pipeline Architectures (V1 vs V2)
+The project extracts inspectable evidence about public-money and patronage cases from
+Polish news articles: governance appointments, public employment, public contracts,
+funding, compensation, political ties, family/proxy ties, and anti-corruption
+referrals.
 
-### V1 Pipeline Architecture (Legacy Frame-First)
+The goal is not to produce one prematurely cleaned final answer. The goal is to
+overproduce plausible typed hypotheses, preserve alternatives, and attach posterior
+confidence to candidates, role bindings, entity/reference resolution, and materialized
+facts.
 
-> [!NOTE]
-> The V1 pipeline exists for reference only and must not be updated. Do not run V1 tests, only V2.
+False positives are acceptable when they remain visible as low-confidence hypotheses.
+Silent early collapse is not acceptable.
 
-The legacy pipeline in `pipeline/` collapses frames early using dependency rules:
-1. preprocessing
-2. relevance filtering
-3. segmentation
-4. spaCy NER
-5. Stanza coreference
-6. entity clustering
-7. clause parsing
-8. frame extraction
-9. fact extraction from frames
-10. in-memory entity linking
-11. scoring
-12. JSON output
+## Active Architecture
 
-Orchestration is done in [pipeline/orchestrator.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline/orchestrator.py), and CLI entrypoint is [pipeline/cli.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline/cli.py) (run via `main.py`).
+V2 is an event-first, typed hypothesis graph with probabilistic inference.
 
-### V2 Pipeline Architecture (Active Modular Stage-Based)
-The active V2 pipeline in `pipeline_v2/` is designed as a decoupled, stage-based hypothesis graph. It processes documents through `DocumentStage` implementations:
-1. **HtmlArticlePreprocessor**: Normalizes raw HTML into clean text paragraphs.
-2. **ProfileRelevanceFilter**: Filters out irrelevant articles early using keyword/structural heuristics.
-3. **ParagraphSentenceSegmenter**: Segments paragraphs into sentences and tokens.
-4. **MorfeuszMorphologyStage**: Runs Morfeusz2 to populate morphological tags and lemmas.
-5. **DependencyParseStage** (optional): Computes token-level dependency trees.
-6. **NamedEntityCandidateStage**: Runs spaCy/custom NER to produce named entity candidates.
-7. **Domain Candidate Stages** (run sequentially to populate `document.store.fact_candidates`):
-   - `PartyCandidateStage`: Detects party mentions and affiliations.
-   - `RoleCandidateStage`: Detects public/corporate roles.
-   - `GovernanceCandidateStage`: Extracts candidate appointments and dismissals.
-   - `PublicEmploymentCandidateStage`: Extracts public-sector hiring events.
-   - `PublicMoneyCandidateStage`: Extracts funding grants, public contracts, and compensations.
-   - `AntiCorruptionCandidateStage`: Detects investigations and referrals.
-8. **Coreference/Reference Stages** (optional):
-   - `LightReferenceStage` or `CoreferenceReferenceStage`: Extracts and resolves reference mentions (pronouns, noun-phrase descriptors).
-9. **Proxy & Tie Candidate Stages**:
-   - `FamilyProxyCandidateStage` & `PersonalTieCandidateStage`: Extract familial and patronage networks.
-10. **ResolutionScoringStage**: Scores candidate entity resolutions (merges, reference linkages) using explicit signals.
-11. **FactScoringStage / ProbabilisticInferenceStage**: Runs backend-neutral
-    probabilistic inference over event, role, reference, identity, and same-event
-    hypotheses, then materializes output fact records from posterior marginals.
+The active runtime is built in `pipeline_v2/runtime.py`. Stage order is explicit
+there and should remain explicit. A normal run is:
 
-Decoupled orchestration loop is implemented in `V2Pipeline` in [pipeline_v2/stages.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/stages.py), built using the factory `build_v2_pipeline` in [pipeline_v2/runtime.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/runtime.py). The CLI entrypoint is [pipeline_v2/cli.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/cli.py) (run via script command `extractor-v2`).
+1. HTML preprocessing.
+2. Relevance filtering.
+3. Sentence/token segmentation.
+4. Morfeusz2 morphology.
+5. Dependency parsing.
+6. Named entity candidate production.
+7. Domain event/binding candidate production.
+8. Reference, coreference, proxy, and tie candidate production.
+9. Optional semantic enrichment.
+10. Probabilistic inference and materialized output projection.
 
-## V2 Knowledge Graph Design Principles
+Producers emit hypotheses. Inference scores hypotheses. Materialization projects
+selected posterior states into output records.
 
-When working in `pipeline_v2/`, preserve the graph-like architecture and do not grow
-"god objects". Do not keep adding fields to `EntityCandidate`, event candidates,
-`ArticleDocument`, or `ExtractionStore` just because a new producer needs state.
+## Core Graph Records
 
-### Core Decoupled Rules
-- **Entities are identity hypotheses only** (no fields like `entity.party`, `entity.role`, `entity.is_public`, etc. Instead, use explicit facts and claims).
-- **Events are relation hypotheses only**. Producers emit `EventCandidate` plus
-  `ArgumentBindingCandidate` records, not final flat facts.
-- **Evidence is text-grounding only**.
-- **Scores are assessments only** (confidence/scores belong in separate `Assessment` records, not on candidates/facts).
-- **Links between elements must be explicit typed records**, not hidden mutable fields.
-- **Separation of Generation and Inference**: Stages/producers only emit candidate
-  hypotheses and local signals. The probabilistic inference stage computes posterior
-  scores and inferred claims. Producers must not silently choose the "best" entity or
-  role when multiple plausible alternatives exist.
-- **Materialization Is Not Store Mutation**: final `FactCandidateRecord` objects are
-  output projections. Do not clear/repopulate `ExtractionStore` candidate collections
-  during scoring, and do not store materialized facts back as producer candidates.
-- **Backend Facade**: pgmpy or any other inference engine must stay behind
-  `InferenceBackend`. Domain producers, stores, tests, and output code must depend on
-  V2 typed graph specs/results, not backend APIs.
-- **Decoupled Retrieval**: Do not implement lookups in `ExtractionStore` directly. Implement search logic in specialized retriever classes (e.g. `SentenceEntityRetriever`, `EntityCandidateRetriever`) located in [pipeline_v2/retrieval.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/retrieval.py).
+Keep these concepts separate:
 
-### Preferred V2 Graph Shape
-- **Vertex-like records**:
-  - `EvidenceSpan`: exact text span and source location.
-  - `Mention`: observed named/entity-like span.
-  - `ReferenceMention`: pronoun, surname-only, descriptor, omitted subject, or proxy phrase.
-  - `EntityCandidate`: local hypothesis for a person, organization, party, role, etc.
-  - `EventCandidate`: local hypothesis for a relation or event trigger.
-  - `ArgumentBindingCandidate`: possible typed filler for an event role.
-  - `InferenceVariable` / `InferenceFactor`: backend-neutral probabilistic graph
-    records.
-  - `Assessment`: score plus positive/negative signals.
-  - `ResolutionClaim`: scored possible identity/reference link.
-- **Edge-like records**:
-  - `Mention -> EvidenceSpan` via `evidence_id`.
-  - `EntityCandidate -> Mention` via `mention_ids`.
-  - `EntityCandidate -> ReferenceMention` via `reference_ids`.
-  - `EventCandidate -> EvidenceSpan` via `evidence_ids`.
-  - `ArgumentBindingCandidate -> EventCandidate` via `event_id`.
-  - `ArgumentBindingCandidate -> EntityCandidate/Text` via typed fillers.
-  - materialized output fact -> selected event/role states at the output boundary.
-  - `ResolutionClaim -> EntityCandidate/ReferenceMention` via explicit endpoint IDs.
-  - `Assessment -> candidate/claim` through small wrapper records such as `FactAssessment`.
+- `EvidenceSpan`: exact text grounding and source location.
+- `Mention`: observed named/entity-like span.
+- `ReferenceMention`: pronoun, surname-only mention, descriptor, omitted subject, or
+  proxy phrase.
+- `EntityCandidate`: identity hypothesis only.
+- `EventCandidate`: relation/event trigger hypothesis.
+- `ArgumentBindingCandidate`: possible filler for a typed event role.
+- `InferenceVariable`: backend-neutral variable, such as event activity, role filler,
+  reference target, same-entity, or same-event.
+- `InferenceFactor`: backend-neutral evidence, compatibility, or constraint factor.
+- `Assessment`: posterior score and traceable supporting/opposing signals.
+- `ResolutionClaim`: explicit identity, reference, or same-event claim.
+- `FactCandidateRecord`: materialized output projection only.
 
-### V2 Event, Binding, And Claim Guidance
-- Candidate records should stay small and typed.
-- If a new event family needs different participants, extend the typed event-role
-  schema and emit role bindings; do not add nullable fields to a fact object.
-- Use explicit typed fillers instead of custom fields, for example:
-  - `ArgumentBindingCandidate(role=EventRole.EMPLOYEE, filler=EntityFiller(person_id))`
-  - `ArgumentBindingCandidate(role=EventRole.WORKPLACE, filler=EntityFiller(org_id))`
-  - `ArgumentBindingCandidate(role=EventRole.CONTEXT, filler=TextFiller(text))`
-- `FactCandidateRecord` is a materialized projection for output/reports, not the
-  producer API and not the inference input.
-- Do not add "just in case" optional fields.
+Do not grow god objects. In particular:
 
-## V2 Extensibility & Development Guidelines
+- Do not add `party`, `role`, `employer`, `is_public`, `canonical_org`, or similar
+  domain state to `EntityCandidate`.
+- Do not add many nullable domain fields to `EventCandidate`, `ArticleDocument`, or
+  `ExtractionStore`.
+- Do not hide graph edges as mutable fields when a typed record or typed relation is
+  the real model.
+- Do not put confidence scores directly on candidates. Scores belong in assessments
+  or inference marginals.
 
-When extending the V2 pipeline with new domain logic (e.g., new fact kinds, signals, or entity types):
+## Event And Role Model
 
-1. **Extend Domain Types**:
-   - Add new fact kinds to the `FactKind` enum in [pipeline_v2/types.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/types.py).
-   - Add new signal types by subclassing `Signal` (with `@dataclass(frozen=True, slots=True)`) in [pipeline_v2/types.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/types.py).
+Argument order matters, but it must be represented semantically through `EventRole`,
+not tuple position.
 
-2. **Define Event Roles**:
-   - Add or update event-role schema entries for the fact kind, including required
-     roles and allowed entity/filler kinds.
-   - Prefer categorical role alternatives over emitting multiple flat fact variants.
+For example, all of these should map to the same semantic roles where supported by
+evidence:
 
-3. **Implement Candidate Extraction (Stage)**:
-   - Create a candidate stage implementing the `DocumentStage` protocol (e.g., must define `name(self) -> str` and `run(self, document: ArticleDocument) -> ArticleDocument`).
-   - Locate sentence-local entities using `SentenceEntityRetriever` or token morphology.
-   - Populate the store using `document.store.add_event_candidate()` and
-     `document.store.add_argument_binding()`.
-   - Register the stage in `build_v2_pipeline` in [pipeline_v2/runtime.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/runtime.py).
+```text
+X zatrudnił Y w Z
+Y został zatrudniony przez X w Z
+zatrudniono Y w Z
+```
 
-4. **Add Inference Logic**:
-   - Add backend-neutral variables/factors in the inference layer.
-   - Encode role compatibility, syntax direction, entity/reference uncertainty, and
-     same-event evidence as typed factors.
-   - Do not add new cases to a central god scorer.
+Expected graph shape:
 
-5. **Write Unit/Integration Tests**:
-   - Create a test file in `tests_v2/` (e.g., `tests_v2/test_your_feature.py`).
-   - Standardize tests by using `StaticPreprocessor` and `StaticEntityProvider` to avoid loading heavy models (spaCy/Stanza) and keep execution under 1 second.
-   - Assert event candidates, role binding alternatives, materialized output records,
-     inferred claims, and score ordering. Do not assert exact generated IDs or signal
-     order.
+```text
+EventCandidate(kind=PUBLIC_EMPLOYMENT, trigger=...)
+ArgumentBindingCandidate(role=HIRING_AUTHORITY, filler=X)
+ArgumentBindingCandidate(role=EMPLOYEE, filler=Y)
+ArgumentBindingCandidate(role=WORKPLACE, filler=Z)
+```
 
-## V2 Testability & Mocking Strategy
+If several people or organizations are plausible, emit competing
+`ArgumentBindingCandidate` records. Do not select "best" inside the producer.
 
-The modular design of V2 makes it highly testable and runs in milliseconds without initializing heavy neural pipelines:
-- **Preprocessors**: Use a `StaticPreprocessor(document)` which directly returns a pre-formed `ArticleDocument` containing specific paragraphs.
-- **Named Entities**: Inject static entity spans using `StaticEntityProvider(entities)` passed to `NamedEntityCandidateStage` instead of running full spacy models.
-- **Morphology Adapter**: Use `Morfeusz2MorphologyAdapter` (fast dictionary lookup) for morphology tokenization.
-- **Example Pattern**: See [tests_v2/test_public_money.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/tests_v2/test_public_money.py) and [tests_v2/test_article_regression_fixtures.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/tests_v2/test_article_regression_fixtures.py) for standard mocking templates.
+`FactCandidateRecord` must not be the producer API or inference input. It is a final
+projection for output, reports, and external consumers.
 
-## Regression Testing Workflow
+## Inference Rules
 
-When extraction, preprocessing, linking, scoring, or output logic changes:
+`pgmpy` is infrastructure. It must stay behind `pipeline_v2.inference.backend.InferenceBackend`.
+No producer, domain stage, store, output module, or normal domain test should depend
+on pgmpy APIs directly.
 
-1. Read [reports/expected_article_findings.md](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/reports/expected_article_findings.md) first.
-   Use it as the manual oracle for what each benchmark article should and should not produce.
+Inference should be represented with V2-owned typed records:
 
-2. Run the automated checks first:
-   - `uv run python scripts/setup_models.py`
-   - `uv run ruff check . --fix`
-   - `uv run ruff format .`
-   - `uv run ruff check .`
-   - `uv run ty check`
-   - `uv run pytest tests_v2/`  # Do not run V1 tests (tests/), only V2 tests
+- event-active variables,
+- categorical role-filler variables,
+- reference-target variables,
+- same-entity variables,
+- same-event variables,
+- typed evidence/compatibility/constraint factors.
 
-3. Rerun the benchmark HTML inputs in one warm process:
-   - **V2 CLI**: `uv run extractor-v2 --input-dir inputs --glob "*.html" --output-dir output`
-   Prefer batch mode so spaCy/Stanza load once. (V1 CLI is deprecated).
+Scoring should not regress to a god scorer with a central table of signal constants.
+When a new scoring concern appears, prefer a composable factor family or domain-local
+factor builder over adding another case to one central scoring function.
 
-4. Compare outputs against the benchmark report, especially for:
-   - strong positives that should yield appointments / dismissals / funding / compensation
-   - true negatives that should stay irrelevant or relation-empty
-   - high-risk regressions such as party mentions becoming appointment destinations, bad person merges, or boilerplate/comment entities leaking in
+Posterior scores should come from inference. Do not compute a posterior and then
+floor it back to an old producer prior in materialization.
 
-5. If extraction behavior changed materially, update the progress snapshot in `reports/` with:
-   - what improved
-   - what regressed
-   - which benchmark articles were checked
-   - which bottleneck is next
+Materialization is a projection step:
 
-Do not treat `pytest` success as sufficient for extraction changes. The checked-in benchmark report is part of regression testing and must be consulted after significant pipeline changes.
+- It may write `document.materialized_fact_records`.
+- It may write `document.fact_assessments`.
+- It may add inferred resolution/reference/same-event claims when those claims are
+  outputs of inference.
+- It must not clear/repopulate producer hypotheses as a scoring side effect.
+- It must not store materialized facts back into `ExtractionStore` as if they were
+  producer candidates.
 
-## Practical Model / Runtime Notes
+## Type Discipline
 
-- **Stanza coref reload**: Stanza coref is intentionally reloaded multiple times because earlier attempts to persist it caused instability. This is known and documented in `reports/`.
-- **Batch mode**: Even with repeated coref loading, `--input-dir ... --glob "*.html"` is the correct benchmark path because the rest of the pipeline stays warm.
-- **In-memory registry linking**: V1 linker maintains an in-memory registry during a warm process, so canonical-name pollution can persist within one batch run. Rerun the batch in a fresh process before judging extraction quality.
+Preserve typed IDs end to end.
 
-## V1/V2 Extraction Design Heuristics
+- Use existing `NewType` aliases such as `EntityCandidateId`, `EventCandidateId`,
+  `ArgumentBindingCandidateId`, `FactCandidateId`, `MentionId`, `SentenceId`,
+  `EvidenceId`, `InferenceVariableId`, and `ResolutionClaimId`.
+- Do not weaken IDs to `str` for dict keys, sets, sorting, or pair tracking. Add a
+  typed helper instead.
+- Do not compare typed IDs through `str(...)` except at serialization boundaries.
+- Avoid `dict[str, Any]`, broad unions, and unstructured metadata. Use dataclasses,
+  typed aliases, `TypedDict`, or explicit domain records.
+- Avoid `isinstance` for expected domain branching when structural pattern matching
+  or typed variants are available.
+- Do not use `try`/`except` for expected control flow, such as enum parsing. Use
+  explicit checks or safe constructors.
 
-### Governance
-- Governance should come from clause-local frames, not broad document-level candidate pairing.
-- Owner/controller entities and governing bodies are context, not usually the real appointment target.
-- Common failure mode: confusing `owner`, `fundusz`, `rada`, `zarząd`, or a party with the actual company/institution being staffed.
+Signals are strongly typed dataclasses. Signal names should normally be derived from
+class names, for example `PartyOrganizationSignal` becomes `party_organization`.
+Only override names when the output name is genuinely domain-specific.
 
-### Compensation
-- Salary / remuneration articles are in scope for this project.
-- `COMPENSATION` is meant for remuneration/public-money facts, not for grants or subsidies.
-- If a public-money article has no patronage network but does contain high public compensation, that is still relevant.
+## NLP-First Extraction
 
-### Funding
-- Public grants/subsidies are in scope and now use `FundingFrame` + `FUNDING`, not `COMPENSATION`.
-- The funding path currently works well for direct money-transfer clauses like:
-  - `przyznał ... dotację`
-  - `przekazał ... 300 tys. zł`
-  - `wyłożyły ... 100 tys. zł`
-- Known weakness: `przekazać` is ambiguous and still overfires in communication/reporting contexts like "przekazała nam", "przekazał redakcji", etc.
-- When changing funding extraction, prefer parser/dependency signals over adding more regexes or hardcoded lexical patches.
+Prefer NLP-backed evidence over ad hoc string patches.
 
-## Canonicalization / Entity Hygiene
+Use:
 
-- Entity cleanup is not just cosmetic. Bad canonical names poison linking, frames, and benchmark interpretation.
-- Multiline organization names are split into line-level candidates for canonicalization.
-- Compacted full-block names are excluded when the raw multiline alias exists.
-- Multiline aliases are not inserted into registry alias matching.
-- If you see a weird joined organization name in output, check both:
-  - normalization behavior,
-  - whether the current warm-process in-memory registry was already polluted earlier in the batch.
+- Morfeusz2 lemmas and morphology for Polish inflection.
+- Dependency relations and syntax paths for argument binding.
+- spaCy/Stanza NER as evidence producers, not as final truth.
+- Coreference/reference candidates for pronouns, omitted subjects, descriptors, and
+  proxy phrases.
+- Sentence-transformer embeddings and vector retrieval for semantic support where
+  lexical/syntax evidence is insufficient.
 
-## Benchmark State As Of 2026-04-16
+Do not manually strip suffixes, hardcode article-specific names, or add one-off word
+lists to fix a single report. Small lexical sets are acceptable only when they define
+a stable domain boundary and are backed by tests.
 
-The latest full clean-registry benchmark is:
-- [reports/benchmark_full_2026-04-16.md](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/reports/benchmark_full_2026-04-16.md)
+NLP components must be wrapped behind V2-owned abstractions. Keep library-specific
+details out of domain producers as much as practical so Stanza, spaCy, Morfeusz2, or
+future providers can be swapped with limited churn.
 
-Important current truths:
-- OKO / Rydzyk funding now looks correct:
-  - `Fundacja Lux Veritatis` funded by `Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Toruniu`
-  - `Fundacja Lux Veritatis` funded by `Jastrzębskie Zakłady Remontowe`
-- Salary articles like `olsztyn_wodkan` and KZN still emit compensation facts.
-- Strong appointment articles like Totalizator, Radomszczańska, TVP Olsztyn, and `zona-posla-pis` still emit governance output.
+## Domain Heuristics
 
-Current benchmark problems worth knowing before you start changing things:
-1. `wiadomosci.onet.pl__lublin__...__cpw9ltt`: Strong positive article, but currently filtered out as irrelevant (content extraction or relevance issue).
-2. `pleszew24.info__...stadniny-koni`: Relevant, but produces no facts (likely NER, parser, or governance-frame resolution issue).
-3. `rp_tk_negative`: Still a relevance false positive, although downstream extraction stays empty.
-4. Funding false positives: `przekazać` in "communicated/told us" contexts still sometimes creates weak `FUNDING` facts with no amount.
+Governance:
 
-## Debugging Workflow That Saves Time
+- Governance should come from clause-local syntax and typed role bindings.
+- Appointee, organization, role, appointing authority, owner, controller, and board
+  context are distinct roles or signals.
+- Parties, owners, ministries, funds, boards, and supervisory bodies should not become
+  appointment targets just because they are nearby.
 
-When an article behaves strangely, inspect it in this order:
+Public employment:
 
-1. **Relevance decision**: If relevance is wrong, nothing downstream matters.
-2. **Cleaned text / content extraction quality**: Some article variants differ mainly because the extracted text is poorer or shorter.
-3. **Entities and aliases**: Check whether the relevant person/org names even exist and whether they were over-merged.
-4. **V1 Frames or V2 Candidates/Signals**:
-   - For V1: "Did the right frame get built?" rather than "Why did the final relation look odd?".
-   - For V2: "Did the domain stage emit the candidate with correct local signals?" and "How was it assessed by the scorer?".
-5. **Warm-process linker contamination**: If names look stale or impossible, rerun once in a fresh process.
+- Employee, workplace, hiring authority, and public-office context are separate roles
+  or factors.
+- Do not materialize inferred organizations by mutating canonical strings. Represent
+  "samorząd", office descriptors, and locations as evidence/context/claims.
 
-## Operational Guidance For Future Agents
+Public money:
 
-- Do not add article-specific hardcoded patches unless the user explicitly asks for them.
-- Prefer general NLP-backed fixes over word lists or regex expansions.
-- But do not be dogmatic: small lexical lists are acceptable when they define a stable domain boundary. The problem is fragile article-specific patching, not every list.
-- If a fix changes extraction quality materially, write a new dated progress note in `reports/`.
-- If a benchmark run was done from a clean registry, say that explicitly in the report. It matters.
+- `FUNDING`, `PUBLIC_CONTRACT`, and `COMPENSATION` are distinct fact kinds.
+- Compensation is salary/remuneration, not grants.
+- Public contracts should not be downgraded to generic funding.
+- Controller/supervisor organizations should compete with direct payer/employer
+  alternatives, not be removed by lexical post-filters.
+
+Party and ties:
+
+- Political parties are valid party-affiliation objects, but should not leak into
+  generic organization/workplace/funder roles unless the event schema explicitly
+  allows that.
+- Kinship and proxy-person extraction must stay conservative. A foundation founded
+  by a person is not a family tie.
+- Same-name, same-surname, father/son, and "nie mylić z" cases must be represented as
+  resolution uncertainty, not forced merges.
+
+## Tests
+
+Tests should assert behavior, not implementation details.
+
+Good assertions:
+
+- A sentence produces an event of the expected kind.
+- Semantic roles are correct regardless of surface word order.
+- Competing role fillers remain visible.
+- A correct filler has a higher posterior than a weak/context filler.
+- A party context is demoted for workplace/organization roles.
+- A reference target is propagated into materialized facts when resolution is strong.
+- Same-name contradiction lowers same-entity probability.
+- A benchmark article produces or does not produce the expected high-level facts.
+
+Bad assertions:
+
+- Exact generated entity IDs such as `entity-3`.
+- Exact generated fact IDs such as `fact-1`, unless the ID is hand-authored input to
+  the specific unit under test.
+- Exact argument tuple order when semantic role lookup is what matters.
+- Exact signal order.
+- Exact factor order or internal variable names, except in focused backend/facade
+  tests.
+- Source-code string scans.
+
+Use static providers for fast unit tests:
+
+- Static preprocessed `ArticleDocument` where preprocessing is not under test.
+- Static NER spans via test providers where model behavior is not under test.
+- Morfeusz2 morphology for realistic Polish lemmas.
+- Fake `InferenceBackend` for facade tests.
+
+Backend tests may import backend implementations directly. Domain tests should not.
+
+## Reports And Benchmarks
+
+The `reports/` and `reports/v2/` directories are part of the development context.
+Before significant extraction, inference, or architecture changes, read the relevant
+current report, especially:
+
+- `reports/expected_article_findings.md`
+- `reports/v2/probabilistic_inference_plan_2026-05-21.md`
+- `reports/v2/probabilistic_inference_review_notes_2026-05-21.md`
+- `reports/v2/v1_to_v2_architecture_2026-05-20.md`
+
+For article-specific work, follow this workflow:
+
+1. Read the article or fixture.
+2. Write down expected findings before running the pipeline.
+3. Run the smallest useful V2 pipeline/fixture check.
+4. Compare expected vs actual.
+5. Decide whether the gap belongs to preprocessing, relevance, NER, morphology,
+   syntax, candidate production, retrieval, inference, materialization, or tests.
+
+Do not treat `pytest` success as sufficient for extraction-quality changes. If
+behavior changes materially, run benchmark inputs and add a dated note in `reports/`
+or `reports/v2/` describing what improved, what regressed, what was checked, and
+what remains.
+
+## Output Boundary
+
+Output serialization should expose enough graph state to debug extraction:
+
+- event candidates,
+- argument bindings,
+- evidence,
+- entities,
+- references,
+- inference marginals,
+- resolution claims,
+- materialized facts,
+- fact assessments.
+
+Serialization may convert typed IDs and enum values to strings. Internal pipeline
+code should not.
+
+## Review Checklist
+
+When reviewing or changing code, check for these regressions:
+
+- V1 code or V1 tests were modified.
+- Producers emit final facts instead of events and role bindings.
+- A producer silently chooses one best entity/organization/person when alternatives
+  should remain visible.
+- A new optional field was added to a central object instead of a typed candidate,
+  role, signal, factor, or claim.
+- IDs were weakened to strings.
+- JSON/dicts were used as internal graph payloads.
+- pgmpy or another backend leaked outside the inference backend adapter.
+- Scoring logic grew as a central additive table.
+- Materialization mutated producer hypotheses.
+- Tests assert generated IDs, ordering, or implementation internals instead of
+  behavior.

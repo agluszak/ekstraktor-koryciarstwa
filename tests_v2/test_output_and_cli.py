@@ -65,7 +65,7 @@ def test_document_output_includes_evidence_and_materialized_facts() -> None:
     )
     document.fact_assessments.append(
         FactAssessment(
-            materialized_fact_id=FactCandidateId("fact-1"),
+            materialized_fact_id=FactCandidateId("materialized-under-test"),
             assessment=Assessment(
                 score=0.75,
                 positive_signals=(),
@@ -83,7 +83,7 @@ def test_document_output_includes_evidence_and_materialized_facts() -> None:
     )
     document.inference_marginals.append(
         VariableMarginal(
-            variable_id=InferenceVariableId("event-active:fact-1"),
+            variable_id=InferenceVariableId("variable-under-test"),
             probabilities=(
                 StateProbability(InferenceStateId("false"), 0.25),
                 StateProbability(InferenceStateId("true"), 0.75),
@@ -127,7 +127,7 @@ def test_document_output_includes_evidence_and_materialized_facts() -> None:
     ]
     assert rendered["materialized_fact_assessments"] == [
         {
-            "materialized_fact_id": "fact-1",
+            "materialized_fact_id": "materialized-under-test",
             "assessment": {
                 "score": 0.75,
                 "positive_signals": [],
@@ -139,7 +139,7 @@ def test_document_output_includes_evidence_and_materialized_facts() -> None:
     ]
     assert rendered["inference_marginals"] == [
         {
-            "variable_id": "event-active:fact-1",
+            "variable_id": "variable-under-test",
             "probabilities": [
                 {"state_id": "false", "probability": 0.25},
                 {"state_id": "true", "probability": 0.75},
@@ -160,7 +160,7 @@ def test_document_output_serializes_signal_details_as_structured_json() -> None:
     )
     document.fact_assessments.append(
         FactAssessment(
-            materialized_fact_id=FactCandidateId("fact-1"),
+            materialized_fact_id=FactCandidateId("materialized-under-test"),
             assessment=Assessment(
                 score=0.75,
                 positive_signals=(DependencyObjectSignal(relation=DependencyRelation.OBJ),),
@@ -174,7 +174,7 @@ def test_document_output_serializes_signal_details_as_structured_json() -> None:
 
     assert rendered["materialized_fact_assessments"] == [
         {
-            "materialized_fact_id": "fact-1",
+            "materialized_fact_id": "materialized-under-test",
             "assessment": {
                 "score": 0.75,
                 "positive_signals": [

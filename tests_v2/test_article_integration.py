@@ -12,7 +12,7 @@ from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import FactKind, NerLabel
-from tests_v2.materialized import fact_records
+from tests_v2.materialized import entity_hint_for_role, fact_records, text_argument
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,25 +81,18 @@ def test_article_excerpt_recovers_funding_and_party_context() -> None:
     funding_record = next(record for record in records if record.kind is FactKind.FUNDING)
     party_records = tuple(record for record in records if record.kind is FactKind.PARTY_AFFILIATION)
 
-    assert tuple(argument.to_json() for argument in funding_record.arguments) == (
-        {"role": "funder", "entity_id": "entity-5"},
-        {"role": "recipient", "entity_id": "entity-6"},
-        {"role": "amount", "value": "100 tysięcy złotych"},
-    )
+    assert entity_hint_for_role(document, funding_record, "funder") == "urzędu marszałkowskiego"
+    recipient_hint = entity_hint_for_role(document, funding_record, "recipient")
+    assert recipient_hint is not None
+    assert recipient_hint.startswith("fundacja")
+    assert text_argument(funding_record, "amount") == "100 tysięcy złotych"
 
-    assert any(
-        tuple(argument.to_json() for argument in record.arguments)
-        == (
-            {"role": "subject", "entity_id": "entity-1"},
-            {"role": "object", "entity_id": "entity-3"},
+    party_pairs = {
+        (
+            entity_hint_for_role(document, record, "subject"),
+            entity_hint_for_role(document, record, "object"),
         )
         for record in party_records
-    )
-    assert any(
-        tuple(argument.to_json() for argument in record.arguments)
-        == (
-            {"role": "subject", "entity_id": "entity-2"},
-            {"role": "object", "entity_id": "entity-4"},
-        )
-        for record in party_records
-    )
+    }
+    assert ("Adam Struzik", "Polskie Stronnictwo Ludowe") in party_pairs
+    assert ("Marcelina Zawisza", "Razem") in party_pairs

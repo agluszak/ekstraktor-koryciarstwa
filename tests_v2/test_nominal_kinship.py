@@ -10,7 +10,7 @@ from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.nominal_coreference import NominalKinshipCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import FactKind, GroundingKind, NerLabel
-from tests_v2.materialized import fact_records
+from tests_v2.materialized import entity_hint_for_role, fact_records, text_argument
 
 
 class StaticEntityProvider:
@@ -74,12 +74,10 @@ def test_nominal_kinship_within_40_chars_links_named_referent() -> None:
     assert len(records) == 1
     record = records[0]
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "entity-1"},
-        {"role": "object", "entity_id": "entity-0"},
-        {"role": "relationship_detail", "value": "spouse"},
-        {"role": "context", "value": "żona"},
-    )
+    assert entity_hint_for_role(document, record, "subject") == "Annę Nowak"
+    assert entity_hint_for_role(document, record, "object") == "Marek Kowalski"
+    assert text_argument(record, "relationship_detail") == "spouse"
+    assert text_argument(record, "context") == "żona"
 
 
 def test_nominal_kinship_beyond_40_chars_creates_proxy_instead() -> None:

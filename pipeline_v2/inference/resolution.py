@@ -157,13 +157,11 @@ class ResolutionInferenceGraphBuilder:
         retriever = EntityCandidateRetriever(document.store)
         signal_producer = EvidenceSignalProducer()
         scorer = EntityResolutionScorer(document.store)
-        seen_pairs: set[tuple[str, str]] = set()
+        seen_pairs: set[tuple[EntityCandidateId, EntityCandidateId]] = set()
         for entity in document.store.entity_candidates.values():
             for proposal in retriever.proposals_for_entity(entity):
                 enriched = signal_producer.enrich_resolution_proposal(document.store, proposal)
-                left_id = str(enriched.left_entity_id)
-                right_id = str(enriched.right_entity_id)
-                pair_key = (left_id, right_id) if left_id <= right_id else (right_id, left_id)
+                pair_key = self._entity_pair(enriched.left_entity_id, enriched.right_entity_id)
                 if pair_key in seen_pairs:
                     continue
                 seen_pairs.add(pair_key)
@@ -210,14 +208,13 @@ class ResolutionInferenceGraphBuilder:
     ) -> None:
         signal_producer = EvidenceSignalProducer()
         scorer = ReferenceResolutionScorer(document.store)
-        grouped: dict[str, dict[EntityCandidateId, ReferenceResolutionProposal]] = {}
+        grouped: dict[MentionId, dict[EntityCandidateId, ReferenceResolutionProposal]] = {}
         for proposal in document.reference_resolution_proposals:
             enriched = signal_producer.enrich_reference_resolution_proposal(
                 document.store,
                 proposal,
             )
-            reference_key = str(enriched.reference_id)
-            grouped.setdefault(reference_key, {})[enriched.candidate_entity_id] = enriched
+            grouped.setdefault(enriched.reference_id, {})[enriched.candidate_entity_id] = enriched
         for reference_key, proposal_map in grouped.items():
             ordered = [
                 proposal_map[entity_id]
@@ -234,7 +231,7 @@ class ResolutionInferenceGraphBuilder:
             evidence_ids: list = []
             signals: list[Signal] = []
             for proposal in ordered:
-                state_id = InferenceStateId(str(proposal.candidate_entity_id))
+                state_id = self._reference_state_id_for_entity(proposal.candidate_entity_id)
                 states.append(InferenceState(state_id, str(proposal.candidate_entity_id)))
                 weights.append(scorer.score(proposal).score)
                 state_map[state_id] = proposal
@@ -684,9 +681,12 @@ class ResolutionInferenceGraphBuilder:
         left_entity_id: EntityCandidateId,
         right_entity_id: EntityCandidateId,
     ) -> tuple[EntityCandidateId, EntityCandidateId]:
-        if str(left_entity_id) <= str(right_entity_id):
+        if left_entity_id <= right_entity_id:
             return (left_entity_id, right_entity_id)
         return (right_entity_id, left_entity_id)
+
+    def _reference_state_id_for_entity(self, entity_id: EntityCandidateId) -> InferenceStateId:
+        return InferenceStateId(f"entity:{entity_id}")
 
     def _unknown_weight(self, scores: tuple[float, ...]) -> float:
         if not scores:
@@ -734,12 +734,14 @@ class ResolutionInferenceGraphBuilder:
                     values.append(1.0)
                 elif reference_state_id == UNKNOWN_STATE.id:
                     values.append(0.35)
-                elif isinstance(role_state.filler, EntityFiller) and str(
-                    role_state.filler.entity_id
-                ) == str(reference_state_id):
-                    values.append(1.0)
                 else:
-                    values.append(0.02)
+                    match role_state.filler:
+                        case EntityFiller(entity_id=entity_id) if (
+                            self._reference_state_id_for_entity(entity_id) == reference_state_id
+                        ):
+                            values.append(1.0)
+                        case _:
+                            values.append(0.02)
         return InferenceFactor(
             id=InferenceFactorId(f"factor:reference-role:{reference_id}:{role_variable_id}"),
             kind=InferenceFactorKind.CONSTRAINT,

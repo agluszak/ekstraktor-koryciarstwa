@@ -7,7 +7,6 @@ from pipeline_v2.ids import (
     DocumentId,
     EntityCandidateId,
     EventCandidateId,
-    FactCandidateId,
 )
 from pipeline_v2.types import (
     DirectPrepositionalAttachmentSignal,
@@ -46,7 +45,6 @@ def test_party_inference_keeps_non_party_context_as_negative_signal() -> None:
     add_event(
         document,
         event_id=EventCandidateId("event-1"),
-        fact_id=FactCandidateId("party-candidate"),
         kind=FactKind.PARTY_AFFILIATION,
         signals=(
             PartyAliasMatchSignal(),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.fact_scoring import FactScoringStage
-from pipeline_v2.ids import DocumentId, EntityCandidateId
+from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -15,7 +15,7 @@ from pipeline_v2.types import (
     NerLabel,
     PartyAliasMatchSignal,
 )
-from tests_v2.materialized import fact_records, first_fact_record
+from tests_v2.materialized import entity_hint_for_role, fact_records, first_fact_record
 
 
 class StaticEntityProvider:
@@ -69,10 +69,8 @@ def test_party_stage_emits_party_entity_and_direct_membership_from_z_party_phras
 
     assert tuple(party.canonical_hint for party in parties) == ("Polskie Stronnictwo Ludowe",)
     assert record.kind is FactKind.PARTY_AFFILIATION
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "entity-0"},
-        {"role": "object", "entity_id": "entity-1"},
-    )
+    assert entity_hint_for_role(document, record, "subject") == "Jan Kowalski"
+    assert entity_hint_for_role(document, record, "object") == "Polskie Stronnictwo Ludowe"
     assert set(record.signals) == {
         PartyAliasMatchSignal(),
         DirectPrepositionalAttachmentSignal(),
@@ -86,14 +84,8 @@ def test_party_stage_matches_inflected_full_party_name_in_direct_attachment() ->
     record = first_fact_record(document)
 
     assert record.kind is FactKind.PARTY_AFFILIATION
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "entity-0"},
-        {"role": "object", "entity_id": "entity-1"},
-    )
-    assert (
-        document.store.entity_candidates[EntityCandidateId("entity-1")].canonical_hint
-        == "Polskie Stronnictwo Ludowe"
-    )
+    assert entity_hint_for_role(document, record, "subject") == "Adam Struzik"
+    assert entity_hint_for_role(document, record, "object") == "Polskie Stronnictwo Ludowe"
 
 
 def test_party_stage_attaches_profile_phrases_to_nearest_correct_people() -> None:
@@ -112,19 +104,17 @@ def test_party_stage_attaches_profile_phrases_to_nearest_correct_people() -> Non
         FactKind.PARTY_AFFILIATION,
         FactKind.PARTY_AFFILIATION,
     )
-    record_arguments = tuple(
-        tuple(argument.to_json() for argument in record.arguments) for record in records
-    )
-    assert record_arguments == (
+    attachments = {
         (
-            {"role": "subject", "entity_id": "entity-0"},
-            {"role": "object", "entity_id": "entity-2"},
-        ),
-        (
-            {"role": "subject", "entity_id": "entity-1"},
-            {"role": "object", "entity_id": "entity-3"},
-        ),
-    )
+            entity_hint_for_role(document, record, "subject"),
+            entity_hint_for_role(document, record, "object"),
+        )
+        for record in records
+    }
+    assert attachments == {
+        ("Stanisław Mazur", "Lewica"),
+        ("Andrzej Kloc", "Polskie Stronnictwo Ludowe"),
+    }
 
 
 def test_party_stage_attaches_reverse_profile_phrase_to_preceding_person() -> None:
@@ -134,11 +124,8 @@ def test_party_stage_attaches_reverse_profile_phrase_to_preceding_person() -> No
     record = first_fact_record(document)
 
     assert record.kind is FactKind.PARTY_AFFILIATION
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "entity-0"},
-        {"role": "object", "entity_id": "entity-1"},
-    )
-    assert document.store.entity_candidates[EntityCandidateId("entity-1")].canonical_hint == "Razem"
+    assert entity_hint_for_role(document, record, "subject") == "Marcelina Zawisza"
+    assert entity_hint_for_role(document, record, "object") == "Razem"
 
 
 def test_party_stage_does_not_turn_party_cooccurrence_into_membership() -> None:
@@ -170,8 +157,6 @@ def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> N
     record = first_fact_record(document)
 
     assert record.kind is FactKind.POLITICAL_SUPPORT
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "entity-1"},
-        {"role": "object", "entity_id": "entity-0"},
-    )
+    assert entity_hint_for_role(document, record, "subject") == "Polskie Stronnictwo Ludowe"
+    assert entity_hint_for_role(document, record, "object") == "Anna Nowak"
     assert document.fact_assessments[0].assessment.score < 0.7

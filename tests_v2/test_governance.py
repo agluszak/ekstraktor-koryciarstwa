@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import FactCandidateRecord
+from pipeline_v2.candidates import EntityFactArgument, FactCandidateRecord
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId, EntityCandidateId
+from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -22,7 +22,12 @@ from pipeline_v2.types import (
     WindowPersonSignal,
     WindowRoleSignal,
 )
-from tests_v2.materialized import fact_records, first_fact_record
+from tests_v2.materialized import (
+    argument_roles,
+    entity_hint_for_role,
+    fact_records,
+    first_fact_record,
+)
 
 
 class StaticEntityProvider:
@@ -61,13 +66,6 @@ def run_governance_stage(
     return document
 
 
-def entity_argument_id(record: FactCandidateRecord, role: str) -> EntityCandidateId:
-    argument = next(
-        argument.to_json() for argument in record.arguments if argument.to_json()["role"] == role
-    )
-    return EntityCandidateId(argument["entity_id"])
-
-
 def test_governance_stage_emits_appointment_candidate_with_sentence_local_entities() -> None:
     text = "Jan Kowalski został powołany do zarządu spółki Wodkan."
     document = run_governance_stage(
@@ -89,11 +87,9 @@ def test_governance_stage_emits_appointment_candidate_with_sentence_local_entiti
     record = first_fact_record(document)
 
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "person", "entity_id": "entity-0"},
-        {"role": "organization", "entity_id": "entity-1"},
-        {"role": "role", "entity_id": "entity-2"},
-    )
+    assert entity_hint_for_role(document, record, "person") == "Jan Kowalski"
+    assert entity_hint_for_role(document, record, "organization") == "Wodkan"
+    assert entity_hint_for_role(document, record, "role") == "zarządu"
     assert set(record.signals) == {
         AppointmentLemmaSignal(lemma="powołać"),
         LocalPersonSignal(),
@@ -191,11 +187,9 @@ def test_governance_stage_uses_adjacent_sentence_context_for_split_appointment()
     record = first_fact_record(document)
 
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "person", "entity_id": "entity-0"},
-        {"role": "organization", "entity_id": "entity-1"},
-        {"role": "role", "entity_id": "entity-2"},
-    )
+    assert entity_hint_for_role(document, record, "person") == "Jan Kowalski"
+    assert entity_hint_for_role(document, record, "organization") == "Wodkan"
+    assert entity_hint_for_role(document, record, "role") == "prezesem"
     assert set(record.signals) == {
         AppointmentLemmaSignal(lemma="powołać"),
         WindowPersonSignal(),
@@ -257,10 +251,9 @@ def test_governance_stage_ignores_following_sentence_background_organization() -
     record = dismissal_candidate
 
     assert record.kind is FactKind.GOVERNANCE_DISMISSAL
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "person", "entity_id": "entity-0"},
-        {"role": "role", "entity_id": "entity-2"},
-    )
+    assert argument_roles(record) == frozenset({"person", "role"})
+    assert entity_hint_for_role(document, record, "person") == "Olgierd Cieślik"
+    assert entity_hint_for_role(document, record, "role") == "prezes"
 
 
 def test_governance_stage_marks_party_name_as_organization() -> None:
@@ -358,8 +351,8 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
         (
             candidate
             for candidate in fact_records(document)
-            if _has_argument(candidate, "person", "entity-2")
-            and _has_argument(candidate, "organization", "entity-0")
+            if _has_entity_hint(document, candidate, "person", "Tomasz Kościelniak")
+            and _has_entity_hint(document, candidate, "organization", "Gminnego Ośrodka Kultury")
         ),
         None,
     )
@@ -374,8 +367,18 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
     assert bad_assessment.score < 0.5
 
 
-def _has_argument(record: FactCandidateRecord, role: str, entity_id: str) -> bool:
-    return any(
-        argument.to_json() == {"role": role, "entity_id": entity_id}
-        for argument in record.arguments
-    )
+def _has_entity_hint(
+    document: ArticleDocument,
+    record: FactCandidateRecord,
+    role: str,
+    canonical_hint: str,
+) -> bool:
+    for argument in record.arguments:
+        match argument:
+            case EntityFactArgument(role=argument_role, entity_id=entity_id) if (
+                argument_role.value == role
+            ):
+                return document.store.entity_candidates[entity_id].canonical_hint == canonical_hint
+            case _:
+                continue
+    return False
