@@ -136,6 +136,7 @@ class FactCandidateRecord:
             "signals": [signal.to_json() for signal in self.signals],
         }
 
+
 @dataclass(frozen=True, slots=True)
 class Assessment:
     score: float

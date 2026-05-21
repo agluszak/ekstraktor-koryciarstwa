@@ -11,7 +11,7 @@ from pipeline_v2.candidates import (
     TextFiller,
 )
 from pipeline_v2.document import ArticleDocument, FactAssessment
-from pipeline_v2.ids import EventCandidateId, FactCandidateId, ScorerId
+from pipeline_v2.ids import EntityCandidateId, EventCandidateId, FactCandidateId, ScorerId
 from pipeline_v2.inference.event_schema import RoleSpec, schema_for
 from pipeline_v2.inference.fact_priors import FactPriorPolicyRegistry
 from pipeline_v2.inference.factor_builders import (
@@ -20,7 +20,13 @@ from pipeline_v2.inference.factor_builders import (
     RoleFillerState,
 )
 from pipeline_v2.inference.graph_spec import InferenceResult, VariableMarginal
-from pipeline_v2.types import EmploymentContractFormSignal, FactArgumentRole, SignalPolarity
+from pipeline_v2.types import (
+    EmploymentContractFormSignal,
+    FactArgumentRole,
+    GroundingKind,
+    ReferenceKind,
+    SignalPolarity,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +137,7 @@ class FactAssessmentMaterializer:
                     )
 
         base_record = self._record_from_selection(
+            store=document.store,
             event=event,
             fact_id=base_fact_id,
             selections=tuple(selected_by_role.values()),
@@ -151,6 +158,7 @@ class FactAssessmentMaterializer:
             alternative_selection = dict(selected_by_role)
             alternative_selection[role] = alternative
             alternative_record = self._record_from_selection(
+                store=document.store,
                 event=event,
                 fact_id=base_fact_id,
                 selections=tuple(alternative_selection.values()),
@@ -175,9 +183,64 @@ class FactAssessmentMaterializer:
         blended = min(1.0, 0.3 * event_probability + 0.7 * mean_role_probability)
         return max(blended, self._prior_registry.prior_for_kind(record.kind, record.signals).score)
 
+    def _resolve_entity_id(self, store, entity_id: EntityCandidateId) -> EntityCandidateId:
+        visited = {entity_id}
+        queue = [entity_id]
+        all_entities: list[EntityCandidateId] = []
+
+        while queue:
+            curr = queue.pop(0)
+            all_entities.append(curr)
+
+            # 1. Entity resolution claims (same_as)
+            for claim in store.resolution_claims_for_entity(curr):
+                other = (
+                    claim.right_entity_id if claim.left_entity_id == curr else claim.left_entity_id
+                )
+                if other not in visited:
+                    visited.add(other)
+                    queue.append(other)
+
+            # 2. Reference resolution claims for proxy entities
+            entity_cand = store.entity_candidates.get(curr)
+            if entity_cand is not None:
+                for ref_id in entity_cand.reference_ids:
+                    ref_mention = store.references.get(ref_id)
+                    if (
+                        ref_mention is not None
+                        and ref_mention.kind == ReferenceKind.PROXY_FAMILY_PHRASE
+                    ):
+                        continue
+                    for ref_claim in store.reference_resolution_claims_for_reference(ref_id):
+                        target = ref_claim.candidate_entity_id
+                        if target not in visited:
+                            visited.add(target)
+                            queue.append(target)
+
+        # Find the best representative from all_entities
+        def candidate_key(ent_id: EntityCandidateId) -> tuple[int, int, int, str]:
+            cand = store.entity_candidates.get(ent_id)
+            if cand is None:
+                return (0, 0, 0, "")
+
+            g_prio = 0
+            if cand.grounding == GroundingKind.OBSERVED:
+                g_prio = 3
+            elif cand.grounding == GroundingKind.INFERRED:
+                g_prio = 2
+            elif cand.grounding == GroundingKind.PROXY:
+                g_prio = 1
+
+            num_mentions = len(cand.mention_ids)
+            hint_len = len(cand.canonical_hint) if cand.canonical_hint else 0
+            return (g_prio, num_mentions, hint_len, str(ent_id))
+
+        return max(all_entities, key=candidate_key)
+
     def _record_from_selection(
         self,
         *,
+        store,
         event,
         fact_id: FactCandidateId,
         selections: tuple[_RoleSelection, ...],
@@ -190,7 +253,10 @@ class FactAssessmentMaterializer:
             signals.extend(selection.state.signals)
             match selection.state.filler:
                 case EntityFiller(entity_id=entity_id):
-                    arguments.append(EntityFactArgument(selection.role_spec.output_role, entity_id))
+                    resolved_entity_id = self._resolve_entity_id(store, entity_id)
+                    arguments.append(
+                        EntityFactArgument(selection.role_spec.output_role, resolved_entity_id)
+                    )
                 case TextFiller(value=value):
                     arguments.append(TextFactArgument(selection.role_spec.output_role, value))
                 case None:

@@ -133,8 +133,9 @@ def test_probabilistic_inference_emits_same_fact_claim_without_deleting_duplicat
     assert claim.assessment.score >= 0.5
 
 
-def test_probabilistic_inference_merges_governance_duplicates_when_role_differs_but_org_matches(
-) -> None:
+def test_probabilistic_inference_merges_governance_duplicates_when_role_differs_but_org_matches() -> (
+    None
+):
     document = _document()
     add_entity(
         document,
