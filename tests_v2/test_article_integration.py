@@ -12,6 +12,7 @@ from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import FactKind, NerLabel
+from tests_v2.materialized import fact_records
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,9 +77,7 @@ def test_article_excerpt_recovers_funding_and_party_context() -> None:
         ),
     )
 
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
     funding_record = next(record for record in records if record.kind is FactKind.FUNDING)
     party_records = tuple(record for record in records if record.kind is FactKind.PARTY_AFFILIATION)
 

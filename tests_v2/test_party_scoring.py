@@ -1,95 +1,79 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import EntityCandidate, PartyAffiliationCandidate
+from pipeline_v2.document import ArticleDocument
+from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import (
+    ArgumentBindingCandidateId,
+    DocumentId,
     EntityCandidateId,
-    EvidenceId,
+    EventCandidateId,
     FactCandidateId,
-    MentionId,
-    ProducerId,
-    SentenceId,
 )
-from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
-from pipeline_v2.orchestrator import V2Orchestrator
-from pipeline_v2.store import ExtractionStore
-from pipeline_v2.types import EntityKind, ExplicitNonPartyContextSignal, GroundingKind, MentionKind
+from pipeline_v2.types import (
+    DirectPrepositionalAttachmentSignal,
+    EntityKind,
+    EventRole,
+    ExplicitNonPartyContextSignal,
+    FactKind,
+    GroundingKind,
+    PartyAliasMatchSignal,
+)
+from tests_v2.materialized import add_entity, add_event, bind_entity, first_fact_record
 
 
-def test_party_scorer_separates_noisy_candidate_from_final_reliability() -> None:
-    store = ExtractionStore()
-    sentence_id = SentenceId("sentence-1")
-    sentence_text = "Wojciech Wilk z PO oraz Krzysztof Staruch, bezpartyjny, rozmawiali."
-    store.add_sentence(
-        Sentence(
-            id=sentence_id,
-            sentence_index=0,
-            paragraph_index=0,
-            text=sentence_text,
-            span=Span(0, len(sentence_text)),
-        )
+def test_party_inference_keeps_non_party_context_as_negative_signal() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Wojciech Wilk z PO oraz Krzysztof Staruch, bezpartyjny, rozmawiali.",
+        paragraphs=("Wojciech Wilk z PO oraz Krzysztof Staruch, bezpartyjny, rozmawiali.",),
     )
-    evidence_id = EvidenceId("evidence-1")
-    store.add_evidence(
-        EvidenceSpan(
-            id=evidence_id,
-            text=sentence_text,
-            span=Span(0, len(sentence_text)),
-            sentence_id=sentence_id,
-            paragraph_index=0,
-        )
+    subject_id = add_entity(
+        document,
+        entity_id=EntityCandidateId("staruch"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Krzysztof Staruch",
     )
-    person_mention_id = MentionId("mention-staruch")
-    party_mention_id = MentionId("mention-po")
-    store.add_mention(
-        Mention(
-            id=person_mention_id,
-            text="Krzysztof Staruch",
-            kind=MentionKind.NER,
-            evidence_id=evidence_id,
-            sentence_id=sentence_id,
-        )
+    party_id = add_entity(
+        document,
+        entity_id=EntityCandidateId("po"),
+        kind=EntityKind.POLITICAL_PARTY,
+        canonical_hint="Platforma Obywatelska",
+        grounding=GroundingKind.OBSERVED,
     )
-    store.add_mention(
-        Mention(
-            id=party_mention_id,
-            text="PO",
-            kind=MentionKind.NER,
-            evidence_id=evidence_id,
-            sentence_id=sentence_id,
-        )
+    add_event(
+        document,
+        event_id=EventCandidateId("event-1"),
+        fact_id=FactCandidateId("party-candidate"),
+        kind=FactKind.PARTY_AFFILIATION,
+        signals=(
+            PartyAliasMatchSignal(),
+            DirectPrepositionalAttachmentSignal(),
+            ExplicitNonPartyContextSignal(),
+        ),
     )
-    subject_id = store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("staruch"),
-            kind=EntityKind.PERSON,
-            mention_ids=(person_mention_id,),
-            canonical_hint="Krzysztof Staruch",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("test"),
-        )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-subject"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.SUBJECT,
+        entity_id=subject_id,
     )
-    party_id = store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("po"),
-            kind=EntityKind.POLITICAL_PARTY,
-            mention_ids=(party_mention_id,),
-            canonical_hint="Platforma Obywatelska",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("test"),
-        )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-object"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.OBJECT,
+        entity_id=party_id,
     )
 
-    candidate = PartyAffiliationCandidate(
-        id=FactCandidateId("party-candidate"),
-        subject_entity_id=subject_id,
-        party_entity_id=party_id,
-        evidence_ids=(evidence_id,),
-        source=ProducerId("test"),
-    )
-    store.add_fact_candidate(candidate)
-    result = V2Orchestrator(store).assess(party_affiliations=(candidate,))
-    assessed = result.party_affiliation_assessments[0]
-    assessment = assessed.assessment
+    FactScoringStage().run(document)
 
+    record = first_fact_record(document)
+    assessment = document.fact_assessments[0].assessment
+
+    assert record.kind is FactKind.PARTY_AFFILIATION
     assert assessment.score < 0.5
     assert ExplicitNonPartyContextSignal() in assessment.negative_signals

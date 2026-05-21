@@ -12,6 +12,7 @@ from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import EntityKind, FactKind, NerLabel
+from tests_v2.materialized import fact_record_by_id, fact_records, first_fact_record
 
 
 class StaticEntityProvider:
@@ -80,16 +81,14 @@ def test_anti_corruption_stage_emits_referral_with_party_actor_context() -> None
         include_governance=True,
     )
 
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
     referral_record = next(
         record for record in records if record.kind is FactKind.ANTI_CORRUPTION_REFERRAL
     )
     referral_assessment = next(
         assessment
         for assessment in document.fact_assessments
-        if document.store.fact_candidates[assessment.fact_candidate_id].to_fact_record().kind
+        if fact_record_by_id(document, assessment.materialized_fact_id).kind
         is FactKind.ANTI_CORRUPTION_REFERRAL
     )
     party_entity = next(
@@ -121,7 +120,7 @@ def test_anti_corruption_stage_emits_impersonal_referral_to_prosecutor() -> None
     text = "Sprawę skierowano do prokuratury po kontroli w urzędzie."
     document = run_anti_corruption_pipeline(text)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.ANTI_CORRUPTION_REFERRAL
@@ -141,7 +140,7 @@ def test_anti_corruption_stage_emits_investigation_for_nik_control() -> None:
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.ANTI_CORRUPTION_INVESTIGATION
@@ -156,7 +155,7 @@ def test_anti_corruption_stage_emits_investigation_with_text_institution_fallbac
     text = "Prokuratura wszczęła śledztwo w sprawie Jana Nowaka."
     document = run_anti_corruption_pipeline(text, (person_span(text, "Jana Nowaka"),))
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.ANTI_CORRUPTION_INVESTIGATION
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -170,7 +169,7 @@ def test_anti_corruption_stage_does_not_emit_referral_for_ordinary_cba_news() ->
     text = "CBA poinformowało o wynikach kontroli w urzędzie."
     document = run_anti_corruption_pipeline(text, (organization_span(text, "CBA"),))
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_anti_corruption_stage_does_not_emit_investigation_for_published_control_results() -> None:
@@ -183,4 +182,4 @@ def test_anti_corruption_stage_does_not_emit_investigation_for_published_control
         ),
     )
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()

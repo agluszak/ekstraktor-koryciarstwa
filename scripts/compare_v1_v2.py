@@ -9,16 +9,17 @@ Usage:
                         rp_tk_negative onet_totalizator niezalezna_polski2050_synekury \
         --report-out reports/v2/comparison_2026-05-20.md
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _v1_facts(data: dict) -> list[dict]:
     return data.get("facts", [])
@@ -26,13 +27,13 @@ def _v1_facts(data: dict) -> list[dict]:
 
 def _v2_facts(data: dict, threshold: float = 0.5) -> list[dict]:
     assessments = {
-        a["fact_candidate_id"]: a["assessment"]
-        for a in data.get("fact_assessments", [])
+        a["materialized_fact_id"]: a["assessment"]
+        for a in data.get("materialized_fact_assessments", [])
     }
     entity_map = {e["id"]: e for e in data.get("entities", [])}
 
     out = []
-    for f in data.get("fact_candidates", []):
+    for f in data.get("materialized_facts", []):
         fid = f["id"]
         score = assessments.get(fid, {}).get("score", 0.0)
         if score < threshold:
@@ -52,7 +53,6 @@ def _resolve_v2_file(v2_dir: Path, article_name: str) -> Path | None:
     # V2 names by document_id; find by scanning the dir
     for p in sorted(v2_dir.glob("*.json")):
         data = json.loads(p.read_text(encoding="utf-8"))
-        src = data.get("source_url") or data.get("title") or ""
         # Try to match by article name fragment
         if article_name.replace("_", "-") in (data.get("title") or "").replace(" ", "-").lower():
             return p
@@ -81,6 +81,7 @@ def _trunc(s: str, n: int = 80) -> str:
 # report generation
 # ---------------------------------------------------------------------------
 
+
 def compare_article(
     article_name: str,
     v1_dir: Path,
@@ -103,24 +104,21 @@ def compare_article(
 
     # --- V2 ---
     # V2 batch outputs one file per article; find by scanning all files
-    v2_path = None
     all_v2 = sorted(v2_dir.glob("*.json"))
-    
+
     # Map article name to a v2 file by matching source_url or title
     for p in all_v2:
         d = json.loads(p.read_text(encoding="utf-8"))
-        
+
         # Try matching by source_url from V1
         v1_url = v1_data.get("source_url")
         v2_url = d.get("source_url")
         if v1_url and v2_url and v1_url == v2_url:
-            v2_path = p
             v2_data = d
             break
-            
+
         title = (d.get("title") or "").casefold()
         if any(part in title for part in article_name.replace("_", " ").split()):
-            v2_path = p
             v2_data = d
             break
     else:
@@ -143,8 +141,12 @@ def compare_article(
         lines.append("|------|---------|--------|------|----------|\n")
         for f in v1_facts:
             kind = f.get("fact_type", "")
-            subj = entities_v1.get(f.get("subject_entity_id", ""), {}).get("canonical_name", f.get("subject_entity_id", ""))
-            obj = entities_v1.get(f.get("object_entity_id", ""), {}).get("canonical_name", f.get("object_entity_id", ""))
+            subj = entities_v1.get(f.get("subject_entity_id", ""), {}).get(
+                "canonical_name", f.get("subject_entity_id", "")
+            )
+            obj = entities_v1.get(f.get("object_entity_id", ""), {}).get(
+                "canonical_name", f.get("object_entity_id", "")
+            )
             role = f.get("role") or ""
             ev = _trunc((f.get("evidence") or {}).get("text", ""))
             lines.append(f"| {kind} | {subj} | {obj} | {role} | {ev} |\n")
@@ -170,7 +172,10 @@ def compare_article(
                 for k, v in f.items()
                 if k not in {"kind", "score", "person", "organization", "amount"}
             )
-            lines.append(f"| {kind} | {score:.2f} | {_trunc(person, 30)} | {_trunc(org, 30)} | {amount} | {other} |\n")
+            lines.append(
+                f"| {kind} | {score:.2f} | {_trunc(person, 30)} | {_trunc(org, 30)} "
+                f"| {amount} | {other} |\n"
+            )
     else:
         if v2_relevant:
             lines.append("**V2**: relevant but no facts scored ≥ 0.5.\n")
@@ -186,13 +191,17 @@ def compare_article(
     missing = v1_kinds - v2_kinds
     extra = v2_kinds - v1_kinds
     if missing:
-        lines.append(f"- ⚠️  **V2 missing** fact kinds present in V1: `{'`, `'.join(sorted(missing))}`\n")
+        lines.append(
+            f"- ⚠️  **V2 missing** fact kinds present in V1: `{'`, `'.join(sorted(missing))}`\n"
+        )
     if extra:
         lines.append(f"- ℹ️  **V2 emits** fact kinds not in V1: `{'`, `'.join(sorted(extra))}`\n")
     if not missing and not extra and (v1_facts or v2_facts):
         lines.append("- ✅ Same fact kinds in both pipelines.\n")
     if not v1_facts and not v2_facts:
-        lines.append("- Both pipelines produced no facts (expected for negative/irrelevant articles).\n")
+        lines.append(
+            "- Both pipelines produced no facts (expected for negative/irrelevant articles).\n"
+        )
 
     lines.append("\n")
     return "".join(lines)

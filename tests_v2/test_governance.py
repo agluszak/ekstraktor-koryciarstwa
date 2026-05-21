@@ -22,6 +22,7 @@ from pipeline_v2.types import (
     WindowPersonSignal,
     WindowRoleSignal,
 )
+from tests_v2.materialized import fact_records, first_fact_record
 
 
 class StaticEntityProvider:
@@ -85,7 +86,7 @@ def test_governance_stage_emits_appointment_candidate_with_sentence_local_entiti
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -123,16 +124,14 @@ def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
     # Both GOVERNANCE_APPOINTMENT (from 'zostać') and GOVERNANCE_DISMISSAL
     # (from 'odwołać') are emitted; find the dismissal specifically.
     dismissal_record = next(
-        c.to_fact_record()
-        for c in document.store.fact_candidates.values()
-        if c.to_fact_record().kind is FactKind.GOVERNANCE_DISMISSAL
+        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
     )
 
     assert dismissal_record.kind is FactKind.GOVERNANCE_DISMISSAL
     dismissal_assessment = next(
         a.assessment
         for a in document.fact_assessments
-        if a.fact_candidate_id == dismissal_record.id
+        if a.materialized_fact_id == dismissal_record.id
     )
     assert dismissal_assessment.score >= 0.6
 
@@ -150,7 +149,7 @@ def test_governance_stage_does_not_emit_candidate_without_person_entity() -> Non
         ),
     )
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_governance_stage_does_not_emit_person_only_appointment() -> None:
@@ -166,7 +165,7 @@ def test_governance_stage_does_not_emit_person_only_appointment() -> None:
         ),
     )
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_governance_stage_uses_adjacent_sentence_context_for_split_appointment() -> None:
@@ -189,7 +188,7 @@ def test_governance_stage_uses_adjacent_sentence_context_for_split_appointment()
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -226,7 +225,7 @@ def test_governance_stage_does_not_use_previous_paragraph_for_missing_person() -
         paragraphs=(first, second),
     )
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_governance_stage_ignores_following_sentence_background_organization() -> None:
@@ -253,11 +252,9 @@ def test_governance_stage_ignores_following_sentence_background_organization() -
     # ('zostać').  The test verifies the dismissal specifically, and that the
     # following-sentence organisation is NOT used as an org argument.
     dismissal_candidate = next(
-        c
-        for c in document.store.fact_candidates.values()
-        if c.to_fact_record().kind is FactKind.GOVERNANCE_DISMISSAL
+        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
     )
-    record = dismissal_candidate.to_fact_record()
+    record = dismissal_candidate
 
     assert record.kind is FactKind.GOVERNANCE_DISMISSAL
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -287,7 +284,7 @@ def test_governance_stage_marks_party_name_as_organization() -> None:
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
     assert PartyOrganizationSignal() in record.signals
@@ -319,9 +316,9 @@ def test_governance_stage_prefers_one_window_organization_candidate() -> None:
         ),
     )
 
-    facts = list(document.store.fact_candidates.values())
+    facts = list(fact_records(document))
     assert len(facts) == 1
-    record = facts[0].to_fact_record()
+    record = facts[0]
     assert WindowOrganizationSignal() in record.signals
 
 
@@ -360,9 +357,9 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
     bad_candidate = next(
         (
             candidate
-            for candidate in document.store.fact_candidates.values()
-            if _has_argument(candidate.to_fact_record(), "person", "entity-2")
-            and _has_argument(candidate.to_fact_record(), "organization", "entity-0")
+            for candidate in fact_records(document)
+            if _has_argument(candidate, "person", "entity-2")
+            and _has_argument(candidate, "organization", "entity-0")
         ),
         None,
     )
@@ -371,7 +368,7 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
     bad_assessment = next(
         assessment.assessment
         for assessment in document.fact_assessments
-        if assessment.fact_candidate_id == bad_candidate.id
+        if assessment.materialized_fact_id == bad_candidate.id
     )
 
     assert bad_assessment.score < 0.5

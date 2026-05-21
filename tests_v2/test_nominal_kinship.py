@@ -10,6 +10,7 @@ from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.nominal_coreference import NominalKinshipCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import FactKind, GroundingKind, NerLabel
+from tests_v2.materialized import fact_records
 
 
 class StaticEntityProvider:
@@ -69,9 +70,7 @@ def test_nominal_kinship_within_40_chars_links_named_referent() -> None:
             person_span(text, "Annę Nowak"),
         ),
     )
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
     assert len(records) == 1
     record = records[0]
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
@@ -96,9 +95,7 @@ def test_nominal_kinship_beyond_40_chars_creates_proxy_instead() -> None:
             person_span(text, "Janusz Wiśniewski"),
         ),
     )
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
     assert len(records) == 1
     record = records[0]
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
@@ -117,9 +114,7 @@ def test_nominal_kinship_unnamed_creates_proxy() -> None:
         text,
         (person_span(text, "Tomasz Kościelniak"),),
     )
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
     assert len(records) == 1
     record = records[0]
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE

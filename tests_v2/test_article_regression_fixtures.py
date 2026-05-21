@@ -22,6 +22,7 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.stages import V2Pipeline
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import FactKind, NerLabel
+from tests_v2.materialized import fact_records
 
 
 @dataclass(slots=True)
@@ -62,7 +63,7 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
 
 
 def entity_hint_for_role(document: ArticleDocument, candidate, role: str) -> str | None:
-    for argument in candidate.to_fact_record().arguments:
+    for argument in candidate.arguments:
         payload = argument.to_json()
         if payload["role"] != role or "entity_id" not in payload:
             continue
@@ -137,10 +138,7 @@ def test_article_fixture_keeps_compensation_article_relevant() -> None:
 
     assert document.relevance is not None
     assert document.relevance.is_relevant is True
-    assert any(
-        candidate.to_fact_record().kind is FactKind.COMPENSATION
-        for candidate in document.store.fact_candidates.values()
-    )
+    assert any(candidate.kind is FactKind.COMPENSATION for candidate in fact_records(document))
 
 
 def test_article_fixture_keeps_funding_article_relevant() -> None:
@@ -169,10 +167,7 @@ def test_article_fixture_keeps_funding_article_relevant() -> None:
 
     assert document.relevance is not None
     assert document.relevance.is_relevant is True
-    assert any(
-        candidate.to_fact_record().kind is FactKind.FUNDING
-        for candidate in document.store.fact_candidates.values()
-    )
+    assert any(candidate.kind is FactKind.FUNDING for candidate in fact_records(document))
 
 
 def test_article_fixture_rejects_tribunal_legal_analysis_article() -> None:
@@ -200,7 +195,7 @@ def test_article_fixture_rejects_tribunal_legal_analysis_article() -> None:
 
     assert document.relevance is not None
     assert document.relevance.is_relevant is False
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_article_fixture_keeps_governance_control_article_relevant() -> None:
@@ -229,9 +224,8 @@ def test_article_fixture_keeps_governance_control_article_relevant() -> None:
     assert document.relevance is not None
     assert document.relevance.is_relevant is True
     assert any(
-        candidate.to_fact_record().kind
-        in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
-        for candidate in document.store.fact_candidates.values()
+        candidate.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
+        for candidate in fact_records(document)
     )
 
 
@@ -255,8 +249,8 @@ def test_article_fixture_does_not_promote_background_political_person_to_appoint
 
     governance_people = {
         entity_hint_for_role(document, candidate, "person")
-        for candidate in document.store.fact_candidates.values()
-        if candidate.to_fact_record().kind is FactKind.GOVERNANCE_APPOINTMENT
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.GOVERNANCE_APPOINTMENT
     }
     assert "Łukasz Bałajewicz" in governance_people
     assert "Donalda Tuska" not in governance_people
@@ -281,8 +275,8 @@ def test_article_fixture_does_not_use_governing_body_as_governance_destination()
 
     governance_organizations = [
         entity_hint_for_role(document, candidate, "organization")
-        for candidate in document.store.fact_candidates.values()
-        if candidate.to_fact_record().kind is FactKind.GOVERNANCE_APPOINTMENT
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.GOVERNANCE_APPOINTMENT
     ]
     assert governance_organizations
     assert all(organization is None for organization in governance_organizations)
@@ -333,15 +327,15 @@ def test_article_fixture_keeps_public_employment_local_to_first_clause() -> None
     )
 
     employment_records = [
-        candidate.to_fact_record()
-        for candidate in document.store.fact_candidates.values()
-        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+        candidate
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
     ]
     assert employment_records
     employment_organizations = {
         entity_hint_for_role(document, candidate, "organization")
-        for candidate in document.store.fact_candidates.values()
-        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
     }
     assert "Urzędzie Stanu Cywilnego" not in employment_organizations
 
@@ -364,6 +358,6 @@ def test_article_fixture_emits_anti_corruption_for_control_demand_language() -> 
     )
 
     assert any(
-        candidate.to_fact_record().kind is FactKind.ANTI_CORRUPTION_INVESTIGATION
-        for candidate in document.store.fact_candidates.values()
+        candidate.kind is FactKind.ANTI_CORRUPTION_INVESTIGATION
+        for candidate in fact_records(document)
     )

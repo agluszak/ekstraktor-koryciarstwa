@@ -22,6 +22,7 @@ from pipeline_v2.types import (
     NerLabel,
     PublicEmploymentLemmaSignal,
 )
+from tests_v2.materialized import fact_records, first_fact_record
 
 
 class StaticEntityProvider:
@@ -104,14 +105,14 @@ def test_public_employment_stage_emits_staffing_candidate_for_hire_into_advisory
 
     candidate = next(
         candidate
-        for candidate in document.store.fact_candidates.values()
-        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
     )
-    record = candidate.to_fact_record()
+    record = candidate
     assessment = next(
         item.assessment
         for item in document.fact_assessments
-        if item.fact_candidate_id == candidate.id
+        if item.materialized_fact_id == candidate.id
     )
 
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
@@ -139,7 +140,7 @@ def test_public_employment_stage_emits_contract_like_staffing_candidate() -> Non
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -161,9 +162,7 @@ def test_public_employment_stage_does_not_emit_for_governance_role_hire_overlap(
         include_governance=True,
     )
 
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
 
     assert tuple(record.kind for record in records) == (FactKind.GOVERNANCE_APPOINTMENT,)
     assert tuple(argument.to_json() for argument in records[0].arguments) == (
@@ -184,9 +183,7 @@ def test_public_employment_stage_does_not_emit_for_procurement_without_person() 
         include_public_money=True,
     )
 
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
 
     assert tuple(record.kind for record in records) == (FactKind.PUBLIC_CONTRACT,)
 
@@ -203,9 +200,7 @@ def test_public_employment_stage_rejects_active_nominative_subject() -> None:
             organization_span(text, "urzędzie"),
         ),
     )
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
     # The fact candidate should be empty because the person entity is the active subject,
     # and "partnerkę" is unnamed (so not a person candidate yet).
     assert len(records) == 0
@@ -224,10 +219,10 @@ def test_public_employment_stage_binds_possessive_kinship_proxy_as_hired_person(
 
     candidate = next(
         candidate
-        for candidate in document.store.fact_candidates.values()
-        if candidate.to_fact_record().kind is FactKind.PUBLIC_EMPLOYMENT
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
     )
-    record = candidate.to_fact_record()
+    record = candidate
     person_argument = next(
         argument for argument in record.arguments if argument.to_json()["role"] == "person"
     )
@@ -237,7 +232,7 @@ def test_public_employment_stage_binds_possessive_kinship_proxy_as_hired_person(
     assessment = next(
         item.assessment
         for item in document.fact_assessments
-        if item.fact_candidate_id == candidate.id
+        if item.materialized_fact_id == candidate.id
     )
 
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
@@ -258,7 +253,7 @@ def test_public_employment_stage_handles_impersonal_passive_hiring_sentence() ->
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
@@ -284,8 +279,8 @@ def test_public_employment_stage_materializes_public_org_from_samorzad_and_locat
         ),
     )
 
-    candidate = next(iter(document.store.fact_candidates.values()))
-    record = candidate.to_fact_record()
+    candidate = first_fact_record(document)
+    record = candidate
     organization_id = EntityCandidateId(
         next(
             argument.to_json()["entity_id"]
