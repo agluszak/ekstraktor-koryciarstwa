@@ -14,9 +14,11 @@ from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
     FactKind,
+    InferredPublicOrganizationSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
+    LocationContextSignal,
     NerLabel,
     PublicEmploymentLemmaSignal,
 )
@@ -293,6 +295,7 @@ def test_public_employment_stage_materializes_public_org_from_samorzad_and_locat
     )
 
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
-    assert document.store.entity_candidates[organization_id].canonical_hint == (
-        "samorządzie gminy Poczesna"
-    )
+    organization = document.store.entity_candidates[organization_id]
+    assert organization.canonical_hint == "samorządzie"
+    assert InferredPublicOrganizationSignal(head_lemma="samorząd") in record.signals
+    assert LocationContextSignal(distance=1) in record.signals

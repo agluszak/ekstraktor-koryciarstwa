@@ -62,7 +62,6 @@ class V2PipelineConfig:
     sentence_transformer_model: str | None = None
     coreference_mode: CoreferenceMode = CoreferenceMode.OFF
     coreference_provider: CoreferenceProvider | None = None
-    enable_syntax: bool = False
 
 
 def _coreference_stage(
@@ -97,14 +96,11 @@ def _ordered_stages(
         OrderedStage(V2StagePhase.RELEVANCE, ProfileRelevanceFilter()),
         OrderedStage(V2StagePhase.LINGUISTIC_ANALYSIS, ParagraphSentenceSegmenter()),
         OrderedStage(V2StagePhase.LINGUISTIC_ANALYSIS, MorfeuszMorphologyStage(morphology)),
+        OrderedStage(
+            V2StagePhase.LINGUISTIC_ANALYSIS,
+            DependencyParseStage(StanzaDependencyProvider()),
+        ),
     ]
-    if config.enable_syntax:
-        plan.append(
-            OrderedStage(
-                V2StagePhase.LINGUISTIC_ANALYSIS,
-                DependencyParseStage(StanzaDependencyProvider()),
-            )
-        )
     plan.extend(
         (
             OrderedStage(

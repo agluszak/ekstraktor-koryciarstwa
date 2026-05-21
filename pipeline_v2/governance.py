@@ -9,7 +9,6 @@ from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
     AppointerContextSignal,
     AppointmentLemmaSignal,
-    DiscourseOrganizationSignal,
     DismissalLemmaSignal,
     EntityKind,
     FactKind,
@@ -20,7 +19,6 @@ from pipeline_v2.types import (
     PartyOrganizationSignal,
     Signal,
     WeakSyntacticBindingSignal,
-    WindowFallbackSignal,
     WindowOrganizationSignal,
     WindowPersonSignal,
     WindowRoleSignal,
@@ -214,7 +212,7 @@ class GovernanceCandidateStage:
     ]:
         retriever = SentenceEntityRetriever(document.store)
         entities = retriever.entities_for_sentence(sentence)
-        window_entities = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+        window_entities = retriever.entities_for_sentence_window(sentence, before=1, after=0)
 
         people = self._select_entities(
             document,
@@ -237,19 +235,6 @@ class GovernanceCandidateStage:
             local_signal=LocalOrganizationSignal(),
             window_signal=WindowOrganizationSignal(),
         )
-        if not organizations:
-            fallback_org = self._find_fallback_organization(document, sentence)
-            if fallback_org is not None:
-                organization, distance = fallback_org
-                organizations = (
-                    (
-                        organization,
-                        (
-                            DiscourseOrganizationSignal(),
-                            WindowFallbackSignal(distance=distance),
-                        ),
-                    ),
-                )
         roles = self._select_entities(
             document,
             sentence,
@@ -287,6 +272,7 @@ class GovernanceCandidateStage:
         syntax = SyntaxView(document.store)
         for person, p_signals in people:
             person_is_window_only = person.id not in local_people_ids
+            person_negative_signals: list[Signal] = []
             # Exclude appointer (nominative subject in active sentence with appointment lemma)
             trigger_token = syntax.first_token_with_lemmas(sentence, self._appointment_lemmas)
             if trigger_token is not None and not person_is_window_only:
@@ -297,8 +283,9 @@ class GovernanceCandidateStage:
                 )
                 if relation is not None and syntax.is_subject_relation(relation):
                     if not syntax.is_passive_sentence(sentence, trigger_token.id):
-                        # Person is the appointer, skip them as a governance appointment candidate
-                        continue
+                        person_negative_signals.append(
+                            WeakSyntacticBindingSignal(reason="person is active subject of cue")
+                        )
                 if self._is_background_local_person(
                     document,
                     sentence,
@@ -337,7 +324,7 @@ class GovernanceCandidateStage:
                 if not organization_candidates:
                     organization_candidates = ((None, ()),)
                 for org, o_signals in organization_candidates:
-                    signals = [*p_signals, *o_signals, *r_signals]
+                    signals = [*p_signals, *person_negative_signals, *o_signals, *r_signals]
                     appointer_role = self._public_office_role_near_person(
                         document,
                         sentence,
@@ -354,7 +341,10 @@ class GovernanceCandidateStage:
                             or not self._has_governance_role(document, role.id)
                         )
                     ):
-                        continue
+                        signals.append(
+                            WeakSyntacticBindingSignal(reason="public office actor context")
+                        )
+                        signals.append(AppointerContextSignal(role_lemma=appointer_role))
                     if (
                         not person_is_window_only
                         and org is not None
@@ -407,15 +397,8 @@ class GovernanceCandidateStage:
             compatible_roles.append((role, role_signals))
         if not compatible_roles:
             return ()
-        best_role, best_signals = min(
-            compatible_roles,
-            key=lambda item: self._role_score(
-                person=person,
-                role=item[0],
-                trigger_start_char=trigger_start_char,
-            ),
-        )
-        return ((best_role, best_signals),)
+        _ = trigger_start_char
+        return tuple(compatible_roles)
 
     def _organization_candidates_for_person(
         self,
@@ -434,16 +417,8 @@ class GovernanceCandidateStage:
         )
         if not viable_organizations:
             return ()
-        best_organization, best_signals = min(
-            viable_organizations,
-            key=lambda item: self._organization_score(
-                person=person,
-                role=role,
-                organization=item[0],
-                trigger_start_char=trigger_start_char,
-            ),
-        )
-        return ((best_organization, best_signals),)
+        _ = (person, role, trigger_start_char)
+        return viable_organizations
 
     def _select_entities(
         self,
@@ -577,44 +552,6 @@ class GovernanceCandidateStage:
             return True
         return bool(lemmas & self._governing_body_head_lemmas and lemmas & {"nadzorczy", "członek"})
 
-    @staticmethod
-    def _entity_midpoint(entity: SentenceEntity) -> int:
-        return (entity.start_char + entity.end_char) // 2
-
-    def _role_score(
-        self,
-        *,
-        person: SentenceEntity,
-        role: SentenceEntity,
-        trigger_start_char: int | None,
-    ) -> tuple[int, int, int]:
-        person_distance = abs(self._entity_midpoint(role) - self._entity_midpoint(person))
-        trigger_distance = (
-            abs(self._entity_midpoint(role) - trigger_start_char)
-            if trigger_start_char is not None
-            else 9999
-        )
-        return (person_distance, trigger_distance, role.start_char)
-
-    def _organization_score(
-        self,
-        *,
-        person: SentenceEntity,
-        role: SentenceEntity | None,
-        organization: SentenceEntity,
-        trigger_start_char: int | None,
-    ) -> tuple[int, int, int]:
-        anchor_char = (
-            self._entity_midpoint(role) if role is not None else self._entity_midpoint(person)
-        )
-        anchor_distance = abs(self._entity_midpoint(organization) - anchor_char)
-        trigger_distance = (
-            abs(self._entity_midpoint(organization) - trigger_start_char)
-            if trigger_start_char is not None
-            else 9999
-        )
-        return (anchor_distance, trigger_distance, organization.start_char)
-
     def _is_background_local_person(
         self,
         document: ArticleDocument,
@@ -663,77 +600,3 @@ class GovernanceCandidateStage:
                         continue
                     return True
         return False
-
-    def _find_fallback_organization(
-        self,
-        document: ArticleDocument,
-        anchor_sentence: Sentence,
-    ) -> tuple[SentenceEntity, int] | None:
-        retriever = SentenceEntityRetriever(document.store)
-        same_paragraph_sentences = sorted(
-            (
-                sentence
-                for sentence in document.store.sentences.values()
-                if sentence.paragraph_index == anchor_sentence.paragraph_index
-                and sentence.sentence_index < anchor_sentence.sentence_index
-            ),
-            key=lambda sentence: sentence.sentence_index,
-            reverse=True,
-        )
-        for sentence in same_paragraph_sentences:
-            organization = self._fallback_organization_in_sentence(
-                document,
-                retriever,
-                sentence,
-            )
-            if organization is not None:
-                return (
-                    organization,
-                    anchor_sentence.sentence_index - sentence.sentence_index,
-                )
-
-        for paragraph_index in range(anchor_sentence.paragraph_index - 1, -1, -1):
-            lead_sentence = self._paragraph_lead_sentence(document, paragraph_index)
-            if lead_sentence is None:
-                continue
-            organization = self._fallback_organization_in_sentence(
-                document,
-                retriever,
-                lead_sentence,
-            )
-            if organization is not None:
-                return (
-                    organization,
-                    anchor_sentence.sentence_index - lead_sentence.sentence_index,
-                )
-        return None
-
-    def _fallback_organization_in_sentence(
-        self,
-        document: ArticleDocument,
-        retriever: SentenceEntityRetriever,
-        sentence: Sentence,
-    ) -> SentenceEntity | None:
-        organizations = tuple(
-            entity
-            for entity in retriever.entities_for_sentence(sentence)
-            if entity.kind == EntityKind.ORGANIZATION
-            and not self._is_party_like_organization(document, entity.id)
-        )
-        if organizations:
-            return organizations[-1]
-        return None
-
-    @staticmethod
-    def _paragraph_lead_sentence(
-        document: ArticleDocument,
-        paragraph_index: int,
-    ) -> Sentence | None:
-        paragraph_sentences = tuple(
-            sentence
-            for sentence in document.store.sentences.values()
-            if sentence.paragraph_index == paragraph_index
-        )
-        if not paragraph_sentences:
-            return None
-        return min(paragraph_sentences, key=lambda sentence: sentence.sentence_index)

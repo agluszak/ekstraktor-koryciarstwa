@@ -27,7 +27,7 @@ Implement the first NLP-first V2 binding pass for the six known fresh-report fai
 Command:
 
 ```bash
-uv run extractor-v2 --input-dir inputs_new --glob "*.html" --output-dir /tmp/ekstraktor-v2-nlp-check --enable-syntax
+uv run extractor-v2 --input-dir inputs_new --glob "*.html" --output-dir /tmp/ekstraktor-v2-nlp-check
 ```
 
 Observed high-confidence output:

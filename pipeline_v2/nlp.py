@@ -6,7 +6,13 @@ from typing import Protocol
 import morfeusz2
 
 from pipeline_v2.ids import EvidenceId, MentionId, ProducerId, SentenceId, TokenId
-from pipeline_v2.types import MentionKind, NerLabel, ReferenceKind, RelationshipDetail
+from pipeline_v2.types import (
+    DependencyRelation,
+    MentionKind,
+    NerLabel,
+    ReferenceKind,
+    RelationshipDetail,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +65,7 @@ class Token:
 class DependencyArc:
     head_token_id: TokenId | None
     dependent_token_id: TokenId
-    relation: str
+    relation: DependencyRelation
     backend: str
 
 
@@ -70,7 +76,7 @@ class ParsedDependencyToken:
     lemma: str
     upos: str
     head_index: int
-    relation: str
+    relation: DependencyRelation
 
 
 @dataclass(frozen=True, slots=True)

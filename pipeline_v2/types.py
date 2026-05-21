@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -101,6 +102,66 @@ class RelationshipDetail(StrEnum):
     FAMILY = "family"
 
 
+class DependencyRelation(StrEnum):
+    ACL = "acl"
+    ADVMOD = "advmod"
+    AMOD = "amod"
+    APPOS = "appos"
+    AUX = "aux"
+    AUX_PASS = "aux:pass"
+    CASE = "case"
+    CC = "cc"
+    CCOMP = "ccomp"
+    CONJ = "conj"
+    COP = "cop"
+    CSUBJ = "csubj"
+    DET = "det"
+    FLAT = "flat"
+    IOBJ = "iobj"
+    MARK = "mark"
+    NMOD = "nmod"
+    NSUBJ = "nsubj"
+    NSUBJ_PASS = "nsubj:pass"
+    NUMMOD = "nummod"
+    OBJ = "obj"
+    OBL = "obl"
+    PUNCT = "punct"
+    ROOT = "root"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_raw(cls, raw: str | None) -> "DependencyRelation":
+        if raw is None:
+            return cls.UNKNOWN
+        normalized = raw.casefold()
+        if normalized in _DEPENDENCY_RELATION_BY_VALUE:
+            return _DEPENDENCY_RELATION_BY_VALUE[normalized]
+        return cls.UNKNOWN
+
+
+_DEPENDENCY_RELATION_BY_VALUE = {relation.value: relation for relation in DependencyRelation}
+
+
+class SyntaxRelationClass(StrEnum):
+    SUBJECT = "subject"
+    OBJECT = "object"
+    OBLIQUE = "oblique"
+    PREPOSITIONAL = "prepositional"
+    APPOSITION = "apposition"
+    COPULAR = "copular"
+    POSSESSIVE = "possessive"
+    AUX_PASSIVE = "aux_passive"
+    MODIFIER = "modifier"
+    OTHER = "other"
+
+
+class FactResolutionStrategy(StrEnum):
+    EXACT_ARGUMENTS = "exact_arguments"
+    GOVERNANCE_ROLE_RELAXED = "governance_role_relaxed"
+    TIE_CONTEXT_RELAXED = "tie_context_relaxed"
+    PROXY_NAMED_TIE = "proxy_named_tie"
+
+
 class SignalPolarity(StrEnum):
     POSITIVE = "positive"
     NEGATIVE = "negative"
@@ -116,21 +177,31 @@ class Signal:
         base_name = re.sub(r"Signal$", "", type(self).__name__)
         return re.sub(r"(?<!^)(?=[A-Z])", "_", base_name).lower()
 
-    def to_json(self) -> dict[str, str | float | None]:
+    def to_json(self) -> dict[str, object]:
         import dataclasses
 
-        data: dict[str, str | float | None] = {
+        data: dict[str, object] = {
             "name": self.name,
             "polarity": self.polarity.value,
             "weight": self.weight,
         }
-        details = {}
+        details: dict[str, object] = {}
         for field in dataclasses.fields(self):
             if field.name not in {"polarity", "weight"} and not field.name.startswith("_"):
-                details[field.name] = getattr(self, field.name)
+                details[field.name] = _signal_json_value(getattr(self, field.name))
         if details:
-            data["details"] = str(details)
+            data["details"] = details
         return data
+
+
+def _signal_json_value(value: object) -> object:
+    if isinstance(value, StrEnum):
+        return value.value
+    if isinstance(value, Mapping):
+        return {str(key): _signal_json_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes):
+        return [_signal_json_value(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -632,12 +703,22 @@ class NearbyPersonCandidateSignal(PositiveSignal):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DependencySubjectSignal(PositiveSignal):
-    relation: str
+    relation: DependencyRelation
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DependencyObjectSignal(PositiveSignal):
-    relation: str
+    relation: DependencyRelation
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class InferredPublicOrganizationSignal(PositiveSignal):
+    head_lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LocationContextSignal(PositiveSignal):
+    distance: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -677,4 +758,5 @@ class PseudonymousSourceSignal(NegativeSignal):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DuplicateFactSignal(PositiveSignal):
-    signature: str
+    strategy: FactResolutionStrategy
+    fact_kind: FactKind

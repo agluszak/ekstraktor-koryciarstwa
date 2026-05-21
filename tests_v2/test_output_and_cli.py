@@ -24,7 +24,7 @@ from pipeline_v2.ids import (
 )
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span
 from pipeline_v2.output import document_to_json
-from pipeline_v2.types import PublicMoneyRelevanceSignal
+from pipeline_v2.types import DependencyObjectSignal, DependencyRelation, PublicMoneyRelevanceSignal
 
 
 def test_document_output_includes_evidence_and_fact_candidates() -> None:
@@ -116,6 +116,50 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
             "assessment": {
                 "score": 0.75,
                 "positive_signals": [],
+                "negative_signals": [],
+                "scorer_id": "test_scorer",
+                "explanation": None,
+            },
+        }
+    ]
+
+
+def test_document_output_serializes_signal_details_as_structured_json() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    document.fact_assessments.append(
+        FactAssessment(
+            fact_candidate_id=FactCandidateId("fact-1"),
+            assessment=Assessment(
+                score=0.75,
+                positive_signals=(DependencyObjectSignal(relation=DependencyRelation.OBJ),),
+                negative_signals=(),
+                scorer_id=ScorerId("test_scorer"),
+            ),
+        )
+    )
+
+    rendered = document_to_json(document)
+
+    assert rendered["fact_assessments"] == [
+        {
+            "fact_candidate_id": "fact-1",
+            "assessment": {
+                "score": 0.75,
+                "positive_signals": [
+                    {
+                        "name": "dependency_object",
+                        "polarity": "positive",
+                        "weight": None,
+                        "details": {"relation": "obj"},
+                    }
+                ],
                 "negative_signals": [],
                 "scorer_id": "test_scorer",
                 "explanation": None,

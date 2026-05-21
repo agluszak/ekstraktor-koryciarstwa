@@ -474,22 +474,21 @@ class PublicMoneyCandidateStage:
         retriever: SentenceEntityRetriever,
         entities: tuple[SentenceEntity, ...],
     ) -> tuple[tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]], ...]:
-        """Select funder (organisation) and recipient (person) for a compensation fact.
+        """Select plausible compensation source/recipient bindings.
 
-        Checks local sentence entities first; falls back to a 3-sentence window
-        so that subjects introduced in a previous sentence (or paragraph) are
-        still linked. Returns Cartesian product of all matched entities.
+        This intentionally avoids a full person × organization product. It keeps
+        one recipient candidate and emits source alternatives only when the
+        source itself is ambiguous.
         """
         organizations = tuple(
             entity for entity in entities if entity.kind == EntityKind.ORGANIZATION
         )
         people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
 
-        # Fall back to window when local sentence lacks entities
         source_signal: Signal
         target_signal: Signal
         if not organizations:
-            window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+            window = retriever.entities_for_sentence_window(sentence, before=1, after=0)
             organizations = tuple(
                 entity for entity in window if entity.kind == EntityKind.ORGANIZATION
             )
@@ -498,35 +497,45 @@ class PublicMoneyCandidateStage:
             source_signal = CompensationSourceSignal()
 
         if not people:
-            window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+            window = retriever.entities_for_sentence_window(sentence, before=1, after=0)
             people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
             target_signal = WindowPersonSignal()
         else:
             target_signal = CompensationRecipientSignal()
 
+        person = self._nearest_entity(people, sentence.span.start_char)
         combinations = []
-        for person in people if people else [None]:
-            for org in organizations if organizations else [None]:
-                signals: list[Signal] = []
-                if org is not None:
-                    signals.append(source_signal)
-                    if self._is_party_like_organization(document, org.id):
-                        signals.append(PartyOrganizationSignal())
-                    if source_signal == WindowOrganizationSignal() and self._is_controller_context(
-                        document,
-                        org.id,
-                    ):
-                        signals.append(
-                            ControllerContextSignal(
-                                reason="window organization appears as controller/supervisor"
-                            )
+        selected_organizations = organizations if organizations else (None,)
+        for org in selected_organizations:
+            signals: list[Signal] = []
+            if org is not None:
+                signals.append(source_signal)
+                if self._is_party_like_organization(document, org.id):
+                    signals.append(PartyOrganizationSignal())
+                if source_signal == WindowOrganizationSignal() and self._is_controller_context(
+                    document,
+                    org.id,
+                ):
+                    signals.append(
+                        ControllerContextSignal(
+                            reason="window organization appears as controller/supervisor"
                         )
-                if person is not None:
-                    signals.append(target_signal)
-                combinations.append(
-                    (org.id if org else None, person.id if person else None, tuple(signals))
-                )
+                    )
+            if person is not None:
+                signals.append(target_signal)
+            combinations.append(
+                (org.id if org else None, person.id if person else None, tuple(signals))
+            )
         return tuple(combinations) if combinations else ((None, None, ()),)
+
+    @staticmethod
+    def _nearest_entity(
+        entities: tuple[SentenceEntity, ...],
+        anchor_char: int,
+    ) -> SentenceEntity | None:
+        if not entities:
+            return None
+        return min(entities, key=lambda entity: abs(entity.start_char - anchor_char))
 
     def _is_controller_context(
         self,
