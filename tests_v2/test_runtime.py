@@ -22,6 +22,7 @@ def test_runtime_records_disabled_coreference_as_stage_diagnostic(monkeypatch) -
     pipeline = build_v2_pipeline(V2PipelineConfig(coreference_mode=CoreferenceMode.OFF))
     stage_names = tuple(stage.name() for stage in pipeline.stages)
 
+    assert "dependency_parse_stage_v2" in stage_names
     assert "public_employment_candidate_stage_v2" in stage_names
     assert "family_proxy_candidate_stage_v2" in stage_names
     assert "personal_tie_candidate_stage_v2" in stage_names
@@ -46,6 +47,7 @@ def test_runtime_light_coreference_adds_reference_stage(monkeypatch) -> None:
     pipeline = build_v2_pipeline(V2PipelineConfig(coreference_mode=CoreferenceMode.LIGHT))
     stage_names = tuple(stage.name() for stage in pipeline.stages)
 
+    assert "dependency_parse_stage_v2" in stage_names
     assert "public_employment_candidate_stage_v2" in stage_names
     assert "family_proxy_candidate_stage_v2" in stage_names
     assert "personal_tie_candidate_stage_v2" in stage_names

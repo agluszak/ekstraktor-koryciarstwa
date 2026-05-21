@@ -7,6 +7,7 @@ from stanza import DownloadMethod
 
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.nlp import DependencyArc, ParsedDependencySentence, ParsedDependencyToken
+from pipeline_v2.types import DependencyRelation
 
 
 class DependencyProvider(Protocol):
@@ -35,7 +36,7 @@ class StanzaDependencyProvider:
                         lemma=word.lemma,
                         upos=word.upos,
                         head_index=word.head,
-                        relation=word.deprel,
+                        relation=DependencyRelation.from_raw(word.deprel),
                     )
                 )
             parsed_sentences.append(

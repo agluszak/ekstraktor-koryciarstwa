@@ -14,9 +14,11 @@ from pipeline_v2.types import (
     EmploymentContractFormSignal,
     EntityKind,
     GroundingKind,
+    InferredPublicOrganizationSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
+    LocationContextSignal,
     MentionKind,
     PossessiveKinshipSignal,
     ProxyFamilyEntitySignal,
@@ -87,7 +89,7 @@ class PublicEmploymentCandidateStage:
             if person_result is None or organization_result is None:
                 continue
             person, person_signals = person_result
-            organization, organization_signal = organization_result
+            organization, organization_signals = organization_result
 
             role = self._select_role(entities, cue.anchor_char)
             if self._is_governance_role(document, role.id if role is not None else None):
@@ -104,7 +106,7 @@ class PublicEmploymentCandidateStage:
             signals: list[Signal] = [
                 PublicEmploymentLemmaSignal(lemma=cue.detail),
                 *person_signals,
-                organization_signal,
+                *organization_signals,
             ]
             if role is not None:
                 signals.append(LocalRoleSignal())
@@ -295,7 +297,7 @@ class PublicEmploymentCandidateStage:
         sentence: Sentence,
         retriever: SentenceEntityRetriever,
         anchor_char: int,
-    ) -> tuple[SentenceEntity, Signal] | None:
+    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
         entities = retriever.entities_for_sentence(sentence)
         local = self._nearest_preceding_entity(
             entities,
@@ -303,11 +305,12 @@ class PublicEmploymentCandidateStage:
             kinds=frozenset({EntityKind.ORGANIZATION}),
         )
         if local is not None:
-            return local, LocalOrganizationSignal()
+            return local, (LocalOrganizationSignal(),)
 
         inferred = self._infer_public_organization(document, sentence, anchor_char)
         if inferred is not None:
-            return inferred, LocalOrganizationSignal()
+            entity, signals = inferred
+            return entity, signals
 
         following_local = self._nearest_following_entity(
             entities,
@@ -330,7 +333,7 @@ class PublicEmploymentCandidateStage:
             )
             and following_local.start_char - anchor_char <= 80
         ):
-            return following_local, LocalOrganizationSignal()
+            return following_local, (LocalOrganizationSignal(),)
 
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         orgs = tuple(
@@ -354,7 +357,7 @@ class PublicEmploymentCandidateStage:
                 orgs,
                 key=lambda e: min(abs(e.start_char - anchor), abs(e.end_char - anchor)),
             )
-            return closest, WindowOrganizationSignal()
+            return closest, (WindowOrganizationSignal(),)
         return None
 
     def _is_after_next_employment_cue(
@@ -374,16 +377,22 @@ class PublicEmploymentCandidateStage:
         document: ArticleDocument,
         sentence: Sentence,
         anchor_char: int,
-    ) -> SentenceEntity | None:
+    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
         head_token_id = self._nearest_public_org_head_token(document, sentence, anchor_char)
         if head_token_id is None:
             return None
         head_token = document.store.tokens[head_token_id]
-        location_hint = self._nearest_location_hint(document, sentence)
         canonical_hint = head_token.text
-        if location_hint is not None and location_hint.casefold() not in canonical_hint.casefold():
-            canonical_hint = f"{head_token.text} {location_hint}"
         span = Span(head_token.span.start_char, head_token.span.end_char)
+        location_distance = self._nearest_location_distance(document, sentence)
+        signals: list[Signal] = [
+            LocalOrganizationSignal(),
+            InferredPublicOrganizationSignal(
+                head_lemma=head_token.preferred_lemma() or head_token.text
+            ),
+        ]
+        if location_distance is not None:
+            signals.append(LocationContextSignal(distance=location_distance))
         probe = EvidenceSpan(
             id=EvidenceId("probe"),
             text=head_token.text,
@@ -395,11 +404,14 @@ class PublicEmploymentCandidateStage:
         for candidate_id in document.store.candidate_ids_with_evidence_overlapping_span(probe):
             candidate = document.store.entity_candidates[candidate_id]
             if candidate.kind == EntityKind.ORGANIZATION:
-                return SentenceEntity(
-                    id=candidate_id,
-                    kind=EntityKind.ORGANIZATION,
-                    start_char=head_token.span.start_char,
-                    end_char=head_token.span.end_char,
+                return (
+                    SentenceEntity(
+                        id=candidate_id,
+                        kind=EntityKind.ORGANIZATION,
+                        start_char=head_token.span.start_char,
+                        end_char=head_token.span.end_char,
+                    ),
+                    tuple(signals),
                 )
 
         evidence = EvidenceSpan(
@@ -433,11 +445,14 @@ class PublicEmploymentCandidateStage:
                 source=self.producer_id,
             )
         )
-        return SentenceEntity(
-            id=entity_id,
-            kind=EntityKind.ORGANIZATION,
-            start_char=head_token.span.start_char,
-            end_char=head_token.span.end_char,
+        return (
+            SentenceEntity(
+                id=entity_id,
+                kind=EntityKind.ORGANIZATION,
+                start_char=head_token.span.start_char,
+                end_char=head_token.span.end_char,
+            ),
+            tuple(signals),
         )
 
     def _nearest_public_org_head_token(
@@ -495,23 +510,25 @@ class PublicEmploymentCandidateStage:
             return False
         return any(conjunction in between for conjunction in (" a ", " ale ", " oraz ", " zaś "))
 
-    def _nearest_location_hint(
+    def _nearest_location_distance(
         self,
         document: ArticleDocument,
         sentence: Sentence,
-    ) -> str | None:
-        location_hints: list[tuple[int, str]] = []
+    ) -> int | None:
+        distances: list[int] = []
         for candidate in document.store.candidates_by_kind(EntityKind.LOCATION):
             for evidence in document.store.evidence_for_entity(candidate.id):
                 if evidence.sentence_id is None:
                     continue
                 evidence_sentence = document.store.sentences[evidence.sentence_id]
-                distance = abs(evidence_sentence.sentence_index - sentence.sentence_index)
-                if distance <= 6 and candidate.canonical_hint is not None:
-                    location_hints.append((distance, candidate.canonical_hint))
-        if not location_hints:
+                if evidence_sentence.paragraph_index != sentence.paragraph_index:
+                    continue
+                distance = sentence.sentence_index - evidence_sentence.sentence_index
+                if 0 <= distance <= 1:
+                    distances.append(distance)
+        if not distances:
             return None
-        return min(location_hints, key=lambda item: item[0])[1]
+        return min(distances)
 
     def _select_role(
         self,

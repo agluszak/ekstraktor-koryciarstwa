@@ -24,7 +24,6 @@ def main(argv: list[str] | None = None) -> int:
         "--stanza-coref-model-path",
         default="models/stanza/pl/coref/udcoref_xlm-roberta-lora-v1.12.0.patched.pt",
     )
-    parser.add_argument("--enable-syntax", action="store_true")
     args = parser.parse_args(argv)
 
     coreference_mode = CoreferenceMode(args.coreference_mode)
@@ -40,7 +39,6 @@ def main(argv: list[str] | None = None) -> int:
             sentence_transformer_model=args.sentence_transformer_model,
             coreference_mode=coreference_mode,
             coreference_provider=provider,
-            enable_syntax=args.enable_syntax,
         )
     )
     writer = JsonOutputWriter()

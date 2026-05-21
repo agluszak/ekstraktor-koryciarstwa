@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
     EntityFactArgument,
@@ -10,16 +11,26 @@ from pipeline_v2.candidates import (
     TextFactArgument,
 )
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import FactCandidateId, ProducerId
+from pipeline_v2.ids import EntityCandidateId, FactCandidateId, ProducerId
 from pipeline_v2.scoring import FactResolutionScorer
 from pipeline_v2.types import (
     DuplicateFactSignal,
     FactArgumentRole,
     FactKind,
+    FactResolutionStrategy,
     GroundingKind,
     PseudonymousSourceSignal,
     ResolutionRelation,
 )
+
+type SignatureArgument = tuple[FactArgumentRole, EntityCandidateId | str]
+
+
+@dataclass(frozen=True, slots=True)
+class FactSignature:
+    kind: FactKind
+    strategy: FactResolutionStrategy
+    arguments: tuple[SignatureArgument, ...]
 
 
 class FactResolutionStage:
@@ -36,9 +47,9 @@ class FactResolutionStage:
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         self._same_as_neighbors = self._build_same_as_neighbors(document)
-        self._resolved_entity_ids: dict[str, str] = {}
+        self._resolved_entity_ids: dict[EntityCandidateId, EntityCandidateId] = {}
         scorer = FactResolutionScorer()
-        by_signature: dict[str, list[FactCandidateRecord]] = defaultdict(list)
+        by_signature: dict[FactSignature, list[FactCandidateRecord]] = defaultdict(list)
         for candidate in document.store.fact_candidates.values():
             record = candidate.to_fact_record()
             for signature in self._signatures(record):
@@ -83,7 +94,7 @@ class FactResolutionStage:
         scorer: FactResolutionScorer,
         left: FactCandidateRecord,
         right: FactCandidateRecord,
-        signature: str,
+        signature: FactSignature,
         existing_pairs: set[frozenset[FactCandidateId]],
     ) -> None:
         proposal = FactResolutionProposal(
@@ -91,7 +102,9 @@ class FactResolutionStage:
             right_fact_id=right.id,
             relation=ResolutionRelation.SAME_FACT,
             evidence_ids=tuple(dict.fromkeys([*left.evidence_ids, *right.evidence_ids])),
-            retrieval_signals=(DuplicateFactSignal(signature=signature),),
+            retrieval_signals=(
+                DuplicateFactSignal(strategy=signature.strategy, fact_kind=signature.kind),
+            ),
         )
         assessment = scorer.score(proposal)
         document.store.add_fact_resolution_claim(
@@ -115,22 +128,24 @@ class FactResolutionStage:
     ) -> bool:
         return frozenset((left_id, right_id)) in existing_pairs
 
-    def _build_same_as_neighbors(self, document: ArticleDocument) -> dict[str, set[str]]:
-        neighbors: dict[str, set[str]] = defaultdict(set)
+    def _build_same_as_neighbors(
+        self, document: ArticleDocument
+    ) -> dict[EntityCandidateId, set[EntityCandidateId]]:
+        neighbors: dict[EntityCandidateId, set[EntityCandidateId]] = defaultdict(set)
         for claim in document.store.resolution_claims.values():
             if claim.relation is not ResolutionRelation.SAME_AS:
                 continue
-            left = str(claim.left_entity_id)
-            right = str(claim.right_entity_id)
+            left = claim.left_entity_id
+            right = claim.right_entity_id
             neighbors[left].add(right)
             neighbors[right].add(left)
         return neighbors
 
-    def _resolved_entity_id(self, entity_id: str) -> str:
+    def _resolved_entity_id(self, entity_id: EntityCandidateId) -> EntityCandidateId:
         cached = self._resolved_entity_ids.get(entity_id)
         if cached is not None:
             return cached
-        component = {entity_id}
+        component: set[EntityCandidateId] = {entity_id}
         queue = [entity_id]
         while queue:
             current = queue.pop()
@@ -139,15 +154,16 @@ class FactResolutionStage:
                     continue
                 component.add(neighbor)
                 queue.append(neighbor)
-        canonical = min(component)
+        canonical = EntityCandidateId(min(str(member) for member in component))
         for member in component:
             self._resolved_entity_ids[member] = canonical
         return canonical
 
-    def _signatures(self, record: FactCandidateRecord) -> tuple[str, ...]:
+    def _signatures(self, record: FactCandidateRecord) -> tuple[FactSignature, ...]:
         signatures = [
             self._signature(
                 record,
+                strategy=FactResolutionStrategy.EXACT_ARGUMENTS,
                 relax_governance_role=False,
                 ignore_tie_context=False,
             )
@@ -155,6 +171,7 @@ class FactResolutionStage:
         if self._can_relax_governance_role(record):
             relaxed = self._signature(
                 record,
+                strategy=FactResolutionStrategy.GOVERNANCE_ROLE_RELAXED,
                 relax_governance_role=True,
                 ignore_tie_context=False,
             )
@@ -163,6 +180,7 @@ class FactResolutionStage:
         if self._can_relax_tie_context(record):
             relaxed = self._signature(
                 record,
+                strategy=FactResolutionStrategy.TIE_CONTEXT_RELAXED,
                 relax_governance_role=False,
                 ignore_tie_context=True,
             )
@@ -176,8 +194,9 @@ class FactResolutionStage:
         *,
         relax_governance_role: bool,
         ignore_tie_context: bool,
-    ) -> str:
-        argument_parts: list[tuple[str, str, str]] = []
+        strategy: FactResolutionStrategy,
+    ) -> FactSignature:
+        argument_parts: list[SignatureArgument] = []
         for argument in record.arguments:
             match argument:
                 case EntityFactArgument(role=role, entity_id=entity_id):
@@ -189,9 +208,8 @@ class FactResolutionStage:
                         continue
                     argument_parts.append(
                         (
-                            role.value,
-                            "entity",
-                            self._resolved_entity_id(str(entity_id)),
+                            role,
+                            self._resolved_entity_id(entity_id),
                         )
                     )
                 case TextFactArgument(role=role, value=value):
@@ -201,8 +219,12 @@ class FactResolutionStage:
                         and role is FactArgumentRole.CONTEXT
                     ):
                         continue
-                    argument_parts.append((role.value, "text", value.casefold()))
-        return repr((record.kind.value, tuple(sorted(argument_parts))))
+                    argument_parts.append((role, value.casefold()))
+        return FactSignature(
+            kind=record.kind,
+            strategy=strategy,
+            arguments=tuple(sorted(argument_parts, key=lambda item: (item[0].value, str(item[1])))),
+        )
 
     def _can_relax_governance_role(self, record: FactCandidateRecord) -> bool:
         if record.kind not in self._governance_kinds:
@@ -225,13 +247,13 @@ class FactResolutionStage:
     def _proxy_named_tie_pairs(
         self,
         document: ArticleDocument,
-    ) -> tuple[tuple[FactCandidateRecord, FactCandidateRecord, str], ...]:
+    ) -> tuple[tuple[FactCandidateRecord, FactCandidateRecord, FactSignature], ...]:
         tie_records = [
             candidate.to_fact_record()
             for candidate in document.store.fact_candidates.values()
             if candidate.to_fact_record().kind is FactKind.PERSONAL_OR_POLITICAL_TIE
         ]
-        pairs: list[tuple[FactCandidateRecord, FactCandidateRecord, str]] = []
+        pairs: list[tuple[FactCandidateRecord, FactCandidateRecord, FactSignature]] = []
         for index, left in enumerate(tie_records):
             left_subject = self._entity_argument_id(left, FactArgumentRole.SUBJECT)
             left_object = self._entity_argument_id(left, FactArgumentRole.OBJECT)
@@ -263,9 +285,7 @@ class FactResolutionStage:
                 right_grounding = document.store.entity_candidates[right_subject].grounding
                 if right_grounding is GroundingKind.PROXY:
                     continue
-                if self._resolved_entity_id(str(left_object)) != self._resolved_entity_id(
-                    str(right_object)
-                ):
+                if self._resolved_entity_id(left_object) != self._resolved_entity_id(right_object):
                     continue
                 if left_detail.casefold() != right_detail.casefold():
                     continue
@@ -273,13 +293,19 @@ class FactResolutionStage:
                     continue
                 if self._fact_paragraph_distance(document, left, right) > 1:
                     continue
-                signature = repr(
-                    (
-                        FactKind.PERSONAL_OR_POLITICAL_TIE.value,
-                        "proxy_named_overlap",
-                        self._resolved_entity_id(str(left_object)),
-                        left_detail.casefold(),
-                    )
+                signature = FactSignature(
+                    kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+                    strategy=FactResolutionStrategy.PROXY_NAMED_TIE,
+                    arguments=(
+                        (
+                            FactArgumentRole.OBJECT,
+                            self._resolved_entity_id(left_object),
+                        ),
+                        (
+                            FactArgumentRole.RELATIONSHIP_DETAIL,
+                            left_detail.casefold(),
+                        ),
+                    ),
                 )
                 pairs.append((left, right, signature))
         return tuple(pairs)
