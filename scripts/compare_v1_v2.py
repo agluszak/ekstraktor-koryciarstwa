@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """
 compare_v1_v2.py  –  side-by-side comparison of V1 and V2 extraction outputs.
 

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 from __future__ import annotations
 
 from pipeline_v2.candidates import PersonalTieFactCandidate
@@ -74,12 +75,12 @@ class PersonalTieCandidateStage:
                         patronage_matches.append((token.span.start_char, analysis.lemma))
                         break
 
-            # If there's multiple family matches or patronage matches, attach the nearest people.
-            # To avoid N^2, let's just use the nearest person before and the nearest person after the match.
+            # If multiple family matches or patronage matches exist, attach nearest people.
+            # To avoid N^2, use the nearest person before and nearest person after.
 
             for start_char, detail in family_matches:
-                # If there are multiple relatives, typically the anchor person is the first person in the sentence or clause.
-                # Let's anchor it to the first person mentioned before the match, OR the very first person in the sentence if there are multiple.
+                # For multiple relatives, anchor person is usually the first person in clause.
+                # Anchor to the first person before the match or very first person.
                 anchor_person = people[0] if people[0].end_char <= start_char else None
                 next_person = min(
                     (p for p in people if p.start_char >= start_char),
