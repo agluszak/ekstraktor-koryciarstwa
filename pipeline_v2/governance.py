@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import GovernanceFactCandidate
+from pipeline_v2.candidates import ArgumentBindingCandidate, EntityFiller, EventCandidate
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan, Sentence
@@ -11,6 +11,7 @@ from pipeline_v2.types import (
     AppointmentLemmaSignal,
     DismissalLemmaSignal,
     EntityKind,
+    EventRole,
     FactKind,
     GroundingKind,
     LocalOrganizationSignal,
@@ -111,6 +112,9 @@ class GovernanceCandidateStage:
             kinds = self._candidate_kinds(document, sentence)
             if not kinds:
                 continue
+            combinations = self._candidate_combinations(document, sentence)
+            if not combinations:
+                continue
             evidence = EvidenceSpan(
                 id=document.store.next_evidence_id(),
                 text=sentence.text,
@@ -121,40 +125,166 @@ class GovernanceCandidateStage:
             )
             document.store.add_evidence(evidence)
 
-            for person_id, organization_id, role_id, entity_signals in self._candidate_combinations(
-                document,
-                sentence,
-            ):
-                for kind, signals in kinds:
-                    if kind == FactKind.GOVERNANCE_APPOINTMENT and (
-                        organization_id is None and role_id is None
-                    ):
-                        continue
-                    if (
+            for kind, signals in kinds:
+                viable_combinations = [
+                    (person_id, organization_id, role_id, entity_signals)
+                    for person_id, organization_id, role_id, entity_signals in combinations
+                    if not (
+                        kind == FactKind.GOVERNANCE_APPOINTMENT
+                        and organization_id is None
+                        and role_id is None
+                    )
+                    and not (
                         kind == FactKind.GOVERNANCE_APPOINTMENT
                         and self._is_employment_overlap(signals)
                         and not self._has_governance_role(document, role_id)
-                    ):
-                        continue
-                    if (
+                    )
+                    and not (
                         kind == FactKind.GOVERNANCE_APPOINTMENT
                         and self._is_generic_appointment_lemma(signals)
                         and not self._has_governance_role(document, role_id)
-                    ):
-                        continue
-                    document.store.add_fact_candidate(
-                        GovernanceFactCandidate(
-                            id=document.store.next_fact_candidate_id(),
-                            kind=kind,
-                            person_entity_id=person_id,
-                            organization_entity_id=organization_id,
-                            role_entity_id=role_id,
-                            evidence_ids=(evidence.id,),
-                            source=self.producer_id,
-                            signals=(*signals, *entity_signals),
-                        )
                     )
+                ]
+                if not viable_combinations:
+                    continue
+                person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                organization_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                role_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                for person_id, organization_id, role_id, entity_signals in viable_combinations:
+                    if self._signals_include_active_subject_context(entity_signals):
+                        actor_bindings[person_id] = self._merge_binding_signals(
+                            actor_bindings.get(person_id, ()),
+                            self._actor_binding_signals(entity_signals),
+                        )
+                    else:
+                        person_bindings[person_id] = self._merge_binding_signals(
+                            person_bindings.get(person_id, ()),
+                            self._person_binding_signals(entity_signals),
+                        )
+                    if organization_id is not None:
+                        organization_bindings[organization_id] = self._merge_binding_signals(
+                            organization_bindings.get(organization_id, ()),
+                            self._organization_binding_signals(entity_signals),
+                        )
+                    if role_id is not None:
+                        role_bindings[role_id] = self._merge_binding_signals(
+                            role_bindings.get(role_id, ()),
+                            self._role_binding_signals(entity_signals),
+                        )
+                if not person_bindings:
+                    continue
+                event = EventCandidate(
+                    id=document.store.next_event_candidate_id(),
+                    kind=kind,
+                    trigger_evidence_id=evidence.id,
+                    evidence_ids=(evidence.id,),
+                    source=self.producer_id,
+                    signals=signals,
+                )
+                document.store.add_event_candidate(event)
+                self._add_governance_bindings(
+                    document=document,
+                    event=event,
+                    role=EventRole.PERSON,
+                    bindings=person_bindings,
+                    evidence_id=evidence.id,
+                )
+                self._add_governance_bindings(
+                    document=document,
+                    event=event,
+                    role=EventRole.ACTOR,
+                    bindings=actor_bindings,
+                    evidence_id=evidence.id,
+                )
+                self._add_governance_bindings(
+                    document=document,
+                    event=event,
+                    role=EventRole.ORGANIZATION,
+                    bindings=organization_bindings,
+                    evidence_id=evidence.id,
+                )
+                self._add_governance_bindings(
+                    document=document,
+                    event=event,
+                    role=EventRole.ROLE,
+                    bindings=role_bindings,
+                    evidence_id=evidence.id,
+                )
         return document
+
+    def _add_governance_bindings(
+        self,
+        *,
+        document: ArticleDocument,
+        event: EventCandidate,
+        role: EventRole,
+        bindings: dict[EntityCandidateId, tuple[Signal, ...]],
+        evidence_id,
+    ) -> None:
+        for entity_id, signals in bindings.items():
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=role,
+                    filler=EntityFiller(entity_id),
+                    evidence_ids=(evidence_id,),
+                    signals=signals,
+                )
+            )
+
+    def _person_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        filtered: list[Signal] = []
+        for signal in signals:
+            match signal:
+                case LocalPersonSignal() | WindowPersonSignal():
+                    filtered.append(signal)
+        return tuple(filtered)
+
+    def _actor_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        filtered: list[Signal] = []
+        for signal in signals:
+            match signal:
+                case AppointerContextSignal() | WeakSyntacticBindingSignal():
+                    filtered.append(signal)
+        return tuple(filtered)
+
+    def _organization_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        filtered: list[Signal] = []
+        for signal in signals:
+            match signal:
+                case (
+                    LocalOrganizationSignal()
+                    | WindowOrganizationSignal()
+                    | PartyOrganizationSignal()
+                ):
+                    filtered.append(signal)
+        return tuple(filtered)
+
+    def _role_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        filtered: list[Signal] = []
+        for signal in signals:
+            match signal:
+                case LocalRoleSignal() | WindowRoleSignal():
+                    filtered.append(signal)
+        return tuple(filtered)
+
+    def _signals_include_active_subject_context(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case WeakSyntacticBindingSignal(reason="person is active subject of cue"):
+                    return True
+                case AppointerContextSignal():
+                    return True
+        return False
+
+    def _merge_binding_signals(
+        self,
+        existing: tuple[Signal, ...],
+        new: tuple[Signal, ...],
+    ) -> tuple[Signal, ...]:
+        return tuple(dict.fromkeys([*existing, *new]))
 
     def _candidate_kinds(
         self,

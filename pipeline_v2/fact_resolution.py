@@ -33,8 +33,7 @@ class FactSignature:
     arguments: tuple[SignatureArgument, ...]
 
 
-class FactResolutionStage:
-    producer_id = ProducerId("fact_resolution_stage_v2")
+class FactResolutionProposalBuilder:
     _governance_kinds = frozenset(
         {
             FactKind.GOVERNANCE_APPOINTMENT,
@@ -42,62 +41,54 @@ class FactResolutionStage:
         }
     )
 
-    def name(self) -> str:
-        return "fact_resolution_stage_v2"
-
-    def run(self, document: ArticleDocument) -> ArticleDocument:
-        self._same_as_neighbors = self._build_same_as_neighbors(document)
-        self._resolved_entity_ids: dict[EntityCandidateId, EntityCandidateId] = {}
-        scorer = FactResolutionScorer()
+    def build(self, document: ArticleDocument) -> tuple[FactResolutionProposal, ...]:
+        helper = FactResolutionStage()
+        helper._same_as_neighbors = helper._build_same_as_neighbors(document)
+        helper._resolved_entity_ids = {}
         by_signature: dict[FactSignature, list[FactCandidateRecord]] = defaultdict(list)
         for candidate in document.store.fact_candidates.values():
             record = candidate.to_fact_record()
-            for signature in self._signatures(record):
+            for signature in helper._signatures(record):
                 by_signature[signature].append(record)
 
-        existing_pairs = {
-            frozenset((claim.left_fact_id, claim.right_fact_id))
-            for claim in document.store.fact_resolution_claims.values()
-        }
+        proposals: list[FactResolutionProposal] = []
+        existing_pairs: set[frozenset[FactCandidateId]] = set()
         for signature, records in by_signature.items():
             if len(records) < 2:
                 continue
             first = records[0]
             for duplicate in records[1:]:
-                if self._has_existing_pair(existing_pairs, first.id, duplicate.id):
+                if helper._has_existing_pair(existing_pairs, first.id, duplicate.id):
                     continue
-                self._add_claim(
-                    document=document,
-                    scorer=scorer,
-                    left=first,
-                    right=duplicate,
-                    signature=signature,
-                    existing_pairs=existing_pairs,
+                proposals.append(
+                    self._proposal(
+                        left=first,
+                        right=duplicate,
+                        signature=signature,
+                    )
                 )
-        for left, right, signature in self._proxy_named_tie_pairs(document):
-            if self._has_existing_pair(existing_pairs, left.id, right.id):
+                existing_pairs.add(frozenset((first.id, duplicate.id)))
+        for left, right, signature in helper._proxy_named_tie_pairs(document):
+            if helper._has_existing_pair(existing_pairs, left.id, right.id):
                 continue
-            self._add_claim(
-                document=document,
-                scorer=scorer,
-                left=left,
-                right=right,
-                signature=signature,
-                existing_pairs=existing_pairs,
+            proposals.append(
+                self._proposal(
+                    left=left,
+                    right=right,
+                    signature=signature,
+                )
             )
-        return document
+            existing_pairs.add(frozenset((left.id, right.id)))
+        return tuple(proposals)
 
-    def _add_claim(
+    def _proposal(
         self,
         *,
-        document: ArticleDocument,
-        scorer: FactResolutionScorer,
         left: FactCandidateRecord,
         right: FactCandidateRecord,
         signature: FactSignature,
-        existing_pairs: set[frozenset[FactCandidateId]],
-    ) -> None:
-        proposal = FactResolutionProposal(
+    ) -> FactResolutionProposal:
+        return FactResolutionProposal(
             left_fact_id=left.id,
             right_fact_id=right.id,
             relation=ResolutionRelation.SAME_FACT,
@@ -106,19 +97,44 @@ class FactResolutionStage:
                 DuplicateFactSignal(strategy=signature.strategy, fact_kind=signature.kind),
             ),
         )
-        assessment = scorer.score(proposal)
-        document.store.add_fact_resolution_claim(
-            FactResolutionClaim(
-                id=document.store.next_fact_resolution_claim_id(),
-                left_fact_id=proposal.left_fact_id,
-                right_fact_id=proposal.right_fact_id,
-                relation=proposal.relation,
-                evidence_ids=proposal.evidence_ids,
-                assessment=assessment,
-                source=self.producer_id,
+
+
+class FactResolutionStage:
+    producer_id = ProducerId("fact_resolution_stage_v2")
+    _governance_kinds = FactResolutionProposalBuilder._governance_kinds
+    _same_as_neighbors: dict[EntityCandidateId, set[EntityCandidateId]]
+    _resolved_entity_ids: dict[EntityCandidateId, EntityCandidateId]
+
+    def name(self) -> str:
+        return "fact_resolution_stage_v2"
+
+    def run(self, document: ArticleDocument) -> ArticleDocument:
+        scorer = FactResolutionScorer()
+        existing_pairs = {
+            frozenset((claim.left_fact_id, claim.right_fact_id))
+            for claim in document.store.fact_resolution_claims.values()
+        }
+        for proposal in FactResolutionProposalBuilder().build(document):
+            if self._has_existing_pair(
+                existing_pairs,
+                proposal.left_fact_id,
+                proposal.right_fact_id,
+            ):
+                continue
+            assessment = scorer.score(proposal)
+            document.store.add_fact_resolution_claim(
+                FactResolutionClaim(
+                    id=document.store.next_fact_resolution_claim_id(),
+                    left_fact_id=proposal.left_fact_id,
+                    right_fact_id=proposal.right_fact_id,
+                    relation=proposal.relation,
+                    evidence_ids=proposal.evidence_ids,
+                    assessment=assessment,
+                    source=self.producer_id,
+                )
             )
-        )
-        existing_pairs.add(frozenset((left.id, right.id)))
+            existing_pairs.add(frozenset((proposal.left_fact_id, proposal.right_fact_id)))
+        return document
 
     @staticmethod
     def _has_existing_pair(

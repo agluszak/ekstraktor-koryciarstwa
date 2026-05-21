@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pipeline_v2.candidates import EntityCandidate, PublicEmploymentFactCandidate
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    EntityCandidate,
+    EntityFiller,
+    EventCandidate,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
@@ -13,6 +18,8 @@ from pipeline_v2.types import (
     DependencySubjectSignal,
     EmploymentContractFormSignal,
     EntityKind,
+    EventRole,
+    FactKind,
     GroundingKind,
     InferredPublicOrganizationSignal,
     LocalOrganizationSignal,
@@ -82,14 +89,12 @@ class PublicEmploymentCandidateStage:
             if cue is None:
                 continue
             entities = retriever.entities_for_sentence(sentence)
-            person_result = self._select_person(document, sentence, retriever, cue)
-            organization_result = self._select_organization(
+            employee_candidates = self._employee_candidates(document, sentence, retriever, cue)
+            workplace_candidates = self._organization_candidates(
                 document, sentence, retriever, cue.anchor_char
             )
-            if person_result is None or organization_result is None:
+            if not employee_candidates or not workplace_candidates:
                 continue
-            person, person_signals = person_result
-            organization, organization_signals = organization_result
 
             role = self._select_role(entities, cue.anchor_char)
             if self._is_governance_role(document, role.id if role is not None else None):
@@ -103,28 +108,220 @@ class PublicEmploymentCandidateStage:
                 source=self.producer_id,
             )
             document.store.add_evidence(evidence)
-            signals: list[Signal] = [
-                PublicEmploymentLemmaSignal(lemma=cue.detail),
-                *person_signals,
-                *organization_signals,
-            ]
-            if role is not None:
-                signals.append(LocalRoleSignal())
+            event_signals: list[Signal] = [PublicEmploymentLemmaSignal(lemma=cue.detail)]
             if cue.context_text is not None:
-                signals.append(EmploymentContractFormSignal(form=cue.context_text))
-            document.store.add_fact_candidate(
-                PublicEmploymentFactCandidate(
-                    id=document.store.next_fact_candidate_id(),
-                    person_entity_id=person.id,
-                    organization_entity_id=organization.id,
-                    role_entity_id=role.id if role is not None else None,
-                    context_text=cue.context_text,
-                    evidence_ids=(evidence.id,),
-                    source=self.producer_id,
-                    signals=tuple(signals),
+                event_signals.append(EmploymentContractFormSignal(form=cue.context_text))
+            event = EventCandidate(
+                id=document.store.next_event_candidate_id(),
+                kind=FactKind.PUBLIC_EMPLOYMENT,
+                trigger_evidence_id=evidence.id,
+                evidence_ids=(evidence.id,),
+                source=self.producer_id,
+                signals=tuple(event_signals),
+            )
+            document.store.add_event_candidate(event)
+            for employee, employee_signals in employee_candidates:
+                document.store.add_argument_binding(
+                    ArgumentBindingCandidate(
+                        id=document.store.next_argument_binding_candidate_id(),
+                        event_id=event.id,
+                        role=EventRole.EMPLOYEE,
+                        filler=EntityFiller(employee.id),
+                        evidence_ids=(evidence.id,),
+                        signals=employee_signals,
+                    )
+                )
+            for workplace, workplace_signals in workplace_candidates:
+                document.store.add_argument_binding(
+                    ArgumentBindingCandidate(
+                        id=document.store.next_argument_binding_candidate_id(),
+                        event_id=event.id,
+                        role=EventRole.WORKPLACE,
+                        filler=EntityFiller(workplace.id),
+                        evidence_ids=(evidence.id,),
+                        signals=workplace_signals,
+                    )
+                )
+            for authority, authority_signals in self._hiring_authority_candidates(
+                document, sentence, entities
+            ):
+                document.store.add_argument_binding(
+                    ArgumentBindingCandidate(
+                        id=document.store.next_argument_binding_candidate_id(),
+                        event_id=event.id,
+                        role=EventRole.HIRING_AUTHORITY,
+                        filler=EntityFiller(authority.id),
+                        evidence_ids=(evidence.id,),
+                        signals=authority_signals,
+                    )
+                )
+            if role is not None:
+                document.store.add_argument_binding(
+                    ArgumentBindingCandidate(
+                        id=document.store.next_argument_binding_candidate_id(),
+                        event_id=event.id,
+                        role=EventRole.ROLE,
+                        filler=EntityFiller(role.id),
+                        evidence_ids=(evidence.id,),
+                        signals=(LocalRoleSignal(),),
+                    )
+                )
+        return document
+
+    def _employee_candidates(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        retriever: SentenceEntityRetriever,
+        cue: EmploymentCue,
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        proxy = self._select_proxy_family_person(document, sentence, cue.anchor_char)
+        if proxy is not None:
+            entity, kinship_lemma = proxy
+            return (
+                (
+                    entity,
+                    (
+                        ProxyFamilyEntitySignal(),
+                        PossessiveKinshipSignal(kinship_lemma=kinship_lemma),
+                    ),
+                ),
+            )
+
+        syntax = SyntaxView(document.store)
+        trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
+        entities = retriever.entities_for_sentence(sentence)
+        candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
+        for entity in entities:
+            if entity.kind is not EntityKind.PERSON:
+                continue
+            relation = (
+                syntax.dependency_relation(
+                    sentence=sentence,
+                    trigger_token_id=trigger.id,
+                    entity_id=entity.id,
+                )
+                if trigger is not None
+                else None
+            )
+            if relation is not None and syntax.is_subject_relation(relation):
+                if not syntax.is_passive_sentence(sentence, trigger.id if trigger else None):
+                    continue
+                candidates.append((entity, (DependencySubjectSignal(relation=relation),)))
+                continue
+            if relation is not None and syntax.is_object_relation(relation):
+                candidates.append((entity, (DependencyObjectSignal(relation=relation),)))
+                continue
+            if self._is_nominative_subject_in_active_sentence(document, sentence, entity.id):
+                continue
+            candidates.append((entity, (LocalPersonSignal(),)))
+        if candidates:
+            return self._dedupe_entity_candidates(candidates)
+
+        window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+        people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
+        if not people:
+            return ()
+        candidate = people[-1]
+        if self._is_nominative_subject_in_active_sentence(document, sentence, candidate.id):
+            return ()
+        return ((candidate, (WindowPersonSignal(),)),)
+
+    def _hiring_authority_candidates(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        entities: tuple[SentenceEntity, ...],
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        syntax = SyntaxView(document.store)
+        trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
+        if trigger is None or syntax.is_passive_sentence(sentence, trigger.id):
+            return ()
+        candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
+        for entity in entities:
+            if entity.kind is not EntityKind.PERSON:
+                continue
+            relation = syntax.dependency_relation(
+                sentence=sentence,
+                trigger_token_id=trigger.id,
+                entity_id=entity.id,
+            )
+            if relation is not None and syntax.is_subject_relation(relation):
+                candidates.append((entity, (DependencySubjectSignal(relation=relation),)))
+        return self._dedupe_entity_candidates(candidates)
+
+    def _organization_candidates(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        retriever: SentenceEntityRetriever,
+        anchor_char: int,
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        entities = retriever.entities_for_sentence(sentence)
+        candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
+        local = self._nearest_preceding_entity(
+            entities,
+            anchor_char,
+            kinds=frozenset({EntityKind.ORGANIZATION}),
+        )
+        if local is not None:
+            candidates.append((local, (LocalOrganizationSignal(),)))
+
+        inferred = self._infer_public_organization(document, sentence, anchor_char)
+        if inferred is not None:
+            candidates.append(inferred)
+
+        following_local = self._nearest_following_entity(
+            entities,
+            anchor_char,
+            kinds=frozenset({EntityKind.ORGANIZATION}),
+        )
+        if (
+            following_local is not None
+            and not self._is_after_next_employment_cue(
+                document,
+                sentence,
+                anchor_char,
+                following_local,
+            )
+            and not self._crosses_clause_boundary(
+                document,
+                sentence,
+                anchor_char,
+                following_local.start_char,
+            )
+            and following_local.start_char - anchor_char <= 80
+        ):
+            candidates.append((following_local, (LocalOrganizationSignal(),)))
+
+        window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+        orgs = tuple(
+            entity
+            for entity in window
+            if entity.kind == EntityKind.ORGANIZATION
+            and not (
+                entity.start_char > anchor_char
+                and self._crosses_clause_boundary(
+                    document,
+                    sentence,
+                    anchor_char,
+                    entity.start_char,
                 )
             )
-        return document
+        )
+        if orgs:
+            candidates.append((orgs[-1], (WindowOrganizationSignal(),)))
+        return self._dedupe_entity_candidates(candidates)
+
+    def _dedupe_entity_candidates(
+        self,
+        candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]],
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        merged: dict[EntityCandidateId, tuple[SentenceEntity, tuple[Signal, ...]]] = {}
+        for entity, signals in candidates:
+            if entity.id not in merged:
+                merged[entity.id] = (entity, signals)
+        return tuple(merged.values())
 
     def _employment_cue(
         self,

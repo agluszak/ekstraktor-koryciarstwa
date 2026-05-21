@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from pipeline_v2.ids import (
+    ArgumentBindingCandidateId,
     EntityCandidateId,
+    EventCandidateId,
     EvidenceId,
     FactCandidateId,
     MentionId,
@@ -14,6 +16,7 @@ from pipeline_v2.ids import (
 )
 from pipeline_v2.types import (
     EntityKind,
+    EventRole,
     FactArgumentRole,
     FactKind,
     GroundingKind,
@@ -131,6 +134,45 @@ type FactArgument = EntityFactArgument | TextFactArgument
 
 
 @dataclass(frozen=True, slots=True)
+class EntityFiller:
+    entity_id: EntityCandidateId
+
+
+@dataclass(frozen=True, slots=True)
+class TextFiller:
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class UnknownFiller:
+    reason: str = "unknown"
+
+
+type ArgumentFiller = EntityFiller | TextFiller | UnknownFiller
+
+
+@dataclass(frozen=True, slots=True)
+class EventCandidate:
+    id: EventCandidateId
+    kind: FactKind
+    trigger_evidence_id: EvidenceId | None
+    evidence_ids: tuple[EvidenceId, ...]
+    source: ProducerId
+    signals: tuple[Signal, ...] = ()
+    source_fact_id: FactCandidateId | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ArgumentBindingCandidate:
+    id: ArgumentBindingCandidateId
+    event_id: EventCandidateId
+    role: EventRole
+    filler: ArgumentFiller
+    evidence_ids: tuple[EvidenceId, ...]
+    signals: tuple[Signal, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class FactCandidateRecord:
     id: FactCandidateId
     kind: FactKind
@@ -148,6 +190,26 @@ class FactCandidateRecord:
             "source": str(self.source),
             "signals": [signal.to_json() for signal in self.signals],
         }
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializedFactCandidate:
+    record: FactCandidateRecord
+
+    @property
+    def id(self) -> FactCandidateId:
+        return self.record.id
+
+    def participating_entity_ids(self) -> tuple[EntityCandidateId, ...]:
+        entity_ids: list[EntityCandidateId] = []
+        for argument in self.record.arguments:
+            match argument:
+                case EntityFactArgument(entity_id=entity_id):
+                    entity_ids.append(entity_id)
+        return tuple(entity_ids)
+
+    def to_fact_record(self) -> FactCandidateRecord:
+        return self.record
 
 
 @dataclass(frozen=True, slots=True)

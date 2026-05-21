@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import re
 
-from pipeline_v2.candidates import EntityCandidate, MoneyTransferFactCandidate
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    EntityCandidate,
+    EntityFiller,
+    EventCandidate,
+    TextFiller,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
@@ -21,6 +27,7 @@ from pipeline_v2.types import (
     ContractorSignal,
     ControllerContextSignal,
     EntityKind,
+    EventRole,
     FactKind,
     FunderSignal,
     FundingLemmaSignal,
@@ -117,34 +124,121 @@ class PublicMoneyCandidateStage:
             )
             document.store.add_evidence(evidence)
             for kind, signals in kinds:
-                for source_entity_id, target_entity_id, role_signals in self._select_parties(
+                party_options = self._select_parties(
                     document,
                     sentence,
                     kind,
-                ):
-                    extra_signals: list[Signal] = []
-                    if kind == FactKind.COMPENSATION:
-                        micro = self._micro_amount_signal(amount_texts[0])
-                        if micro is not None:
-                            extra_signals.append(micro)
-                    document.store.add_fact_candidate(
-                        MoneyTransferFactCandidate(
-                            id=document.store.next_fact_candidate_id(),
-                            kind=kind,
-                            source_entity_id=source_entity_id,
-                            target_entity_id=target_entity_id,
-                            amount_text=amount_texts[0],
-                            evidence_ids=(evidence.id,),
-                            source=self.producer_id,
-                            signals=(
-                                MoneyAmountSignal(amount=amount_texts[0]),
-                                *signals,
-                                *role_signals,
-                                *extra_signals,
-                            ),
-                        )
+                )
+                event_signals: list[Signal] = [MoneyAmountSignal(amount=amount_texts[0]), *signals]
+                if kind == FactKind.COMPENSATION:
+                    micro = self._micro_amount_signal(amount_texts[0])
+                    if micro is not None:
+                        event_signals.append(micro)
+                event = EventCandidate(
+                    id=document.store.next_event_candidate_id(),
+                    kind=kind,
+                    trigger_evidence_id=evidence.id,
+                    evidence_ids=(evidence.id,),
+                    source=self.producer_id,
+                    signals=tuple(event_signals),
+                )
+                document.store.add_event_candidate(event)
+                self._add_amount_binding(document, event, amount_texts[0], evidence.id)
+                for source_entity_id, target_entity_id, role_signals in party_options:
+                    self._add_party_bindings(
+                        document=document,
+                        event=event,
+                        kind=kind,
+                        source_entity_id=source_entity_id,
+                        target_entity_id=target_entity_id,
+                        role_signals=role_signals,
+                        evidence_id=evidence.id,
                     )
         return document
+
+    def _add_amount_binding(
+        self,
+        document: ArticleDocument,
+        event: EventCandidate,
+        amount_text: str,
+        evidence_id: EvidenceId,
+    ) -> None:
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.AMOUNT,
+                filler=TextFiller(amount_text),
+                evidence_ids=(evidence_id,),
+            )
+        )
+
+    def _add_party_bindings(
+        self,
+        *,
+        document: ArticleDocument,
+        event: EventCandidate,
+        kind: FactKind,
+        source_entity_id: EntityCandidateId | None,
+        target_entity_id: EntityCandidateId | None,
+        role_signals: tuple[Signal, ...],
+        evidence_id: EvidenceId,
+    ) -> None:
+        source_role = (
+            EventRole.COUNTERPARTY if kind is FactKind.PUBLIC_CONTRACT else EventRole.FUNDER
+        )
+        target_role = (
+            EventRole.CONTRACTOR if kind is FactKind.PUBLIC_CONTRACT else EventRole.RECIPIENT
+        )
+        if source_entity_id is not None:
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=source_role,
+                    filler=EntityFiller(source_entity_id),
+                    evidence_ids=(evidence_id,),
+                    signals=self._source_binding_signals(role_signals),
+                )
+            )
+        if target_entity_id is not None:
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=target_role,
+                    filler=EntityFiller(target_entity_id),
+                    evidence_ids=(evidence_id,),
+                    signals=self._target_binding_signals(role_signals),
+                )
+            )
+
+    def _source_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        filtered: list[Signal] = []
+        for signal in signals:
+            match signal:
+                case (
+                    CompensationSourceSignal()
+                    | ContractCounterpartySignal()
+                    | ControllerContextSignal()
+                    | FunderSignal()
+                    | LocalPhraseFunderSignal()
+                ):
+                    filtered.append(signal)
+        return tuple(filtered)
+
+    def _target_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        filtered: list[Signal] = []
+        for signal in signals:
+            match signal:
+                case (
+                    ContractorSignal()
+                    | CompensationRecipientSignal()
+                    | LocalPhraseRecipientSignal()
+                    | RecipientSignal()
+                ):
+                    filtered.append(signal)
+        return tuple(filtered)
 
     _scale_pattern = re.compile(r"tys\.?|tysi[eę]cy|mln|milion", re.IGNORECASE)
     _numeric_pattern = re.compile(r"[\d\s\xa0]+(?:[,.]\d+)?")

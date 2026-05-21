@@ -56,6 +56,7 @@ def run_governance_stage(
     ).run(document)
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
+    FactScoringStage().run(document)
     return document
 
 

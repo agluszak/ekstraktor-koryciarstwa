@@ -4,9 +4,10 @@ import re
 from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
     EntityCandidate,
-    PartyAffiliationCandidate,
-    PoliticalSupportCandidate,
+    EntityFiller,
+    EventCandidate,
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
@@ -21,6 +22,8 @@ from pipeline_v2.types import (
     DirectPrepositionalAttachmentSignal,
     EmbeddedInOrganizationNameSignal,
     EntityKind,
+    EventRole,
+    FactKind,
     GroundingKind,
     MentionKind,
     PartyAliasMatchSignal,
@@ -196,14 +199,31 @@ class PartyCandidateStage:
         person = self._direct_affiliation_person(document, sentence, entities, match)
         if person is not None:
             document.store.add_evidence(evidence)
-            document.store.add_fact_candidate(
-                PartyAffiliationCandidate(
-                    id=document.store.next_fact_candidate_id(),
-                    subject_entity_id=person.id,
-                    party_entity_id=party_id,
+            event = EventCandidate(
+                id=document.store.next_event_candidate_id(),
+                kind=FactKind.PARTY_AFFILIATION,
+                trigger_evidence_id=evidence.id,
+                evidence_ids=(evidence.id,),
+                source=self.producer_id,
+                signals=self._party_affiliation_signals(document, sentence, match),
+            )
+            document.store.add_event_candidate(event)
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.SUBJECT,
+                    filler=EntityFiller(person.id),
                     evidence_ids=(evidence.id,),
-                    source=self.producer_id,
-                    signals=self._party_affiliation_signals(document, sentence, match),
+                )
+            )
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.OBJECT,
+                    filler=EntityFiller(party_id),
+                    evidence_ids=(evidence.id,),
                 )
             )
             return
@@ -219,14 +239,31 @@ class PartyCandidateStage:
                 signals.append(EmbeddedInOrganizationNameSignal())
 
             document.store.add_evidence(evidence)
-            document.store.add_fact_candidate(
-                PoliticalSupportCandidate(
-                    id=document.store.next_fact_candidate_id(),
-                    supporter_entity_id=party_id,
-                    supported_entity_id=supported.id,
+            event = EventCandidate(
+                id=document.store.next_event_candidate_id(),
+                kind=FactKind.POLITICAL_SUPPORT,
+                trigger_evidence_id=evidence.id,
+                evidence_ids=(evidence.id,),
+                source=self.producer_id,
+                signals=tuple(signals),
+            )
+            document.store.add_event_candidate(event)
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.SUBJECT,
+                    filler=EntityFiller(party_id),
                     evidence_ids=(evidence.id,),
-                    source=self.producer_id,
-                    signals=tuple(signals),
+                )
+            )
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.OBJECT,
+                    filler=EntityFiller(supported.id),
+                    evidence_ids=(evidence.id,),
                 )
             )
 

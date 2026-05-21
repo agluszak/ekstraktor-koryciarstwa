@@ -43,6 +43,7 @@ def run_party_stage(text: str, entities: tuple[NamedEntitySpan, ...] = ()) -> Ar
         morphology=morphology,
     ).run(document)
     PartyCandidateStage(morphology).run(document)
+    FactScoringStage().run(document)
     return document
 
 
