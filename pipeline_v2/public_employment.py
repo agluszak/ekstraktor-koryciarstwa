@@ -297,7 +297,12 @@ class PublicEmploymentCandidateStage:
         anchor_char: int,
     ) -> tuple[SentenceEntity, Signal] | None:
         entities = retriever.entities_for_sentence(sentence)
-        local_candidates = tuple(e for e in entities if e.kind == EntityKind.ORGANIZATION and not self._is_party_like_organization(document, e.id))
+        local_candidates = tuple(
+            e
+            for e in entities
+            if e.kind == EntityKind.ORGANIZATION
+            and not self._is_party_like_organization(document, e.id)
+        )
         local = self._nearest_preceding_entity(
             local_candidates,
             anchor_char,

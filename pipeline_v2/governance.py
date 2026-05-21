@@ -523,7 +523,11 @@ class GovernanceCandidateStage:
     def _is_employment_overlap(self, signals: tuple[Signal, ...]) -> bool:
         for signal in signals:
             match signal:
-                case AppointmentLemmaSignal(lemma=lemma) if lemma in {"zatrudnić", "etat", "zatrudnienie"}:
+                case AppointmentLemmaSignal(lemma=lemma) if lemma in {
+                    "zatrudnić",
+                    "etat",
+                    "zatrudnienie",
+                }:
                     return True
         return False
 

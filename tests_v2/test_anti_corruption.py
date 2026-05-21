@@ -185,6 +185,7 @@ def test_anti_corruption_stage_does_not_emit_investigation_for_published_control
 
     assert tuple(document.store.fact_candidates.values()) == ()
 
+
 def test_anti_corruption_stage_does_not_emit_referral_for_reporting_context() -> None:
     text = "Prokuratura poinformowała, że wpłynęło zawiadomienie w tej sprawie."
     document = run_anti_corruption_pipeline(

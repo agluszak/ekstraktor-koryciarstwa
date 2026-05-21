@@ -66,7 +66,9 @@ class PersonalTieCandidateStage:
                 token = document.store.tokens[token_id]
                 for analysis in token.morph:
                     if analysis.lemma in self._family_details_by_lemma:
-                        family_matches.append((token.span.start_char, self._family_details_by_lemma[analysis.lemma]))
+                        family_matches.append(
+                            (token.span.start_char, self._family_details_by_lemma[analysis.lemma])
+                        )
                         break
                     if analysis.lemma in self._patronage_lemmas:
                         patronage_matches.append((token.span.start_char, analysis.lemma))
@@ -79,7 +81,11 @@ class PersonalTieCandidateStage:
                 # If there are multiple relatives, typically the anchor person is the first person in the sentence or clause.
                 # Let's anchor it to the first person mentioned before the match, OR the very first person in the sentence if there are multiple.
                 anchor_person = people[0] if people[0].end_char <= start_char else None
-                next_person = min((p for p in people if p.start_char >= start_char), key=lambda p: p.start_char, default=None)
+                next_person = min(
+                    (p for p in people if p.start_char >= start_char),
+                    key=lambda p: p.start_char,
+                    default=None,
+                )
                 if anchor_person and next_person and anchor_person != next_person:
                     self._add_explicit_tie(
                         document,
@@ -92,8 +98,16 @@ class PersonalTieCandidateStage:
                     )
 
             for start_char, lemma in patronage_matches:
-                prev_person = max((p for p in people if p.end_char <= start_char), key=lambda p: p.start_char, default=None)
-                next_person = min((p for p in people if p.start_char >= start_char), key=lambda p: p.start_char, default=None)
+                prev_person = max(
+                    (p for p in people if p.end_char <= start_char),
+                    key=lambda p: p.start_char,
+                    default=None,
+                )
+                next_person = min(
+                    (p for p in people if p.start_char >= start_char),
+                    key=lambda p: p.start_char,
+                    default=None,
+                )
                 if prev_person and next_person:
                     self._add_explicit_tie(
                         document,

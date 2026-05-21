@@ -180,6 +180,7 @@ def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organizat
 
     assert tuple(document.store.fact_candidates.values()) == ()
 
+
 def test_personal_tie_stage_emits_multiple_kinship_ties_for_multiple_relatives() -> None:
     text = "Jan Kowalski, jego brat Piotr Kowalski i syn Adam Kowalski poszli do kina."
     document, _ = build_document(
