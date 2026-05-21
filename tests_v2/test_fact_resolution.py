@@ -8,7 +8,6 @@ from pipeline_v2.ids import (
     DocumentId,
     EntityCandidateId,
     EventCandidateId,
-    FactCandidateId,
     ProducerId,
     ResolutionClaimId,
     ScorerId,
@@ -79,7 +78,6 @@ def test_probabilistic_inference_emits_same_fact_claim_without_deleting_duplicat
     add_event(
         document,
         event_id=first_event_id,
-        fact_id=FactCandidateId("fact-1"),
         kind=FactKind.GOVERNANCE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
@@ -91,7 +89,6 @@ def test_probabilistic_inference_emits_same_fact_claim_without_deleting_duplicat
     add_event(
         document,
         event_id=second_event_id,
-        fact_id=FactCandidateId("fact-2"),
         kind=FactKind.GOVERNANCE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
@@ -126,16 +123,13 @@ def test_probabilistic_inference_emits_same_fact_claim_without_deleting_duplicat
     FactScoringStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
-    assert tuple(record.id for record in fact_records(document)) == ("fact-1", "fact-2")
-    assert claim.left_fact_id == FactCandidateId("fact-1")
-    assert claim.right_fact_id == FactCandidateId("fact-2")
+    materialized_ids = {record.id for record in fact_records(document)}
+    assert {claim.left_fact_id, claim.right_fact_id} == materialized_ids
     assert claim.relation is ResolutionRelation.SAME_FACT
     assert claim.assessment.score >= 0.5
 
 
-def test_probabilistic_inference_merges_governance_duplicates_when_role_differs_but_org_matches() -> (
-    None
-):
+def test_probabilistic_inference_merges_governance_duplicates_with_matching_org() -> None:
     document = _document()
     add_entity(
         document,
@@ -167,7 +161,6 @@ def test_probabilistic_inference_merges_governance_duplicates_when_role_differs_
     add_event(
         document,
         event_id=first_event_id,
-        fact_id=FactCandidateId("fact-1"),
         kind=FactKind.GOVERNANCE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
@@ -179,7 +172,6 @@ def test_probabilistic_inference_merges_governance_duplicates_when_role_differs_
     add_event(
         document,
         event_id=second_event_id,
-        fact_id=FactCandidateId("fact-2"),
         kind=FactKind.GOVERNANCE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
@@ -234,8 +226,9 @@ def test_probabilistic_inference_merges_governance_duplicates_when_role_differs_
     FactScoringStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
-    assert claim.left_fact_id == FactCandidateId("fact-1")
-    assert claim.right_fact_id == FactCandidateId("fact-2")
+    assert {claim.left_fact_id, claim.right_fact_id} == {
+        record.id for record in fact_records(document)
+    }
     assert claim.relation is ResolutionRelation.SAME_FACT
 
 
@@ -265,14 +258,12 @@ def test_probabilistic_inference_keeps_governance_facts_separate_without_shared_
     add_event(
         document,
         event_id=first_event_id,
-        fact_id=FactCandidateId("fact-1"),
         kind=FactKind.GOVERNANCE_DISMISSAL,
         signals=(LocalPersonSignal(), LocalRoleSignal()),
     )
     add_event(
         document,
         event_id=second_event_id,
-        fact_id=FactCandidateId("fact-2"),
         kind=FactKind.GOVERNANCE_DISMISSAL,
         signals=(LocalPersonSignal(), LocalRoleSignal()),
     )
@@ -337,7 +328,6 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
     add_event(
         document,
         event_id=proxy_event_id,
-        fact_id=FactCandidateId("fact-1"),
         kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
         signals=(
             NamedKinshipLemmaSignal(lemma="kuzyn"),
@@ -349,7 +339,6 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
     add_event(
         document,
         event_id=named_event_id,
-        fact_id=FactCandidateId("fact-2"),
         kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
         signals=(
             NamedKinshipLemmaSignal(lemma="kuzyn"),
@@ -423,6 +412,7 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
     FactScoringStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
-    assert claim.left_fact_id == FactCandidateId("fact-1")
-    assert claim.right_fact_id == FactCandidateId("fact-2")
+    assert {claim.left_fact_id, claim.right_fact_id} == {
+        record.id for record in fact_records(document)
+    }
     assert claim.relation is ResolutionRelation.SAME_FACT

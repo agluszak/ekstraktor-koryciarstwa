@@ -65,9 +65,6 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                     ),
                     "evidence_ids": [str(evidence_id) for evidence_id in event.evidence_ids],
                     "source": str(event.source),
-                    "source_fact_id": (
-                        str(event.source_fact_id) if event.source_fact_id is not None else None
-                    ),
                     "signals": [signal_to_json(signal) for signal in event.signals],
                 }
                 for event in document.store.event_candidates.values()

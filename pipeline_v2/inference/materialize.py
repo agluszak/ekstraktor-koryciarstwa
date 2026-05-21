@@ -13,7 +13,6 @@ from pipeline_v2.candidates import (
 from pipeline_v2.document import ArticleDocument, FactAssessment
 from pipeline_v2.ids import EntityCandidateId, EventCandidateId, FactCandidateId, ScorerId
 from pipeline_v2.inference.event_schema import RoleSpec, schema_for
-from pipeline_v2.inference.fact_priors import FactPriorPolicyRegistry
 from pipeline_v2.inference.factor_builders import (
     TRUE_STATE,
     BuiltFactInferenceGraph,
@@ -39,7 +38,6 @@ class _RoleSelection:
 class FactAssessmentMaterializer:
     scorer_id = ScorerId("probabilistic_fact_inference_v2")
     _alternative_threshold = 0.01
-    _prior_registry = FactPriorPolicyRegistry()
 
     def materialize(
         self,
@@ -149,7 +147,6 @@ class FactAssessmentMaterializer:
                 base_record,
                 self._primary_score(
                     event_probability=event_probability,
-                    record=base_record,
                     selections=tuple(selected_by_role.values()),
                 ),
             )
@@ -172,7 +169,6 @@ class FactAssessmentMaterializer:
         self,
         *,
         event_probability: float,
-        record: FactCandidateRecord,
         selections: tuple[_RoleSelection, ...],
     ) -> float:
         if not selections:
@@ -181,7 +177,7 @@ class FactAssessmentMaterializer:
             selections
         )
         blended = min(1.0, 0.3 * event_probability + 0.7 * mean_role_probability)
-        return max(blended, self._prior_registry.prior_for_kind(record.kind, record.signals).score)
+        return blended
 
     def _resolve_entity_id(self, store, entity_id: EntityCandidateId) -> EntityCandidateId:
         visited = {entity_id}

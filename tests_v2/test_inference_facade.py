@@ -16,7 +16,6 @@ from pipeline_v2.ids import (
     EntityCandidateId,
     EventCandidateId,
     EvidenceId,
-    FactCandidateId,
     InferenceFactorId,
     InferenceStateId,
     InferenceVariableId,
@@ -43,11 +42,12 @@ from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
 from pipeline_v2.types import EntityKind, EventRole, FactKind, GroundingKind, MentionKind
+from tests_v2.materialized import entity_argument
 
 
 def test_pgmpy_backend_returns_marginal_for_typed_unary_factor() -> None:
     variable = InferenceVariable(
-        id=InferenceVariableId("event-active:fact-1"),
+        id=InferenceVariableId("variable-under-test"),
         kind=InferenceVariableKind.EVENT_ACTIVE,
         states=(
             InferenceState(InferenceStateId("false"), "false"),
@@ -58,7 +58,7 @@ def test_pgmpy_backend_returns_marginal_for_typed_unary_factor() -> None:
         variables=(variable,),
         factors=(
             InferenceFactor(
-                id=InferenceFactorId("factor:event-prior:fact-1"),
+                id=InferenceFactorId("factor-under-test"),
                 kind=InferenceFactorKind.EVIDENCE_PRIOR,
                 variable_ids=(variable.id,),
                 potentials=(0.2, 0.8),
@@ -75,7 +75,7 @@ def test_pgmpy_backend_returns_marginal_for_typed_unary_factor() -> None:
 
 def test_pgmpy_backend_runs_disconnected_unary_components_independently() -> None:
     left_variable = InferenceVariable(
-        id=InferenceVariableId("event-active:left"),
+        id=InferenceVariableId("left-variable"),
         kind=InferenceVariableKind.EVENT_ACTIVE,
         states=(
             InferenceState(InferenceStateId("false"), "false"),
@@ -83,7 +83,7 @@ def test_pgmpy_backend_runs_disconnected_unary_components_independently() -> Non
         ),
     )
     right_variable = InferenceVariable(
-        id=InferenceVariableId("event-active:right"),
+        id=InferenceVariableId("right-variable"),
         kind=InferenceVariableKind.EVENT_ACTIVE,
         states=(
             InferenceState(InferenceStateId("false"), "false"),
@@ -94,13 +94,13 @@ def test_pgmpy_backend_runs_disconnected_unary_components_independently() -> Non
         variables=(left_variable, right_variable),
         factors=(
             InferenceFactor(
-                id=InferenceFactorId("factor:event-prior:left"),
+                id=InferenceFactorId("left-factor"),
                 kind=InferenceFactorKind.EVIDENCE_PRIOR,
                 variable_ids=(left_variable.id,),
                 potentials=(0.8, 0.2),
             ),
             InferenceFactor(
-                id=InferenceFactorId("factor:event-prior:right"),
+                id=InferenceFactorId("right-factor"),
                 kind=InferenceFactorKind.EVIDENCE_PRIOR,
                 variable_ids=(right_variable.id,),
                 potentials=(0.1, 0.9),
@@ -120,7 +120,7 @@ def test_pgmpy_backend_runs_disconnected_unary_components_independently() -> Non
 
 def test_pgmpy_backend_returns_uniform_marginal_for_factorless_variable() -> None:
     variable = InferenceVariable(
-        id=InferenceVariableId("event-active:orphan"),
+        id=InferenceVariableId("factorless-variable"),
         kind=InferenceVariableKind.EVENT_ACTIVE,
         states=(
             InferenceState(InferenceStateId("false"), "false"),
@@ -138,7 +138,7 @@ def test_pgmpy_backend_returns_uniform_marginal_for_factorless_variable() -> Non
 
 def test_pgmpy_backend_sanitizes_zero_potential_factor() -> None:
     variable = InferenceVariable(
-        id=InferenceVariableId("event-active:zero"),
+        id=InferenceVariableId("zero-potential-variable"),
         kind=InferenceVariableKind.EVENT_ACTIVE,
         states=(
             InferenceState(InferenceStateId("false"), "false"),
@@ -149,7 +149,7 @@ def test_pgmpy_backend_sanitizes_zero_potential_factor() -> None:
         variables=(variable,),
         factors=(
             InferenceFactor(
-                id=InferenceFactorId("factor:event-prior:zero"),
+                id=InferenceFactorId("zero-potential-factor"),
                 kind=InferenceFactorKind.EVIDENCE_PRIOR,
                 variable_ids=(variable.id,),
                 potentials=(0.0, 0.0),
@@ -218,7 +218,6 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
-            source_fact_id=FactCandidateId("fact-1"),
         )
     )
     document.store.add_argument_binding(
@@ -226,7 +225,7 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
             id=ArgumentBindingCandidateId("binding-1"),
             event_id=event_id,
             role=EventRole.SUBJECT,
-            filler=EntityFiller(EntityCandidateId("entity-1")),
+            filler=EntityFiller(EntityCandidateId("subject")),
             evidence_ids=(),
         )
     )
@@ -235,7 +234,7 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
             id=ArgumentBindingCandidateId("binding-2"),
             event_id=event_id,
             role=EventRole.OBJECT,
-            filler=EntityFiller(EntityCandidateId("entity-2")),
+            filler=EntityFiller(EntityCandidateId("object")),
             evidence_ids=(),
         )
     )
@@ -245,13 +244,19 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
 
     assert backend.observed_spec is not None
     assert len(document.inference_marginals) == 3
+    event_variable = next(
+        variable
+        for variable in backend.observed_spec.variables
+        if variable.kind is InferenceVariableKind.EVENT_ACTIVE
+    )
     assert any(
-        marginal.variable_id == InferenceVariableId("event-active:fact-1")
-        for marginal in document.inference_marginals
+        marginal.variable_id == event_variable.id for marginal in document.inference_marginals
     )
     assert document.inference_diagnostics == []
     assert len(document.fact_assessments) == 1
-    assert document.fact_assessments[0].materialized_fact_id == FactCandidateId("fact-1")
+    assert document.fact_assessments[0].materialized_fact_id in {
+        record.id for record in document.materialized_fact_records
+    }
     assert document.fact_assessments[0].assessment.score >= 0.7
 
 
@@ -272,7 +277,6 @@ def test_fact_graph_builder_maps_public_employment_arguments_to_event_roles() ->
             trigger_evidence_id=EvidenceId("evidence-1"),
             evidence_ids=(EvidenceId("evidence-1"),),
             source=ProducerId("test"),
-            source_fact_id=FactCandidateId("fact-1"),
         )
     )
     document.store.add_argument_binding(
@@ -351,7 +355,6 @@ def test_fact_graph_builder_penalizes_incompatible_party_workplace_filler() -> N
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
-            source_fact_id=FactCandidateId("fact-1"),
         )
     )
     document.store.add_argument_binding(
@@ -400,14 +403,20 @@ def test_fact_graph_builder_penalizes_incompatible_party_workplace_filler() -> N
         state.state.id: state
         for state in built.index.filler_states_by_variable_id[workplace_variable.id]
     }
-    potentials_by_entity_id = {
-        state.filler.entity_id: potential
-        for inference_state, potential in zip(
-            workplace_variable.states, workplace_factor.potentials, strict=True
-        )
-        if (state := state_by_id.get(inference_state.id)) is not None
-        and isinstance(state.filler, EntityFiller)
-    }
+    potentials_by_entity_id = {}
+    for inference_state, potential in zip(
+        workplace_variable.states,
+        workplace_factor.potentials,
+        strict=True,
+    ):
+        state = state_by_id.get(inference_state.id)
+        if state is None:
+            continue
+        match state.filler:
+            case EntityFiller(entity_id=entity_id):
+                potentials_by_entity_id[entity_id] = potential
+            case _:
+                continue
 
     assert potentials_by_entity_id[EntityCandidateId("org-1")] == 1.0
     assert potentials_by_entity_id[EntityCandidateId("party-1")] == 0.02
@@ -460,7 +469,6 @@ def test_probabilistic_stage_prefers_organization_workplace_over_party_context()
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
-            source_fact_id=FactCandidateId("fact-1"),
         )
     )
     document.store.add_argument_binding(
@@ -494,25 +502,17 @@ def test_probabilistic_stage_prefers_organization_workplace_over_party_context()
     ProbabilisticInferenceStage().run(document)
 
     primary_record = document.materialized_fact_records[0]
-    workplace_argument = next(
-        argument.to_json()["entity_id"]
-        for argument in primary_record.arguments
-        if argument.to_json()["role"] == "organization"
-    )
+    workplace_argument = entity_argument(primary_record, "organization")
     scores_by_workplace_id = {
-        next(
-            argument.to_json()["entity_id"]
-            for argument in record.arguments
-            if argument.to_json()["role"] == "organization"
-        ): assessment.assessment.score
+        entity_argument(record, "organization"): assessment.assessment.score
         for record in document.materialized_fact_records
         for assessment in document.fact_assessments
         if assessment.materialized_fact_id == record.id
     }
 
     assert len(document.materialized_fact_records) == 1
-    assert workplace_argument == "org-1"
-    assert "party-1" not in scores_by_workplace_id
+    assert workplace_argument == EntityCandidateId("org-1")
+    assert EntityCandidateId("party-1") not in scores_by_workplace_id
 
 
 def test_resolution_graph_adds_reference_role_factor_for_reference_backed_proxy_entity() -> None:
@@ -561,7 +561,6 @@ def test_resolution_graph_adds_reference_role_factor_for_reference_backed_proxy_
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
-            source_fact_id=FactCandidateId("fact-1"),
         )
     )
     document.store.add_argument_binding(
@@ -585,10 +584,18 @@ def test_resolution_graph_adds_reference_role_factor_for_reference_backed_proxy_
 
     fact_graph = FactInferenceGraphBuilder().build(document)
     built = ResolutionInferenceGraphBuilder().build(document=document, fact_graph=fact_graph)
+    subject_variable_id = fact_graph.index.role_variable_id_by_event_role[
+        (event_id, EventRole.SUBJECT)
+    ]
+    reference_variable = next(
+        variable
+        for variable in built.spec.variables
+        if variable.kind is InferenceVariableKind.REFERENCE_TARGET
+    )
 
     assert any(
-        factor.id
-        == InferenceFactorId("factor:reference-role:reference-1:role-filler:fact-1:subject")
+        factor.kind is InferenceFactorKind.CONSTRAINT
+        and factor.variable_ids == (subject_variable_id, reference_variable.id)
         for factor in built.spec.factors
     )
 
@@ -678,9 +685,9 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
             source=ProducerId("test"),
         )
     )
-    for event_id, fact_id, employee_id in (
-        (EventCandidateId("event-1"), FactCandidateId("fact-1"), full_person_id),
-        (EventCandidateId("event-2"), FactCandidateId("fact-2"), surname_person_id),
+    for event_id, employee_id in (
+        (EventCandidateId("full-name-event"), full_person_id),
+        (EventCandidateId("surname-event"), surname_person_id),
     ):
         document.store.add_event_candidate(
             EventCandidate(
@@ -689,7 +696,6 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
                 trigger_evidence_id=None,
                 evidence_ids=(),
                 source=ProducerId("test"),
-                source_fact_id=fact_id,
             )
         )
         document.store.add_argument_binding(

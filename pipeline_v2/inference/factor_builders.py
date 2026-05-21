@@ -72,9 +72,77 @@ class BuiltFactInferenceGraph:
     index: EventInferenceIndex
 
 
+class RoleBaseWeightPolicy:
+    def contribution(self, role: EventRole | None, is_unknown: bool) -> float:
+        if is_unknown:
+            return 0.7
+        if role in {EventRole.EMPLOYEE, EventRole.PERSON, EventRole.SUBJECT, EventRole.OBJECT}:
+            return 0.1
+        if role in {
+            EventRole.WORKPLACE,
+            EventRole.ORGANIZATION,
+            EventRole.FUNDER,
+            EventRole.RECIPIENT,
+        }:
+            return 0.08
+        return 0.0
+
+
+class BindingSignalWeightPolicy:
+    def contribution(self, signal: Signal) -> float:
+        match signal:
+            case LocalPersonSignal() | LocalOrganizationSignal() | LocalRoleSignal():
+                return 0.35
+            case WindowPersonSignal() | WindowOrganizationSignal() | WindowRoleSignal():
+                return 0.15
+            case ProxyFamilyEntitySignal() | PossessiveKinshipSignal():
+                return 0.35
+            case (
+                WeakSyntacticBindingSignal()
+                | AppointerContextSignal()
+                | ControllerContextSignal()
+                | PartyOrganizationSignal()
+            ):
+                return -0.85
+            case _ if signal.polarity is SignalPolarity.POSITIVE:
+                return 0.18
+            case _:
+                return -0.22
+
+
+class RoleFillerWeightModel:
+    def __init__(
+        self,
+        *,
+        base_policy: RoleBaseWeightPolicy | None = None,
+        signal_policy: BindingSignalWeightPolicy | None = None,
+    ) -> None:
+        self.base_policy = base_policy or RoleBaseWeightPolicy()
+        self.signal_policy = signal_policy or BindingSignalWeightPolicy()
+
+    def weight(
+        self,
+        *,
+        role: EventRole | None,
+        state: RoleFillerState,
+        is_unknown: bool,
+    ) -> float:
+        if is_unknown:
+            return self.base_policy.contribution(role, is_unknown=True)
+        score = 0.5 + self.base_policy.contribution(role, is_unknown=False)
+        for signal in state.signals:
+            score += self.signal_policy.contribution(signal)
+        return max(0.05, score)
+
+
 class FactInferenceGraphBuilder:
-    def __init__(self, prior_registry: FactPriorPolicyRegistry | None = None) -> None:
+    def __init__(
+        self,
+        prior_registry: FactPriorPolicyRegistry | None = None,
+        role_weight_model: RoleFillerWeightModel | None = None,
+    ) -> None:
         self.prior_registry = prior_registry or FactPriorPolicyRegistry()
+        self.role_weight_model = role_weight_model or RoleFillerWeightModel()
 
     def build(self, document: ArticleDocument) -> BuiltFactInferenceGraph:
         variables: list[InferenceVariable] = []
@@ -89,13 +157,12 @@ class FactInferenceGraphBuilder:
 
         for event in document.store.event_candidates.values():
             schema = schema_for(event.kind)
-            event_key = event.source_fact_id or FactCandidateId(str(event.id))
-            event_variable = self._event_active_variable(event_key, event.kind)
+            event_variable = self._event_active_variable(event.id, event.kind)
             event_prior = self.prior_registry.prior_for_kind(event.kind, event.signals)
             variables.append(event_variable)
-            factors.append(self._event_prior_factor(event_key, event_variable, event_prior, event))
+            factors.append(self._event_prior_factor(event.id, event_variable, event_prior, event))
             event_ids_by_variable[event_variable.id] = event.id
-            fact_ids_by_variable[event_variable.id] = event_key
+            fact_ids_by_variable[event_variable.id] = self._materialized_fact_id(event.id)
             priors_by_variable[event_variable.id] = event_prior
 
             bindings_by_role: dict[EventRole, list[ArgumentBindingCandidate]] = {}
@@ -107,13 +174,13 @@ class FactInferenceGraphBuilder:
             for role in sorted(all_roles, key=lambda item: item.value):
                 role_spec = schema.role_spec_for(role)
                 states = self._role_states(bindings_by_role.get(role, ()))
-                role_variable = self._role_variable(event_key, event.kind, role, states)
+                role_variable = self._role_variable(event.id, event.kind, role, states)
                 variables.append(role_variable)
-                factors.append(self._role_prior_factor(event_key, role_variable, states))
+                factors.append(self._role_prior_factor(event.id, role_variable, states))
                 if role_spec is not None:
                     factors.append(
                         self._role_compatibility_factor(
-                            event_key=event_key,
+                            event_id=event.id,
                             role=role,
                             role_variable=role_variable,
                             role_spec=role_spec,
@@ -123,7 +190,7 @@ class FactInferenceGraphBuilder:
                     )
                     factors.append(
                         self._event_role_constraint_factor(
-                            event_key=event_key,
+                            event_id=event.id,
                             event_variable=event_variable,
                             role_variable=role_variable,
                             required=role_spec.required,
@@ -144,9 +211,12 @@ class FactInferenceGraphBuilder:
             ),
         )
 
-    def _event_active_variable(self, event_key: FactCandidateId, kind) -> InferenceVariable:
+    def _materialized_fact_id(self, event_id: EventCandidateId) -> FactCandidateId:
+        return FactCandidateId(f"materialized:{event_id}")
+
+    def _event_active_variable(self, event_id: EventCandidateId, kind) -> InferenceVariable:
         return InferenceVariable(
-            id=InferenceVariableId(f"event-active:{event_key}"),
+            id=InferenceVariableId(f"event-active:{event_id}"),
             kind=InferenceVariableKind.EVENT_ACTIVE,
             states=(FALSE_STATE, TRUE_STATE),
             fact_kind=kind,
@@ -154,13 +224,13 @@ class FactInferenceGraphBuilder:
 
     def _event_prior_factor(
         self,
-        event_key: FactCandidateId,
+        event_id: EventCandidateId,
         variable: InferenceVariable,
         prior: FactPrior,
         event,
     ) -> InferenceFactor:
         return InferenceFactor(
-            id=InferenceFactorId(f"factor:event-prior:{event_key}"),
+            id=InferenceFactorId(f"factor:event-prior:{event_id}"),
             kind=InferenceFactorKind.EVIDENCE_PRIOR,
             variable_ids=(variable.id,),
             potentials=(1.0 - prior.score, prior.score),
@@ -199,13 +269,13 @@ class FactInferenceGraphBuilder:
 
     def _role_variable(
         self,
-        event_key: FactCandidateId,
+        event_id: EventCandidateId,
         kind,
         role: EventRole,
         states: tuple[RoleFillerState, ...],
     ) -> InferenceVariable:
         return InferenceVariable(
-            id=InferenceVariableId(f"role-filler:{event_key}:{role.value}"),
+            id=InferenceVariableId(f"role-filler:{event_id}:{role.value}"),
             kind=InferenceVariableKind.ROLE_FILLER,
             states=tuple(state.state for state in states),
             fact_kind=kind,
@@ -214,7 +284,7 @@ class FactInferenceGraphBuilder:
 
     def _role_prior_factor(
         self,
-        event_key: FactCandidateId,
+        event_key: EventCandidateId,
         variable: InferenceVariable,
         states: tuple[RoleFillerState, ...],
     ) -> InferenceFactor:
@@ -233,7 +303,7 @@ class FactInferenceGraphBuilder:
     def _event_role_constraint_factor(
         self,
         *,
-        event_key: FactCandidateId,
+        event_id: EventCandidateId,
         event_variable: InferenceVariable,
         role_variable: InferenceVariable,
         required: bool,
@@ -249,7 +319,7 @@ class FactInferenceGraphBuilder:
                 else:
                     values.append(1.0 if is_unknown else 0.1)
         return InferenceFactor(
-            id=InferenceFactorId(f"factor:event-role:{event_key}:{role_variable.role}"),
+            id=InferenceFactorId(f"factor:event-role:{event_id}:{role_variable.role}"),
             kind=InferenceFactorKind.CONSTRAINT,
             variable_ids=(event_variable.id, role_variable.id),
             potentials=tuple(values),
@@ -258,7 +328,7 @@ class FactInferenceGraphBuilder:
     def _role_compatibility_factor(
         self,
         *,
-        event_key: FactCandidateId,
+        event_id: EventCandidateId,
         role: EventRole,
         role_variable: InferenceVariable,
         role_spec,
@@ -278,7 +348,7 @@ class FactInferenceGraphBuilder:
                 case _:
                     potentials.append(1.0)
         return InferenceFactor(
-            id=InferenceFactorId(f"factor:role-compatibility:{event_key}:{role_variable.role}"),
+            id=InferenceFactorId(f"factor:role-compatibility:{event_id}:{role_variable.role}"),
             kind=InferenceFactorKind.ROLE_COMPATIBILITY,
             variable_ids=(role_variable.id,),
             potentials=tuple(potentials),
@@ -292,49 +362,11 @@ class FactInferenceGraphBuilder:
         if len(states) == 1:
             return (1.0,)
         weights = [
-            self._weight_for_state(role, state, index == 0) for index, state in enumerate(states)
+            self.role_weight_model.weight(role=role, state=state, is_unknown=index == 0)
+            for index, state in enumerate(states)
         ]
         total = sum(weights)
         return tuple(round(weight / total, 6) for weight in weights)
-
-    def _weight_for_state(
-        self,
-        role: EventRole | None,
-        state: RoleFillerState,
-        is_unknown: bool,
-    ) -> float:
-        if is_unknown:
-            return 0.7
-        score = 0.5
-        if role in {EventRole.EMPLOYEE, EventRole.PERSON, EventRole.SUBJECT, EventRole.OBJECT}:
-            score += 0.1
-        if role in {
-            EventRole.WORKPLACE,
-            EventRole.ORGANIZATION,
-            EventRole.FUNDER,
-            EventRole.RECIPIENT,
-        }:
-            score += 0.08
-        for signal in state.signals:
-            match signal:
-                case LocalPersonSignal() | LocalOrganizationSignal() | LocalRoleSignal():
-                    score += 0.35
-                case WindowPersonSignal() | WindowOrganizationSignal() | WindowRoleSignal():
-                    score += 0.15
-                case ProxyFamilyEntitySignal() | PossessiveKinshipSignal():
-                    score += 0.35
-                case (
-                    WeakSyntacticBindingSignal()
-                    | AppointerContextSignal()
-                    | ControllerContextSignal()
-                    | PartyOrganizationSignal()
-                ):
-                    score -= 0.85
-                case _ if signal.polarity is SignalPolarity.POSITIVE:
-                    score += 0.18
-                case _:
-                    score -= 0.22
-        return max(0.05, score)
 
     def _state_id_for_filler(self, filler: ArgumentFiller) -> InferenceStateId:
         match filler:

@@ -3,10 +3,9 @@ from __future__ import annotations
 from pipeline_v2.candidates import EntityFactArgument, FactCandidateRecord
 from pipeline_v2.nlp import NerLabel, Span
 from pipeline_v2.types import FactArgumentRole, FactKind
-from tests_v2.materialized import fact_records
+from tests_v2.materialized import entity_argument, fact_records
 from tests_v2.test_governance import (
     NamedEntitySpan,
-    entity_argument_id,
     run_governance_stage,
 )
 
@@ -44,7 +43,7 @@ def test_governance_stage_does_not_use_distant_cross_paragraph_fallback_organiza
     assert len(dismissals) >= 1
     record = dismissals[0]
 
-    person = document.store.entity_candidates[entity_argument_id(record, "person")]
+    person = document.store.entity_candidates[entity_argument(record, "person")]
 
     assert person.canonical_hint == "Marcin Kubica"
     assert not _has_entity_argument(record, FactArgumentRole.ORGANIZATION)
@@ -90,7 +89,7 @@ def test_governance_stage_does_not_use_paragraph_lead_for_cross_paragraph_fallba
     assert len(dismissals) >= 1
     record = dismissals[0]
 
-    person = document.store.entity_candidates[entity_argument_id(record, "person")]
+    person = document.store.entity_candidates[entity_argument(record, "person")]
 
     assert "Leśn" in (person.canonical_hint or "")
     assert not _has_entity_argument(record, FactArgumentRole.ORGANIZATION)

@@ -12,12 +12,11 @@ from pipeline_v2.ids import (
     DocumentId,
     EntityCandidateId,
     EventCandidateId,
-    FactCandidateId,
-    InferenceFactorId,
     InferenceStateId,
     ProducerId,
 )
 from pipeline_v2.inference.factor_builders import FactInferenceGraphBuilder
+from pipeline_v2.inference.graph_spec import InferenceFactorKind
 from pipeline_v2.types import EntityKind, EventRole, FactKind, GroundingKind
 
 
@@ -76,7 +75,6 @@ def test_role_compatibility_factor_penalizes_party_in_organization_slot() -> Non
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
-            source_fact_id=FactCandidateId("fact-1"),
         )
     )
 
@@ -111,24 +109,22 @@ def test_role_compatibility_factor_penalizes_party_in_organization_slot() -> Non
 
     fact_graph = FactInferenceGraphBuilder().build(document)
 
-    # Find the role compatibility factor for organization
-    factor_id = InferenceFactorId("factor:role-compatibility:fact-1:organization")
-    factor = next((f for f in fact_graph.spec.factors if f.id == factor_id), None)
-    assert factor is not None
-
-    # Variable states should be: UNKNOWN, org-1, party-1
-    variable_id = factor.variable_ids[0]
+    variable_id = fact_graph.index.role_variable_id_by_event_role[
+        (event_id, EventRole.ORGANIZATION)
+    ]
+    factor = next(
+        f
+        for f in fact_graph.spec.factors
+        if f.kind is InferenceFactorKind.ROLE_COMPATIBILITY and f.variable_ids == (variable_id,)
+    )
     variable = next((v for v in fact_graph.spec.variables if v.id == variable_id), None)
     assert variable is not None
 
-    # The states are sorted by state_id (except UNKNOWN which is first)
-    # UNKNOWN is first, then 'org-1', then 'party-1' (alphabetically)
     state_ids = [state.id for state in variable.states]
     assert state_ids[0] == "unknown"
     assert "entity:org-1" in state_ids
     assert "entity:party-1" in state_ids
 
-    # Potential for org-1 should be 1.0 (compatible), and for party-1 should be 0.02 (incompatible)
     org_index = state_ids.index(InferenceStateId("entity:org-1"))
     party_index = state_ids.index(InferenceStateId("entity:party-1"))
 

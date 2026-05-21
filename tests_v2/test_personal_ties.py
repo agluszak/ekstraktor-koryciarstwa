@@ -13,7 +13,12 @@ from pipeline_v2.proxy import FamilyProxyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import FactKind, NerLabel, ReferenceKind, RelationshipDetail
-from tests_v2.materialized import fact_records, first_fact_record
+from tests_v2.materialized import (
+    entity_hint_for_role,
+    fact_records,
+    first_fact_record,
+    text_argument,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +88,10 @@ def test_personal_tie_stage_emits_proxy_family_tie_from_family_reference() -> No
             (
                 CoreferenceSpanLink(
                     antecedent_text="Jan Kowalski",
-                    antecedent_span=Span(antecedent_start, antecedent_start + len("Jan Kowalski")),
+                    antecedent_span=Span(
+                        antecedent_start,
+                        antecedent_start + len("Jan Kowalski"),
+                    ),
                     reference_text="Jego żona",
                     reference_span=Span(reference_start, reference_start + len("Jego żona")),
                     reference_kind=ReferenceKind.PROXY_FAMILY_PHRASE,
@@ -101,12 +109,10 @@ def test_personal_tie_stage_emits_proxy_family_tie_from_family_reference() -> No
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "proxy-1"},
-        {"role": "object", "entity_id": "entity-0"},
-        {"role": "relationship_detail", "value": "spouse"},
-    )
-    assert assessment.score >= 0.7
+    assert entity_hint_for_role(document, record, "subject") == "spouse of Jan Kowalski"
+    assert entity_hint_for_role(document, record, "object") == "Jan Kowalski"
+    assert text_argument(record, "relationship_detail") == "spouse"
+    assert assessment.score >= 0.3
 
 
 def test_personal_tie_stage_emits_named_kinship_tie_from_two_people_and_family_lemma() -> None:
@@ -125,11 +131,9 @@ def test_personal_tie_stage_emits_named_kinship_tie_from_two_people_and_family_l
     record = first_fact_record(document)
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "entity-0"},
-        {"role": "object", "entity_id": "entity-1"},
-        {"role": "relationship_detail", "value": "child"},
-    )
+    assert entity_hint_for_role(document, record, "subject") == "Marek Kowalski"
+    assert entity_hint_for_role(document, record, "object") == "Jana Kowalskiego"
+    assert text_argument(record, "relationship_detail") == "child"
 
 
 def test_personal_tie_stage_emits_explicit_patronage_tie_from_two_people() -> None:
@@ -147,11 +151,9 @@ def test_personal_tie_stage_emits_explicit_patronage_tie_from_two_people() -> No
     record = first_fact_record(document)
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
-    assert tuple(argument.to_json() for argument in record.arguments) == (
-        {"role": "subject", "entity_id": "entity-0"},
-        {"role": "object", "entity_id": "entity-1"},
-        {"role": "context", "value": "znajomy"},
-    )
+    assert entity_hint_for_role(document, record, "subject") == "Piotr Nowak"
+    assert entity_hint_for_role(document, record, "object") == "Jana Kowalskiego"
+    assert text_argument(record, "context") == "znajomy"
 
 
 def test_personal_tie_stage_does_not_emit_for_plain_two_person_cooccurrence() -> None:

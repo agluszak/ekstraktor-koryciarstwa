@@ -104,7 +104,6 @@ class EventCandidate:
     evidence_ids: tuple[EvidenceId, ...]
     source: ProducerId
     signals: tuple[Signal, ...] = ()
-    source_fact_id: FactCandidateId | None = None
 
 
 @dataclass(frozen=True, slots=True)
