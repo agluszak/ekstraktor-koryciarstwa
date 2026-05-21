@@ -77,6 +77,7 @@ class SimpleEntityCandidateProducer:
             )
         )
 
+
 class EvidenceSignalProducer:
     producer_id = ProducerId("evidence_signal_producer")
 

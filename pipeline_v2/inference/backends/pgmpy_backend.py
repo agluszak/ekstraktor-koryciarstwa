@@ -75,29 +75,32 @@ class PgmpyInferenceBackend(InferenceBackend):
                 model.add_edge(variable_name, discrete_factor)
         model.check_model()
 
-        inference = BeliefPropagation(model)
-        marginals: list[VariableMarginal] = []
-        for variable in variables:
-            pgmpy_factor = inference.query(
-                variables=[variable_names[variable.id]],
-                show_progress=self.show_progress,
-            )
-            flat_values = pgmpy_factor.values.reshape(-1)
-            normalized = self._normalize_probabilities(flat_values, len(variable.states))
-            probabilities = tuple(
-                StateProbability(state_id=state.id, probability=normalized[index])
-                for index, state in enumerate(variable.states)
-            )
-            marginals.append(VariableMarginal(variable_id=variable.id, probabilities=probabilities))
+        import numpy as np
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            inference = BeliefPropagation(model)
+            marginals: list[VariableMarginal] = []
+            for variable in variables:
+                pgmpy_factor = inference.query(
+                    variables=[variable_names[variable.id]],
+                    show_progress=self.show_progress,
+                )
+                flat_values = pgmpy_factor.values.reshape(-1)
+                normalized = self._normalize_probabilities(flat_values, len(variable.states))
+                probabilities = tuple(
+                    StateProbability(state_id=state.id, probability=normalized[index])
+                    for index, state in enumerate(variable.states)
+                )
+                marginals.append(
+                    VariableMarginal(variable_id=variable.id, probabilities=probabilities)
+                )
         return InferenceResult(marginals=tuple(marginals))
 
     def _sanitize_potentials(self, potentials: tuple[float, ...]) -> tuple[float, ...]:
         if not potentials:
             return ()
         sanitized = [
-            self.minimum_potential
-            if not math.isfinite(value) or value <= 0.0
-            else float(value)
+            self.minimum_potential if not math.isfinite(value) or value <= 0.0 else float(value)
             for value in potentials
         ]
         return tuple(sanitized)

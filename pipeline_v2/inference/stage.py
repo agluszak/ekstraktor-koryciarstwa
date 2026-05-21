@@ -41,16 +41,16 @@ class ProbabilisticInferenceStage:
         )
         backend = self.backend or PgmpyInferenceBackend()
         result = backend.run(combined_spec)
-        materializer = self.materializer or FactAssessmentMaterializer()
-        document = materializer.materialize(
-            document=document,
-            built_graph=built_graph,
-            result=result,
-        )
         resolution_materializer = self.resolution_materializer or ResolutionAssessmentMaterializer()
         document = resolution_materializer.materialize(
             document=document,
             built_graph=built_resolution_graph,
+            result=result,
+        )
+        materializer = self.materializer or FactAssessmentMaterializer()
+        document = materializer.materialize(
+            document=document,
+            built_graph=built_graph,
             result=result,
         )
         document.inference_marginals = list(result.marginals)
