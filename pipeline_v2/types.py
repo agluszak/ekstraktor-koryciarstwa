@@ -49,6 +49,52 @@ class FactArgumentRole(StrEnum):
     RELATIONSHIP_DETAIL = "relationship_detail"
 
 
+class EventRole(StrEnum):
+    SUBJECT = "subject"
+    OBJECT = "object"
+    PERSON = "person"
+    ORGANIZATION = "organization"
+    ROLE = "role"
+    AMOUNT = "amount"
+    FUNDER = "funder"
+    RECIPIENT = "recipient"
+    CONTRACTOR = "contractor"
+    COUNTERPARTY = "counterparty"
+    COMPLAINANT = "complainant"
+    TARGET = "target"
+    INSTITUTION = "institution"
+    ACTOR = "actor"
+    CONTEXT = "context"
+    RELATIONSHIP_DETAIL = "relationship_detail"
+    EMPLOYEE = "employee"
+    WORKPLACE = "workplace"
+    HIRING_AUTHORITY = "hiring_authority"
+
+    @classmethod
+    def from_fact_argument_role(cls, role: FactArgumentRole) -> "EventRole":
+        return _EVENT_ROLE_BY_FACT_ARGUMENT_ROLE[role]
+
+
+_EVENT_ROLE_BY_FACT_ARGUMENT_ROLE = {
+    FactArgumentRole.SUBJECT: EventRole.SUBJECT,
+    FactArgumentRole.OBJECT: EventRole.OBJECT,
+    FactArgumentRole.PERSON: EventRole.PERSON,
+    FactArgumentRole.ORGANIZATION: EventRole.ORGANIZATION,
+    FactArgumentRole.ROLE: EventRole.ROLE,
+    FactArgumentRole.AMOUNT: EventRole.AMOUNT,
+    FactArgumentRole.FUNDER: EventRole.FUNDER,
+    FactArgumentRole.RECIPIENT: EventRole.RECIPIENT,
+    FactArgumentRole.CONTRACTOR: EventRole.CONTRACTOR,
+    FactArgumentRole.COUNTERPARTY: EventRole.COUNTERPARTY,
+    FactArgumentRole.COMPLAINANT: EventRole.COMPLAINANT,
+    FactArgumentRole.TARGET: EventRole.TARGET,
+    FactArgumentRole.INSTITUTION: EventRole.INSTITUTION,
+    FactArgumentRole.ACTOR: EventRole.ACTOR,
+    FactArgumentRole.CONTEXT: EventRole.CONTEXT,
+    FactArgumentRole.RELATIONSHIP_DETAIL: EventRole.RELATIONSHIP_DETAIL,
+}
+
+
 class NerLabel(StrEnum):
     PERSON = "person"
     ORGANIZATION = "organization"

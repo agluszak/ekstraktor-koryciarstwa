@@ -43,6 +43,7 @@ def run_public_money_stage(text: str) -> ArticleDocument:
     ParagraphSentenceSegmenter().run(document)
     MorfeuszMorphologyStage(morphology).run(document)
     PublicMoneyCandidateStage().run(document)
+    FactScoringStage().run(document)
     return document
 
 
@@ -66,6 +67,7 @@ def run_public_money_stage_with_entities(
         morphology=morphology,
     ).run(document)
     PublicMoneyCandidateStage().run(document)
+    FactScoringStage().run(document)
     return document
 
 

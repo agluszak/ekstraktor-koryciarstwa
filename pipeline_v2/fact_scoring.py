@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-from pipeline_v2.document import ArticleDocument, FactAssessment
-from pipeline_v2.scoring import FactRecordScorer
+from pipeline_v2.document import ArticleDocument
+from pipeline_v2.inference.backend import InferenceBackend
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 
 
 class FactScoringStage:
+    def __init__(self, backend: InferenceBackend | None = None) -> None:
+        self.stage = ProbabilisticInferenceStage(backend=backend)
+
     def name(self) -> str:
         return "fact_scoring_stage_v2"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        scorer = FactRecordScorer(document.store)
-        assessed_ids = {assessment.fact_candidate_id for assessment in document.fact_assessments}
-        for candidate in document.store.fact_candidates.values():
-            if candidate.id in assessed_ids:
-                continue
-            record = candidate.to_fact_record()
-            document.fact_assessments.append(
-                FactAssessment(
-                    fact_candidate_id=candidate.id,
-                    assessment=scorer.score(record),
-                )
-            )
-        return document
+        return self.stage.run(document)

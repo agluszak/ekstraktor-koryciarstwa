@@ -18,10 +18,13 @@ from pipeline_v2.ids import (
     DocumentId,
     EvidenceId,
     FactCandidateId,
+    InferenceStateId,
+    InferenceVariableId,
     ProducerId,
     ScorerId,
     SentenceId,
 )
+from pipeline_v2.inference.graph_spec import InferenceDiagnostic, StateProbability, VariableMarginal
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span
 from pipeline_v2.output import document_to_json
 from pipeline_v2.types import DependencyObjectSignal, DependencyRelation, PublicMoneyRelevanceSignal
@@ -78,6 +81,18 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
             reason="disabled by config",
         )
     )
+    document.inference_marginals.append(
+        VariableMarginal(
+            variable_id=InferenceVariableId("event-active:fact-1"),
+            probabilities=(
+                StateProbability(InferenceStateId("false"), 0.25),
+                StateProbability(InferenceStateId("true"), 0.75),
+            ),
+        )
+    )
+    document.inference_diagnostics.append(
+        InferenceDiagnostic(message="pgmpy belief propagation completed")
+    )
 
     rendered = document_to_json(document)
 
@@ -122,6 +137,16 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
             },
         }
     ]
+    assert rendered["inference_marginals"] == [
+        {
+            "variable_id": "event-active:fact-1",
+            "probabilities": [
+                {"state_id": "false", "probability": 0.25},
+                {"state_id": "true", "probability": 0.75},
+            ],
+        }
+    ]
+    assert rendered["inference_diagnostics"] == [{"message": "pgmpy belief propagation completed"}]
 
 
 def test_document_output_serializes_signal_details_as_structured_json() -> None:

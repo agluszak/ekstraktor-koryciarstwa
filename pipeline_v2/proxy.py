@@ -1,10 +1,18 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import EntityCandidate, PersonalTieFactCandidate
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    EntityCandidate,
+    EntityFiller,
+    EventCandidate,
+    TextFiller,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import ProducerId
 from pipeline_v2.types import (
     EntityKind,
+    EventRole,
+    FactKind,
     GroundingKind,
     ProxyFamilyEntitySignal,
     ReferenceKind,
@@ -38,18 +46,43 @@ class FamilyProxyCandidateStage:
                     source=self.producer_id,
                 )
             )
-            document.store.add_fact_candidate(
-                PersonalTieFactCandidate(
-                    id=document.store.next_fact_candidate_id(),
-                    subject_entity_id=proxy_id,
-                    object_entity_id=anchor.id,
+            event = EventCandidate(
+                id=document.store.next_event_candidate_id(),
+                kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+                trigger_evidence_id=reference.evidence_id,
+                evidence_ids=(reference.evidence_id,),
+                source=self.producer_id,
+                signals=(
+                    ProxyFamilyEntitySignal(),
+                    RelationshipDetailSignal(detail=reference.relationship_detail),
+                ),
+            )
+            document.store.add_event_candidate(event)
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.SUBJECT,
+                    filler=EntityFiller(proxy_id),
                     evidence_ids=(reference.evidence_id,),
-                    source=self.producer_id,
-                    relationship_detail=reference.relationship_detail,
-                    signals=(
-                        ProxyFamilyEntitySignal(),
-                        RelationshipDetailSignal(detail=reference.relationship_detail),
-                    ),
+                )
+            )
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.OBJECT,
+                    filler=EntityFiller(anchor.id),
+                    evidence_ids=(reference.evidence_id,),
+                )
+            )
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.RELATIONSHIP_DETAIL,
+                    filler=TextFiller(reference.relationship_detail.value),
+                    evidence_ids=(reference.evidence_id,),
                 )
             )
         return document

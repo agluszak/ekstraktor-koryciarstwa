@@ -4,8 +4,17 @@ import json
 from pathlib import Path
 from typing import cast
 
-from pipeline_v2.candidates import Assessment, EntityCandidate, FactCandidateRecord
+from pipeline_v2.candidates import (
+    ArgumentFiller,
+    Assessment,
+    EntityCandidate,
+    EntityFiller,
+    FactCandidateRecord,
+    TextFiller,
+    UnknownFiller,
+)
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.inference.graph_spec import InferenceDiagnostic, VariableMarginal
 from pipeline_v2.nlp import EvidenceSpan, Mention, MorphAnalysis, ReferenceMention, Sentence, Token
 from pipeline_v2.types import Signal
 
@@ -44,6 +53,43 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
             ],
             "entities": [
                 entity_to_json(entity) for entity in document.store.entity_candidates.values()
+            ],
+            "event_candidates": [
+                {
+                    "id": str(event.id),
+                    "kind": event.kind.value,
+                    "trigger_evidence_id": (
+                        str(event.trigger_evidence_id)
+                        if event.trigger_evidence_id is not None
+                        else None
+                    ),
+                    "evidence_ids": [str(evidence_id) for evidence_id in event.evidence_ids],
+                    "source": str(event.source),
+                    "source_fact_id": (
+                        str(event.source_fact_id) if event.source_fact_id is not None else None
+                    ),
+                    "signals": [signal_to_json(signal) for signal in event.signals],
+                }
+                for event in document.store.event_candidates.values()
+            ],
+            "argument_bindings": [
+                {
+                    "id": str(binding.id),
+                    "event_id": str(binding.event_id),
+                    "role": binding.role.value,
+                    "filler": argument_filler_to_json(binding.filler),
+                    "evidence_ids": [str(evidence_id) for evidence_id in binding.evidence_ids],
+                    "signals": [signal_to_json(signal) for signal in binding.signals],
+                }
+                for bindings in document.store.argument_bindings_by_event_id.values()
+                for binding in bindings
+            ],
+            "inference_marginals": [
+                variable_marginal_to_json(marginal) for marginal in document.inference_marginals
+            ],
+            "inference_diagnostics": [
+                inference_diagnostic_to_json(diagnostic)
+                for diagnostic in document.inference_diagnostics
             ],
             "references": [
                 reference_to_json(reference) for reference in document.store.references.values()
@@ -97,8 +143,7 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                 for claim in document.store.fact_resolution_claims.values()
             ],
             "fact_candidates": [
-                fact_record_to_json(candidate.to_fact_record())
-                for candidate in document.store.fact_candidates.values()
+                fact_record_to_json(candidate) for candidate in document.materialized_fact_records
             ],
             "fact_assessments": [
                 {
@@ -184,6 +229,33 @@ def entity_to_json(entity: EntityCandidate) -> JsonObject:
         "grounding": entity.grounding.value,
         "source": str(entity.source),
     }
+
+
+def argument_filler_to_json(filler: ArgumentFiller) -> JsonObject:
+    match filler:
+        case EntityFiller(entity_id=entity_id):
+            return {"kind": "entity", "entity_id": str(entity_id)}
+        case TextFiller(value=value):
+            return {"kind": "text", "value": value}
+        case UnknownFiller(reason=reason):
+            return {"kind": "unknown", "reason": reason}
+
+
+def variable_marginal_to_json(marginal: VariableMarginal) -> JsonObject:
+    return {
+        "variable_id": str(marginal.variable_id),
+        "probabilities": [
+            {
+                "state_id": str(probability.state_id),
+                "probability": probability.probability,
+            }
+            for probability in marginal.probabilities
+        ],
+    }
+
+
+def inference_diagnostic_to_json(diagnostic: InferenceDiagnostic) -> JsonObject:
+    return {"message": diagnostic.message}
 
 
 def reference_to_json(reference: ReferenceMention) -> JsonObject:

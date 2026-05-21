@@ -4,8 +4,10 @@ import re
 from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
-    AntiCorruptionInvestigationCandidate,
-    AntiCorruptionReferralCandidate,
+    ArgumentBindingCandidate,
+    EntityFiller,
+    EventCandidate,
+    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
@@ -15,6 +17,8 @@ from pipeline_v2.types import (
     AntiCorruptionInvestigationLemmaSignal,
     AntiCorruptionReferralLemmaSignal,
     EntityKind,
+    EventRole,
+    FactKind,
     LocalActorSignal,
     LocalInstitutionSignal,
     LocalTargetSignal,
@@ -142,21 +146,68 @@ class AntiCorruptionCandidateStage:
                         signals.append(LocalTargetSignal())
                     if institution_id is not None:
                         signals.append(LocalInstitutionSignal())
-                    document.store.add_fact_candidate(
-                        AntiCorruptionReferralCandidate(
-                            id=document.store.next_fact_candidate_id(),
-                            actor_entity_id=actor.id if actor is not None else None,
-                            target_entity_id=target.id if target is not None else None,
-                            institution_entity_id=institution_id,
-                            institution_text=(
-                                None if institution_id is not None else institution.text
-                            ),
-                            context_text=context_text,
-                            evidence_ids=(evidence.id,),
-                            source=self.producer_id,
-                            signals=tuple(signals),
-                        )
+                    event = EventCandidate(
+                        id=document.store.next_event_candidate_id(),
+                        kind=FactKind.ANTI_CORRUPTION_REFERRAL,
+                        trigger_evidence_id=evidence.id,
+                        evidence_ids=(evidence.id,),
+                        source=self.producer_id,
+                        signals=tuple(signals),
                     )
+                    document.store.add_event_candidate(event)
+                    if actor is not None:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.COMPLAINANT,
+                                filler=EntityFiller(actor.id),
+                                evidence_ids=(evidence.id,),
+                                signals=(LocalActorSignal(),),
+                            )
+                        )
+                    if target is not None:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.TARGET,
+                                filler=EntityFiller(target.id),
+                                evidence_ids=(evidence.id,),
+                                signals=(LocalTargetSignal(),),
+                            )
+                        )
+                    if institution_id is not None:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.INSTITUTION,
+                                filler=EntityFiller(institution_id),
+                                evidence_ids=(evidence.id,),
+                                signals=(LocalInstitutionSignal(),),
+                            )
+                        )
+                    elif institution.text:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.INSTITUTION,
+                                filler=TextFiller(institution.text),
+                                evidence_ids=(evidence.id,),
+                            )
+                        )
+                    if context_text is not None:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.CONTEXT,
+                                filler=TextFiller(context_text),
+                                evidence_ids=(evidence.id,),
+                            )
+                        )
             if (
                 (matched_investigation_lemmas or matched_control_request_lemmas)
                 and not referral_emitted
@@ -198,22 +249,57 @@ class AntiCorruptionCandidateStage:
                         signals.append(LocalTargetSignal())
                     if institution_id is not None:
                         signals.append(LocalInstitutionSignal())
-                    document.store.add_fact_candidate(
-                        AntiCorruptionInvestigationCandidate(
-                            id=document.store.next_fact_candidate_id(),
-                            target_entity_id=target.id if target is not None else None,
-                            institution_entity_id=institution_id,
-                            institution_text=(
-                                None
-                                if institution_id is not None or not institution.text
-                                else institution.text
-                            ),
-                            context_text=context_text,
-                            evidence_ids=(evidence.id,),
-                            source=self.producer_id,
-                            signals=tuple(signals),
-                        )
+                    event = EventCandidate(
+                        id=document.store.next_event_candidate_id(),
+                        kind=FactKind.ANTI_CORRUPTION_INVESTIGATION,
+                        trigger_evidence_id=evidence.id,
+                        evidence_ids=(evidence.id,),
+                        source=self.producer_id,
+                        signals=tuple(signals),
                     )
+                    document.store.add_event_candidate(event)
+                    if target is not None:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.TARGET,
+                                filler=EntityFiller(target.id),
+                                evidence_ids=(evidence.id,),
+                                signals=(LocalTargetSignal(),),
+                            )
+                        )
+                    if institution_id is not None:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.INSTITUTION,
+                                filler=EntityFiller(institution_id),
+                                evidence_ids=(evidence.id,),
+                                signals=(LocalInstitutionSignal(),),
+                            )
+                        )
+                    elif institution.text:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.INSTITUTION,
+                                filler=TextFiller(institution.text),
+                                evidence_ids=(evidence.id,),
+                            )
+                        )
+                    if context_text is not None:
+                        document.store.add_argument_binding(
+                            ArgumentBindingCandidate(
+                                id=document.store.next_argument_binding_candidate_id(),
+                                event_id=event.id,
+                                role=EventRole.CONTEXT,
+                                filler=TextFiller(context_text),
+                                evidence_ids=(evidence.id,),
+                            )
+                        )
         return document
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence: Sentence) -> frozenset[str]:

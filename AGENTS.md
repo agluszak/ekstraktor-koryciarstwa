@@ -87,21 +87,35 @@ The active V2 pipeline in `pipeline_v2/` is designed as a decoupled, stage-based
 9. **Proxy & Tie Candidate Stages**:
    - `FamilyProxyCandidateStage` & `PersonalTieCandidateStage`: Extract familial and patronage networks.
 10. **ResolutionScoringStage**: Scores candidate entity resolutions (merges, reference linkages) using explicit signals.
-11. **FactScoringStage**: Scores fact candidates using positive/negative evidence signals and assigns final assessments.
+11. **FactScoringStage / ProbabilisticInferenceStage**: Runs backend-neutral
+    probabilistic inference over event, role, reference, identity, and same-event
+    hypotheses, then materializes output fact records from posterior marginals.
 
 Decoupled orchestration loop is implemented in `V2Pipeline` in [pipeline_v2/stages.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/stages.py), built using the factory `build_v2_pipeline` in [pipeline_v2/runtime.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/runtime.py). The CLI entrypoint is [pipeline_v2/cli.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/cli.py) (run via script command `extractor-v2`).
 
 ## V2 Knowledge Graph Design Principles
 
-When working in `pipeline_v2/`, preserve the graph-like architecture and do not grow "god objects". Do not keep adding fields to `EntityCandidate`, fact candidates, `ArticleDocument`, or `ExtractionStore` just because a new producer needs state.
+When working in `pipeline_v2/`, preserve the graph-like architecture and do not grow
+"god objects". Do not keep adding fields to `EntityCandidate`, event candidates,
+`ArticleDocument`, or `ExtractionStore` just because a new producer needs state.
 
 ### Core Decoupled Rules
 - **Entities are identity hypotheses only** (no fields like `entity.party`, `entity.role`, `entity.is_public`, etc. Instead, use explicit facts and claims).
-- **Facts are event/relation hypotheses only**.
+- **Events are relation hypotheses only**. Producers emit `EventCandidate` plus
+  `ArgumentBindingCandidate` records, not final flat facts.
 - **Evidence is text-grounding only**.
 - **Scores are assessments only** (confidence/scores belong in separate `Assessment` records, not on candidates/facts).
 - **Links between elements must be explicit typed records**, not hidden mutable fields.
-- **Separation of Generation and Scoring**: Stages/producers only emit candidate hypotheses and local signals. The scoring stages (`ResolutionScoringStage`, `FactScoringStage`) compute the scores and assign assessments at the end.
+- **Separation of Generation and Inference**: Stages/producers only emit candidate
+  hypotheses and local signals. The probabilistic inference stage computes posterior
+  scores and inferred claims. Producers must not silently choose the "best" entity or
+  role when multiple plausible alternatives exist.
+- **Materialization Is Not Store Mutation**: final `FactCandidateRecord` objects are
+  output projections. Do not clear/repopulate `ExtractionStore` candidate collections
+  during scoring, and do not store materialized facts back as producer candidates.
+- **Backend Facade**: pgmpy or any other inference engine must stay behind
+  `InferenceBackend`. Domain producers, stores, tests, and output code must depend on
+  V2 typed graph specs/results, not backend APIs.
 - **Decoupled Retrieval**: Do not implement lookups in `ExtractionStore` directly. Implement search logic in specialized retriever classes (e.g. `SentenceEntityRetriever`, `EntityCandidateRetriever`) located in [pipeline_v2/retrieval.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/retrieval.py).
 
 ### Preferred V2 Graph Shape
@@ -110,26 +124,33 @@ When working in `pipeline_v2/`, preserve the graph-like architecture and do not 
   - `Mention`: observed named/entity-like span.
   - `ReferenceMention`: pronoun, surname-only, descriptor, omitted subject, or proxy phrase.
   - `EntityCandidate`: local hypothesis for a person, organization, party, role, etc.
-  - `FactCandidate`: local hypothesis for a relation or event.
+  - `EventCandidate`: local hypothesis for a relation or event trigger.
+  - `ArgumentBindingCandidate`: possible typed filler for an event role.
+  - `InferenceVariable` / `InferenceFactor`: backend-neutral probabilistic graph
+    records.
   - `Assessment`: score plus positive/negative signals.
   - `ResolutionClaim`: scored possible identity/reference link.
 - **Edge-like records**:
   - `Mention -> EvidenceSpan` via `evidence_id`.
   - `EntityCandidate -> Mention` via `mention_ids`.
   - `EntityCandidate -> ReferenceMention` via `reference_ids`.
-  - `FactCandidate -> EntityCandidate/Text` via typed fact arguments.
-  - `FactCandidate -> EvidenceSpan` via `evidence_ids`.
+  - `EventCandidate -> EvidenceSpan` via `evidence_ids`.
+  - `ArgumentBindingCandidate -> EventCandidate` via `event_id`.
+  - `ArgumentBindingCandidate -> EntityCandidate/Text` via typed fillers.
+  - materialized output fact -> selected event/role states at the output boundary.
   - `ResolutionClaim -> EntityCandidate/ReferenceMention` via explicit endpoint IDs.
   - `Assessment -> candidate/claim` through small wrapper records such as `FactAssessment`.
 
-### V2 Candidate and Claim Guidance
+### V2 Event, Binding, And Claim Guidance
 - Candidate records should stay small and typed.
-- If a new candidate family needs different arguments, prefer a new candidate dataclass with `to_fact_record()` over adding nullable fields to an existing one.
-- If multiple candidate families share an output shape, convert them to a common `FactCandidateRecord` at the serialization/scoring boundary.
-- Use explicit typed arguments instead of custom fields, for example:
-  - `EntityFactArgument(FactArgumentRole.PERSON, person_id)`
-  - `EntityFactArgument(FactArgumentRole.ORGANIZATION, org_id)`
-  - `TextFactArgument(FactArgumentRole.CONTEXT, text)`
+- If a new event family needs different participants, extend the typed event-role
+  schema and emit role bindings; do not add nullable fields to a fact object.
+- Use explicit typed fillers instead of custom fields, for example:
+  - `ArgumentBindingCandidate(role=EventRole.EMPLOYEE, filler=EntityFiller(person_id))`
+  - `ArgumentBindingCandidate(role=EventRole.WORKPLACE, filler=EntityFiller(org_id))`
+  - `ArgumentBindingCandidate(role=EventRole.CONTEXT, filler=TextFiller(text))`
+- `FactCandidateRecord` is a materialized projection for output/reports, not the
+  producer API and not the inference input.
 - Do not add "just in case" optional fields.
 
 ## V2 Extensibility & Development Guidelines
@@ -140,24 +161,30 @@ When extending the V2 pipeline with new domain logic (e.g., new fact kinds, sign
    - Add new fact kinds to the `FactKind` enum in [pipeline_v2/types.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/types.py).
    - Add new signal types by subclassing `Signal` (with `@dataclass(frozen=True, slots=True)`) in [pipeline_v2/types.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/types.py).
 
-2. **Define Fact Candidates**:
-   - Implement candidates using frozen dataclasses (e.g., implementing `FactCandidate` protocol) in [pipeline_v2/candidates.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/candidates.py).
-   - Ensure the candidate class implements `to_fact_record()` to return a `FactCandidateRecord` with arguments wrapped in `EntityFactArgument` or `TextFactArgument` and associated signals.
+2. **Define Event Roles**:
+   - Add or update event-role schema entries for the fact kind, including required
+     roles and allowed entity/filler kinds.
+   - Prefer categorical role alternatives over emitting multiple flat fact variants.
 
 3. **Implement Candidate Extraction (Stage)**:
    - Create a candidate stage implementing the `DocumentStage` protocol (e.g., must define `name(self) -> str` and `run(self, document: ArticleDocument) -> ArticleDocument`).
    - Locate sentence-local entities using `SentenceEntityRetriever` or token morphology.
-   - Overwrite/populate the store using `document.store.add_fact_candidate()`.
+   - Populate the store using `document.store.add_event_candidate()` and
+     `document.store.add_argument_binding()`.
    - Register the stage in `build_v2_pipeline` in [pipeline_v2/runtime.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/runtime.py).
 
-4. **Add Scoring Logic**:
-   - In `FactRecordScorer.score` inside [pipeline_v2/scoring.py](file:///home/agluszak/code/aktywizm/ekstraktor-koryciarstwa/pipeline_v2/scoring.py), add signal evaluation logic.
-   - Adjust the score (typically starting at a low baseline like 0.2, incrementing for positive signals, decrementing for negative signals, clamped to `[0.0, 1.0]`).
+4. **Add Inference Logic**:
+   - Add backend-neutral variables/factors in the inference layer.
+   - Encode role compatibility, syntax direction, entity/reference uncertainty, and
+     same-event evidence as typed factors.
+   - Do not add new cases to a central god scorer.
 
 5. **Write Unit/Integration Tests**:
    - Create a test file in `tests_v2/` (e.g., `tests_v2/test_your_feature.py`).
    - Standardize tests by using `StaticPreprocessor` and `StaticEntityProvider` to avoid loading heavy models (spaCy/Stanza) and keep execution under 1 second.
-   - Assert directly on `document.store` contents, candidate arguments, signals, and scoring thresholds.
+   - Assert event candidates, role binding alternatives, materialized output records,
+     inferred claims, and score ordering. Do not assert exact generated IDs or signal
+     order.
 
 ## V2 Testability & Mocking Strategy
 

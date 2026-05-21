@@ -9,6 +9,7 @@ dependencies = [
   "morfeusz2>=1.99.12",
   "numpy>=1.24",
   "peft>=0.17.1",
+  "pgmpy>=1.0.0",
   "pydantic>=2.13.0",
   "pyyaml>=6.0.2",
   "sentence-transformers>=4.1.0",

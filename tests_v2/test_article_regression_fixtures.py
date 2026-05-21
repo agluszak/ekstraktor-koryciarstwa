@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
 from pipeline_v2.document import ArticleDocument, PipelineInput
-from pipeline_v2.fact_resolution import FactResolutionStage
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId
@@ -18,7 +17,6 @@ from pipeline_v2.proxy import FamilyProxyCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.relevance import ProfileRelevanceFilter
-from pipeline_v2.resolution_scoring import ResolutionScoringStage
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.stages import V2Pipeline
@@ -108,8 +106,6 @@ def run_article_pipeline(
                 PublicMoneyCandidateStage(),
                 AntiCorruptionCandidateStage(),
                 PersonalTieCandidateStage(),
-                ResolutionScoringStage(),
-                FactResolutionStage(),
                 FactScoringStage(),
             )
         ),

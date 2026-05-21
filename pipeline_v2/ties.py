@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import PersonalTieFactCandidate
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    EntityFiller,
+    EventCandidate,
+    TextFiller,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import ProducerId
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
     EntityKind,
+    EventRole,
     ExplicitPatronageLemmaSignal,
+    FactKind,
     GroundingKind,
     LocalObjectSignal,
     LocalSubjectSignal,
@@ -105,27 +112,62 @@ class PersonalTieCandidateStage:
         pseudonymous_signal = self._pseudonymous_source_signal(document, sentence, subject)
         if pseudonymous_signal is not None:
             signals.append(pseudonymous_signal)
-        document.store.add_fact_candidate(
-            PersonalTieFactCandidate(
-                id=document.store.next_fact_candidate_id(),
-                subject_entity_id=subject.id,
-                object_entity_id=object_entity.id,
-                evidence_ids=tuple(
-                    evidence.id
-                    for evidence in document.store.evidence_for_entity(subject.id)
-                    if evidence.sentence_id == sentence_id
-                )
-                or tuple(
-                    evidence.id
-                    for evidence in document.store.evidence_for_entity(object_entity.id)
-                    if evidence.sentence_id == sentence_id
-                ),
-                source=self.producer_id,
-                relationship_detail=relationship_detail,
-                context_text=context_text,
-                signals=tuple(signals),
+        evidence_ids = tuple(
+            evidence.id
+            for evidence in document.store.evidence_for_entity(subject.id)
+            if evidence.sentence_id == sentence_id
+        ) or tuple(
+            evidence.id
+            for evidence in document.store.evidence_for_entity(object_entity.id)
+            if evidence.sentence_id == sentence_id
+        )
+        event = EventCandidate(
+            id=document.store.next_event_candidate_id(),
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            trigger_evidence_id=evidence_ids[0] if evidence_ids else None,
+            evidence_ids=evidence_ids,
+            source=self.producer_id,
+            signals=tuple(signals),
+        )
+        document.store.add_event_candidate(event)
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.SUBJECT,
+                filler=EntityFiller(subject.id),
+                evidence_ids=evidence_ids,
             )
         )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.OBJECT,
+                filler=EntityFiller(object_entity.id),
+                evidence_ids=evidence_ids,
+            )
+        )
+        if relationship_detail is not None:
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.RELATIONSHIP_DETAIL,
+                    filler=TextFiller(relationship_detail.value),
+                    evidence_ids=evidence_ids,
+                )
+            )
+        if context_text is not None:
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.CONTEXT,
+                    filler=TextFiller(context_text),
+                    evidence_ids=evidence_ids,
+                )
+            )
 
     def _pseudonymous_source_signal(
         self,

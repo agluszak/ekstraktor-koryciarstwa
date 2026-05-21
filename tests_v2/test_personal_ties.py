@@ -119,6 +119,7 @@ def test_personal_tie_stage_emits_named_kinship_tie_from_two_people_and_family_l
     )
 
     PersonalTieCandidateStage().run(document)
+    FactScoringStage().run(document)
 
     record = next(iter(document.store.fact_candidates.values())).to_fact_record()
 
@@ -141,6 +142,7 @@ def test_personal_tie_stage_emits_explicit_patronage_tie_from_two_people() -> No
     )
 
     PersonalTieCandidateStage().run(document)
+    FactScoringStage().run(document)
     record = next(iter(document.store.fact_candidates.values())).to_fact_record()
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE

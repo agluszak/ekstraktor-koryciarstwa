@@ -11,9 +11,9 @@ from pipeline_v2.coreference import (
 )
 from pipeline_v2.document import StageDiagnosticStatus
 from pipeline_v2.embeddings import SentenceTransformerEmbeddingProvider
-from pipeline_v2.fact_resolution import FactResolutionStage
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
+from pipeline_v2.inference.backend import InferenceBackend
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage, SpacyNamedEntityProvider
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter
@@ -24,7 +24,6 @@ from pipeline_v2.proxy import FamilyProxyCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.relevance import ProfileRelevanceFilter
-from pipeline_v2.resolution_scoring import ResolutionScoringStage
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.semantic import EvidenceEmbeddingStage
@@ -62,6 +61,7 @@ class V2PipelineConfig:
     sentence_transformer_model: str | None = None
     coreference_mode: CoreferenceMode = CoreferenceMode.OFF
     coreference_provider: CoreferenceProvider | None = None
+    inference_backend: InferenceBackend | None = None
 
 
 def _coreference_stage(
@@ -135,13 +135,7 @@ def _ordered_stages(
                 ),
             )
         )
-    plan.extend(
-        (
-            OrderedStage(V2StagePhase.SCORING, ResolutionScoringStage()),
-            OrderedStage(V2StagePhase.SCORING, FactResolutionStage()),
-            OrderedStage(V2StagePhase.SCORING, FactScoringStage()),
-        )
-    )
+    plan.extend((OrderedStage(V2StagePhase.SCORING, FactScoringStage(config.inference_backend)),))
     return tuple(plan)
 
 

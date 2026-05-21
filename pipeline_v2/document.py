@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from pipeline_v2.candidates import Assessment, FactCandidate, ReferenceResolutionProposal
+from pipeline_v2.candidates import Assessment, FactCandidateRecord, ReferenceResolutionProposal
 from pipeline_v2.embeddings import EvidenceVectorIndex
 from pipeline_v2.ids import DocumentId, FactCandidateId
+from pipeline_v2.inference.graph_spec import InferenceDiagnostic, VariableMarginal
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import RelevanceSignal
 
@@ -59,7 +60,10 @@ class ArticleDocument:
     store: ExtractionStore = field(default_factory=ExtractionStore)
     evidence_index: EvidenceVectorIndex = field(default_factory=EvidenceVectorIndex)
     reference_resolution_proposals: list[ReferenceResolutionProposal] = field(default_factory=list)
+    materialized_fact_records: list[FactCandidateRecord] = field(default_factory=list)
     fact_assessments: list[FactAssessment] = field(default_factory=list)
+    inference_marginals: list[VariableMarginal] = field(default_factory=list)
+    inference_diagnostics: list[InferenceDiagnostic] = field(default_factory=list)
     relevance: RelevanceDecision | None = None
     execution_times: dict[str, float] = field(default_factory=dict)
     stage_diagnostics: list[StageDiagnostic] = field(default_factory=list)
@@ -72,7 +76,7 @@ class ExtractionResult:
     title: str
     publication_date: str | None
     relevance: RelevanceDecision
-    fact_candidates: tuple[FactCandidate, ...]
+    fact_candidates: tuple[FactCandidateRecord, ...]
     execution_times: dict[str, float]
 
 
@@ -83,6 +87,6 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         title=document.title,
         publication_date=document.publication_date,
         relevance=document.relevance or RelevanceDecision(is_relevant=False, score=0.0),
-        fact_candidates=tuple(document.store.fact_candidates.values()),
+        fact_candidates=tuple(document.materialized_fact_records),
         execution_times=dict(document.execution_times),
     )

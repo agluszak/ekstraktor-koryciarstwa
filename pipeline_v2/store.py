@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections import defaultdict
 
 from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
     EntityBlockingKey,
     EntityCandidate,
     EntityResolutionClaim,
+    EventCandidate,
     FactCandidate,
     FactResolutionClaim,
     FullPersonNameKey,
@@ -13,7 +15,9 @@ from pipeline_v2.candidates import (
     ReferenceResolutionClaim,
 )
 from pipeline_v2.ids import (
+    ArgumentBindingCandidateId,
     EntityCandidateId,
+    EventCandidateId,
     EvidenceId,
     FactCandidateId,
     MentionId,
@@ -42,6 +46,10 @@ class ExtractionStore:
         self.mentions: dict[MentionId, Mention] = {}
         self.references: dict[MentionId, ReferenceMention] = {}
         self.entity_candidates: dict[EntityCandidateId, EntityCandidate] = {}
+        self.event_candidates: dict[EventCandidateId, EventCandidate] = {}
+        self.argument_bindings_by_event_id: dict[
+            EventCandidateId, list[ArgumentBindingCandidate]
+        ] = defaultdict(list)
         self.fact_candidates: dict[FactCandidateId, FactCandidate] = {}
         self.resolution_claims: dict[ResolutionClaimId, EntityResolutionClaim] = {}
         self.reference_resolution_claims: dict[ResolutionClaimId, ReferenceResolutionClaim] = {}
@@ -114,11 +122,31 @@ class ExtractionStore:
             self.fact_ids_by_entity_id[entity_id].add(candidate.id)
         return candidate.id
 
+    def clear_fact_candidates(self) -> None:
+        self.fact_candidates = {}
+        self.fact_ids_by_entity_id = defaultdict(set)
+
+    def add_event_candidate(self, candidate: EventCandidate) -> EventCandidateId:
+        self.event_candidates[candidate.id] = candidate
+        return candidate.id
+
+    def add_argument_binding(self, binding: ArgumentBindingCandidate) -> None:
+        self.argument_bindings_by_event_id[binding.event_id].append(binding)
+
+    def argument_bindings_for_event(
+        self, event_id: EventCandidateId
+    ) -> tuple[ArgumentBindingCandidate, ...]:
+        return tuple(self.argument_bindings_by_event_id.get(event_id, ()))
+
     def add_resolution_claim(self, claim: EntityResolutionClaim) -> ResolutionClaimId:
         self.resolution_claims[claim.id] = claim
         self.resolution_ids_by_entity_id[claim.left_entity_id].add(claim.id)
         self.resolution_ids_by_entity_id[claim.right_entity_id].add(claim.id)
         return claim.id
+
+    def clear_resolution_claims(self) -> None:
+        self.resolution_claims = {}
+        self.resolution_ids_by_entity_id = defaultdict(set)
 
     def add_reference_resolution_claim(
         self,
@@ -128,11 +156,19 @@ class ExtractionStore:
         self.reference_resolution_ids_by_reference_id[claim.reference_id].add(claim.id)
         return claim.id
 
+    def clear_reference_resolution_claims(self) -> None:
+        self.reference_resolution_claims = {}
+        self.reference_resolution_ids_by_reference_id = defaultdict(set)
+
     def add_fact_resolution_claim(self, claim: FactResolutionClaim) -> ResolutionClaimId:
         self.fact_resolution_claims[claim.id] = claim
         self.fact_resolution_ids_by_fact_id[claim.left_fact_id].add(claim.id)
         self.fact_resolution_ids_by_fact_id[claim.right_fact_id].add(claim.id)
         return claim.id
+
+    def clear_fact_resolution_claims(self) -> None:
+        self.fact_resolution_claims = {}
+        self.fact_resolution_ids_by_fact_id = defaultdict(set)
 
     def entity_ids_for_blocking_key(self, key: EntityBlockingKey) -> set[EntityCandidateId]:
         return set(self.entity_ids_by_blocking_key.get(key, set()))
@@ -255,6 +291,13 @@ class ExtractionStore:
 
     def next_fact_candidate_id(self) -> FactCandidateId:
         return FactCandidateId(f"fact-{len(self.fact_candidates)}")
+
+    def next_event_candidate_id(self) -> EventCandidateId:
+        return EventCandidateId(f"event-{len(self.event_candidates)}")
+
+    def next_argument_binding_candidate_id(self) -> ArgumentBindingCandidateId:
+        count = sum(len(bindings) for bindings in self.argument_bindings_by_event_id.values())
+        return ArgumentBindingCandidateId(f"argument-binding-{count}")
 
     def next_resolution_claim_id(self) -> ResolutionClaimId:
         return ResolutionClaimId(f"resolution-{len(self.resolution_claims)}")

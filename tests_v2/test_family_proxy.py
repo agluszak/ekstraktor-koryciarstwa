@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from pipeline_v2.coreference import CoreferenceReferenceStage
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
@@ -75,6 +76,7 @@ def test_family_reference_materializes_proxy_person_linked_to_anchor() -> None:
     ).run(document)
 
     FamilyProxyCandidateStage().run(document)
+    FactScoringStage().run(document)
     proxy_candidates = tuple(
         candidate
         for candidate in document.store.entity_candidates.values()

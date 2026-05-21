@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import EntityCandidate, PersonalTieFactCandidate
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    EntityCandidate,
+    EntityFiller,
+    EventCandidate,
+    TextFiller,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, ReferenceMention, Sentence, Token
 from pipeline_v2.retrieval import SentenceEntityRetriever
 from pipeline_v2.types import (
     EntityKind,
+    EventRole,
+    FactKind,
     GroundingKind,
     NominalKinshipSignal,
     ReferenceKind,
@@ -123,16 +131,49 @@ class NominalKinshipCandidateStage:
                 )
             )
 
-        document.store.add_fact_candidate(
-            PersonalTieFactCandidate(
-                id=document.store.next_fact_candidate_id(),
-                subject_entity_id=referent_id,
-                object_entity_id=possessor_id,
+        event = EventCandidate(
+            id=document.store.next_event_candidate_id(),
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            trigger_evidence_id=evidence.id,
+            evidence_ids=(evidence.id,),
+            source=self.producer_id,
+            signals=(NominalKinshipSignal(lemma=lemma),),
+        )
+        document.store.add_event_candidate(event)
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.SUBJECT,
+                filler=EntityFiller(referent_id),
                 evidence_ids=(evidence.id,),
-                source=self.producer_id,
-                relationship_detail=relationship_detail,
-                context_text=lemma,
-                signals=(NominalKinshipSignal(lemma=lemma),),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.OBJECT,
+                filler=EntityFiller(possessor_id),
+                evidence_ids=(evidence.id,),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.RELATIONSHIP_DETAIL,
+                filler=TextFiller(relationship_detail.value),
+                evidence_ids=(evidence.id,),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.CONTEXT,
+                filler=TextFiller(lemma),
+                evidence_ids=(evidence.id,),
             )
         )
 

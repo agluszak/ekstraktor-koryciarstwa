@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import ReferenceResolutionProposal
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import (
     DocumentId,
     EntityCandidateId,
@@ -11,7 +12,6 @@ from pipeline_v2.ids import (
 )
 from pipeline_v2.nlp import EvidenceSpan, Mention, ReferenceMention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
-from pipeline_v2.resolution_scoring import ResolutionScoringStage
 from pipeline_v2.types import (
     CoreferenceProviderLinkSignal,
     MentionKind,
@@ -93,7 +93,7 @@ def test_resolution_scoring_stage_emits_scored_entity_resolution_claims() -> Non
         canonical_hint="Kowalski",
     )
 
-    ResolutionScoringStage().run(document)
+    FactScoringStage().run(document)
 
     claims = tuple(document.store.resolution_claims.values())
     assert len(claims) == 1
@@ -148,7 +148,7 @@ def test_resolution_scoring_stage_emits_scored_reference_resolution_claims() -> 
         )
     )
 
-    ResolutionScoringStage().run(document)
+    FactScoringStage().run(document)
 
     claims = tuple(document.store.reference_resolution_claims.values())
     assert len(claims) == 1
