@@ -12,6 +12,7 @@ from pipeline_v2.nlp import CoreferenceSpanLink, Morfeusz2MorphologyAdapter, Nam
 from pipeline_v2.proxy import FamilyProxyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import FactKind, GroundingKind, NerLabel, ReferenceKind, RelationshipDetail
+from tests_v2.materialized import first_fact_record
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +90,7 @@ def test_family_reference_materializes_proxy_person_linked_to_anchor() -> None:
     assert document.store.entity_ids_for_reference(
         proxy_candidates[0].reference_ids[0]
     ) == frozenset({proxy_candidates[0].id})
-    tie_record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    tie_record = first_fact_record(document)
     assert tie_record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
     assert tuple(argument.to_json() for argument in tie_record.arguments) == (
         {"role": "subject", "entity_id": "proxy-1"},

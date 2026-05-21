@@ -15,6 +15,7 @@ from pipeline_v2.types import (
     NerLabel,
     PartyAliasMatchSignal,
 )
+from tests_v2.materialized import fact_records, first_fact_record
 
 
 class StaticEntityProvider:
@@ -64,7 +65,7 @@ def test_party_stage_emits_party_entity_and_direct_membership_from_z_party_phras
         for entity in document.store.entity_candidates.values()
         if entity.kind == EntityKind.POLITICAL_PARTY
     )
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert tuple(party.canonical_hint for party in parties) == ("Polskie Stronnictwo Ludowe",)
     assert record.kind is FactKind.PARTY_AFFILIATION
@@ -82,7 +83,7 @@ def test_party_stage_matches_inflected_full_party_name_in_direct_attachment() ->
     text = "Adam Struzik z Polskiego Stronnictwa Ludowego krytykował decyzję urzędu."
     document = run_party_stage(text, (person_span(text, "Adam Struzik"),))
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.PARTY_AFFILIATION
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -105,9 +106,7 @@ def test_party_stage_attaches_profile_phrases_to_nearest_correct_people() -> Non
         ),
     )
 
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
 
     assert tuple(record.kind for record in records) == (
         FactKind.PARTY_AFFILIATION,
@@ -132,7 +131,7 @@ def test_party_stage_attaches_reverse_profile_phrase_to_preceding_person() -> No
     text = "Marcelina Zawisza, posłanka partii Razem, zwróciła uwagę na problem."
     document = run_party_stage(text, (person_span(text, "Marcelina Zawisza"),))
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.PARTY_AFFILIATION
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -146,12 +145,7 @@ def test_party_stage_does_not_turn_party_cooccurrence_into_membership() -> None:
     text = "Donald Tusk skrytykował PSL za decyzję w sprawie budżetu."
     document = run_party_stage(text, (person_span(text, "Donald Tusk"),))
 
-    assert (
-        tuple(
-            candidate.to_fact_record().kind for candidate in document.store.fact_candidates.values()
-        )
-        == ()
-    )
+    assert tuple(record.kind for record in fact_records(document)) == ()
 
 
 def test_party_stage_ignores_lowercase_preposition_po() -> None:
@@ -173,7 +167,7 @@ def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> N
     document = run_party_stage(text, (person_span(text, "Anna Nowak"),))
 
     FactScoringStage().run(document)
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.POLITICAL_SUPPORT
     assert tuple(argument.to_json() for argument in record.arguments) == (

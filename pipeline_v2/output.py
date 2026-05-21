@@ -142,12 +142,12 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                 }
                 for claim in document.store.fact_resolution_claims.values()
             ],
-            "fact_candidates": [
+            "materialized_facts": [
                 fact_record_to_json(candidate) for candidate in document.materialized_fact_records
             ],
-            "fact_assessments": [
+            "materialized_fact_assessments": [
                 {
-                    "fact_candidate_id": str(fact_assessment.fact_candidate_id),
+                    "materialized_fact_id": str(fact_assessment.materialized_fact_id),
                     "assessment": assessment_to_json(fact_assessment.assessment),
                 }
                 for fact_assessment in document.fact_assessments

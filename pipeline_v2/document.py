@@ -45,7 +45,7 @@ class StageDiagnostic:
 
 @dataclass(frozen=True, slots=True)
 class FactAssessment:
-    fact_candidate_id: FactCandidateId
+    materialized_fact_id: FactCandidateId
     assessment: Assessment
 
 
@@ -76,7 +76,7 @@ class ExtractionResult:
     title: str
     publication_date: str | None
     relevance: RelevanceDecision
-    fact_candidates: tuple[FactCandidateRecord, ...]
+    materialized_facts: tuple[FactCandidateRecord, ...]
     execution_times: dict[str, float]
 
 
@@ -87,6 +87,6 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         title=document.title,
         publication_date=document.publication_date,
         relevance=document.relevance or RelevanceDecision(is_relevant=False, score=0.0),
-        fact_candidates=tuple(document.materialized_fact_records),
+        materialized_facts=tuple(document.materialized_fact_records),
         execution_times=dict(document.execution_times),
     )

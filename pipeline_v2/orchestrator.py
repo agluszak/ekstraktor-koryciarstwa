@@ -7,25 +7,16 @@ from pipeline_v2.candidates import (
     Assessment,
     EntityCandidate,
     EntityResolutionProposal,
-    PartyAffiliationCandidate,
     ReferenceResolutionProposal,
 )
 from pipeline_v2.producers import EvidenceSignalProducer
 from pipeline_v2.retrieval import EntityCandidateRetriever
-from pipeline_v2.scoring import (
-    EntityResolutionScorer,
-    PartyAffiliationScorer,
-    ReferenceResolutionScorer,
-)
+from pipeline_v2.scoring import EntityResolutionScorer, ReferenceResolutionScorer
 from pipeline_v2.store import ExtractionStore
 
 
 class EntityResolutionProposalScorer(Protocol):
     def score(self, proposal: EntityResolutionProposal) -> Assessment: ...
-
-
-class PartyCandidateScorer(Protocol):
-    def score(self, candidate: PartyAffiliationCandidate) -> Assessment: ...
 
 
 class ReferenceProposalScorer(Protocol):
@@ -39,12 +30,6 @@ class EntityResolutionAssessment:
 
 
 @dataclass(frozen=True, slots=True)
-class PartyAffiliationAssessment:
-    candidate: PartyAffiliationCandidate
-    assessment: Assessment
-
-
-@dataclass(frozen=True, slots=True)
 class ReferenceResolutionAssessment:
     proposal: ReferenceResolutionProposal
     assessment: Assessment
@@ -53,7 +38,6 @@ class ReferenceResolutionAssessment:
 @dataclass(frozen=True, slots=True)
 class OrchestrationResult:
     entity_resolution_assessments: tuple[EntityResolutionAssessment, ...]
-    party_affiliation_assessments: tuple[PartyAffiliationAssessment, ...]
     reference_resolution_assessments: tuple[ReferenceResolutionAssessment, ...]
 
 
@@ -65,14 +49,12 @@ class V2Orchestrator:
         retriever: EntityCandidateRetriever | None = None,
         evidence_signal_producer: EvidenceSignalProducer | None = None,
         entity_resolution_scorer: EntityResolutionProposalScorer | None = None,
-        party_affiliation_scorer: PartyCandidateScorer | None = None,
         reference_resolution_scorer: ReferenceProposalScorer | None = None,
     ) -> None:
         self.store = store
         self.retriever = retriever or EntityCandidateRetriever(store)
         self.evidence_signal_producer = evidence_signal_producer or EvidenceSignalProducer()
         self.entity_resolution_scorer = entity_resolution_scorer or EntityResolutionScorer(store)
-        self.party_affiliation_scorer = party_affiliation_scorer or PartyAffiliationScorer(store)
         self.reference_resolution_scorer = reference_resolution_scorer or ReferenceResolutionScorer(
             store
         )
@@ -94,24 +76,6 @@ class V2Orchestrator:
                         assessment=self.entity_resolution_scorer.score(enriched),
                     )
                 )
-        return tuple(assessments)
-
-    def assess_party_affiliations(
-        self,
-        candidates: tuple[PartyAffiliationCandidate, ...],
-    ) -> tuple[PartyAffiliationAssessment, ...]:
-        assessments: list[PartyAffiliationAssessment] = []
-        for candidate in candidates:
-            enriched = self.evidence_signal_producer.enrich_party_affiliation(
-                self.store,
-                candidate,
-            )
-            assessments.append(
-                PartyAffiliationAssessment(
-                    candidate=enriched,
-                    assessment=self.party_affiliation_scorer.score(enriched),
-                )
-            )
         return tuple(assessments)
 
     def assess_references(
@@ -136,11 +100,9 @@ class V2Orchestrator:
         self,
         *,
         entities: tuple[EntityCandidate, ...] = (),
-        party_affiliations: tuple[PartyAffiliationCandidate, ...] = (),
         reference_resolutions: tuple[ReferenceResolutionProposal, ...] = (),
     ) -> OrchestrationResult:
         return OrchestrationResult(
             entity_resolution_assessments=self.assess_entities(entities),
-            party_affiliation_assessments=self.assess_party_affiliations(party_affiliations),
             reference_resolution_assessments=self.assess_references(reference_resolutions),
         )

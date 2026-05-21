@@ -13,6 +13,7 @@ from pipeline_v2.proxy import FamilyProxyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import FactKind, NerLabel, ReferenceKind, RelationshipDetail
+from tests_v2.materialized import fact_records, first_fact_record
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +97,7 @@ def test_personal_tie_stage_emits_proxy_family_tie_from_family_reference() -> No
     PersonalTieCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
@@ -121,7 +122,7 @@ def test_personal_tie_stage_emits_named_kinship_tie_from_two_people_and_family_l
     PersonalTieCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -143,7 +144,7 @@ def test_personal_tie_stage_emits_explicit_patronage_tie_from_two_people() -> No
 
     PersonalTieCandidateStage().run(document)
     FactScoringStage().run(document)
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -165,7 +166,7 @@ def test_personal_tie_stage_does_not_emit_for_plain_two_person_cooccurrence() ->
 
     PersonalTieCandidateStage().run(document)
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organization() -> None:
@@ -180,4 +181,4 @@ def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organizat
 
     PersonalTieCandidateStage().run(document)
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()

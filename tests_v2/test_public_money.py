@@ -19,6 +19,7 @@ from pipeline_v2.types import (
     NerLabel,
     PublicContractLemmaSignal,
 )
+from tests_v2.materialized import fact_records, first_fact_record
 
 
 class StaticEntityProvider:
@@ -78,9 +79,7 @@ def test_public_money_stage_distinguishes_contract_grant_and_compensation() -> N
         "Prezes pobrał 250 tys. zł wynagrodzenia."
     )
 
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
 
     assert tuple(record.kind for record in records) == (
         FactKind.PUBLIC_CONTRACT,
@@ -102,7 +101,7 @@ def test_public_money_stage_distinguishes_contract_grant_and_compensation() -> N
 def test_public_money_stage_does_not_emit_transfer_fact_without_amount() -> None:
     document = run_public_money_stage("Rzeczniczka przekazała nam komentarz urzędu.")
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_public_money_facts_are_scored_from_evidence_signals() -> None:
@@ -138,7 +137,7 @@ def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_argumen
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.PUBLIC_CONTRACT
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -167,7 +166,7 @@ def test_public_money_stage_marks_single_receiving_organization_as_recipient() -
         ),
     )
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.FUNDING
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -184,8 +183,7 @@ def test_public_money_stage_infers_local_organization_phrases_when_ner_misses_pa
     )
     document = run_public_money_stage(text)
 
-    candidate = next(iter(document.store.fact_candidates.values()))
-    record = candidate.to_fact_record()
+    record = first_fact_record(document)
 
     assert record.kind is FactKind.FUNDING
     assert tuple(argument.to_json() for argument in record.arguments) == (
@@ -242,8 +240,7 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
     FactScoringStage().run(document)
 
     scores_by_funder_id = {}
-    for candidate in document.store.fact_candidates.values():
-        record = candidate.to_fact_record()
+    for record in fact_records(document):
         funder = next(
             argument.to_json()["entity_id"]
             for argument in record.arguments
@@ -252,7 +249,7 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
         assessment = next(
             item.assessment
             for item in document.fact_assessments
-            if item.fact_candidate_id == candidate.id
+            if item.materialized_fact_id == record.id
         )
         scores_by_funder_id[funder] = assessment.score
 

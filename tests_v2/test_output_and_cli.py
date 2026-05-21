@@ -30,7 +30,7 @@ from pipeline_v2.output import document_to_json
 from pipeline_v2.types import DependencyObjectSignal, DependencyRelation, PublicMoneyRelevanceSignal
 
 
-def test_document_output_includes_evidence_and_fact_candidates() -> None:
+def test_document_output_includes_evidence_and_materialized_facts() -> None:
     document = ArticleDocument(
         document_id=DocumentId("doc"),
         source_url="https://example.test",
@@ -65,7 +65,7 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
     )
     document.fact_assessments.append(
         FactAssessment(
-            fact_candidate_id=FactCandidateId("fact-1"),
+            materialized_fact_id=FactCandidateId("fact-1"),
             assessment=Assessment(
                 score=0.75,
                 positive_signals=(),
@@ -125,9 +125,9 @@ def test_document_output_includes_evidence_and_fact_candidates() -> None:
             "reason": "disabled by config",
         }
     ]
-    assert rendered["fact_assessments"] == [
+    assert rendered["materialized_fact_assessments"] == [
         {
-            "fact_candidate_id": "fact-1",
+            "materialized_fact_id": "fact-1",
             "assessment": {
                 "score": 0.75,
                 "positive_signals": [],
@@ -160,7 +160,7 @@ def test_document_output_serializes_signal_details_as_structured_json() -> None:
     )
     document.fact_assessments.append(
         FactAssessment(
-            fact_candidate_id=FactCandidateId("fact-1"),
+            materialized_fact_id=FactCandidateId("fact-1"),
             assessment=Assessment(
                 score=0.75,
                 positive_signals=(DependencyObjectSignal(relation=DependencyRelation.OBJ),),
@@ -172,9 +172,9 @@ def test_document_output_serializes_signal_details_as_structured_json() -> None:
 
     rendered = document_to_json(document)
 
-    assert rendered["fact_assessments"] == [
+    assert rendered["materialized_fact_assessments"] == [
         {
-            "fact_candidate_id": "fact-1",
+            "materialized_fact_id": "fact-1",
             "assessment": {
                 "score": 0.75,
                 "positive_signals": [

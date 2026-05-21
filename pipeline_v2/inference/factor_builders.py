@@ -112,6 +112,16 @@ class FactInferenceGraphBuilder:
                 factors.append(self._role_prior_factor(event_key, role_variable, states))
                 if role_spec is not None:
                     factors.append(
+                        self._role_compatibility_factor(
+                            event_key=event_key,
+                            role=role,
+                            role_variable=role_variable,
+                            role_spec=role_spec,
+                            states=states,
+                            document=document,
+                        )
+                    )
+                    factors.append(
                         self._event_role_constraint_factor(
                             event_key=event_key,
                             event_variable=event_variable,
@@ -243,6 +253,35 @@ class FactInferenceGraphBuilder:
             kind=InferenceFactorKind.CONSTRAINT,
             variable_ids=(event_variable.id, role_variable.id),
             potentials=tuple(values),
+        )
+
+    def _role_compatibility_factor(
+        self,
+        *,
+        event_key: FactCandidateId,
+        role: EventRole,
+        role_variable: InferenceVariable,
+        role_spec,
+        states: tuple[RoleFillerState, ...],
+        document: ArticleDocument,
+    ) -> InferenceFactor:
+        _ = role
+        potentials: list[float] = []
+        for state in states:
+            match state.filler:
+                case EntityFiller(entity_id=entity_id):
+                    entity = document.store.entity_candidates.get(entity_id)
+                    if entity is None or entity.kind not in role_spec.allowed_entity_kinds:
+                        potentials.append(0.02)
+                    else:
+                        potentials.append(1.0)
+                case _:
+                    potentials.append(1.0)
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:role-compatibility:{event_key}:{role_variable.role}"),
+            kind=InferenceFactorKind.ROLE_COMPATIBILITY,
+            variable_ids=(role_variable.id,),
+            potentials=tuple(potentials),
         )
 
     def _normalized_weights(

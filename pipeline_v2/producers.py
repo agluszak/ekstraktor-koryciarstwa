@@ -2,22 +2,20 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import (
     EntityCandidate,
+    EntityFiller,
     EntityResolutionProposal,
     FullPersonNameKey,
-    PartyAffiliationCandidate,
     ReferenceResolutionProposal,
 )
-from pipeline_v2.ids import EntityCandidateId, EvidenceId, FactCandidateId, MentionId, ProducerId
+from pipeline_v2.ids import EntityCandidateId, EvidenceId, MentionId, ProducerId
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
     ConflictingPartyAffiliationSignal,
-    DirectPrepositionalAttachmentSignal,
     EntityKind,
+    EventRole,
     ExplicitNonPartyContextSignal,
-    FactArgumentRole,
     FactKind,
     GroundingKind,
-    PartyAliasMatchSignal,
     SameNameContradictionSignal,
     SameNameContrastContextSignal,
     Signal,
@@ -79,35 +77,6 @@ class SimpleEntityCandidateProducer:
             )
         )
 
-
-class SimplePartyAffiliationProducer:
-    producer_id = ProducerId("simple_party_affiliation_producer")
-
-    def add_candidate(
-        self,
-        store: ExtractionStore,
-        *,
-        candidate_id: FactCandidateId,
-        subject_id: EntityCandidateId,
-        party_id: EntityCandidateId,
-        evidence_ids: tuple[EvidenceId, ...],
-        direct_attachment: bool = False,
-    ) -> FactCandidateId:
-        signals: list[Signal] = [PartyAliasMatchSignal()]
-        if direct_attachment:
-            signals.append(DirectPrepositionalAttachmentSignal())
-        return store.add_fact_candidate(
-            PartyAffiliationCandidate(
-                id=candidate_id,
-                subject_entity_id=subject_id,
-                party_entity_id=party_id,
-                evidence_ids=evidence_ids,
-                source=self.producer_id,
-                signals=tuple(signals),
-            )
-        )
-
-
 class EvidenceSignalProducer:
     producer_id = ProducerId("evidence_signal_producer")
 
@@ -126,54 +95,25 @@ class EvidenceSignalProducer:
                 signals.append(SameNameContrastContextSignal())
         return tuple(dict.fromkeys(signals))
 
-    def enrich_party_affiliation(
-        self,
-        store: ExtractionStore,
-        candidate: PartyAffiliationCandidate,
-    ) -> PartyAffiliationCandidate:
-        signals = (
-            *candidate.signals,
-            *self.signals_for_evidence_ids(store, candidate.evidence_ids),
-        )
-        return PartyAffiliationCandidate(
-            id=candidate.id,
-            subject_entity_id=candidate.subject_entity_id,
-            party_entity_id=candidate.party_entity_id,
-            evidence_ids=candidate.evidence_ids,
-            source=candidate.source,
-            signals=tuple(dict.fromkeys(signals)),
-        )
-
     def _find_parties_for_entity(
         self, store: ExtractionStore, entity_id: EntityCandidateId
     ) -> set[str]:
         parties: set[str] = set()
-        for candidate in store.fact_candidates.values():
-            record = candidate.to_fact_record()
-            if record.kind != FactKind.PARTY_AFFILIATION:
+        for event in store.event_candidates.values():
+            if event.kind is not FactKind.PARTY_AFFILIATION:
                 continue
-            arguments = tuple(argument.to_json() for argument in record.arguments)
-            subject = next(
-                (
-                    argument["entity_id"]
-                    for argument in arguments
-                    if argument["role"] == FactArgumentRole.SUBJECT.value
-                ),
-                None,
-            )
-            if subject != str(entity_id):
+            subject_id: EntityCandidateId | None = None
+            party_id: EntityCandidateId | None = None
+            for binding in store.argument_bindings_for_event(event.id):
+                match binding.filler:
+                    case EntityFiller(entity_id=binding_entity_id):
+                        if binding.role is EventRole.SUBJECT:
+                            subject_id = binding_entity_id
+                        elif binding.role is EventRole.OBJECT:
+                            party_id = binding_entity_id
+            if subject_id != entity_id or party_id is None:
                 continue
-            party_id = next(
-                (
-                    argument["entity_id"]
-                    for argument in arguments
-                    if argument["role"] == FactArgumentRole.OBJECT.value
-                ),
-                None,
-            )
-            if party_id is None:
-                continue
-            party_entity = store.entity_candidates.get(EntityCandidateId(party_id))
+            party_entity = store.entity_candidates.get(party_id)
             if party_entity is not None and party_entity.canonical_hint is not None:
                 parties.add(party_entity.canonical_hint.casefold())
         return parties

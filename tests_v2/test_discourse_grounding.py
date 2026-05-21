@@ -3,6 +3,7 @@ from __future__ import annotations
 from pipeline_v2.candidates import EntityFactArgument, FactCandidateRecord
 from pipeline_v2.nlp import NerLabel, Span
 from pipeline_v2.types import FactArgumentRole, FactKind
+from tests_v2.materialized import fact_records
 from tests_v2.test_governance import (
     NamedEntitySpan,
     entity_argument_id,
@@ -37,7 +38,7 @@ def test_governance_stage_does_not_use_distant_cross_paragraph_fallback_organiza
         paragraphs=(para0, para1),
     )
 
-    records = [c.to_fact_record() for c in document.store.fact_candidates.values()]
+    records = list(fact_records(document))
     dismissals = [r for r in records if r.kind == FactKind.GOVERNANCE_DISMISSAL]
 
     assert len(dismissals) >= 1
@@ -83,7 +84,7 @@ def test_governance_stage_does_not_use_paragraph_lead_for_cross_paragraph_fallba
         paragraphs=(para0, para1, para2),
     )
 
-    records = [c.to_fact_record() for c in document.store.fact_candidates.values()]
+    records = list(fact_records(document))
     dismissals = [r for r in records if r.kind == FactKind.GOVERNANCE_DISMISSAL]
 
     assert len(dismissals) >= 1

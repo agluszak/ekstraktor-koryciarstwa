@@ -3,14 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
-from pipeline_v2.candidates import EntityCandidate, PartyAffiliationCandidate
+from pipeline_v2.candidates import EntityCandidate
 from pipeline_v2.coreference import CoreferenceReferenceStage
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
+    ArgumentBindingCandidateId,
     DocumentId,
     EntityCandidateId,
+    EventCandidateId,
     EvidenceId,
     FactCandidateId,
     ProducerId,
@@ -26,8 +28,8 @@ from pipeline_v2.nlp import (
     Sentence,
     Span,
 )
-from pipeline_v2.orchestrator import V2Orchestrator
 from pipeline_v2.party import PartyCandidateStage
+from pipeline_v2.producers import EvidenceSignalProducer
 from pipeline_v2.proxy import FamilyProxyCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
@@ -38,8 +40,8 @@ from pipeline_v2.types import (
     AntiCorruptionInvestigationLemmaSignal,
     AppointmentLemmaSignal,
     ConflictingPartyAffiliationSignal,
-    DirectPrepositionalAttachmentSignal,
     EntityKind,
+    EventRole,
     FactKind,
     GroundingKind,
     LocalOrganizationSignal,
@@ -49,7 +51,6 @@ from pipeline_v2.types import (
     MentionKind,
     NerLabel,
     OversightInstitutionSignal,
-    PartyAliasMatchSignal,
     PublicEmploymentLemmaSignal,
     ReferenceKind,
     RelationshipDetail,
@@ -58,6 +59,7 @@ from pipeline_v2.types import (
     WindowPersonSignal,
     WindowRoleSignal,
 )
+from tests_v2.materialized import add_event, bind_entity, fact_records, first_fact_record
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +163,7 @@ def test_benchmark_split_sentence_governance_scenario() -> None:
     GovernanceCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
@@ -194,7 +196,7 @@ def test_benchmark_public_employment_scenario() -> None:
     PublicEmploymentCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
@@ -226,10 +228,10 @@ def test_benchmark_public_contract_scenario() -> None:
     PublicEmploymentCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
-    assert tuple(document.store.fact_candidates.values()) != ()
+    assert fact_records(document) != ()
     assert record.kind is FactKind.PUBLIC_CONTRACT
     assert tuple(argument.to_json() for argument in record.arguments) == (
         {"role": "counterparty", "entity_id": "entity-0"},
@@ -255,9 +257,7 @@ def test_benchmark_anti_corruption_mixed_party_context_scenario() -> None:
     AntiCorruptionCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    records = tuple(
-        candidate.to_fact_record() for candidate in document.store.fact_candidates.values()
-    )
+    records = fact_records(document)
     assert tuple(record.kind for record in records) == (FactKind.ANTI_CORRUPTION_REFERRAL,)
 
     referral_record = records[0]
@@ -295,7 +295,7 @@ def test_benchmark_proxy_family_tie_scenario() -> None:
     PersonalTieCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
@@ -314,12 +314,7 @@ def test_benchmark_party_true_negative_scenario() -> None:
     PartyCandidateStage(morphology).run(document)
     FactScoringStage().run(document)
 
-    assert (
-        tuple(
-            candidate.to_fact_record().kind for candidate in document.store.fact_candidates.values()
-        )
-        == ()
-    )
+    assert tuple(record.kind for record in fact_records(document)) == ()
 
 
 def test_benchmark_anti_corruption_investigation_scenario() -> None:
@@ -329,7 +324,7 @@ def test_benchmark_anti_corruption_investigation_scenario() -> None:
     AntiCorruptionCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.ANTI_CORRUPTION_INVESTIGATION
@@ -349,88 +344,9 @@ def test_benchmark_anti_corruption_investigation_scenario() -> None:
 def test_benchmark_same_name_party_contrast_scenario() -> None:
     text = "Jan Kowalski z PO, nie mylić z Janem Kowalskim z PiS."
     document, evidence_id = build_manual_sentence_document(text)
-
-    first_person_id = document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("person-po"),
-            kind=EntityKind.PERSON,
-            mention_ids=(),
-            canonical_hint="Jan Kowalski",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("benchmark_manual"),
-        )
-    )
-    second_person_id = document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("person-pis"),
-            kind=EntityKind.PERSON,
-            mention_ids=(),
-            canonical_hint="Jan Kowalski",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("benchmark_manual"),
-        )
-    )
-    po_party_id = document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("party-po"),
-            kind=EntityKind.POLITICAL_PARTY,
-            mention_ids=(),
-            canonical_hint="Platforma Obywatelska",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("benchmark_manual"),
-        )
-    )
-    pis_party_id = document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("party-pis"),
-            kind=EntityKind.POLITICAL_PARTY,
-            mention_ids=(),
-            canonical_hint="Prawo i Sprawiedliwość",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("benchmark_manual"),
-        )
-    )
-    first_candidate = PartyAffiliationCandidate(
-        id=FactCandidateId("fact-po"),
-        subject_entity_id=first_person_id,
-        party_entity_id=po_party_id,
-        evidence_ids=(evidence_id,),
-        source=ProducerId("benchmark_manual"),
-        signals=(
-            PartyAliasMatchSignal(),
-            DirectPrepositionalAttachmentSignal(),
-        ),
-    )
-    second_candidate = PartyAffiliationCandidate(
-        id=FactCandidateId("fact-pis"),
-        subject_entity_id=second_person_id,
-        party_entity_id=pis_party_id,
-        evidence_ids=(evidence_id,),
-        source=ProducerId("benchmark_manual"),
-        signals=(
-            PartyAliasMatchSignal(),
-            DirectPrepositionalAttachmentSignal(),
-        ),
-    )
-
-    document.store.add_fact_candidate(first_candidate)
-    document.store.add_fact_candidate(second_candidate)
-
-    assessments = (
-        V2Orchestrator(document.store)
-        .assess(party_affiliations=(first_candidate, second_candidate))
-        .party_affiliation_assessments
-    )
-
-    assert tuple(
-        candidate.to_fact_record().kind for candidate in document.store.fact_candidates.values()
-    ) == (
-        FactKind.PARTY_AFFILIATION,
-        FactKind.PARTY_AFFILIATION,
-    )
-    assert tuple(item.assessment.score for item in assessments) == (0.65, 0.65)
-    assert all(
-        SameNameContrastContextSignal() in item.assessment.negative_signals for item in assessments
+    assert SameNameContrastContextSignal() in EvidenceSignalProducer().signals_for_evidence_ids(
+        document.store,
+        (evidence_id,),
     )
 
 
@@ -447,7 +363,7 @@ def test_benchmark_family_name_overlap_tie_scenario() -> None:
     PersonalTieCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    record = next(iter(document.store.fact_candidates.values())).to_fact_record()
+    record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
@@ -467,12 +383,10 @@ def test_benchmark_party_and_oversight_true_negative_scenario() -> None:
     AntiCorruptionCandidateStage().run(document)
     FactScoringStage().run(document)
 
-    assert tuple(document.store.fact_candidates.values()) == ()
+    assert fact_records(document) == ()
 
 
 def test_benchmark_multiparagraph_surname_only_resolution() -> None:
-    from pipeline_v2.resolution_scoring import ResolutionScoringStage
-
     paragraphs = (
         "Jan Kowalski został prezesem spółki.",
         "Kowalski ma spore doświadczenie.",
@@ -507,7 +421,7 @@ def test_benchmark_multiparagraph_surname_only_resolution() -> None:
         morphology=morphology,
     ).run(document)
 
-    ResolutionScoringStage().run(document)
+    FactScoringStage().run(document)
 
     entity_candidates = list(document.store.entity_candidates.values())
     assert len(entity_candidates) == 2
@@ -528,8 +442,6 @@ def test_benchmark_multiparagraph_surname_only_resolution() -> None:
 
 
 def test_benchmark_multiparagraph_same_name_party_contrast() -> None:
-    from pipeline_v2.resolution_scoring import ResolutionScoringStage
-
     paragraphs = (
         "Jan Kowalski z PO został powołany.",
         "Tymczasem Jan Kowalski z PiS złożył dymisję.",
@@ -593,26 +505,48 @@ def test_benchmark_multiparagraph_same_name_party_contrast() -> None:
         )
     )
 
-    document.store.add_fact_candidate(
-        PartyAffiliationCandidate(
-            id=FactCandidateId("fact-po"),
-            subject_entity_id=left_person.id,
-            party_entity_id=po_party_id,
-            evidence_ids=(),
-            source=ProducerId("benchmark_manual"),
-        )
+    add_event(
+        document,
+        event_id=EventCandidateId("event-po"),
+        fact_id=FactCandidateId("fact-po"),
+        kind=FactKind.PARTY_AFFILIATION,
     )
-    document.store.add_fact_candidate(
-        PartyAffiliationCandidate(
-            id=FactCandidateId("fact-pis"),
-            subject_entity_id=right_person.id,
-            party_entity_id=pis_party_id,
-            evidence_ids=(),
-            source=ProducerId("benchmark_manual"),
-        )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-po-subject"),
+        event_id=EventCandidateId("event-po"),
+        role=EventRole.SUBJECT,
+        entity_id=left_person.id,
+    )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-po-object"),
+        event_id=EventCandidateId("event-po"),
+        role=EventRole.OBJECT,
+        entity_id=po_party_id,
+    )
+    add_event(
+        document,
+        event_id=EventCandidateId("event-pis"),
+        fact_id=FactCandidateId("fact-pis"),
+        kind=FactKind.PARTY_AFFILIATION,
+    )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-pis-subject"),
+        event_id=EventCandidateId("event-pis"),
+        role=EventRole.SUBJECT,
+        entity_id=right_person.id,
+    )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-pis-object"),
+        event_id=EventCandidateId("event-pis"),
+        role=EventRole.OBJECT,
+        entity_id=pis_party_id,
     )
 
-    ResolutionScoringStage().run(document)
+    FactScoringStage().run(document)
 
     claims = list(document.store.resolution_claims.values())
     assert len(claims) == 1

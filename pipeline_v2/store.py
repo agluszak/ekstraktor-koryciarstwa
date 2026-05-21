@@ -8,7 +8,6 @@ from pipeline_v2.candidates import (
     EntityCandidate,
     EntityResolutionClaim,
     EventCandidate,
-    FactCandidate,
     FactResolutionClaim,
     FullPersonNameKey,
     OrganizationAcronymKey,
@@ -50,7 +49,6 @@ class ExtractionStore:
         self.argument_bindings_by_event_id: dict[
             EventCandidateId, list[ArgumentBindingCandidate]
         ] = defaultdict(list)
-        self.fact_candidates: dict[FactCandidateId, FactCandidate] = {}
         self.resolution_claims: dict[ResolutionClaimId, EntityResolutionClaim] = {}
         self.reference_resolution_claims: dict[ResolutionClaimId, ReferenceResolutionClaim] = {}
         self.fact_resolution_claims: dict[ResolutionClaimId, FactResolutionClaim] = {}
@@ -65,7 +63,6 @@ class ExtractionStore:
         self.entity_ids_by_reuse_key: dict[FullPersonNameKey, list[EntityCandidateId]] = (
             defaultdict(list)
         )
-        self.fact_ids_by_entity_id: dict[EntityCandidateId, set[FactCandidateId]] = defaultdict(set)
         self.resolution_ids_by_entity_id: dict[EntityCandidateId, set[ResolutionClaimId]] = (
             defaultdict(set)
         )
@@ -115,16 +112,6 @@ class ExtractionStore:
         if candidate.reuse_key is not None:
             self.entity_ids_by_reuse_key[candidate.reuse_key].append(candidate.id)
         return candidate.id
-
-    def add_fact_candidate(self, candidate: FactCandidate) -> FactCandidateId:
-        self.fact_candidates[candidate.id] = candidate
-        for entity_id in candidate.participating_entity_ids():
-            self.fact_ids_by_entity_id[entity_id].add(candidate.id)
-        return candidate.id
-
-    def clear_fact_candidates(self) -> None:
-        self.fact_candidates = {}
-        self.fact_ids_by_entity_id = defaultdict(set)
 
     def add_event_candidate(self, candidate: EventCandidate) -> EventCandidateId:
         self.event_candidates[candidate.id] = candidate
@@ -238,12 +225,6 @@ class ExtractionStore:
             spans.append(self.evidence[reference.evidence_id])
         return tuple(spans)
 
-    def facts_involving_entity(self, entity_id: EntityCandidateId) -> tuple[FactCandidate, ...]:
-        return tuple(
-            self.fact_candidates[fact_id]
-            for fact_id in self.fact_ids_by_entity_id.get(entity_id, set())
-        )
-
     def resolution_claims_for_entity(
         self,
         entity_id: EntityCandidateId,
@@ -288,9 +269,6 @@ class ExtractionStore:
 
     def next_proxy_candidate_id(self) -> EntityCandidateId:
         return EntityCandidateId(f"proxy-{len(self.entity_candidates)}")
-
-    def next_fact_candidate_id(self) -> FactCandidateId:
-        return FactCandidateId(f"fact-{len(self.fact_candidates)}")
 
     def next_event_candidate_id(self) -> EventCandidateId:
         return EventCandidateId(f"event-{len(self.event_candidates)}")

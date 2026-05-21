@@ -41,7 +41,9 @@ class EventSchema:
 
 _ANY_ENTITY = frozenset(EntityKind)
 _PERSON = frozenset({EntityKind.PERSON})
-_ORG = frozenset({EntityKind.ORGANIZATION, EntityKind.POLITICAL_PARTY})
+_ORG = frozenset({EntityKind.ORGANIZATION})
+_PARTY = frozenset({EntityKind.POLITICAL_PARTY})
+_ORG_OR_PARTY = frozenset({EntityKind.ORGANIZATION, EntityKind.POLITICAL_PARTY})
 _ROLE = frozenset({EntityKind.ROLE})
 _MONEY = frozenset({EntityKind.MONEY})
 
@@ -100,7 +102,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
         fact_kind=FactKind.PARTY_AFFILIATION,
         roles=(
             RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON, required=True),
-            RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _ORG, required=True),
+            RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PARTY, required=True),
         ),
     ),
     FactKind.POLITICAL_SUPPORT: EventSchema(

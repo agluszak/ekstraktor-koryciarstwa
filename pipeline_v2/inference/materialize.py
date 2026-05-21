@@ -7,7 +7,6 @@ from pipeline_v2.candidates import (
     EntityFactArgument,
     EntityFiller,
     FactCandidateRecord,
-    MaterializedFactCandidate,
     TextFactArgument,
     TextFiller,
 )
@@ -45,7 +44,6 @@ class FactAssessmentMaterializer:
     ) -> ArticleDocument:
         document.materialized_fact_records = []
         document.fact_assessments = []
-        document.store.clear_fact_candidates()
         for variable_id, event_id in built_graph.index.event_id_by_event_variable_id.items():
             event_marginal = result.marginal_for(variable_id)
             if event_marginal is None:
@@ -74,10 +72,9 @@ class FactAssessmentMaterializer:
                     signals=record.signals,
                 )
                 document.materialized_fact_records.append(projected)
-                document.store.add_fact_candidate(MaterializedFactCandidate(projected))
                 document.fact_assessments.append(
                     FactAssessment(
-                        fact_candidate_id=projected.id,
+                        materialized_fact_id=projected.id,
                         assessment=Assessment(
                             score=round(score, 3),
                             positive_signals=tuple(
