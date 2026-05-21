@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 from __future__ import annotations
 
 from pipeline_v2.candidates import PersonalTieFactCandidate
@@ -58,31 +59,67 @@ class PersonalTieCandidateStage:
             people = self._observed_people(retriever.entities_for_sentence(sentence), document)
             if len(people) < 2:
                 continue
-            lemmas = self._sentence_lemmas(document, sentence)
-            family_detail = self._family_detail(lemmas)
-            if family_detail is not None:
-                self._add_explicit_tie(
-                    document,
-                    subject=people[0],
-                    object_entity=people[1],
-                    sentence=sentence,
-                    sentence_id=sentence.id,
-                    relationship_detail=family_detail,
-                    signal=NamedKinshipLemmaSignal(lemma=family_detail.value),
+
+            # Find the index of the family/patronage tokens
+            family_matches = []
+            patronage_matches = []
+            for token_id in sentence.token_ids:
+                token = document.store.tokens[token_id]
+                for analysis in token.morph:
+                    if analysis.lemma in self._family_details_by_lemma:
+                        family_matches.append(
+                            (token.span.start_char, self._family_details_by_lemma[analysis.lemma])
+                        )
+                        break
+                    if analysis.lemma in self._patronage_lemmas:
+                        patronage_matches.append((token.span.start_char, analysis.lemma))
+                        break
+
+            # If multiple family matches or patronage matches exist, attach nearest people.
+            # To avoid N^2, use the nearest person before and nearest person after.
+
+            for start_char, detail in family_matches:
+                # For multiple relatives, anchor person is usually the first person in clause.
+                # Anchor to the first person before the match or very first person.
+                anchor_person = people[0] if people[0].end_char <= start_char else None
+                next_person = min(
+                    (p for p in people if p.start_char >= start_char),
+                    key=lambda p: p.start_char,
+                    default=None,
                 )
-                continue
-            patronage_lemma = self._patronage_detail(lemmas)
-            if patronage_lemma is not None:
-                self._add_explicit_tie(
-                    document,
-                    subject=people[0],
-                    object_entity=people[1],
-                    sentence=sentence,
-                    sentence_id=sentence.id,
-                    relationship_detail=None,
-                    signal=ExplicitPatronageLemmaSignal(lemma=patronage_lemma),
-                    context_text=patronage_lemma,
+                if anchor_person and next_person and anchor_person != next_person:
+                    self._add_explicit_tie(
+                        document,
+                        subject=anchor_person,
+                        object_entity=next_person,
+                        sentence=sentence,
+                        sentence_id=sentence.id,
+                        relationship_detail=detail,
+                        signal=NamedKinshipLemmaSignal(lemma=detail.value),
+                    )
+
+            for start_char, lemma in patronage_matches:
+                prev_person = max(
+                    (p for p in people if p.end_char <= start_char),
+                    key=lambda p: p.start_char,
+                    default=None,
                 )
+                next_person = min(
+                    (p for p in people if p.start_char >= start_char),
+                    key=lambda p: p.start_char,
+                    default=None,
+                )
+                if prev_person and next_person:
+                    self._add_explicit_tie(
+                        document,
+                        subject=prev_person,
+                        object_entity=next_person,
+                        sentence=sentence,
+                        sentence_id=sentence.id,
+                        relationship_detail=None,
+                        signal=ExplicitPatronageLemmaSignal(lemma=lemma),
+                        context_text=lemma,
+                    )
         return document
 
     def _add_explicit_tie(
