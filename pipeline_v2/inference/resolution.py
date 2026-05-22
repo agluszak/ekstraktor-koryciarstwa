@@ -31,6 +31,7 @@ from pipeline_v2.inference.factor_builders import (
     TRUE_STATE,
     UNKNOWN_STATE,
     BuiltFactInferenceGraph,
+    RoleFillerState,
 )
 from pipeline_v2.inference.graph_spec import (
     InferenceFactor,
@@ -46,6 +47,8 @@ from pipeline_v2.retrieval import EntityCandidateRetriever
 from pipeline_v2.scoring import EntityResolutionScorer, ReferenceResolutionScorer
 from pipeline_v2.types import (
     DuplicateFactSignal,
+    EntityKind,
+    EventRole,
     FactArgumentRole,
     FactKind,
     FactResolutionStrategy,
@@ -124,6 +127,13 @@ class ResolutionInferenceGraphBuilder:
             factors=factors,
             reference_variable_id_by_reference_id=reference_variable_id_by_reference_id,
             reference_state_proposals_by_variable_id=reference_state_proposals_by_variable_id,
+        )
+
+        self._add_self_tie_entity_factors(
+            document=document,
+            fact_graph=fact_graph,
+            factors=factors,
+            same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
         )
 
         same_event_proposal_by_variable_id: dict[InferenceVariableId, SameEventProposal] = {}
@@ -258,6 +268,103 @@ class ResolutionInferenceGraphBuilder:
             reference_state_proposals_by_variable_id[variable_id] = state_map
             reference_variable_id_by_reference_id[ordered[0].reference_id] = variable_id
 
+    def _add_self_tie_entity_factors(
+        self,
+        *,
+        document: ArticleDocument,
+        fact_graph: BuiltFactInferenceGraph,
+        factors: list[InferenceFactor],
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> None:
+        for event in document.store.event_candidates.values():
+            if event.kind is not FactKind.PERSONAL_OR_POLITICAL_TIE:
+                continue
+            subject_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                (event.id, EventRole.SUBJECT)
+            )
+            object_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                (event.id, EventRole.OBJECT)
+            )
+            if subject_var_id is None or object_var_id is None:
+                continue
+            subject_states = fact_graph.index.filler_states_by_variable_id.get(subject_var_id, ())
+            object_states = fact_graph.index.filler_states_by_variable_id.get(object_var_id, ())
+            seen_pairs: set[tuple[EntityCandidateId, EntityCandidateId]] = set()
+            for s_state in subject_states:
+                for o_state in object_states:
+                    s_eid = None
+                    o_eid = None
+                    match s_state.filler:
+                        case EntityFiller(entity_id=eid):
+                            s_eid = eid
+                    match o_state.filler:
+                        case EntityFiller(entity_id=eid):
+                            o_eid = eid
+                    if s_eid is None or o_eid is None or s_eid == o_eid:
+                        continue
+                    pair = self._entity_pair(s_eid, o_eid)
+                    same_entity_var_id = same_entity_variable_id_by_pair.get(pair)
+                    if same_entity_var_id is None or pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
+                    factors.append(
+                        self._self_tie_entity_factor(
+                            same_entity_variable_id=same_entity_var_id,
+                            subject_variable_id=subject_var_id,
+                            object_variable_id=object_var_id,
+                            subject_states=subject_states,
+                            object_states=object_states,
+                            left_entity_id=pair[0],
+                            right_entity_id=pair[1],
+                            event_id=event.id,
+                        )
+                    )
+
+    def _self_tie_entity_factor(
+        self,
+        *,
+        same_entity_variable_id: InferenceVariableId,
+        subject_variable_id: InferenceVariableId,
+        object_variable_id: InferenceVariableId,
+        subject_states: tuple[RoleFillerState, ...],
+        object_states: tuple[RoleFillerState, ...],
+        left_entity_id: EntityCandidateId,
+        right_entity_id: EntityCandidateId,
+        event_id: EventCandidateId,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        for same_entity_state in (FALSE_STATE, TRUE_STATE):
+            for s_state in subject_states:
+                for o_state in object_states:
+                    if same_entity_state.id == FALSE_STATE.id:
+                        values.append(1.0)
+                        continue
+                    s_eid = None
+                    o_eid = None
+                    match s_state.filler:
+                        case EntityFiller(entity_id=eid):
+                            s_eid = eid
+                    match o_state.filler:
+                        case EntityFiller(entity_id=eid):
+                            o_eid = eid
+                    if (s_eid, o_eid) in (
+                        (left_entity_id, right_entity_id),
+                        (right_entity_id, left_entity_id),
+                    ):
+                        values.append(0.02)
+                    else:
+                        values.append(1.0)
+        return InferenceFactor(
+            id=InferenceFactorId(
+                f"factor:self-tie-entity:{event_id}:{left_entity_id}:{right_entity_id}"
+            ),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(same_entity_variable_id, subject_variable_id, object_variable_id),
+            potentials=tuple(values),
+        )
+
     def _add_reference_role_factors(
         self,
         *,
@@ -267,8 +374,7 @@ class ResolutionInferenceGraphBuilder:
         reference_variable_id_by_reference_id: dict[MentionId, InferenceVariableId],
         reference_state_proposals_by_variable_id: dict[
             InferenceVariableId, dict[InferenceStateId, ReferenceResolutionProposal]
-        ]
-        | None = None,
+        ],
     ) -> None:
         role_variables = {
             variable.id: variable
@@ -279,6 +385,11 @@ class ResolutionInferenceGraphBuilder:
             role_variable = role_variables.get(role_variable_id)
             if role_variable is None:
                 continue
+            allowed_entity_kinds: frozenset[EntityKind] = frozenset(EntityKind)
+            if role_variable.fact_kind is not None and role_variable.role is not None:
+                role_spec = schema_for(role_variable.fact_kind).role_spec_for(role_variable.role)
+                if role_spec is not None:
+                    allowed_entity_kinds = role_spec.allowed_entity_kinds
             for (
                 reference_id,
                 reference_variable_id,
@@ -288,14 +399,14 @@ class ResolutionInferenceGraphBuilder:
                     for state in role_states
                 ):
                     continue
-                reference_state_ids = (
-                    UNKNOWN_STATE.id,
-                    *tuple(
-                        (reference_state_proposals_by_variable_id or {})
-                        .get(reference_variable_id, {})
-                        .keys()
-                    ),
+                state_proposals = reference_state_proposals_by_variable_id.get(
+                    reference_variable_id, {}
                 )
+                reference_state_ids = (UNKNOWN_STATE.id, *tuple(state_proposals.keys()))
+                state_entity_by_state_id: dict[InferenceStateId, EntityCandidateId] = {
+                    state_id: proposal.candidate_entity_id
+                    for state_id, proposal in state_proposals.items()
+                }
                 factors.append(
                     self._reference_role_factor(
                         role_variable_id=role_variable_id,
@@ -303,6 +414,8 @@ class ResolutionInferenceGraphBuilder:
                         reference_id=reference_id,
                         reference_variable_id=reference_variable_id,
                         reference_state_ids=reference_state_ids,
+                        state_entity_by_state_id=state_entity_by_state_id,
+                        allowed_entity_kinds=allowed_entity_kinds,
                         document=document,
                     )
                 )
@@ -718,12 +831,17 @@ class ResolutionInferenceGraphBuilder:
         self,
         *,
         role_variable_id: InferenceVariableId,
-        role_states,
+        role_states: tuple[RoleFillerState, ...],
         reference_id: MentionId,
         reference_variable_id: InferenceVariableId,
         reference_state_ids: tuple[InferenceStateId, ...],
+        state_entity_by_state_id: dict[InferenceStateId, EntityCandidateId],
+        allowed_entity_kinds: frozenset[EntityKind],
         document: ArticleDocument,
     ) -> InferenceFactor:
+        role_entity_ids: frozenset[EntityCandidateId] = frozenset(
+            eid for s in role_states for eid in [self._entity_id_from_state(s)] if eid is not None
+        )
         values: list[float] = []
         for role_state in role_states:
             depends_on_reference = self._state_depends_on_reference(
@@ -735,19 +853,30 @@ class ResolutionInferenceGraphBuilder:
                 elif reference_state_id == UNKNOWN_STATE.id:
                     values.append(0.35)
                 else:
-                    match role_state.filler:
-                        case EntityFiller(entity_id=entity_id) if (
-                            self._reference_state_id_for_entity(entity_id) == reference_state_id
-                        ):
-                            values.append(1.0)
-                        case _:
-                            values.append(0.02)
+                    ref_entity_id = state_entity_by_state_id.get(reference_state_id)
+                    if ref_entity_id is None:
+                        values.append(1.0)
+                        continue
+                    ref_entity = document.store.entity_candidates.get(ref_entity_id)
+                    if ref_entity is None or ref_entity.kind not in allowed_entity_kinds:
+                        values.append(0.02)
+                    elif ref_entity_id in role_entity_ids:
+                        values.append(0.6)
+                    else:
+                        values.append(1.0)
         return InferenceFactor(
             id=InferenceFactorId(f"factor:reference-role:{reference_id}:{role_variable_id}"),
             kind=InferenceFactorKind.CONSTRAINT,
             variable_ids=(role_variable_id, reference_variable_id),
             potentials=tuple(values),
         )
+
+    def _entity_id_from_state(self, state: RoleFillerState) -> EntityCandidateId | None:
+        match state.filler:
+            case EntityFiller(entity_id=eid):
+                return eid
+            case _:
+                return None
 
     def _normalize(self, weights: tuple[float, ...]) -> tuple[float, ...]:
         total = sum(weights)
@@ -773,6 +902,9 @@ class ResolutionAssessmentMaterializer:
             marginal = result.marginal_for(variable_id)
             if marginal is None:
                 continue
+            same_entity_probability = marginal.probability_for(TRUE_STATE.id)
+            if same_entity_probability <= 0.5:
+                continue
             document.store.add_resolution_claim(
                 EntityResolutionClaim(
                     id=document.store.next_resolution_claim_id(),
@@ -781,7 +913,7 @@ class ResolutionAssessmentMaterializer:
                     relation=ResolutionRelation.SAME_AS,
                     evidence_ids=proposal.evidence_ids,
                     assessment=self._assessment(
-                        score=marginal.probability_for(TRUE_STATE.id),
+                        score=same_entity_probability,
                         positive=proposal.retrieval_signals,
                         negative=proposal.context_signals,
                         scorer_id=ScorerId("probabilistic_entity_resolution_inference_v2"),

@@ -285,14 +285,67 @@ Handoff:
   add behavior tests where changing reference support changes the posterior of the
   event role and materialized fact.
 
-### Phase 3: Move Reference Resolution Into The Graph
+### Phase 3: Move Reference Resolution Into The Graph - Implemented 2026-05-22
 
 - Convert reference/coreference/proxy candidates into `ReferenceTarget` variables.
 - Connect `ReferenceTarget` variables to role fillers that use those references.
 - Add tests where event confidence changes when the reference target is strong or
   weak.
 
-### Phase 4: Move Entity Resolution Into The Graph
+Implementation notes:
+
+- `ResolutionInferenceGraphBuilder._add_reference_resolution_variables` creates a
+  `REFERENCE_TARGET` variable per grouped reference mention, with states for each
+  candidate anchor entity and an explicit `unknown` state.
+- `ResolutionInferenceGraphBuilder._add_reference_role_factors` connects each
+  `REFERENCE_TARGET` variable to any `ROLE_FILLER` variable that contains a
+  proxy-entity state backed by that reference. The factor uses three tiers:
+  - `0.35` when the reference is unresolved (UNKNOWN state).
+  - `0.02` when the reference resolved to an entity whose kind is incompatible with
+    the role's `allowed_entity_kinds` (e.g. an ORGANIZATION resolved for a role that
+    only accepts PERSONs). This strongly penalises role-kind mismatches introduced by
+    a wrong reference resolution.
+  - `0.6` when the reference resolved to a compatible entity that is already a direct
+    candidate in the role's filler states.
+  - `1.0` when the reference resolved to a compatible entity that is NOT a direct
+    candidate in the role's filler states (i.e. the proxy is the only representative
+    of that entity in this role, so the proxy's posterior should rise with the reference).
+- `tests_v2/test_inference_facade.py` now covers:
+  - `test_stronger_reference_raises_proxy_backed_role_posterior`: the proxy-entity
+    role state has strictly higher posterior with a strong signal
+    (`CoreferenceProviderLinkSignal`) than with no signal.
+  - `test_wrong_kind_reference_does_not_raise_proxy_employee_posterior`: when the
+    stronger reference candidate is an ORGANIZATION (incompatible with a SUBJECT role
+    that requires PERSON), the proxy employee posterior is lower than when the stronger
+    candidate is a PERSON.
+- `ResolutionAssessmentMaterializer` materializes the reference marginal: when the
+  best candidate entity probability exceeds the unknown probability, a
+  `ReferenceResolutionClaim` is written to the store. The fact materializer's
+  `resolve_entity_id` then follows that claim so the materialized fact uses the anchor
+  entity instead of the proxy placeholder.
+- `tests_v2/test_inference_facade.py` now covers:
+  - `test_stronger_reference_raises_proxy_backed_role_posterior`: the proxy-entity
+    role state has strictly higher posterior with a strong signal
+    (`CoreferenceProviderLinkSignal`) than with no signal, confirming bidirectional
+    support between the reference variable and the role variable.
+  - `test_strong_reference_propagates_to_materialized_fact_employee_role`:
+    end-to-end check that when the reference marginal favors the anchor entity, the
+    materialized fact records the anchor entity as the employee rather than the proxy
+    placeholder.
+
+Handoff:
+
+- Phase 3 is complete. The reference variable and the role variable that depends on it
+  are in the same inference component (connected by the reference-role factor), and the
+  posterior flows bidirectionally.
+- Phase 4 should move entity resolution further into the graph. The existing
+  `_add_entity_resolution_variables` already creates `SAME_ENTITY` variables and
+  unary priors, but there are no behavior tests. The next concrete step is to add a
+  test where a `SameNameContradictionSignal` lowers the same-entity posterior and
+  thereby lowers the posterior of facts that require those two mentions to be the same
+  entity.
+
+### Phase 4: Move Entity Resolution Into The Graph - Partially Implemented 2026-05-22
 
 - Convert same-person/same-organization proposals into `SameEntity` variables.
 - Connect `SameEntity` variables to role fillers, distinct-role constraints, and
@@ -300,14 +353,97 @@ Handoff:
 - Cover same-name/father-son/"nie mylić z" cases as graph uncertainty, not forced
   merge behavior.
 
-### Phase 5: Move Same-Event Resolution Into The Graph
+Implementation notes:
+
+- `_add_entity_resolution_variables` already created `SAME_ENTITY` variables with
+  unary priors from `EntityResolutionScorer`. Phase 4 adds gating and behavior tests.
+- `ResolutionAssessmentMaterializer.materialize` now gates on `same_entity_probability
+  > 0.5` before writing an `EntityResolutionClaim`. Pairs where contradiction evidence
+  drives the posterior below 0.5 produce no resolution claim, matching the document
+  requirement that "nie mylić z" and conflicting-party cases are graph uncertainty, not
+  forced merge behavior.
+- `EvidenceSignalProducer` already emits `SameNameContradictionSignal` when evidence
+  text contains "nie mylić" (Polish for "do not confuse"). This signal lowers the
+  `SAME_ENTITY` prior via `EntityResolutionScorer` so the posterior stays below the
+  merge gate.
+- `tests_v2/test_inference_facade.py` now covers:
+  - `test_same_name_contradiction_lowers_same_entity_posterior`: neutral surname match
+    (score ≈ 0.70) produces a higher same-entity posterior than a contradicted pair
+    with `SameNameContradictionSignal` (score ≈ 0.25), confirming signals flow into the
+    `SAME_ENTITY` variable.
+  - `test_nie_mylic_evidence_suppresses_entity_resolution_claim`: end-to-end check that
+    "nie mylić" text in evidence suppresses the resolution claim entirely (0 claims),
+    while a neutral same-name pair produces exactly one claim with probability > 0.5.
+- `tests_v2/test_benchmark_snippets.py::test_benchmark_multiparagraph_same_name_party_contrast`
+  updated to assert 0 resolution claims for conflicting-party pairs (previously asserted
+  1 claim with score < 0.5 under old non-gated behavior).
+
+What is NOT implemented (core Phase 4 requirement):
+
+- `SameEntity` variables are not connected to `RoleFiller` variables. The plan
+  requires that contradiction evidence for identity proposals feeds back into role
+  posteriors when two role fillers resolve to the same entity. This cross-variable
+  connection is the central Phase 4 requirement and has not been built. Only the
+  gating behavior (whether a resolution claim is emitted) was implemented.
+- Distinct-role constraints are not in the graph. The fact that a personal/political
+  tie must have subject ≠ object in resolved identity is modeled only by a direct
+  entity-ID check at graph-build time, not by a factor that participates in inference
+  with identity uncertainty.
+
+Handoff:
+
+- Phase 4 gating and "nie mylić z" suppression tests are done. The phase is partial.
+- Before Phase 5, implement the `SameEntity ↔ RoleFiller` connection: when the
+  same-entity posterior changes, the role posterior for any filler that would create a
+  distinct-role violation should change correspondingly. This is the difference between
+  the plan as written and what was actually built.
+
+### Phase 5: Move Same-Event Resolution Into The Graph - Partially Implemented 2026-05-22
 
 - Convert duplicate fact/event proposals into `SameEvent` variables over events.
 - Let compatible roles and shared evidence support same-event links.
 - Let incompatible roles or contradictory evidence oppose same-event links.
 - Stop using post-materialization duplicate handling as the main resolution mechanism.
 
-### Phase 6: Retire Transitional Scoring And Caps
+Implementation notes:
+
+- `_add_same_event_variables` was already building `SAME_EVENT` variables (one per
+  candidate pair) with a unary prior from `_same_event_prior` and two constraint
+  factors: `_same_event_activity_factor` (connecting same-event to both event-active
+  variables) and `_same_event_entity_factor` (connecting same-event to same-entity for
+  aligned entity pairs). `ResolutionAssessmentMaterializer` was already materializing
+  `FactResolutionClaim`s for same-event pairs above 0.5.
+- `FactAssessmentMaterializer.materialize` now suppresses duplicate materialized facts
+  via `_suppressed_by_resolution`. After the first pass materializes all events,
+  a second pass inspects each `FactResolutionClaim` in the store: for each linked pair,
+  the lower-scored fact is added to a suppressed set and omitted from output. The
+  higher-scored fact (or the left fact on a tie) is kept.
+- `tests_v2/test_inference_facade.py` now covers:
+  - `test_exact_argument_match_produces_fact_resolution_claim`: two PUBLIC_EMPLOYMENT
+    events with identical employee and workplace entities produce exactly one
+    `FactResolutionClaim` (strategy `EXACT_ARGUMENTS`, prior TRUE=0.65).
+  - `test_exact_argument_match_suppresses_duplicate_materialized_fact`: same setup
+    produces exactly one materialized fact record, not two.
+- `tests_v2/test_fact_resolution.py` updated: tests assert exactly one fact is kept,
+  it belongs to the linked pair, and the lower-scored fact appears as a
+  `MaterializedFactAlternative` keyed on the surviving fact's ID.
+
+Implementation notes (completed in follow-up):
+
+- `FactAssessmentMaterializer._fact_projection_groups` returns `_FactProjection`
+  objects (typed struct with `primary_id`, `alternative_ids`, `claim_id`, `relation`)
+  instead of raw sets. The materializer uses this to populate
+  `ArticleDocument.materialized_fact_alternatives` so suppressed facts are preserved as
+  visible alternatives rather than silently discarded.
+- `MaterializedFactAlternative` carries `record`, `score`, `claim_id`, and `relation`
+  so consumers can see which resolution claim caused the grouping and what relation it
+  asserted (`same_fact`).
+- `document_to_json` serializes `materialized_fact_alternatives` under
+  `"materialized_fact_alternatives"` in the output JSON.
+- `ExtractionResult` now exposes `materialized_fact_alternatives` so the full result
+  is available to pipeline consumers without parsing the debug JSON.
+
+### Phase 6: Retire Transitional Scoring And Caps - Partially Implemented 2026-05-22
 
 - Delete old scorer-shaped code once its logic is represented by factors.
 - Remove materialization-side contradiction caps after equivalent graph factors affect
@@ -315,6 +451,58 @@ Handoff:
 - Ensure no producer or inference stage writes materialized facts into
   `ExtractionStore` as candidates.
 - Ensure no active code adapts flat fact candidates into events.
+
+Implementation notes:
+
+- `FactAssessmentMaterializer._has_materialized_contradiction` previously capped the
+  score at 0.49 for five signals: `GenericOwnerContextSignal`,
+  `GoverningBodyContextSignal`, `PartyOrganizationSignal`,
+  `ReportingSourceContextSignal`, and `SelfTieContradictionSignal`.
+- The four role-compatibility signals (`GenericOwner`, `GoverningBody`,
+  `PartyOrganization`, `ReportingSource`) are already fully represented in the graph:
+  - `_role_compatibility_factor` gives potential 0.02 for incompatible bindings.
+  - `BindingSignalWeightPolicy.contribution` returns −0.85 for those signals, driving
+    the role prior weight floor to 0.05.
+  - Combined, the role posterior for any such binding state is well below 0.01, so
+    `_primary_score` (0.3 × event_prob + 0.7 × role_prob) stays below 0.49 for any
+    realistic event probability. The cap was redundant.
+  - These four signals are removed from `_has_materialized_contradiction`.
+- `SelfTieContradictionSignal` is kept in the cap because self-ties can emerge from
+  entity resolution claims that are created after inference (by
+  `ResolutionAssessmentMaterializer`). The graph's `_self_tie_constraint_factor` uses
+  `resolve_entity_id` at build time, before those claims exist, so it cannot see
+  resolution-based self-ties. The post-hoc cap remains as a targeted correction.
+- `FactPriorPolicyRegistry.prior_for(record)` was a dead method never called in
+  production code (only `prior_for_kind` is called). It is removed along with the
+  `FactCandidateRecord` import in `fact_priors.py`.
+- No producer or inference stage writes materialized facts into `ExtractionStore` as
+  candidates (verified by audit — `FactCandidateRecord` does not appear outside
+  `document.py`, `output.py`, `materialize.py`, and `candidates.py`).
+- No active code adapts flat fact candidates into events (verified).
+- `tests_v2/test_inference_facade.py` now covers:
+  - `test_party_organization_workplace_scores_low_via_graph_without_cap`: a
+    PUBLIC_EMPLOYMENT event with only a party-organization workplace binding scores
+    below 0.49 through graph inference alone (no post-hoc cap needed).
+
+Implementation notes (completed in follow-up):
+
+- The self-tie cap is fully retired. `FactAssessmentMaterializer._primary_score` is
+  now a pure weighted combination `0.3 × event_prob + 0.7 × mean_role_prob` with no
+  post-hoc overrides.
+- Cross-candidate self-ties are handled at the graph level:
+  `ResolutionInferenceGraphBuilder._add_self_tie_entity_factors` adds a three-variable
+  CONSTRAINT factor `(SAME_ENTITY, ROLE_FILLER[subject], ROLE_FILLER[object])` for
+  every `PERSONAL_OR_POLITICAL_TIE` event. When `SAME_ENTITY=TRUE` and both role
+  fillers point to the same entity pair, the factor gives potential `0.02`, strongly
+  suppressing that combination through inference rather than a post-hoc score cap.
+- `SelfTieContradictionSignal` is still generated in `_record_from_selection` so it
+  appears as a visible signal in assessments, but it no longer gates any numeric score.
+- Phase 6 is now complete: all four role-compatibility caps and the self-tie cap are
+  retired in favour of graph factors.
+  The self-tie cap remains. Phase 6 is partial.
+- The most direct next step is the `DISTINCT_ROLE` constraint that connects `SameEntity`
+  to role pairs where the two roles must not resolve to the same entity. This also closes
+  the Phase 4 gap (SameEntity ↔ RoleFiller connection).
 
 ### Phase 7: Add Semantic And Optional RAG Support
 

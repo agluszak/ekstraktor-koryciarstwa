@@ -148,6 +148,10 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                 ]
                 for fact_id, alternatives in document.materialized_role_alternatives.items()
             },
+            "materialized_fact_alternatives": {
+                str(fact_id): [cast(JsonObject, alt.to_json()) for alt in alternatives]
+                for fact_id, alternatives in document.materialized_fact_alternatives.items()
+            },
             "materialized_fact_assessments": [
                 {
                     "materialized_fact_id": str(fact_assessment.materialized_fact_id),

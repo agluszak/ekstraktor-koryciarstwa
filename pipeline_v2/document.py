@@ -6,6 +6,7 @@ from enum import StrEnum
 from pipeline_v2.candidates import (
     Assessment,
     FactCandidateRecord,
+    MaterializedFactAlternative,
     MaterializedRoleAlternative,
     ReferenceResolutionProposal,
 )
@@ -69,6 +70,9 @@ class ArticleDocument:
     materialized_role_alternatives: dict[
         FactCandidateId, tuple[MaterializedRoleAlternative, ...]
     ] = field(default_factory=dict)
+    materialized_fact_alternatives: dict[
+        FactCandidateId, tuple[MaterializedFactAlternative, ...]
+    ] = field(default_factory=dict)
     fact_assessments: list[FactAssessment] = field(default_factory=list)
     inference_marginals: list[VariableMarginal] = field(default_factory=list)
     inference_diagnostics: list[InferenceDiagnostic] = field(default_factory=list)
@@ -85,6 +89,7 @@ class ExtractionResult:
     publication_date: str | None
     relevance: RelevanceDecision
     materialized_facts: tuple[FactCandidateRecord, ...]
+    materialized_fact_alternatives: dict[FactCandidateId, tuple[MaterializedFactAlternative, ...]]
     execution_times: dict[str, float]
 
 
@@ -96,5 +101,6 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         publication_date=document.publication_date,
         relevance=document.relevance or RelevanceDecision(is_relevant=False, score=0.0),
         materialized_facts=tuple(document.materialized_fact_records),
+        materialized_fact_alternatives=dict(document.materialized_fact_alternatives),
         execution_times=dict(document.execution_times),
     )

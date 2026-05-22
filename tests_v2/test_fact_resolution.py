@@ -52,7 +52,7 @@ def _document() -> ArticleDocument:
     )
 
 
-def test_probabilistic_inference_emits_same_fact_claim_without_deleting_duplicates() -> None:
+def test_probabilistic_inference_emits_same_fact_claim_and_suppresses_duplicate() -> None:
     document = _document()
     add_entity(
         document,
@@ -124,9 +124,18 @@ def test_probabilistic_inference_emits_same_fact_claim_without_deleting_duplicat
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
     materialized_ids = {record.id for record in fact_records(document)}
-    assert {claim.left_fact_id, claim.right_fact_id} == materialized_ids
+    assert len(materialized_ids) == 1
+    assert claim.left_fact_id in materialized_ids or claim.right_fact_id in materialized_ids
     assert claim.relation is ResolutionRelation.SAME_FACT
     assert claim.assessment.score >= 0.5
+    surviving_id = next(iter(materialized_ids))
+    assert surviving_id in document.materialized_fact_alternatives
+    fact_alts = document.materialized_fact_alternatives[surviving_id]
+    assert len(fact_alts) == 1
+    suppressed_id = (
+        claim.right_fact_id if surviving_id == claim.left_fact_id else claim.left_fact_id
+    )
+    assert fact_alts[0].record.id == suppressed_id
 
 
 def test_probabilistic_inference_merges_governance_duplicates_with_matching_org() -> None:
@@ -226,10 +235,13 @@ def test_probabilistic_inference_merges_governance_duplicates_with_matching_org(
     FactScoringStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
-    assert {claim.left_fact_id, claim.right_fact_id} == {
-        record.id for record in fact_records(document)
-    }
+    materialized_ids = {record.id for record in fact_records(document)}
+    assert len(materialized_ids) == 1
+    assert claim.left_fact_id in materialized_ids or claim.right_fact_id in materialized_ids
     assert claim.relation is ResolutionRelation.SAME_FACT
+    surviving_id = next(iter(materialized_ids))
+    assert surviving_id in document.materialized_fact_alternatives
+    assert len(document.materialized_fact_alternatives[surviving_id]) == 1
 
 
 def test_probabilistic_inference_keeps_governance_facts_separate_without_shared_org() -> None:
@@ -412,7 +424,10 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
     FactScoringStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
-    assert {claim.left_fact_id, claim.right_fact_id} == {
-        record.id for record in fact_records(document)
-    }
+    materialized_ids = {record.id for record in fact_records(document)}
+    assert len(materialized_ids) == 1
+    assert claim.left_fact_id in materialized_ids or claim.right_fact_id in materialized_ids
     assert claim.relation is ResolutionRelation.SAME_FACT
+    surviving_id = next(iter(materialized_ids))
+    assert surviving_id in document.materialized_fact_alternatives
+    assert len(document.materialized_fact_alternatives[surviving_id]) == 1
