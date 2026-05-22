@@ -804,6 +804,26 @@ class PseudonymousSourceSignal(NegativeSignal):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ReportingSourceContextSignal(NegativeSignal):
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GenericOwnerContextSignal(NegativeSignal):
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GoverningBodyContextSignal(NegativeSignal):
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SelfTieContradictionSignal(NegativeSignal):
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class DuplicateFactSignal(PositiveSignal):
     strategy: FactResolutionStrategy
     fact_kind: FactKind

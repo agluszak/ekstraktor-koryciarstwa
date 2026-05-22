@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from pipeline_v2.candidates import Assessment, FactCandidateRecord, ReferenceResolutionProposal
+from pipeline_v2.candidates import (
+    Assessment,
+    FactCandidateRecord,
+    MaterializedRoleAlternative,
+    ReferenceResolutionProposal,
+)
 from pipeline_v2.embeddings import EvidenceVectorIndex
 from pipeline_v2.ids import DocumentId, FactCandidateId
 from pipeline_v2.inference.graph_spec import InferenceDiagnostic, VariableMarginal
@@ -61,6 +66,9 @@ class ArticleDocument:
     evidence_index: EvidenceVectorIndex = field(default_factory=EvidenceVectorIndex)
     reference_resolution_proposals: list[ReferenceResolutionProposal] = field(default_factory=list)
     materialized_fact_records: list[FactCandidateRecord] = field(default_factory=list)
+    materialized_role_alternatives: dict[
+        FactCandidateId, tuple[MaterializedRoleAlternative, ...]
+    ] = field(default_factory=dict)
     fact_assessments: list[FactAssessment] = field(default_factory=list)
     inference_marginals: list[VariableMarginal] = field(default_factory=list)
     inference_diagnostics: list[InferenceDiagnostic] = field(default_factory=list)

@@ -44,6 +44,7 @@ _PERSON = frozenset({EntityKind.PERSON})
 _ORG = frozenset({EntityKind.ORGANIZATION})
 _PARTY = frozenset({EntityKind.POLITICAL_PARTY})
 _ORG_OR_PARTY = frozenset({EntityKind.ORGANIZATION, EntityKind.POLITICAL_PARTY})
+_ORG_OR_PERSON = frozenset({EntityKind.ORGANIZATION, EntityKind.PERSON})
 _ROLE = frozenset({EntityKind.ROLE})
 _MONEY = frozenset({EntityKind.MONEY})
 
@@ -55,6 +56,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
             RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
             RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
         ),
     ),
     FactKind.GOVERNANCE_DISMISSAL: EventSchema(
@@ -63,6 +65,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
             RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
             RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
         ),
     ),
     FactKind.PUBLIC_EMPLOYMENT: EventSchema(
@@ -86,7 +89,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
         fact_kind=FactKind.PUBLIC_CONTRACT,
         roles=(
             RoleSpec(EventRole.COUNTERPARTY, FactArgumentRole.COUNTERPARTY, _ORG),
-            RoleSpec(EventRole.CONTRACTOR, FactArgumentRole.CONTRACTOR, _ORG),
+            RoleSpec(EventRole.CONTRACTOR, FactArgumentRole.CONTRACTOR, _ORG_OR_PERSON),
             RoleSpec(EventRole.AMOUNT, FactArgumentRole.AMOUNT, _MONEY, required=True),
         ),
     ),

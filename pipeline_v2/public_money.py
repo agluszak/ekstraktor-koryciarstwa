@@ -17,6 +17,7 @@ from pipeline_v2.ids import (
     ProducerId,
     TokenId,
 )
+from pipeline_v2.media import is_media_outlet_name
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
@@ -26,6 +27,7 @@ from pipeline_v2.types import (
     ContractCounterpartySignal,
     ContractorSignal,
     ControllerContextSignal,
+    DirectPrepositionalAttachmentSignal,
     EntityKind,
     EventRole,
     FactKind,
@@ -40,6 +42,7 @@ from pipeline_v2.types import (
     PartyOrganizationSignal,
     PublicContractLemmaSignal,
     RecipientSignal,
+    ReportingSourceContextSignal,
     Signal,
     WindowOrganizationSignal,
     WindowPersonSignal,
@@ -97,6 +100,7 @@ class PublicMoneyCandidateStage:
             "pensja",
             "zarobek",
             "zarabiać",
+            "dostawać",
             "odprawa",
             "premia",
             "pobrać",
@@ -144,14 +148,20 @@ class PublicMoneyCandidateStage:
                 )
                 document.store.add_event_candidate(event)
                 self._add_amount_binding(document, event, amount_texts[0], evidence.id)
-                for source_entity_id, target_entity_id, role_signals in party_options:
+                for (
+                    source_entity_id,
+                    source_signals,
+                    target_entity_id,
+                    target_signals,
+                ) in party_options:
                     self._add_party_bindings(
                         document=document,
                         event=event,
                         kind=kind,
                         source_entity_id=source_entity_id,
+                        source_signals=source_signals,
                         target_entity_id=target_entity_id,
-                        role_signals=role_signals,
+                        target_signals=target_signals,
                         evidence_id=evidence.id,
                     )
         return document
@@ -180,8 +190,9 @@ class PublicMoneyCandidateStage:
         event: EventCandidate,
         kind: FactKind,
         source_entity_id: EntityCandidateId | None,
+        source_signals: tuple[Signal, ...],
         target_entity_id: EntityCandidateId | None,
-        role_signals: tuple[Signal, ...],
+        target_signals: tuple[Signal, ...],
         evidence_id: EvidenceId,
     ) -> None:
         source_role = (
@@ -198,7 +209,7 @@ class PublicMoneyCandidateStage:
                     role=source_role,
                     filler=EntityFiller(source_entity_id),
                     evidence_ids=(evidence_id,),
-                    signals=self._source_binding_signals(role_signals),
+                    signals=source_signals,
                 )
             )
         if target_entity_id is not None:
@@ -209,63 +220,39 @@ class PublicMoneyCandidateStage:
                     role=target_role,
                     filler=EntityFiller(target_entity_id),
                     evidence_ids=(evidence_id,),
-                    signals=self._target_binding_signals(role_signals),
+                    signals=target_signals,
                 )
             )
-
-    def _source_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
-        filtered: list[Signal] = []
-        for signal in signals:
-            match signal:
-                case (
-                    CompensationSourceSignal()
-                    | ContractCounterpartySignal()
-                    | ControllerContextSignal()
-                    | FunderSignal()
-                    | LocalPhraseFunderSignal()
-                ):
-                    filtered.append(signal)
-        return tuple(filtered)
-
-    def _target_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
-        filtered: list[Signal] = []
-        for signal in signals:
-            match signal:
-                case (
-                    ContractorSignal()
-                    | CompensationRecipientSignal()
-                    | LocalPhraseRecipientSignal()
-                    | RecipientSignal()
-                ):
-                    filtered.append(signal)
-        return tuple(filtered)
 
     _scale_pattern = re.compile(r"tys\.?|tysi[eę]cy|mln|milion", re.IGNORECASE)
     _numeric_pattern = re.compile(r"[\d\s\xa0]+(?:[,.]\d+)?")
 
     def _micro_amount_signal(self, amount_text: str) -> MicroAmountSignal | None:
-        """Return a MicroAmountSignal when the amount is below 100 PLN and has no scale word.
+        from pipeline_v2.types import MicroAmountSignal
 
-        This covers citizen-cost statistics like "1,88 zł" that should not be
-        treated as executive compensation.  Candidate emission is intentionally
-        left unchanged; penalisation is the scorer's job.
-        """
-        if self._scale_pattern.search(amount_text):
+        m = self._numeric_pattern.search(amount_text)
+        if not m:
             return None
-        m = self._numeric_pattern.match(amount_text.strip())
-        if m is None:
-            return None
-        raw = m.group(0).replace("\xa0", "").replace(" ", "").replace(",", ".")
+        raw_val = m.group(0).replace(" ", "").replace("\xa0", "").replace(",", ".")
         try:
-            value = float(raw)
+            val = float(raw_val)
         except ValueError:
             return None
-        if value < 100.0:
-            return MicroAmountSignal(amount=amount_text.strip())
+        scale = 1.0
+        s_match = self._scale_pattern.search(amount_text)
+        if s_match:
+            s_word = s_match.group(0).lower()
+            if s_word.startswith("tys"):
+                scale = 1000.0
+            elif s_word.startswith("mln") or s_word.startswith("mil"):
+                scale = 1000000.0
+        final_val = val * scale
+        if final_val < 5000.0:
+            return MicroAmountSignal(amount=amount_text)
         return None
 
     def _amount_texts(self, sentence: Sentence) -> tuple[str, ...]:
-        return tuple(match.group(0) for match in self._amount_pattern.finditer(sentence.text))
+        return tuple(self._amount_pattern.findall(sentence.text))
 
     def _candidate_kinds(
         self,
@@ -273,44 +260,43 @@ class PublicMoneyCandidateStage:
         sentence: Sentence,
     ) -> tuple[tuple[FactKind, tuple[Signal, ...]], ...]:
         lemmas = self._sentence_lemmas(document, sentence)
-        candidates: list[tuple[FactKind, tuple[Signal, ...]]] = []
-        if lemmas & self._funding_lemmas:
-            candidates.append(
+        has_funding = bool(self._funding_lemmas & lemmas)
+        has_contract = bool(self._contract_lemmas & lemmas)
+        has_compensation = bool(self._compensation_lemmas & lemmas)
+        kinds = []
+        if has_funding:
+            kinds.append(
                 (
                     FactKind.FUNDING,
-                    (
-                        FundingLemmaSignal(
-                            lemma=self._matched_detail(lemmas, self._funding_lemmas),
-                        ),
-                    ),
+                    (FundingLemmaSignal(lemma=self._matched_detail(lemmas, self._funding_lemmas)),),
                 )
             )
-        if lemmas & self._contract_lemmas:
-            candidates.append(
+        if has_contract:
+            kinds.append(
                 (
                     FactKind.PUBLIC_CONTRACT,
                     (
                         PublicContractLemmaSignal(
-                            lemma=self._matched_detail(lemmas, self._contract_lemmas),
+                            lemma=self._matched_detail(lemmas, self._contract_lemmas)
                         ),
                     ),
                 )
             )
-        if lemmas & self._compensation_lemmas:
-            candidates.append(
+        if has_compensation:
+            kinds.append(
                 (
                     FactKind.COMPENSATION,
                     (
                         CompensationLemmaSignal(
-                            lemma=self._matched_detail(lemmas, self._compensation_lemmas),
+                            lemma=self._matched_detail(lemmas, self._compensation_lemmas)
                         ),
                     ),
                 )
             )
-        return tuple(candidates)
+        return tuple(kinds)
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence: Sentence) -> frozenset[str]:
-        lemmas: set[str] = set()
+        lemmas = set()
         for token_id in sentence.token_ids:
             token = document.store.tokens[token_id]
             for analysis in token.morph:
@@ -320,12 +306,104 @@ class PublicMoneyCandidateStage:
     def _matched_detail(self, lemmas: frozenset[str], vocabulary: frozenset[str]) -> str:
         return next(iter(sorted(lemmas & vocabulary)))
 
+    def _preposition_before_entity(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        entity_start_char: int,
+    ) -> str | None:
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        ent_token_idx = None
+        for idx, token in enumerate(tokens):
+            if token.span.start_char >= entity_start_char:
+                ent_token_idx = idx
+                break
+
+        if ent_token_idx is None or ent_token_idx == 0:
+            return None
+
+        preceding_tokens = tokens[max(0, ent_token_idx - 3) : ent_token_idx]
+        for tok in reversed(preceding_tokens):
+            lemma = (tok.preferred_lemma() or tok.text).casefold()
+            if lemma in {"z", "od", "dla"}:
+                return lemma
+        return None
+
+    def _is_media_reporting_source(
+        self, document: ArticleDocument, entity_id: EntityCandidateId
+    ) -> bool:
+        candidate = document.store.entity_candidates.get(entity_id)
+        if candidate is None:
+            return False
+        return is_media_outlet_name(candidate.canonical_hint)
+
+    def _build_signals_for_role(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        entity_id: EntityCandidateId | None,
+        entity_start_char: int | None,
+        base_signals: tuple[Signal, ...],
+        is_source_role: bool,
+    ) -> tuple[Signal, ...]:
+        if entity_id is None:
+            return ()
+        signals = list(base_signals)
+
+        # Preposition check: "z/od" before an entity marks a funding source
+        # or contract counterparty; "dla" marks a recipient/contractor target.
+        # Entities in subject position (no preceding source/target prep) get a
+        # positive boost when placed in the source role.
+        if entity_start_char is not None:
+            preceding_preposition = self._preposition_before_entity(
+                document, sentence, entity_start_char
+            )
+            if is_source_role and preceding_preposition in {"z", "od"}:
+                signals.append(DirectPrepositionalAttachmentSignal())
+            elif not is_source_role and preceding_preposition == "dla":
+                signals.append(DirectPrepositionalAttachmentSignal())
+            elif (
+                not is_source_role
+                and preceding_preposition == "z"
+                and self._has_contractor_signal(base_signals)
+            ):
+                signals.append(DirectPrepositionalAttachmentSignal())
+
+        # Party-like organization check
+        if self._is_party_like_organization(document, entity_id):
+            signals.append(PartyOrganizationSignal())
+
+        # Media/reporting source check
+        if self._is_media_reporting_source(document, entity_id):
+            signals.append(
+                ReportingSourceContextSignal(reason="media/reporting source detected in role")
+            )
+
+        return tuple(signals)
+
+    def _has_contractor_signal(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case ContractorSignal():
+                    return True
+                case _:
+                    continue
+        return False
+
     def _select_parties(
         self,
         document: ArticleDocument,
         sentence: Sentence,
         kind: FactKind,
-    ) -> tuple[tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]], ...]:
+    ) -> tuple[
+        tuple[
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+        ],
+        ...,
+    ]:
         retriever = SentenceEntityRetriever(document.store)
         entities = retriever.entities_for_sentence(sentence)
         if kind == FactKind.COMPENSATION:
@@ -333,39 +411,173 @@ class PublicMoneyCandidateStage:
         organizations = tuple(
             entity for entity in entities if entity.kind == EntityKind.ORGANIZATION
         )
+        people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
         if kind == FactKind.PUBLIC_CONTRACT:
-            res = self._select_contract_parties(organizations)
-            return (res,) if res[2] else ((None, None, ()),)
+            return self._select_contract_parties(document, sentence, organizations, people)
         if kind == FactKind.FUNDING:
-            res = self._select_funding_parties(
+            return self._select_funding_parties(
                 document,
                 sentence,
                 organizations,
                 lemmas=self._sentence_lemmas(document, sentence),
             )
-            return (res,) if res[2] else ((None, None, ()),)
-        return ((None, None, ()),)
+        return ((None, (), None, ()),)
 
     def _select_contract_parties(
         self,
+        document: ArticleDocument,
+        sentence: Sentence,
         organizations: tuple[SentenceEntity, ...],
-    ) -> tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]]:
+        people: tuple[SentenceEntity, ...],
+    ) -> tuple[
+        tuple[
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+        ],
+        ...,
+    ]:
+        # Organizations appear in sentence order; the first is often the
+        # contracting authority. People can also be contractors, especially in
+        # clauses like "X otrzymała umowy" or "umowy dla X".
+        combinations = []
         if len(organizations) >= 2:
-            return (
-                organizations[0].id,
-                organizations[1].id,
-                (
-                    ContractCounterpartySignal(),
-                    ContractorSignal(),
-                ),
-            )
-        if len(organizations) == 1:
-            return (
-                organizations[0].id,
-                None,
+            org0, org1 = organizations[0], organizations[1]
+            source_sigs = self._build_signals_for_role(
+                document,
+                sentence,
+                org0.id,
+                org0.start_char,
                 (ContractCounterpartySignal(),),
+                is_source_role=True,
             )
-        return None, None, ()
+            target_sigs = self._build_signals_for_role(
+                document,
+                sentence,
+                org1.id,
+                org1.start_char,
+                (ContractorSignal(),),
+                is_source_role=False,
+            )
+            combinations.append((org0.id, source_sigs, org1.id, target_sigs))
+            person_contractor = self._person_contract_recipient(document, sentence, people)
+            if person_contractor is not None:
+                person_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    person_contractor.id,
+                    person_contractor.start_char,
+                    (ContractorSignal(), DirectPrepositionalAttachmentSignal()),
+                    is_source_role=False,
+                )
+                combinations.insert(0, (org0.id, source_sigs, person_contractor.id, person_sigs))
+            return tuple(combinations)
+        if len(organizations) == 1:
+            org = organizations[0]
+            person = self._person_contract_recipient(document, sentence, people)
+            if person is not None:
+                source_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    org.id,
+                    org.start_char,
+                    (ContractCounterpartySignal(),),
+                    is_source_role=True,
+                )
+                target_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    person.id,
+                    person.start_char,
+                    (ContractorSignal(), DirectPrepositionalAttachmentSignal()),
+                    is_source_role=False,
+                )
+                return ((org.id, source_sigs, person.id, target_sigs),)
+            source_sigs = self._build_signals_for_role(
+                document,
+                sentence,
+                org.id,
+                org.start_char,
+                (ContractCounterpartySignal(),),
+                is_source_role=True,
+            )
+            return ((org.id, source_sigs, None, ()),)
+        return ((None, (), None, ()),)
+
+    def _person_contract_recipient(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        people: tuple[SentenceEntity, ...],
+    ) -> SentenceEntity | None:
+        if not people:
+            return None
+        token_ids = sentence.token_ids
+        contract_index = self._first_token_index_with_lemmas(
+            document,
+            token_ids,
+            self._contract_lemmas,
+        )
+        recipient_action_index = self._first_token_index_with_lemmas(
+            document,
+            token_ids,
+            self._recipient_action_lemmas,
+        )
+        if recipient_action_index is not None:
+            action_token = document.store.tokens[token_ids[recipient_action_index]]
+            preceding = tuple(
+                person for person in people if person.start_char <= action_token.span.start_char
+            )
+            if preceding:
+                nominative = tuple(
+                    person
+                    for person in preceding
+                    if self._entity_has_case(document, person.id, "nom")
+                )
+                if nominative:
+                    return min(
+                        nominative,
+                        key=lambda person: action_token.span.start_char - person.start_char,
+                    )
+                return min(
+                    preceding,
+                    key=lambda person: action_token.span.start_char - person.start_char,
+                )
+        if contract_index is not None:
+            contract_token = document.store.tokens[token_ids[contract_index]]
+            with_target_preposition = tuple(
+                person
+                for person in people
+                if self._preposition_before_entity(
+                    document,
+                    sentence,
+                    person.start_char,
+                )
+                == "dla"
+            )
+            if with_target_preposition:
+                return min(
+                    with_target_preposition,
+                    key=lambda person: abs(person.start_char - contract_token.span.start_char),
+                )
+        return people[0]
+
+    def _entity_has_case(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+        expected_case: str,
+    ) -> bool:
+        for mention in document.store.candidate_mentions(entity_id):
+            mention_has_case = True
+            for token in document.store.tokens_for_mention(mention.id):
+                if not any(analysis.case == expected_case for analysis in token.morph):
+                    mention_has_case = False
+                    break
+            if mention_has_case:
+                return True
+        return False
 
     def _select_funding_parties(
         self,
@@ -374,42 +586,89 @@ class PublicMoneyCandidateStage:
         organizations: tuple[SentenceEntity, ...],
         *,
         lemmas: frozenset[str],
-    ) -> tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]]:
+    ) -> tuple[
+        tuple[
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+        ],
+        ...,
+    ]:
+        combinations = []
         if len(organizations) >= 2:
-            return (
-                organizations[0].id,
-                organizations[1].id,
-                (
-                    FunderSignal(),
-                    RecipientSignal(),
-                ),
-            )
-        if len(organizations) == 1 and lemmas & self._recipient_action_lemmas:
-            return (
-                None,
-                organizations[0].id,
-                (RecipientSignal(),),
-            )
+            for org0 in organizations:
+                for org1 in organizations:
+                    if org0.id == org1.id:
+                        continue
+                    source_sigs = self._build_signals_for_role(
+                        document,
+                        sentence,
+                        org0.id,
+                        org0.start_char,
+                        (FunderSignal(),),
+                        is_source_role=True,
+                    )
+                    target_sigs = self._build_signals_for_role(
+                        document,
+                        sentence,
+                        org1.id,
+                        org1.start_char,
+                        (RecipientSignal(),),
+                        is_source_role=False,
+                    )
+                    combinations.append((org0.id, source_sigs, org1.id, target_sigs))
+        elif len(organizations) == 1:
+            org = organizations[0]
+            if lemmas & self._recipient_action_lemmas:
+                target_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    org.id,
+                    org.start_char,
+                    (RecipientSignal(),),
+                    is_source_role=False,
+                )
+                combinations.append((None, (), org.id, target_sigs))
+            else:
+                source_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    org.id,
+                    org.start_char,
+                    (FunderSignal(),),
+                    is_source_role=True,
+                )
+                combinations.append((org.id, source_sigs, None, ()))
+
         inferred_funder_id = self._infer_source_organization(document, sentence)
         inferred_recipient_id = self._infer_recipient_organization(
             document,
             sentence,
             lemmas=lemmas,
         )
-        signals: list[Signal] = []
-        if inferred_funder_id is not None:
-            signals.append(LocalPhraseFunderSignal())
-        if inferred_recipient_id is not None:
-            signals.append(LocalPhraseRecipientSignal())
         if inferred_funder_id is not None or inferred_recipient_id is not None:
-            return inferred_funder_id, inferred_recipient_id, tuple(signals)
-        if len(organizations) == 1:
-            return (
-                organizations[0].id,
+            source_sigs = self._build_signals_for_role(
+                document,
+                sentence,
+                inferred_funder_id,
                 None,
-                (FunderSignal(),),
+                (LocalPhraseFunderSignal(),) if inferred_funder_id is not None else (),
+                is_source_role=True,
             )
-        return None, None, ()
+            target_sigs = self._build_signals_for_role(
+                document,
+                sentence,
+                inferred_recipient_id,
+                None,
+                (LocalPhraseRecipientSignal(),) if inferred_recipient_id is not None else (),
+                is_source_role=False,
+            )
+            combinations.append(
+                (inferred_funder_id, source_sigs, inferred_recipient_id, target_sigs)
+            )
+
+        return tuple(combinations) if combinations else ((None, (), None, ()),)
 
     def _infer_recipient_organization(
         self,
@@ -448,35 +707,34 @@ class PublicMoneyCandidateStage:
         sentence: Sentence,
     ) -> EntityCandidateId | None:
         token_ids = sentence.token_ids
-        for index, token_id in enumerate(token_ids):
-            token = document.store.tokens[token_id]
-            if not any(
-                analysis.lemma in self._source_preposition_lemmas for analysis in token.morph
-            ):
-                continue
-            if index + 1 >= len(token_ids):
-                continue
-            next_token = document.store.tokens[token_ids[index + 1]]
-            if not any(
-                analysis.lemma in self._organization_head_lemmas for analysis in next_token.morph
-            ):
-                continue
-            end_index = len(token_ids)
-            for stop_index in range(index + 2, len(token_ids)):
-                stop_token = document.store.tokens[token_ids[stop_index]]
-                if stop_token.text in {",", ".", ";", ":"}:
-                    end_index = stop_index
-                    break
-                if any(analysis.lemma in self._phrase_stop_lemmas for analysis in stop_token.morph):
-                    end_index = stop_index
-                    break
-            return self._materialize_local_organization(
-                document,
-                sentence,
-                start_index=index + 1,
-                end_index=end_index,
-            )
-        return None
+        prep_index = self._first_token_index_with_lemmas(
+            document,
+            token_ids,
+            self._source_preposition_lemmas,
+        )
+        if prep_index is None:
+            return None
+        head_index = self._first_token_index_with_lemmas(
+            document,
+            token_ids[prep_index + 1 :],
+            self._organization_head_lemmas,
+        )
+        if head_index is None:
+            return None
+        head_index_in_sentence = prep_index + 1 + head_index
+        end_index = head_index_in_sentence + 1
+        while end_index < len(token_ids):
+            tok = document.store.tokens[token_ids[end_index]]
+            tok_lemmas = {analysis.lemma for analysis in tok.morph}
+            if tok_lemmas & self._phrase_stop_lemmas:
+                break
+            end_index += 1
+        return self._materialize_local_organization(
+            document,
+            sentence,
+            start_index=head_index_in_sentence,
+            end_index=end_index,
+        )
 
     def _materialize_local_organization(
         self,
@@ -489,26 +747,31 @@ class PublicMoneyCandidateStage:
         token_ids = sentence.token_ids[start_index:end_index]
         if not token_ids:
             return None
-        span = Span(
-            start_char=document.store.tokens[token_ids[0]].span.start_char,
-            end_char=document.store.tokens[token_ids[-1]].span.end_char,
-        )
-        probe = EvidenceSpan(
-            id=EvidenceId("probe"),
-            text=document.cleaned_text[span.start_char : span.end_char],
-            span=span,
-            sentence_id=sentence.id,
-            paragraph_index=sentence.paragraph_index,
-            source=self.producer_id,
-        )
-        for candidate_id in document.store.candidate_ids_with_evidence_overlapping_span(probe):
-            candidate = document.store.entity_candidates[candidate_id]
-            if candidate.kind == EntityKind.ORGANIZATION:
-                return candidate_id
+        tokens = [document.store.tokens[tid] for tid in token_ids]
+        start_char = tokens[0].span.start_char
+        end_char = tokens[-1].span.end_char
+        text = document.cleaned_text[start_char:end_char]
+        for candidate_id, candidate in document.store.entity_candidates.items():
+            if candidate.grounding != GroundingKind.INFERRED:
+                continue
+            for mention_id in candidate.mention_ids:
+                mention = document.store.mentions.get(mention_id)
+                mention_evidence = (
+                    document.store.evidence.get(mention.evidence_id)
+                    if mention is not None
+                    else None
+                )
+                if (
+                    mention_evidence is not None
+                    and mention_evidence.span.start_char == start_char
+                    and mention_evidence.span.end_char == end_char
+                ):
+                    return candidate_id
+        evidence_id = document.store.next_evidence_id()
         evidence = EvidenceSpan(
-            id=document.store.next_evidence_id(),
-            text=document.cleaned_text[span.start_char : span.end_char],
-            span=span,
+            id=evidence_id,
+            text=text,
+            span=Span(start_char, end_char),
             sentence_id=sentence.id,
             paragraph_index=sentence.paragraph_index,
             source=self.producer_id,
@@ -517,45 +780,40 @@ class PublicMoneyCandidateStage:
         mention_id = document.store.next_mention_id()
         mention = Mention(
             id=mention_id,
-            text=evidence.text,
-            kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
-            evidence_id=evidence.id,
+            text=text,
+            kind=MentionKind.NER,
+            evidence_id=evidence_id,
             sentence_id=sentence.id,
             token_ids=token_ids,
-            head_lemma=self._head_lemma(document, token_ids),
+            head_lemma=self._head_lemma(tokens[0]),
         )
         document.store.add_mention(mention)
-        return document.store.add_entity_candidate(
-            EntityCandidate(
-                id=document.store.next_entity_candidate_id(),
-                kind=EntityKind.ORGANIZATION,
-                mention_ids=(mention_id,),
-                canonical_hint=evidence.text,
-                grounding=GroundingKind.INFERRED,
-                source=self.producer_id,
-            )
+        candidate_id = document.store.next_entity_candidate_id()
+        candidate = EntityCandidate(
+            id=candidate_id,
+            kind=EntityKind.ORGANIZATION,
+            grounding=GroundingKind.INFERRED,
+            canonical_hint=text,
+            mention_ids=(mention_id,),
+            source=self.producer_id,
         )
+        document.store.add_entity_candidate(candidate)
+        return candidate_id
 
     def _first_token_index_with_lemmas(
         self,
         document: ArticleDocument,
         token_ids: tuple[TokenId, ...],
-        lemmas: frozenset[str],
+        vocabulary: frozenset[str],
     ) -> int | None:
-        for index, token_id in enumerate(token_ids):
+        for idx, token_id in enumerate(token_ids):
             token = document.store.tokens[token_id]
-            if any(analysis.lemma in lemmas for analysis in token.morph):
-                return index
+            token_lemmas = {analysis.lemma for analysis in token.morph}
+            if token_lemmas & vocabulary:
+                return idx
         return None
 
-    def _head_lemma(
-        self,
-        document: ArticleDocument,
-        token_ids: tuple[TokenId, ...],
-    ) -> str | None:
-        if not token_ids:
-            return None
-        token = document.store.tokens[token_ids[0]]
+    def _head_lemma(self, token) -> str | None:
         for analysis in token.morph:
             if analysis.pos == "subst":
                 return analysis.lemma
@@ -567,7 +825,15 @@ class PublicMoneyCandidateStage:
         sentence: Sentence,
         retriever: SentenceEntityRetriever,
         entities: tuple[SentenceEntity, ...],
-    ) -> tuple[tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]], ...]:
+    ) -> tuple[
+        tuple[
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+            EntityCandidateId | None,
+            tuple[Signal, ...],
+        ],
+        ...,
+    ]:
         """Select plausible compensation source/recipient bindings.
 
         This intentionally avoids a full person × organization product. It keeps
@@ -601,26 +867,32 @@ class PublicMoneyCandidateStage:
         combinations = []
         selected_organizations = organizations if organizations else (None,)
         for org in selected_organizations:
-            signals: list[Signal] = []
-            if org is not None:
-                signals.append(source_signal)
-                if self._is_party_like_organization(document, org.id):
-                    signals.append(PartyOrganizationSignal())
-                if source_signal == WindowOrganizationSignal() and self._is_controller_context(
-                    document,
-                    org.id,
-                ):
-                    signals.append(
-                        ControllerContextSignal(
-                            reason="window organization appears as controller/supervisor"
-                        )
-                    )
-            if person is not None:
-                signals.append(target_signal)
-            combinations.append(
-                (org.id if org else None, person.id if person else None, tuple(signals))
+            source_base = (source_signal,) if org is not None else ()
+            target_base = (target_signal,) if person is not None else ()
+            if (
+                org is not None
+                and source_signal == WindowOrganizationSignal()
+                and self._is_controller_context(document, org.id)
+            ):
+                source_base = source_base + (
+                    ControllerContextSignal(
+                        reason="window organization appears as controller/supervisor"
+                    ),
+                )
+
+            source_id = org.id if org else None
+            source_start = org.start_char if org else None
+            target_id = person.id if person else None
+            target_start = person.start_char if person else None
+
+            source_sigs = self._build_signals_for_role(
+                document, sentence, source_id, source_start, source_base, is_source_role=True
             )
-        return tuple(combinations) if combinations else ((None, None, ()),)
+            target_sigs = self._build_signals_for_role(
+                document, sentence, target_id, target_start, target_base, is_source_role=False
+            )
+            combinations.append((source_id, source_sigs, target_id, target_sigs))
+        return tuple(combinations)
 
     @staticmethod
     def _nearest_entity(

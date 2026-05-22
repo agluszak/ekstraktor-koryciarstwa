@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import ArgumentBindingCandidate, EntityFiller, EventCandidate
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    EntityCandidate,
+    EntityFiller,
+    EventCandidate,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, ProducerId
-from pipeline_v2.nlp import EvidenceSpan, Sentence
+from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
@@ -13,10 +18,13 @@ from pipeline_v2.types import (
     EntityKind,
     EventRole,
     FactKind,
+    GenericOwnerContextSignal,
+    GoverningBodyContextSignal,
     GroundingKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
+    MentionKind,
     PartyOrganizationSignal,
     Signal,
     WeakSyntacticBindingSignal,
@@ -44,6 +52,33 @@ class GovernanceCandidateStage:
             "po",
             "psl",
             "razem",
+        }
+    )
+
+    _generic_owner_canonical_hints = frozenset(
+        {
+            "skarb państwa",
+            "skarb państwa rp",
+            "minister skarbu",
+            "państwo",
+        }
+    )
+    _generic_owner_head_lemmas = frozenset(
+        {
+            "skarb",  # Skarb Państwa
+        }
+    )
+    # Person-descriptor common nouns that imply a person role-holder; small
+    # stable set tied to the governance domain boundary.
+    _person_descriptor_lemmas = frozenset(
+        {
+            "polityk",
+            "działacz",
+            "urzędnik",
+            "menedżer",
+            "manager",
+            "kandydat",
+            "członek",
         }
     )
 
@@ -88,6 +123,18 @@ class GovernanceCandidateStage:
             "prezes",
             "rada",
             "zarząd",
+            "dyrektor",
+            "wicedyrektor",
+            "wiceprezes",
+            "kierownik",
+            "szef",
+        }
+    )
+    # Subset of governance roles that unambiguously refer to a single person;
+    # used when synthesising proxy person candidates (collective bodies excluded).
+    _singular_person_role_lemmas = frozenset(
+        {
+            "prezes",
             "dyrektor",
             "wicedyrektor",
             "wiceprezes",
@@ -150,6 +197,7 @@ class GovernanceCandidateStage:
                 person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                 actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                 organization_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                context_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                 role_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                 for person_id, organization_id, role_id, entity_signals in viable_combinations:
                     if self._signals_include_active_subject_context(entity_signals):
@@ -163,10 +211,18 @@ class GovernanceCandidateStage:
                             self._person_binding_signals(entity_signals),
                         )
                     if organization_id is not None:
-                        organization_bindings[organization_id] = self._merge_binding_signals(
-                            organization_bindings.get(organization_id, ()),
-                            self._organization_binding_signals(entity_signals),
-                        )
+                        organization_signals = self._organization_binding_signals(entity_signals)
+                        context_signals = self._context_binding_signals(entity_signals)
+                        if context_signals:
+                            context_bindings[organization_id] = self._merge_binding_signals(
+                                context_bindings.get(organization_id, ()),
+                                context_signals,
+                            )
+                        if not context_signals:
+                            organization_bindings[organization_id] = self._merge_binding_signals(
+                                organization_bindings.get(organization_id, ()),
+                                organization_signals,
+                            )
                     if role_id is not None:
                         role_bindings[role_id] = self._merge_binding_signals(
                             role_bindings.get(role_id, ()),
@@ -211,6 +267,13 @@ class GovernanceCandidateStage:
                     bindings=role_bindings,
                     evidence_id=evidence.id,
                 )
+                self._add_governance_bindings(
+                    document=document,
+                    event=event,
+                    role=EventRole.CONTEXT,
+                    bindings=context_bindings,
+                    evidence_id=evidence.id,
+                )
         return document
 
     def _add_governance_bindings(
@@ -238,7 +301,7 @@ class GovernanceCandidateStage:
         filtered: list[Signal] = []
         for signal in signals:
             match signal:
-                case LocalPersonSignal() | WindowPersonSignal():
+                case LocalPersonSignal() | WindowPersonSignal() | WeakSyntacticBindingSignal():
                     filtered.append(signal)
         return tuple(filtered)
 
@@ -258,7 +321,17 @@ class GovernanceCandidateStage:
                     LocalOrganizationSignal()
                     | WindowOrganizationSignal()
                     | PartyOrganizationSignal()
+                    | GenericOwnerContextSignal()
+                    | GoverningBodyContextSignal()
                 ):
+                    filtered.append(signal)
+        return tuple(filtered)
+
+    def _context_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        filtered: list[Signal] = []
+        for signal in signals:
+            match signal:
+                case GenericOwnerContextSignal() | GoverningBodyContextSignal():
                     filtered.append(signal)
         return tuple(filtered)
 
@@ -353,6 +426,21 @@ class GovernanceCandidateStage:
             local_signal=LocalPersonSignal(),
             window_signal=WindowPersonSignal(),
         )
+        roles = self._select_entities(
+            document,
+            sentence,
+            entities,
+            window_entities,
+            EntityKind.ROLE,
+            local_signal=LocalRoleSignal(),
+            window_signal=WindowRoleSignal(),
+        )
+        # When no named person is available, synthesise a proxy from a local
+        # governance-role entity or a person-descriptor noun (e.g. "polityk").
+        if not people:
+            proxy = self._synthesize_proxy_person(document, sentence, roles)
+            if proxy is not None:
+                people = (proxy,)
         if not people:
             return ()
 
@@ -364,6 +452,10 @@ class GovernanceCandidateStage:
             EntityKind.ORGANIZATION,
             local_signal=LocalOrganizationSignal(),
             window_signal=WindowOrganizationSignal(),
+            # Always include window organisations so that a previous-sentence
+            # entity (e.g. WFOŚiGW from sentence N-1) competes with local ones
+            # (e.g. PSL) and can win once party/owner signals are applied.
+            merge_window_with_local=True,
         )
         roles = self._select_entities(
             document,
@@ -540,15 +632,20 @@ class GovernanceCandidateStage:
         organizations: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
         trigger_start_char: int | None,
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
-        viable_organizations = tuple(
-            (organization, signals)
-            for organization, signals in organizations
-            if not self._is_governing_body_organization(document, organization.id)
-        )
-        if not viable_organizations:
+        results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
+        for organization, signals in organizations:
+            extra: list[Signal] = []
+            if self._is_governing_body_organization(document, organization.id):
+                extra.append(
+                    GoverningBodyContextSignal(reason="governing/supervisory body context")
+                )
+            if self._is_generic_owner_organization(document, organization.id):
+                extra.append(GenericOwnerContextSignal(reason="generic state/treasury owner"))
+            results.append((organization, (*signals, *extra)))
+        if not results:
             return ()
         _ = (person, role, trigger_start_char)
-        return viable_organizations
+        return tuple(results)
 
     def _select_entities(
         self,
@@ -560,29 +657,35 @@ class GovernanceCandidateStage:
         *,
         local_signal: Signal,
         window_signal: Signal,
+        merge_window_with_local: bool = False,
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
         local = tuple(entity for entity in local_entities if entity.kind == kind)
-        if local:
-            return tuple((entity, (local_signal,)) for entity in local)
-        window = tuple(entity for entity in window_entities if entity.kind == kind)
-        if window:
-            results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
-            for entity in window:
-                entity_min_dist = 999
-                for evidence in document.store.evidence_for_entity(entity.id):
-                    if evidence.sentence_id is None:
-                        continue
-                    evidence_sentence = document.store.sentences[evidence.sentence_id]
-                    if evidence_sentence.paragraph_index != anchor_sentence.paragraph_index:
-                        continue
-                    dist = anchor_sentence.sentence_index - evidence_sentence.sentence_index
-                    if 0 <= dist < entity_min_dist:
-                        entity_min_dist = dist
-                if entity_min_dist < 999:
-                    signal = local_signal if entity_min_dist == 0 else window_signal
-                    results.append((entity, (signal,)))
-            return tuple(results)
-        return ()
+        seen_ids: set[EntityCandidateId] = {entity.id for entity in local}
+        local_results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = [
+            (entity, (local_signal,)) for entity in local
+        ]
+        if local and not merge_window_with_local:
+            return tuple(local_results)
+        # Include window entities not already in local.
+        window_results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
+        for entity in window_entities:
+            if entity.kind != kind or entity.id in seen_ids:
+                continue
+            entity_min_dist = 999
+            for evidence in document.store.evidence_for_entity(entity.id):
+                if evidence.sentence_id is None:
+                    continue
+                evidence_sentence = document.store.sentences[evidence.sentence_id]
+                if evidence_sentence.paragraph_index != anchor_sentence.paragraph_index:
+                    continue
+                dist = anchor_sentence.sentence_index - evidence_sentence.sentence_index
+                if 0 <= dist < entity_min_dist:
+                    entity_min_dist = dist
+            if entity_min_dist < 999:
+                window_results.append((entity, (window_signal,)))
+        if not local_results and not window_results:
+            return ()
+        return tuple(local_results + window_results)
 
     def _public_office_role_near_person(
         self,
@@ -654,6 +757,23 @@ class GovernanceCandidateStage:
                     return True
         return False
 
+    def _has_singular_person_role(
+        self,
+        document: ArticleDocument,
+        role_id: EntityCandidateId | None,
+    ) -> bool:
+        """Like _has_governance_role but only matches roles that refer to a single
+        individual (prezes, dyrektor, etc.) — not collective bodies."""
+        if role_id is None:
+            return False
+        for mention in document.store.candidate_mentions(role_id):
+            for token in document.store.tokens_for_mention(mention.id):
+                if any(
+                    analysis.lemma in self._singular_person_role_lemmas for analysis in token.morph
+                ):
+                    return True
+        return False
+
     def _organization_lemmas(
         self,
         document: ArticleDocument,
@@ -681,6 +801,146 @@ class GovernanceCandidateStage:
         if "nadzorczy" in lemmas and "rada" in lemmas:
             return True
         return bool(lemmas & self._governing_body_head_lemmas and lemmas & {"nadzorczy", "członek"})
+
+    def _is_generic_owner_organization(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        """Return True for state/treasury entities that act as a governance authority
+        but should not win the appointed-institution role."""
+        candidate = document.store.entity_candidates[entity_id]
+        canonical_hint = (candidate.canonical_hint or "").casefold()
+        if canonical_hint in self._generic_owner_canonical_hints:
+            return True
+        lemmas = self._organization_lemmas(document, entity_id)
+        return bool(lemmas & self._generic_owner_head_lemmas)
+
+    def _synthesize_proxy_person(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        roles: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
+    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
+        """When no named person is available, emit an inferred PERSON candidate
+        derived from a local singular-person governance-role entity
+        (e.g. 'prezes', 'dyrektor') or a person-descriptor common noun
+        (e.g. 'polityk').  Collective bodies such as 'zarząd' and 'rada' are
+        deliberately excluded to avoid generating spurious events."""
+        local_entity_ids = {
+            e.id
+            for e in document.store.entity_candidates.values()
+            if any(
+                document.store.evidence.get(m.evidence_id) is not None
+                and document.store.evidence[m.evidence_id].sentence_id == sentence.id
+                for m in document.store.candidate_mentions(e.id)
+            )
+        }
+        # First, try a singular-person governance-role entity local to the sentence.
+        for role_entity, _role_sigs in roles:
+            if role_entity.id not in local_entity_ids:
+                continue
+            if not self._has_singular_person_role(document, role_entity.id):
+                continue
+            return self._proxy_from_role_entity(document, sentence, role_entity)
+        # Second, scan tokens for person-descriptor common nouns.
+        return self._proxy_from_descriptor_token(document, sentence)
+
+    def _proxy_from_role_entity(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        role_entity: SentenceEntity,
+    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
+        """Build an inferred PERSON candidate anchored on a role entity mention."""
+        role_candidate = document.store.entity_candidates.get(role_entity.id)
+        if role_candidate is None or not role_candidate.mention_ids:
+            return None
+        role_mention = document.store.mentions.get(role_candidate.mention_ids[0])
+        if role_mention is None:
+            return None
+        role_evidence = document.store.evidence.get(role_mention.evidence_id)
+        if role_evidence is None:
+            return None
+        return self._create_proxy_person_candidate(
+            document=document,
+            sentence=sentence,
+            text=role_mention.text,
+            span=role_evidence.span,
+            head_lemma=role_mention.head_lemma,
+        )
+
+    def _proxy_from_descriptor_token(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
+        """Build an inferred PERSON candidate from a person-descriptor noun token."""
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            token_lemmas = {analysis.lemma for analysis in token.morph}
+            if not (token_lemmas & self._person_descriptor_lemmas):
+                continue
+            lemma = next(iter(token_lemmas & self._person_descriptor_lemmas))
+            span = Span(token.span.start_char, token.span.end_char)
+            return self._create_proxy_person_candidate(
+                document=document,
+                sentence=sentence,
+                text=token.text,
+                span=span,
+                head_lemma=lemma,
+            )
+        return None
+
+    def _create_proxy_person_candidate(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        *,
+        text: str,
+        span: Span,
+        head_lemma: str | None,
+    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
+        evidence_id = document.store.next_evidence_id()
+        evidence = EvidenceSpan(
+            id=evidence_id,
+            text=text,
+            span=span,
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=self.producer_id,
+        )
+        document.store.add_evidence(evidence)
+        mention_id = document.store.next_mention_id()
+        mention = Mention(
+            id=mention_id,
+            text=text,
+            kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
+            evidence_id=evidence_id,
+            sentence_id=sentence.id,
+            head_lemma=head_lemma,
+        )
+        document.store.add_mention(mention)
+        candidate_id = document.store.next_entity_candidate_id()
+        candidate = EntityCandidate(
+            id=candidate_id,
+            kind=EntityKind.PERSON,
+            grounding=GroundingKind.INFERRED,
+            canonical_hint=text,
+            mention_ids=(mention_id,),
+            source=self.producer_id,
+        )
+        document.store.add_entity_candidate(candidate)
+        proxy_entity = SentenceEntity(
+            id=candidate_id,
+            kind=EntityKind.PERSON,
+            start_char=span.start_char,
+            end_char=span.end_char,
+        )
+        return (
+            proxy_entity,
+            (LocalPersonSignal(),),
+        )
 
     def _is_background_local_person(
         self,
