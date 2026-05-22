@@ -15,6 +15,13 @@ class EntityKind(StrEnum):
     LOCATION = "location"
 
 
+class EntityTag(StrEnum):
+    PUBLIC_INSTITUTION = "public_institution"
+    MEDIA_OUTLET = "media_outlet"
+    GENERIC_OWNER = "generic_owner"
+    GOVERNING_BODY = "governing_body"
+
+
 class FactKind(StrEnum):
     PARTY_AFFILIATION = "party_affiliation"
     POLITICAL_SUPPORT = "political_support"

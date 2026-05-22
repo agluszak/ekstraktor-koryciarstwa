@@ -309,6 +309,21 @@ class FactInferenceGraphBuilder:
                             document=document,
                         )
                     )
+            if event.kind == FactKind.FUNDING:
+                funder_var = role_vars.get(EventRole.FUNDER)
+                recipient_var = role_vars.get(EventRole.RECIPIENT)
+                if funder_var is not None and recipient_var is not None:
+                    factors.append(
+                        self._role_distinctness_factor(
+                            factor_name="funding-distinct",
+                            event_id=event.id,
+                            left_variable=funder_var,
+                            left_states=role_states_map[EventRole.FUNDER],
+                            right_variable=recipient_var,
+                            right_states=role_states_map[EventRole.RECIPIENT],
+                            document=document,
+                        )
+                    )
 
         return BuiltFactInferenceGraph(
             spec=InferenceGraphSpec(variables=tuple(variables), factors=tuple(factors)),
@@ -542,42 +557,63 @@ class FactInferenceGraphBuilder:
         contractor_states: tuple[RoleFillerState, ...],
         document: ArticleDocument,
     ) -> InferenceFactor:
+        return self._role_distinctness_factor(
+            factor_name="contract-distinct",
+            event_id=event_id,
+            left_variable=counterparty_variable,
+            left_states=counterparty_states,
+            right_variable=contractor_variable,
+            right_states=contractor_states,
+            document=document,
+        )
+
+    def _role_distinctness_factor(
+        self,
+        *,
+        factor_name: str,
+        event_id: EventCandidateId,
+        left_variable: InferenceVariable,
+        left_states: tuple[RoleFillerState, ...],
+        right_variable: InferenceVariable,
+        right_states: tuple[RoleFillerState, ...],
+        document: ArticleDocument,
+    ) -> InferenceFactor:
         values: list[float] = []
-        for counterparty_state in counterparty_states:
-            for contractor_state in contractor_states:
+        for left_state in left_states:
+            for right_state in right_states:
                 values.append(
                     0.02
-                    if self._contract_roles_overlap(
+                    if self._entity_roles_overlap(
                         document=document,
-                        counterparty_state=counterparty_state,
-                        contractor_state=contractor_state,
+                        left_state=left_state,
+                        right_state=right_state,
                     )
                     else 1.0
                 )
         return InferenceFactor(
-            id=InferenceFactorId(f"factor:contract-distinct:{event_id}"),
+            id=InferenceFactorId(f"factor:{factor_name}:{event_id}"),
             kind=InferenceFactorKind.CONSTRAINT,
-            variable_ids=(counterparty_variable.id, contractor_variable.id),
+            variable_ids=(left_variable.id, right_variable.id),
             potentials=tuple(values),
         )
 
-    def _contract_roles_overlap(
+    def _entity_roles_overlap(
         self,
         *,
         document: ArticleDocument,
-        counterparty_state: RoleFillerState,
-        contractor_state: RoleFillerState,
+        left_state: RoleFillerState,
+        right_state: RoleFillerState,
     ) -> bool:
-        if not isinstance(counterparty_state.filler, EntityFiller):
-            return False
-        if not isinstance(contractor_state.filler, EntityFiller):
-            return False
-        left_resolved = resolve_entity_id(document.store, counterparty_state.filler.entity_id)
-        right_resolved = resolve_entity_id(document.store, contractor_state.filler.entity_id)
+        match (left_state.filler, right_state.filler):
+            case (EntityFiller(entity_id=left_entity_id), EntityFiller(entity_id=right_entity_id)):
+                left_resolved = resolve_entity_id(document.store, left_entity_id)
+                right_resolved = resolve_entity_id(document.store, right_entity_id)
+            case _:
+                return False
         if left_resolved == right_resolved:
             return True
-        left = document.store.entity_candidates.get(counterparty_state.filler.entity_id)
-        right = document.store.entity_candidates.get(contractor_state.filler.entity_id)
+        left = document.store.entity_candidates.get(left_entity_id)
+        right = document.store.entity_candidates.get(right_entity_id)
         if left is None or right is None:
             return False
         left_hint = (left.canonical_hint or "").casefold()
