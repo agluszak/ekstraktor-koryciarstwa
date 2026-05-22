@@ -217,6 +217,7 @@ class FactInferenceGraphBuilder:
             tuple[EventCandidateId, EventRole], InferenceVariableId
         ] = {}
         filler_states_by_variable_id: dict[InferenceVariableId, tuple[RoleFillerState, ...]] = {}
+        event_variable_by_event_id: dict[EventCandidateId, InferenceVariable] = {}
 
         for event in document.store.event_candidates.values():
             schema = schema_for(event.kind)
@@ -227,6 +228,7 @@ class FactInferenceGraphBuilder:
             event_ids_by_variable[event_variable.id] = event.id
             fact_ids_by_variable[event_variable.id] = self._materialized_fact_id(event.id)
             priors_by_variable[event_variable.id] = event_prior
+            event_variable_by_event_id[event.id] = event_variable
 
             bindings_by_role: dict[EventRole, list[ArgumentBindingCandidate]] = {}
             for binding in document.store.argument_bindings_for_event(event.id):
@@ -274,8 +276,7 @@ class FactInferenceGraphBuilder:
                         factors.append(semantic_factor)
                 role_variable_id_by_event_role[(event.id, role)] = role_variable.id
                 filler_states_by_variable_id[role_variable.id] = states
-
-            if event.kind == FactKind.PERSONAL_OR_POLITICAL_TIE:
+            if event.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.PATRONAGE_NETWORK_TIE}:
                 subject_var = role_vars.get(EventRole.SUBJECT)
                 object_var = role_vars.get(EventRole.OBJECT)
                 if subject_var is not None and object_var is not None:
@@ -318,6 +319,43 @@ class FactInferenceGraphBuilder:
                             document=document,
                         )
                     )
+            if event.kind == FactKind.PUBLIC_PROCUREMENT_ABUSE:
+                actor_var = role_vars.get(EventRole.ACTOR)
+                target_var = role_vars.get(EventRole.TARGET)
+                if actor_var is not None and target_var is not None:
+                    factors.append(
+                        self._role_distinctness_factor(
+                            factor_name="patronage-actor-target-distinct",
+                            event_id=event.id,
+                            left_variable=actor_var,
+                            left_states=role_states_map[EventRole.ACTOR],
+                            right_variable=target_var,
+                            right_states=role_states_map[EventRole.TARGET],
+                            document=document,
+                        )
+                    )
+            if event.kind == FactKind.PATRONAGE_ALLEGATION:
+                complainant_var = role_vars.get(EventRole.COMPLAINANT)
+                target_var = role_vars.get(EventRole.TARGET)
+                if complainant_var is not None and target_var is not None:
+                    factors.append(
+                        self._role_distinctness_factor(
+                            factor_name="patronage-complainant-target-distinct",
+                            event_id=event.id,
+                            left_variable=complainant_var,
+                            left_states=role_states_map[EventRole.COMPLAINANT],
+                            right_variable=target_var,
+                            right_states=role_states_map[EventRole.TARGET],
+                            document=document,
+                        )
+                    )
+
+        factors.extend(
+            self._patronage_cross_layer_factors(
+                document=document,
+                event_variable_by_event_id=event_variable_by_event_id,
+            )
+        )
 
         return BuiltFactInferenceGraph(
             spec=InferenceGraphSpec(variables=tuple(variables), factors=tuple(factors)),
@@ -329,6 +367,96 @@ class FactInferenceGraphBuilder:
                 filler_states_by_variable_id=filler_states_by_variable_id,
             ),
         )
+
+    def _patronage_cross_layer_factors(
+        self,
+        *,
+        document: ArticleDocument,
+        event_variable_by_event_id: dict[EventCandidateId, InferenceVariable],
+    ) -> tuple[InferenceFactor, ...]:
+        allegations = tuple(
+            event
+            for event in document.store.event_candidates.values()
+            if event.kind is FactKind.PATRONAGE_ALLEGATION
+        )
+        network_ties = tuple(
+            event
+            for event in document.store.event_candidates.values()
+            if event.kind is FactKind.PATRONAGE_NETWORK_TIE
+        )
+        factors: list[InferenceFactor] = []
+        for allegation in allegations:
+            allegation_var = event_variable_by_event_id.get(allegation.id)
+            if allegation_var is None:
+                continue
+            for network_tie in network_ties:
+                network_var = event_variable_by_event_id.get(network_tie.id)
+                if network_var is None:
+                    continue
+                if not self._patronage_events_overlap(document, allegation.id, network_tie.id):
+                    continue
+                factors.append(
+                    InferenceFactor(
+                        id=InferenceFactorId(
+                            f"factor:patronage-cross-layer:{allegation.id}:{network_tie.id}"
+                        ),
+                        kind=InferenceFactorKind.CONSTRAINT,
+                        variable_ids=(allegation_var.id, network_var.id),
+                        # (false,false), (false,true), (true,false), (true,true)
+                        potentials=(1.0, 0.7, 0.7, 1.15),
+                    )
+                )
+        return tuple(factors)
+
+    def _patronage_events_overlap(
+        self,
+        document: ArticleDocument,
+        allegation_event_id: EventCandidateId,
+        network_event_id: EventCandidateId,
+    ) -> bool:
+        allegation_entities = self._event_resolved_entities(
+            document=document,
+            event_id=allegation_event_id,
+            roles=frozenset({EventRole.COMPLAINANT, EventRole.TARGET, EventRole.INSTITUTION}),
+        )
+        network_entities = self._event_resolved_entities(
+            document=document,
+            event_id=network_event_id,
+            roles=frozenset({EventRole.SUBJECT, EventRole.OBJECT, EventRole.INSTITUTION}),
+        )
+        if allegation_entities & network_entities:
+            return True
+        allegation_evidence = self._event_evidence_ids(document, allegation_event_id)
+        network_evidence = self._event_evidence_ids(document, network_event_id)
+        return any(evidence_id in network_evidence for evidence_id in allegation_evidence)
+
+    def _event_resolved_entities(
+        self,
+        *,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+        roles: frozenset[EventRole],
+    ) -> frozenset[EntityCandidateId]:
+        entities: set[EntityCandidateId] = set()
+        for binding in document.store.argument_bindings_for_event(event_id):
+            if binding.role not in roles:
+                continue
+            match binding.filler:
+                case EntityFiller(entity_id=entity_id):
+                    entities.add(resolve_entity_id(document.store, entity_id))
+                case _:
+                    continue
+        return frozenset(entities)
+
+    def _event_evidence_ids(
+        self,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+    ) -> frozenset[EvidenceId]:
+        event = document.store.event_candidates.get(event_id)
+        if event is None:
+            return frozenset()
+        return frozenset(event.evidence_ids)
 
     def _materialized_fact_id(self, event_id: EventCandidateId) -> FactCandidateId:
         return FactCandidateId(f"materialized:{event_id}")

@@ -27,6 +27,7 @@ from pipeline_v2.types import (
     LocalRoleSignal,
     LocationContextSignal,
     MentionKind,
+    PartyOrganizationSignal,
     PossessiveKinshipSignal,
     ProxyFamilyEntitySignal,
     PublicEmploymentLemmaSignal,
@@ -53,8 +54,41 @@ class PublicEmploymentCandidateStage:
         {"doradca", "konsultant", "konsultantka", "pełnomocnik", "radca"}
     )
     _public_org_head_lemmas = frozenset({"gmina", "samorząd", "starostwo", "urząd"})
+    _contextual_public_org_head_lemmas = frozenset({"jednostka", "spółka"})
+    _public_org_context_lemmas = frozenset(
+        {
+            "gmina",
+            "komunalny",
+            "miejski",
+            "państwo",
+            "powiat",
+            "publiczny",
+            "samorząd",
+            "skarb",
+            "województwo",
+        }
+    )
+    _party_like_organization_names = frozenset(
+        {
+            "koalicja obywatelska",
+            "koalicji obywatelskiej",
+            "lewica",
+            "platforma obywatelska",
+            "platformy obywatelskiej",
+            "polska 2050",
+            "polskie stronnictwo ludowe",
+            "polskiego stronnictwa ludowego",
+            "prawo i sprawiedliwość",
+            "prawa i sprawiedliwości",
+            "pis",
+            "po",
+            "psl",
+            "razem",
+        }
+    )
     _supporting_lemmas = frozenset({"praca", "pracować", "stanowisko", "zostać"})
     _contract_form_lemmas = frozenset({"umowa", "zlecenie"})
+    _collective_person_context_lemmas = frozenset({"członek", "polityk", "rodzina", "znajomy"})
     _governance_exclusion_lemmas = frozenset(
         {
             "awansować",
@@ -215,6 +249,8 @@ class PublicEmploymentCandidateStage:
             if relation is not None and syntax.is_object_relation(relation):
                 candidates.append((entity, (DependencyObjectSignal(relation=relation),)))
                 continue
+            if self._has_collective_person_context(document, sentence):
+                continue
             if (
                 not cue.active_subject_is_employee
                 and self._is_nominative_subject_in_active_sentence(document, sentence, entity.id)
@@ -227,6 +263,8 @@ class PublicEmploymentCandidateStage:
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
         if not people:
+            return ()
+        if self._has_collective_person_context(document, sentence):
             return ()
         candidate = people[-1]
         if not cue.active_subject_is_employee and self._is_nominative_subject_in_active_sentence(
@@ -273,7 +311,16 @@ class PublicEmploymentCandidateStage:
             kinds=frozenset({EntityKind.ORGANIZATION}),
         )
         if local is not None:
-            candidates.append((local, (LocalOrganizationSignal(),)))
+            candidates.append(
+                (
+                    local,
+                    self._organization_binding_signals(
+                        document,
+                        local.id,
+                        LocalOrganizationSignal(),
+                    ),
+                )
+            )
 
         inferred = self._infer_public_organization(document, sentence, anchor_char)
         if inferred is not None:
@@ -300,7 +347,16 @@ class PublicEmploymentCandidateStage:
             )
             and following_local.start_char - anchor_char <= 80
         ):
-            candidates.append((following_local, (LocalOrganizationSignal(),)))
+            candidates.append(
+                (
+                    following_local,
+                    self._organization_binding_signals(
+                        document,
+                        following_local.id,
+                        LocalOrganizationSignal(),
+                    ),
+                )
+            )
 
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         orgs = tuple(
@@ -318,7 +374,16 @@ class PublicEmploymentCandidateStage:
             )
         )
         if orgs:
-            candidates.append((orgs[-1], (WindowOrganizationSignal(),)))
+            candidates.append(
+                (
+                    orgs[-1],
+                    self._organization_binding_signals(
+                        document,
+                        orgs[-1].id,
+                        WindowOrganizationSignal(),
+                    ),
+                )
+            )
         return self._dedupe_entity_candidates(candidates)
 
     def _dedupe_entity_candidates(
@@ -451,6 +516,8 @@ class PublicEmploymentCandidateStage:
                 return local, (DependencySubjectSignal(relation=relation),)
             if relation is not None and syntax.is_object_relation(relation):
                 return local, (DependencyObjectSignal(relation=relation),)
+            if self._has_collective_person_context(document, sentence):
+                return None
             if self._is_nominative_subject_in_active_sentence(document, sentence, local.id):
                 return None
             return local, (LocalPersonSignal(),)
@@ -458,6 +525,8 @@ class PublicEmploymentCandidateStage:
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
         if people:
+            if self._has_collective_person_context(document, sentence):
+                return None
             # Check if the window person is the active nominative subject
             candidate = people[-1]
             if self._is_nominative_subject_in_active_sentence(document, sentence, candidate.id):
@@ -550,7 +619,10 @@ class PublicEmploymentCandidateStage:
             kinds=frozenset({EntityKind.ORGANIZATION}),
         )
         if local is not None:
-            return local, (LocalOrganizationSignal(),)
+            return (
+                local,
+                self._organization_binding_signals(document, local.id, LocalOrganizationSignal()),
+            )
 
         inferred = self._infer_public_organization(document, sentence, anchor_char)
         if inferred is not None:
@@ -578,7 +650,14 @@ class PublicEmploymentCandidateStage:
             )
             and following_local.start_char - anchor_char <= 80
         ):
-            return following_local, (LocalOrganizationSignal(),)
+            return (
+                following_local,
+                self._organization_binding_signals(
+                    document,
+                    following_local.id,
+                    LocalOrganizationSignal(),
+                ),
+            )
 
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         orgs = tuple(
@@ -602,7 +681,14 @@ class PublicEmploymentCandidateStage:
                 orgs,
                 key=lambda e: min(abs(e.start_char - anchor), abs(e.end_char - anchor)),
             )
-            return closest, (WindowOrganizationSignal(),)
+            return (
+                closest,
+                self._organization_binding_signals(
+                    document,
+                    closest.id,
+                    WindowOrganizationSignal(),
+                ),
+            )
         return None
 
     def _is_after_next_employment_cue(
@@ -709,7 +795,7 @@ class PublicEmploymentCandidateStage:
         matches: list[tuple[int, TokenId]] = []
         for token_id in sentence.token_ids:
             token = document.store.tokens[token_id]
-            if not ({analysis.lemma for analysis in token.morph} & self._public_org_head_lemmas):
+            if not self._is_public_org_head_token(document, sentence, token_id):
                 continue
             if token.span.start_char > anchor_char and self._crosses_clause_boundary(
                 document,
@@ -722,6 +808,37 @@ class PublicEmploymentCandidateStage:
         if not matches:
             return None
         return min(matches, key=lambda item: item[0])[1]
+
+    def _is_public_org_head_token(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        token_id: TokenId,
+    ) -> bool:
+        token = document.store.tokens[token_id]
+        token_lemmas = {analysis.lemma for analysis in token.morph}
+        if token_lemmas & self._public_org_head_lemmas:
+            return True
+        if not (token_lemmas & self._contextual_public_org_head_lemmas):
+            return False
+        sentence_tokens = tuple(
+            document.store.tokens[sent_token_id] for sent_token_id in sentence.token_ids
+        )
+        token_index = next(
+            (
+                index
+                for index, sentence_token in enumerate(sentence_tokens)
+                if sentence_token.id == token_id
+            ),
+            None,
+        )
+        if token_index is None:
+            return False
+        window_tokens = sentence_tokens[max(0, token_index - 3) : token_index + 4]
+        context_lemmas = {
+            analysis.lemma for window_token in window_tokens for analysis in window_token.morph
+        }
+        return bool(context_lemmas & self._public_org_context_lemmas)
 
     def _next_employment_anchor(
         self,
@@ -824,5 +941,60 @@ class PublicEmploymentCandidateStage:
         for mention in document.store.candidate_mentions(role_id):
             for token in document.store.tokens_for_mention(mention.id):
                 if any(analysis.lemma in self._governance_role_lemmas for analysis in token.morph):
+                    return True
+        return False
+
+    def _has_collective_person_context(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> bool:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            for analysis in token.morph:
+                if (
+                    analysis.lemma in self._collective_person_context_lemmas
+                    and analysis.number == "pl"
+                ):
+                    return True
+        return False
+
+    def _organization_binding_signals(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+        base_signal: Signal,
+    ) -> tuple[Signal, ...]:
+        signals: list[Signal] = [base_signal]
+        if self._is_party_like_organization(document, entity_id):
+            signals.append(PartyOrganizationSignal())
+        return tuple(signals)
+
+    def _is_party_like_organization(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        candidate = document.store.entity_candidates[entity_id]
+        canonical_hint = (candidate.canonical_hint or "").casefold()
+        if canonical_hint in self._party_like_organization_names:
+            return True
+        return self._overlaps_political_party(document, entity_id)
+
+    def _overlaps_political_party(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        organization_evidence = tuple(document.store.evidence_for_entity(entity_id))
+        for candidate in document.store.candidates_by_kind(EntityKind.POLITICAL_PARTY):
+            for party_evidence in document.store.evidence_for_entity(candidate.id):
+                for organization_span in organization_evidence:
+                    if organization_span.sentence_id != party_evidence.sentence_id:
+                        continue
+                    if organization_span.span.end_char <= party_evidence.span.start_char:
+                        continue
+                    if party_evidence.span.end_char <= organization_span.span.start_char:
+                        continue
                     return True
         return False

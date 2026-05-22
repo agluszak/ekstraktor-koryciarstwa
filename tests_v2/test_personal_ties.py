@@ -14,6 +14,7 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import FactKind, NerLabel, ReferenceKind, RelationshipDetail
 from tests_v2.materialized import (
+    argument_roles,
     entity_hint_for_role,
     fact_records,
     first_fact_record,
@@ -148,9 +149,14 @@ def test_personal_tie_stage_emits_explicit_patronage_tie_from_two_people() -> No
 
     PersonalTieCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
-    record = first_fact_record(document)
+    records = [
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert records
+    record = records[0]
 
-    assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
     assert entity_hint_for_role(document, record, "subject") == "Piotr Nowak"
     assert entity_hint_for_role(document, record, "object") == "Jana Kowalskiego"
     assert text_argument(record, "context") == "znajomy"
@@ -184,3 +190,53 @@ def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organizat
     PersonalTieCandidateStage().run(document)
 
     assert fact_records(document) == ()
+
+
+def test_patronage_complaint_uses_adjacent_sentence_people_and_keeps_evidence() -> None:
+    text = (
+        "W mieście trwa kolesiostwo i rozdawanie posad. "
+        "Dorota Połedniok publicznie oskarżyła Jacka Guzego o układ."
+    )
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Dorota Połedniok"),
+            person_span(text, "Jacka Guzego"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    complaint_events = [
+        event
+        for event in document.store.event_candidates.values()
+        if event.kind in {FactKind.PATRONAGE_ALLEGATION, FactKind.PATRONAGE_NETWORK_TIE}
+    ]
+    assert complaint_events
+    assert all(event.trigger_evidence_id is not None for event in complaint_events)
+    assert all(event.evidence_ids for event in complaint_events)
+
+    ProbabilisticInferenceStage().run(document)
+    complaint_records = [
+        record
+        for record in fact_records(document)
+        if record.kind in {FactKind.PATRONAGE_ALLEGATION, FactKind.PATRONAGE_NETWORK_TIE}
+    ]
+    assert complaint_records
+
+    def _has_grounded_person(record) -> bool:
+        roles = argument_roles(record)
+        relevant = {"Dorota Połedniok", "Jacka Guzego"}
+
+        def _role_matches(role_name: str) -> bool:
+            if role_name not in roles:
+                return False
+            return entity_hint_for_role(document, record, role_name) in relevant
+
+        return (
+            _role_matches("complainant")
+            or _role_matches("target")
+            or _role_matches("subject")
+            or _role_matches("object")
+        )
+
+    assert any(_has_grounded_person(record) for record in complaint_records)

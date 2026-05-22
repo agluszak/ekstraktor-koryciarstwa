@@ -12,7 +12,9 @@ from pipeline_v2.types import (
     CanonicalHintMatchSignal,
     ConflictingPartyAffiliationSignal,
     CoreferenceProviderLinkSignal,
+    DescriptorPersonCandidateSignal,
     FullNameReuseMatchSignal,
+    LemmaMatchSignal,
     NearbyPersonCandidateSignal,
     SameNameContradictionSignal,
     SignalPolarity,
@@ -42,6 +44,13 @@ class EntityResolutionScorer:
                 case SurnameBaseMatchSignal(distance=d):
                     score += 0.2
                     score += max(0.0, 0.15 - 0.05 * d)
+                case LemmaMatchSignal():
+                    score += 0.4
+                case DescriptorPersonCandidateSignal(sentence_distance=d):
+                    score += 0.24
+                    score += max(0.0, 0.12 - 0.06 * d)
+                case NearbyPersonCandidateSignal():
+                    score += 0.12
 
         for signal in negative:
             match signal:

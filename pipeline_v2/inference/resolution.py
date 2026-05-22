@@ -66,6 +66,8 @@ from pipeline_v2.types import (
     FactKind,
     FactResolutionStrategy,
     GroundingKind,
+    MentionKind,
+    RelationshipDetail,
     ResolutionRelation,
     SemanticEvidenceSimilaritySignal,
     Signal,
@@ -136,6 +138,12 @@ class ResolutionInferenceGraphBuilder:
             entity_proposal_by_variable_id=entity_proposal_by_variable_id,
             same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
         )
+        self._add_same_entity_role_factors(
+            document=document,
+            fact_graph=fact_graph,
+            factors=factors,
+            same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+        )
 
         reference_state_proposals_by_variable_id: dict[
             InferenceVariableId, dict[InferenceStateId, ReferenceResolutionProposal]
@@ -191,6 +199,11 @@ class ResolutionInferenceGraphBuilder:
             same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
             same_event_proposal_by_variable_id=same_event_proposal_by_variable_id,
         )
+        self._add_inverse_child_tie_conflict_factors(
+            document=document,
+            fact_graph=fact_graph,
+            factors=factors,
+        )
 
         return BuiltResolutionInferenceGraph(
             spec=InferenceGraphSpec(variables=tuple(variables), factors=tuple(factors)),
@@ -198,6 +211,77 @@ class ResolutionInferenceGraphBuilder:
             reference_state_proposals_by_variable_id=reference_state_proposals_by_variable_id,
             same_event_proposal_by_variable_id=same_event_proposal_by_variable_id,
             entity_context_proposal_by_variable_id=entity_context_proposal_by_variable_id,
+        )
+
+    def _add_inverse_child_tie_conflict_factors(
+        self,
+        *,
+        document: ArticleDocument,
+        fact_graph: BuiltFactInferenceGraph,
+        factors: list[InferenceFactor],
+    ) -> None:
+        event_variable_id_by_event_id = {
+            event_id: variable_id
+            for variable_id, event_id in fact_graph.index.event_id_by_event_variable_id.items()
+        }
+        event_views = self._event_views(document)
+        tie_event_ids: list[EventCandidateId] = [
+            event_id
+            for event_id, view in event_views.items()
+            if view.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+            and RelationshipDetail.CHILD.value
+            in view.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
+        ]
+        tie_event_ids.sort(key=lambda event_id: str(event_id))
+        for index, left_event_id in enumerate(tie_event_ids):
+            left_view = event_views[left_event_id]
+            left_subject = left_view.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
+            left_object = left_view.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
+            if len(left_subject) != 1 or len(left_object) != 1:
+                continue
+            for right_event_id in tie_event_ids[index + 1 :]:
+                right_view = event_views[right_event_id]
+                right_subject = right_view.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
+                right_object = right_view.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
+                if len(right_subject) != 1 or len(right_object) != 1:
+                    continue
+                if left_subject != right_object or left_object != right_subject:
+                    continue
+                left_event_variable_id = event_variable_id_by_event_id.get(left_event_id)
+                right_event_variable_id = event_variable_id_by_event_id.get(right_event_id)
+                if left_event_variable_id is None or right_event_variable_id is None:
+                    continue
+                factors.append(
+                    self._inverse_child_tie_conflict_factor(
+                        left_event_id=left_event_id,
+                        right_event_id=right_event_id,
+                        left_event_variable_id=left_event_variable_id,
+                        right_event_variable_id=right_event_variable_id,
+                    )
+                )
+
+    def _inverse_child_tie_conflict_factor(
+        self,
+        *,
+        left_event_id: EventCandidateId,
+        right_event_id: EventCandidateId,
+        left_event_variable_id: InferenceVariableId,
+        right_event_variable_id: InferenceVariableId,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        for left_event_state in (FALSE_STATE, TRUE_STATE):
+            for right_event_state in (FALSE_STATE, TRUE_STATE):
+                if left_event_state.id == TRUE_STATE.id and right_event_state.id == TRUE_STATE.id:
+                    values.append(0.01)
+                elif left_event_state.id == TRUE_STATE.id or right_event_state.id == TRUE_STATE.id:
+                    values.append(1.2)
+                else:
+                    values.append(1.0)
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:inverse-child-tie:{left_event_id}:{right_event_id}"),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(left_event_variable_id, right_event_variable_id),
+            potentials=tuple(values),
         )
 
     def _add_entity_resolution_variables(
@@ -268,6 +352,82 @@ class ResolutionInferenceGraphBuilder:
                 same_entity_variable_id_by_pair[
                     self._entity_pair(enriched.left_entity_id, enriched.right_entity_id)
                 ] = variable_id
+
+    def _add_same_entity_role_factors(
+        self,
+        *,
+        document: ArticleDocument,
+        fact_graph: BuiltFactInferenceGraph,
+        factors: list[InferenceFactor],
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> None:
+        for (
+            left_entity_id,
+            right_entity_id,
+        ), same_entity_variable_id in same_entity_variable_id_by_pair.items():
+            preferred_pair = self._descriptor_named_pair(
+                document=document,
+                left_entity_id=left_entity_id,
+                right_entity_id=right_entity_id,
+            )
+            if preferred_pair is None:
+                continue
+            descriptor_entity_id, named_entity_id = preferred_pair
+            for (
+                role_variable_id,
+                role_states,
+            ) in fact_graph.index.filler_states_by_variable_id.items():
+                entity_ids = {
+                    entity_id
+                    for state in role_states
+                    for entity_id in [self._entity_id_from_state(state)]
+                    if entity_id is not None
+                }
+                if descriptor_entity_id not in entity_ids or named_entity_id not in entity_ids:
+                    continue
+                factors.append(
+                    self._same_entity_role_factor(
+                        same_entity_variable_id=same_entity_variable_id,
+                        role_variable_id=role_variable_id,
+                        role_states=role_states,
+                        descriptor_entity_id=descriptor_entity_id,
+                        named_entity_id=named_entity_id,
+                    )
+                )
+
+    def _same_entity_role_factor(
+        self,
+        *,
+        same_entity_variable_id: InferenceVariableId,
+        role_variable_id: InferenceVariableId,
+        role_states: tuple[RoleFillerState, ...],
+        descriptor_entity_id: EntityCandidateId,
+        named_entity_id: EntityCandidateId,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        for same_entity_state in (FALSE_STATE, TRUE_STATE):
+            for role_state in role_states:
+                if same_entity_state.id == FALSE_STATE.id:
+                    values.append(1.0)
+                    continue
+                role_entity_id = self._entity_id_from_state(role_state)
+                if role_entity_id == descriptor_entity_id:
+                    values.append(0.35)
+                elif role_entity_id == named_entity_id:
+                    values.append(1.2)
+                else:
+                    values.append(1.0)
+        return InferenceFactor(
+            id=InferenceFactorId(
+                "factor:same-entity-role:"
+                f"{descriptor_entity_id}:{named_entity_id}:{role_variable_id}"
+            ),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(same_entity_variable_id, role_variable_id),
+            potentials=tuple(values),
+        )
 
     def _add_reference_resolution_variables(
         self,
@@ -985,6 +1145,46 @@ class ResolutionInferenceGraphBuilder:
                 evidence_ids.append(reference.evidence_id)
         return tuple(dict.fromkeys(evidence_ids))
 
+    def _descriptor_named_pair(
+        self,
+        *,
+        document: ArticleDocument,
+        left_entity_id: EntityCandidateId,
+        right_entity_id: EntityCandidateId,
+    ) -> tuple[EntityCandidateId, EntityCandidateId] | None:
+        left = document.store.entity_candidates.get(left_entity_id)
+        right = document.store.entity_candidates.get(right_entity_id)
+        if left is None or right is None:
+            return None
+        if left.kind is not EntityKind.PERSON or right.kind is not EntityKind.PERSON:
+            return None
+        if (
+            self._is_descriptor_person(document, left_entity_id)
+            and right.grounding is GroundingKind.OBSERVED
+        ):
+            return (left_entity_id, right_entity_id)
+        if (
+            self._is_descriptor_person(document, right_entity_id)
+            and left.grounding is GroundingKind.OBSERVED
+        ):
+            return (right_entity_id, left_entity_id)
+        return None
+
+    def _is_descriptor_person(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        entity = document.store.entity_candidates.get(entity_id)
+        if entity is None or entity.kind is not EntityKind.PERSON:
+            return False
+        if entity.grounding is GroundingKind.INFERRED:
+            return True
+        return any(
+            mention.kind is MentionKind.DESCRIPTOR_NOUN_PHRASE
+            for mention in document.store.candidate_mentions(entity_id)
+        )
+
     def _event_evidence_ids(
         self,
         document: ArticleDocument,
@@ -1018,7 +1218,16 @@ class ResolutionInferenceGraphBuilder:
             right_object = right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
             left_detail = left.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
             right_detail = right.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
-            if left_object != right_object or left_detail != right_detail or not left_detail:
+            object_pair = self._aligned_single_filler_pair_with_resolution(
+                left_fillers=left_object,
+                right_fillers=right_object,
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            if (
+                (left_object != right_object and object_pair is None)
+                or left_detail != right_detail
+                or not left_detail
+            ):
                 return None
             left_subject = left.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
             right_subject = right.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
@@ -1030,9 +1239,11 @@ class ResolutionInferenceGraphBuilder:
                 FactArgumentRole.SUBJECT,
                 (),
             )
+            if left_subject == right_subject:
+                return FactResolutionStrategy.TIE_CONTEXT_RELAXED
             if left_subject != right_subject and (left_proxy or right_proxy):
                 return FactResolutionStrategy.PROXY_NAMED_TIE
-            return FactResolutionStrategy.TIE_CONTEXT_RELAXED
+            return None
         if left.text_fillers == right.text_fillers:
             if same_entity_variable_id_by_pair:
                 aligned = self._aligned_entity_pairs_with_resolution(
@@ -1054,14 +1265,29 @@ class ResolutionInferenceGraphBuilder:
         ],
     ) -> tuple[tuple[EntityCandidateId, EntityCandidateId], ...]:
         if strategy is FactResolutionStrategy.PROXY_NAMED_TIE:
-            left_subjects = tuple(left.entity_fillers.get(FactArgumentRole.SUBJECT, ()))
-            right_subjects = tuple(right.entity_fillers.get(FactArgumentRole.SUBJECT, ()))
-            if (
-                len(left_subjects) == 1
-                and len(right_subjects) == 1
-                and left_subjects[0] != right_subjects[0]
-            ):
-                return (self._entity_pair(left_subjects[0], right_subjects[0]),)
+            linked_pairs: list[tuple[EntityCandidateId, EntityCandidateId]] = []
+            subject_pair = self._aligned_single_filler_pair_with_resolution(
+                left_fillers=left.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset()),
+                right_fillers=right.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset()),
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            if subject_pair is not None:
+                linked_pairs.append(subject_pair)
+            object_pair = self._aligned_single_filler_pair_with_resolution(
+                left_fillers=left.entity_fillers.get(FactArgumentRole.OBJECT, frozenset()),
+                right_fillers=right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset()),
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            if object_pair is not None:
+                linked_pairs.append(object_pair)
+            return tuple(linked_pairs)
+        if strategy is FactResolutionStrategy.TIE_CONTEXT_RELAXED:
+            object_pair = self._aligned_single_filler_pair_with_resolution(
+                left_fillers=left.entity_fillers.get(FactArgumentRole.OBJECT, frozenset()),
+                right_fillers=right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset()),
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            return (object_pair,) if object_pair is not None else ()
         if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED:
             if same_entity_variable_id_by_pair:
                 return self._aligned_entity_pairs_with_resolution(
@@ -1122,6 +1348,28 @@ class ResolutionInferenceGraphBuilder:
                 return ()
             linked_pairs.append(pair)
         return tuple(linked_pairs)
+
+    def _aligned_single_filler_pair_with_resolution(
+        self,
+        *,
+        left_fillers: frozenset[EntityCandidateId],
+        right_fillers: frozenset[EntityCandidateId],
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> tuple[EntityCandidateId, EntityCandidateId] | None:
+        if left_fillers == right_fillers:
+            return None
+        if len(left_fillers) != 1 or len(right_fillers) != 1:
+            return None
+        left_entity_id = next(iter(left_fillers))
+        right_entity_id = next(iter(right_fillers))
+        if left_entity_id == right_entity_id:
+            return None
+        pair = self._entity_pair(left_entity_id, right_entity_id)
+        if pair not in same_entity_variable_id_by_pair:
+            return None
+        return pair
 
     def _without_roles(
         self,

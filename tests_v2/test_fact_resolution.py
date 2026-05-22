@@ -1,17 +1,21 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import Assessment, EntityResolutionClaim
+from pipeline_v2.candidates import Assessment, EntityCandidate, EntityResolutionClaim
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
     DocumentId,
     EntityCandidateId,
     EventCandidateId,
+    EvidenceId,
+    MentionId,
     ProducerId,
     ResolutionClaimId,
     ScorerId,
+    SentenceId,
 )
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
+from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
     EntityKind,
@@ -23,6 +27,7 @@ from pipeline_v2.types import (
     LocalPersonSignal,
     LocalRoleSignal,
     LocalSubjectSignal,
+    MentionKind,
     NamedKinshipLemmaSignal,
     ProxyFamilyEntitySignal,
     RelationshipDetail,
@@ -49,6 +54,51 @@ def _document() -> ArticleDocument:
         publication_date=None,
         cleaned_text="",
         paragraphs=(),
+    )
+
+
+def _add_role_entity_with_descriptor_mention(
+    document: ArticleDocument,
+    *,
+    entity_id: EntityCandidateId,
+    mention_id: MentionId,
+    evidence_id: EvidenceId,
+    sentence_id: SentenceId,
+    paragraph_index: int,
+    text: str,
+    start_char: int,
+    end_char: int,
+    head_lemma: str,
+) -> None:
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=evidence_id,
+            text=text,
+            span=Span(start_char=start_char, end_char=end_char),
+            sentence_id=sentence_id,
+            paragraph_index=paragraph_index,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=mention_id,
+            text=text,
+            kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
+            evidence_id=evidence_id,
+            sentence_id=sentence_id,
+            head_lemma=head_lemma,
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=entity_id,
+            kind=EntityKind.ROLE,
+            mention_ids=(mention_id,),
+            canonical_hint=text,
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
     )
 
 
@@ -431,3 +481,183 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
     surviving_id = next(iter(materialized_ids))
     assert surviving_id in document.materialized_fact_alternatives
     assert len(document.materialized_fact_alternatives[surviving_id]) == 1
+
+
+def test_probabilistic_inference_merges_ties_across_resolved_role_objects() -> None:
+    document = _document()
+    document.store.add_sentence(
+        Sentence(
+            id=SentenceId("sentence-1"),
+            sentence_index=0,
+            paragraph_index=0,
+            text="Anna pracuje z sekretarzem.",
+            span=Span(start_char=0, end_char=27),
+        )
+    )
+    document.store.add_sentence(
+        Sentence(
+            id=SentenceId("sentence-2"),
+            sentence_index=1,
+            paragraph_index=0,
+            text="Anna pracuje z sekretarzem wydzialu.",
+            span=Span(start_char=28, end_char=64),
+        )
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("subject"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Anna Kowalska",
+    )
+    _add_role_entity_with_descriptor_mention(
+        document,
+        entity_id=EntityCandidateId("object-role-1"),
+        mention_id=MentionId("mention-role-1"),
+        evidence_id=EvidenceId("evidence-role-1"),
+        sentence_id=SentenceId("sentence-1"),
+        paragraph_index=0,
+        text="sekretarzem",
+        start_char=16,
+        end_char=27,
+        head_lemma="sekretarz",
+    )
+    _add_role_entity_with_descriptor_mention(
+        document,
+        entity_id=EntityCandidateId("object-role-2"),
+        mention_id=MentionId("mention-role-2"),
+        evidence_id=EvidenceId("evidence-role-2"),
+        sentence_id=SentenceId("sentence-2"),
+        paragraph_index=0,
+        text="sekretarzem",
+        start_char=44,
+        end_char=55,
+        head_lemma="sekretarz",
+    )
+
+    for event_id, object_id, prefix in (
+        (EventCandidateId("event-role-1"), EntityCandidateId("object-role-1"), "first"),
+        (EventCandidateId("event-role-2"), EntityCandidateId("object-role-2"), "second"),
+    ):
+        add_event(
+            document,
+            event_id=event_id,
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            signals=(
+                NamedKinshipLemmaSignal(lemma="maz"),
+                LocalSubjectSignal(),
+                LocalObjectSignal(),
+            ),
+        )
+        bind_entity(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{prefix}-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            entity_id=EntityCandidateId("subject"),
+        )
+        bind_entity(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{prefix}-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            entity_id=object_id,
+        )
+        bind_text(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{prefix}-detail"),
+            event_id=event_id,
+            role=EventRole.RELATIONSHIP_DETAIL,
+            value=RelationshipDetail.FAMILY.value,
+            signals=(RelationshipDetailSignal(detail=RelationshipDetail.FAMILY),),
+        )
+
+    ProbabilisticInferenceStage().run(document)
+
+    assert any(
+        claim.relation is ResolutionRelation.SAME_AS
+        and {claim.left_entity_id, claim.right_entity_id}
+        == {
+            EntityCandidateId("object-role-1"),
+            EntityCandidateId("object-role-2"),
+        }
+        for claim in document.store.resolution_claims.values()
+    )
+    assert len(document.materialized_fact_records) == 1
+
+
+def test_probabilistic_inference_demotes_inverse_child_tie_duplicates() -> None:
+    document = _document()
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("anna"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Anna Kowalska",
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("jan"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Jan Kowalski",
+    )
+    for event_id, subject_id, object_id, prefix in (
+        (
+            EventCandidateId("child-1"),
+            EntityCandidateId("anna"),
+            EntityCandidateId("jan"),
+            "first",
+        ),
+        (
+            EventCandidateId("child-2"),
+            EntityCandidateId("jan"),
+            EntityCandidateId("anna"),
+            "second",
+        ),
+    ):
+        add_event(
+            document,
+            event_id=event_id,
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            signals=(
+                NamedKinshipLemmaSignal(lemma="syn"),
+                LocalSubjectSignal(),
+                LocalObjectSignal(),
+            ),
+        )
+        bind_entity(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{prefix}-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            entity_id=subject_id,
+        )
+        bind_entity(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{prefix}-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            entity_id=object_id,
+        )
+        bind_text(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{prefix}-detail"),
+            event_id=event_id,
+            role=EventRole.RELATIONSHIP_DETAIL,
+            value=RelationshipDetail.CHILD.value,
+            signals=(RelationshipDetailSignal(detail=RelationshipDetail.CHILD),),
+        )
+
+    ProbabilisticInferenceStage().run(document)
+
+    tie_records = [
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert len(tie_records) == 1
+    tie_scores = [
+        assessment.assessment.score
+        for assessment in document.fact_assessments
+        if assessment.materialized_fact_id in {record.id for record in tie_records}
+    ]
+    assert tie_scores
+    assert max(tie_scores) < 0.5

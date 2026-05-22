@@ -626,8 +626,22 @@ def test_regression_pleszew_stadnina() -> None:
     dismissal_records = [
         record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
     ]
-
     assert dismissal_records, "Expected at least one GOVERNANCE_DISMISSAL record"
+    found_stadnina_organization = False
+    for record in dismissal_records:
+        roles = argument_roles(record)
+        if "organization" not in roles:
+            continue
+        organization = entity_hint_for_role(document, record, "organization")
+        if organization is None:
+            continue
+        if "stadnin" in organization.casefold():
+            found_stadnina_organization = True
+            break
+    assert found_stadnina_organization, (
+        "Expected a governance appointment organization grounded in the stadnina mention"
+    )
+
     for record in dismissal_records:
         roles = argument_roles(record)
         if "context" in roles:
@@ -781,6 +795,109 @@ def test_regression_wp_opole_family() -> None:
                     "Expected Koalicja Obywatelska to not be governance "
                     f"target, but got score {score}"
                 )
+
+
+def test_regression_tvn24_kolesiostwo_emits_patronage_complaint() -> None:
+    title = "Kolesiostwo i rozdawanie posad. Miasto umiera"
+    paragraphs = (
+        "Dorota Połedniok pisze do premiera Donalda Tuska o kolesiostwie i rozdawaniu posad.",
+        "PO tworzy koalicję z Forum Samorządowym w Siemianowicach Śląskich, "
+        "a radna krytykuje lokalnych partyjnych baronów i nagrody dla prezydentów miasta.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Dorota Połedniok"),
+            person_span(text, "Donalda Tuska"),
+            organization_span(text, "PO"),
+            organization_span(text, "Forum Samorządowym"),
+            organization_span(text, "Siemianowicach Śląskich"),
+        ),
+        apply_relevance=False,
+    )
+
+    complaint_records = [
+        record
+        for record in fact_records(document)
+        if record.kind in {FactKind.PATRONAGE_ALLEGATION, FactKind.PATRONAGE_NETWORK_TIE}
+    ]
+    assert complaint_records
+    assert any(record.kind is FactKind.PATRONAGE_ALLEGATION for record in complaint_records)
+    assert any(record.kind is FactKind.PATRONAGE_NETWORK_TIE for record in complaint_records)
+
+    has_strong_local_signal = False
+    for record in complaint_records:
+        score = get_assessment_score(document, record.id)
+        assert score >= 0.4
+        actor = entity_hint_for_role(document, record, "complainant")
+        target = entity_hint_for_role(document, record, "target")
+        subject = entity_hint_for_role(document, record, "subject")
+        obj = entity_hint_for_role(document, record, "object")
+        if (
+            actor in {"Dorota Połedniok", "Donalda Tuska"}
+            or target
+            in {
+                "Dorota Połedniok",
+                "Donalda Tuska",
+            }
+            or subject in {"Dorota Połedniok", "Donalda Tuska"}
+            or obj
+            in {
+                "Dorota Połedniok",
+                "Donalda Tuska",
+            }
+        ):
+            has_strong_local_signal = True
+            break
+    assert has_strong_local_signal
+
+
+def test_regression_rp_klich_emits_collaborator_tie_signal() -> None:
+    title = "Znajomi Klicha w spółkach WAM"
+    paragraphs = (
+        "Jarosław Hodura od grudnia jest prezesem Grupy Hoteli WAM i dostał się bez konkursu.",
+        "Były szef biura europoselskiego Klicha i jego wieloletni przyjaciel trafił do zarządu.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Jarosław Hodura"),
+            person_span(text, "Klicha"),
+            organization_span(text, "Grupy Hoteli WAM"),
+        ),
+        apply_relevance=False,
+    )
+
+    tie_or_complaint_records = [
+        record
+        for record in fact_records(document)
+        if record.kind
+        in {
+            FactKind.PERSONAL_OR_POLITICAL_TIE,
+            FactKind.PATRONAGE_ALLEGATION,
+            FactKind.PATRONAGE_NETWORK_TIE,
+        }
+    ]
+    assert tie_or_complaint_records
+    assert any(
+        record.kind in {FactKind.PATRONAGE_ALLEGATION, FactKind.PATRONAGE_NETWORK_TIE}
+        for record in tie_or_complaint_records
+    )
+    assert any(
+        get_assessment_score(document, record.id) >= 0.45 for record in tie_or_complaint_records
+    )
+
+    assert any(
+        entity_hint_for_role(document, record, "complainant") in {"Jarosław Hodura", "Klicha"}
+        or entity_hint_for_role(document, record, "target") in {"Jarosław Hodura", "Klicha"}
+        or entity_hint_for_role(document, record, "subject") in {"Jarosław Hodura", "Klicha"}
+        or entity_hint_for_role(document, record, "object") in {"Jarosław Hodura", "Klicha"}
+        for record in tie_or_complaint_records
+    )
 
 
 def test_regression_negatives() -> None:

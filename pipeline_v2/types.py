@@ -34,6 +34,8 @@ class FactKind(StrEnum):
     ANTI_CORRUPTION_REFERRAL = "anti_corruption_referral"
     ANTI_CORRUPTION_INVESTIGATION = "anti_corruption_investigation"
     PUBLIC_PROCUREMENT_ABUSE = "public_procurement_abuse"
+    PATRONAGE_ALLEGATION = "patronage_allegation"
+    PATRONAGE_NETWORK_TIE = "patronage_network_tie"
     PERSONAL_OR_POLITICAL_TIE = "personal_or_political_tie"
 
 
@@ -754,6 +756,12 @@ class NearbyPersonCandidateSignal(PositiveSignal):
     @property
     def name(self) -> str:
         return "nearby_person_candidate"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DescriptorPersonCandidateSignal(PositiveSignal):
+    descriptor_lemma: str
+    sentence_distance: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

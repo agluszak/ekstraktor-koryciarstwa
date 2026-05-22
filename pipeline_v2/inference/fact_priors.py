@@ -208,6 +208,17 @@ class PersonalTiePriorPolicy(BaseFactPriorPolicy):
     kind_bonus = 0.15
 
 
+class PatronageComplaintPriorPolicy(BaseFactPriorPolicy):
+    kinds = frozenset(
+        {
+            FactKind.PUBLIC_PROCUREMENT_ABUSE,
+            FactKind.PATRONAGE_ALLEGATION,
+            FactKind.PATRONAGE_NETWORK_TIE,
+        }
+    )
+    kind_bonus = 0.15
+
+
 class DefaultPriorPolicy(BaseFactPriorPolicy):
     def applies_to(self, kind: FactKind) -> bool:
         _ = kind
@@ -223,6 +234,7 @@ class FactPriorPolicyRegistry:
             AntiCorruptionPriorPolicy(),
             PublicEmploymentPriorPolicy(),
             PersonalTiePriorPolicy(),
+            PatronageComplaintPriorPolicy(),
             DefaultPriorPolicy(),
         )
 
