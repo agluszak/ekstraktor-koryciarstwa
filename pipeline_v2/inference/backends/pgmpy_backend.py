@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass
+from functools import reduce
+from operator import mul
 
 from pipeline_v2.ids import InferenceFactorId, InferenceVariableId
 from pipeline_v2.inference.backend import InferenceBackend
@@ -50,9 +53,15 @@ class PgmpyInferenceBackend(InferenceBackend):
                 marginals=tuple(self._uniform_marginal(variable) for variable in variables)
             )
 
-        from pgmpy.factors.discrete import DiscreteFactor
-        from pgmpy.inference import BeliefPropagation
-        from pgmpy.models import FactorGraph
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"`pgmpy\.estimators\.StructureScore` is deprecated.*",
+                category=FutureWarning,
+            )
+            from pgmpy.factors.discrete import DiscreteFactor
+            from pgmpy.inference import BeliefPropagation
+            from pgmpy.models import FactorGraph
 
         variables_by_id = {variable.id: variable for variable in variables}
         variable_names = {variable.id: str(variable.id) for variable in variables}
@@ -65,6 +74,7 @@ class PgmpyInferenceBackend(InferenceBackend):
             cardinalities = [
                 len(variables_by_id[variable_id].states) for variable_id in factor.variable_ids
             ]
+            self._validate_factor_shape(factor=factor, cardinalities=tuple(cardinalities))
             discrete_factor = DiscreteFactor(
                 variables=variable_name_list,
                 cardinality=cardinalities,
@@ -104,6 +114,20 @@ class PgmpyInferenceBackend(InferenceBackend):
             for value in potentials
         ]
         return tuple(sanitized)
+
+    def _validate_factor_shape(
+        self,
+        *,
+        factor: InferenceFactor,
+        cardinalities: tuple[int, ...],
+    ) -> None:
+        expected_count = reduce(mul, cardinalities, 1)
+        if len(factor.potentials) == expected_count:
+            return
+        raise ValueError(
+            f"Inference factor {factor.id} has {len(factor.potentials)} potentials "
+            f"for cardinalities {cardinalities}; expected {expected_count}"
+        )
 
     def _normalize_probabilities(
         self,

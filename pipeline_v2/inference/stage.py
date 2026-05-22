@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.inference.backend import InferenceBackend
 from pipeline_v2.inference.backends.pgmpy_backend import PgmpyInferenceBackend
+from pipeline_v2.inference.components import BuiltInferenceComponents, InferenceComponentBuilder
 from pipeline_v2.inference.factor_builders import FactInferenceGraphBuilder
-from pipeline_v2.inference.graph_spec import InferenceGraphSpec
+from pipeline_v2.inference.graph_spec import InferenceGraphSpec, InferenceResult
 from pipeline_v2.inference.materialize import FactAssessmentMaterializer
 from pipeline_v2.inference.resolution import (
     ResolutionAssessmentMaterializer,
@@ -21,6 +22,7 @@ class ProbabilisticInferenceStage:
     materializer: FactAssessmentMaterializer | None = None
     resolution_graph_builder: ResolutionInferenceGraphBuilder | None = None
     resolution_materializer: ResolutionAssessmentMaterializer | None = None
+    component_builder: InferenceComponentBuilder | None = None
 
     def name(self) -> str:
         return "probabilistic_inference_stage_v2"
@@ -39,8 +41,10 @@ class ProbabilisticInferenceStage:
             variables=(*built_graph.spec.variables, *built_resolution_graph.spec.variables),
             factors=(*built_graph.spec.factors, *built_resolution_graph.spec.factors),
         )
+        component_builder = self.component_builder or InferenceComponentBuilder()
+        built_components = component_builder.build(combined_spec)
         backend = self.backend or PgmpyInferenceBackend()
-        result = backend.run(combined_spec)
+        result = self._run_components(backend=backend, built_components=built_components)
         resolution_materializer = self.resolution_materializer or ResolutionAssessmentMaterializer()
         document = resolution_materializer.materialize(
             document=document,
@@ -56,3 +60,17 @@ class ProbabilisticInferenceStage:
         document.inference_marginals = list(result.marginals)
         document.inference_diagnostics = list(result.diagnostics)
         return document
+
+    def _run_components(
+        self,
+        *,
+        backend: InferenceBackend,
+        built_components: BuiltInferenceComponents,
+    ) -> InferenceResult:
+        marginals = []
+        diagnostics = []
+        for component in built_components.components:
+            component_result = backend.run(component.spec)
+            marginals.extend(component_result.marginals)
+            diagnostics.extend(component_result.diagnostics)
+        return InferenceResult(marginals=tuple(marginals), diagnostics=tuple(diagnostics))
