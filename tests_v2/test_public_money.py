@@ -264,3 +264,42 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
         and entity_filler_hint(document, alternative.filler) == "Ministerstwu Obrony Narodowej"
     )
     assert mon_funder_alternative.posterior < 0.1
+
+
+def test_public_contract_stage_does_not_materialize_same_surface_on_both_sides() -> None:
+    text = "Wnuk Consulting zawarł umowę z miastem na 397 496,95 zł."
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="Wnuk Consulting",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Wnuk Consulting"), text.index("Wnuk Consulting") + 15),
+            ),
+            NamedEntitySpan(
+                text="Wnuk Consulting",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Wnuk Consulting"), text.index("Wnuk Consulting") + 15),
+            ),
+            NamedEntitySpan(
+                text="miastem",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("miastem"), text.index("miastem") + 7),
+            ),
+        ),
+    )
+
+    for record in fact_records(document):
+        if record.kind is not FactKind.PUBLIC_CONTRACT:
+            continue
+        roles = {argument.to_json()["role"] for argument in record.arguments}
+        if {"counterparty", "contractor"} <= roles:
+            assert entity_hint_for_role(document, record, "counterparty") != entity_hint_for_role(
+                document, record, "contractor"
+            )
+
+
+def test_compensation_without_funder_or_recipient_does_not_materialize() -> None:
+    document = run_public_money_stage("Premia wyniosła 100 tys. zł.")
+
+    assert fact_records(document) == ()

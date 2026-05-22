@@ -57,6 +57,10 @@ class GovernanceCandidateStage:
 
     _generic_owner_canonical_hints = frozenset(
         {
+            "map",
+            "mon",
+            "ministerstwo aktywów państwowych",
+            "ministerstwo obrony narodowej",
             "skarb państwa",
             "skarb państwa rp",
             "minister skarbu",
@@ -66,6 +70,18 @@ class GovernanceCandidateStage:
     _generic_owner_head_lemmas = frozenset(
         {
             "skarb",  # Skarb Państwa
+            "ministerstwo",
+        }
+    )
+    _org_like_person_hint_tokens = frozenset(
+        {
+            "biuro",
+            "fundusz",
+            "ministerstwo",
+            "ofe",
+            "pap",
+            "spółka",
+            "urząd",
         }
     )
     # Person-descriptor common nouns that imply a person role-holder; small
@@ -493,6 +509,8 @@ class GovernanceCandidateStage:
 
         syntax = SyntaxView(document.store)
         for person, p_signals in people:
+            if self._is_implausible_person_candidate(document, person.id):
+                continue
             person_is_window_only = person.id not in local_people_ids
             person_negative_signals: list[Signal] = []
             # Exclude appointer (nominative subject in active sentence with appointment lemma)
@@ -793,7 +811,11 @@ class GovernanceCandidateStage:
     ) -> bool:
         candidate = document.store.entity_candidates[entity_id]
         canonical_hint = (candidate.canonical_hint or "").casefold()
-        if canonical_hint.startswith("rada ") or canonical_hint.startswith("zarząd "):
+        if (
+            canonical_hint.startswith("rada ")
+            or canonical_hint.startswith("zarząd ")
+            or canonical_hint.startswith("rn ")
+        ):
             return True
         lemmas = self._organization_lemmas(document, entity_id)
         if not lemmas:
@@ -918,6 +940,14 @@ class GovernanceCandidateStage:
             kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
             evidence_id=evidence_id,
             sentence_id=sentence.id,
+            token_ids=tuple(
+                token_id
+                for token_id in sentence.token_ids
+                if not (
+                    document.store.tokens[token_id].span.end_char <= span.start_char
+                    or document.store.tokens[token_id].span.start_char >= span.end_char
+                )
+            ),
             head_lemma=head_lemma,
         )
         document.store.add_mention(mention)
@@ -958,6 +988,35 @@ class GovernanceCandidateStage:
             if other.start_char <= trigger_start_char:
                 continue
             return True
+        return False
+
+    def _is_implausible_person_candidate(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        candidate = document.store.entity_candidates.get(entity_id)
+        if candidate is None:
+            return False
+        canonical_hint = (candidate.canonical_hint or "").casefold()
+        hint_tokens = frozenset(canonical_hint.replace(".", " ").split())
+        if hint_tokens & self._org_like_person_hint_tokens:
+            return True
+        if any(
+            token.isupper() and len(token) >= 2
+            for token in (candidate.canonical_hint or "").split()[1:]
+        ):
+            return True
+        if candidate.grounding is not GroundingKind.INFERRED:
+            return False
+        for mention in document.store.candidate_mentions(entity_id):
+            if mention.kind is not MentionKind.DESCRIPTOR_NOUN_PHRASE:
+                continue
+            tokens = document.store.tokens_for_mention(mention.id)
+            if not tokens:
+                continue
+            if all(any(analysis.number == "pl" for analysis in token.morph) for token in tokens):
+                return True
         return False
 
     def _is_party_like_organization(

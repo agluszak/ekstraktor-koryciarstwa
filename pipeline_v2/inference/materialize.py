@@ -27,6 +27,7 @@ from pipeline_v2.types import (
     EmploymentContractFormSignal,
     FactArgumentRole,
     FactKind,
+    GroundingKind,
     ResolutionRelation,
     SelfTieContradictionSignal,
     SignalPolarity,
@@ -52,6 +53,8 @@ class FactAssessmentMaterializer:
     scorer_id = ScorerId("probabilistic_fact_inference_v2")
     _alternative_threshold = 0.01
     _primary_fact_threshold = 0.5
+    _optional_role_selection_threshold = 0.4
+    _optional_money_party_threshold = 0.25
 
     def materialize(
         self,
@@ -113,8 +116,14 @@ class FactAssessmentMaterializer:
                 )
                 continue
             score = scores[fact_id]
-            if self._has_self_tie_contradiction(record) or (
-                score < self._primary_fact_threshold and self._has_negative_signal(record)
+            governance_descriptor_conflict = self._has_redundant_governance_descriptor(
+                document=document,
+                record=record,
+            )
+            if (
+                self._has_self_tie_contradiction(record)
+                or governance_descriptor_conflict
+                or (score < self._primary_fact_threshold and self._has_negative_signal(record))
             ):
                 continue
             alts = alternatives_map[fact_id]
@@ -207,7 +216,17 @@ class FactAssessmentMaterializer:
                 if role_spec.required:
                     return None
                 continue
-            selected_by_role[role_spec.output_role] = _RoleSelection(role_spec, *ranked[0])
+            best_state, best_probability = ranked[0]
+            threshold = self._optional_selection_threshold(
+                fact_kind=event.kind,
+                role_spec=role_spec,
+            )
+            if role_spec.required or best_probability >= threshold:
+                selected_by_role[role_spec.output_role] = _RoleSelection(
+                    role_spec,
+                    best_state,
+                    best_probability,
+                )
             for state, probability in ranked[1:]:
                 if probability < self._alternative_threshold:
                     continue
@@ -227,6 +246,22 @@ class FactAssessmentMaterializer:
                         signals=state.signals,
                     )
                 )
+            if not role_spec.required and best_probability < threshold:
+                filler = self._fact_argument_from_state(
+                    store=document.store,
+                    output_role=role_spec.output_role,
+                    state=best_state,
+                )
+                if filler is not None:
+                    alternatives.append(
+                        MaterializedRoleAlternative(
+                            role=role_spec.output_role,
+                            filler=filler,
+                            posterior=round(best_probability, 6),
+                            evidence_ids=best_state.evidence_ids,
+                            signals=best_state.signals,
+                        )
+                    )
 
         selections = tuple(selected_by_role.values())
         base_record = self._record_from_selection(
@@ -236,6 +271,8 @@ class FactAssessmentMaterializer:
             selections=selections,
         )
         if base_record is None:
+            return None
+        if not self._meets_materialization_requirements(base_record):
             return None
         score = self._primary_score(
             event_probability=event_probability,
@@ -251,10 +288,10 @@ class FactAssessmentMaterializer:
     ) -> float:
         if not selections:
             return event_probability
-        mean_role_probability = sum(selection.probability for selection in selections) / len(
-            selections
-        )
-        return min(1.0, 0.3 * event_probability + 0.7 * mean_role_probability)
+        product = event_probability
+        for selection in selections:
+            product *= selection.probability
+        return min(1.0, product ** (1.0 / (len(selections) + 1)))
 
     def _record_from_selection(
         self,
@@ -327,6 +364,70 @@ class FactAssessmentMaterializer:
                 case _:
                     continue
         return subject_id is not None and subject_id == object_id
+
+    def _meets_materialization_requirements(self, record: FactCandidateRecord) -> bool:
+        non_amount_roles = {
+            argument.role
+            for argument in record.arguments
+            if argument.role is not FactArgumentRole.AMOUNT
+        }
+        match record.kind:
+            case FactKind.COMPENSATION:
+                return bool(non_amount_roles)
+            case _:
+                return True
+
+    def _optional_selection_threshold(
+        self,
+        *,
+        fact_kind: FactKind,
+        role_spec: RoleSpec,
+    ) -> float:
+        if fact_kind is FactKind.PERSONAL_OR_POLITICAL_TIE and role_spec.output_role in {
+            FactArgumentRole.RELATIONSHIP_DETAIL,
+            FactArgumentRole.CONTEXT,
+        }:
+            return self._alternative_threshold
+        if role_spec.output_role in {
+            FactArgumentRole.FUNDER,
+            FactArgumentRole.RECIPIENT,
+            FactArgumentRole.COUNTERPARTY,
+            FactArgumentRole.CONTRACTOR,
+        }:
+            return self._optional_money_party_threshold
+        return self._optional_role_selection_threshold
+
+    def _has_redundant_governance_descriptor(
+        self,
+        *,
+        document: ArticleDocument,
+        record: FactCandidateRecord,
+    ) -> bool:
+        if record.kind not in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}:
+            return False
+        person_id = None
+        role_id = None
+        has_organization = False
+        for argument in record.arguments:
+            match argument:
+                case EntityFactArgument(role=FactArgumentRole.PERSON, entity_id=entity_id):
+                    person_id = entity_id
+                case EntityFactArgument(role=FactArgumentRole.ROLE, entity_id=entity_id):
+                    role_id = entity_id
+                case EntityFactArgument(role=FactArgumentRole.ORGANIZATION):
+                    has_organization = True
+                case _:
+                    continue
+        if person_id is None or role_id is None or has_organization:
+            return False
+        person = document.store.entity_candidates.get(person_id)
+        role = document.store.entity_candidates.get(role_id)
+        if person is None or role is None:
+            return False
+        return (
+            person.grounding is GroundingKind.INFERRED
+            and (person.canonical_hint or "").casefold() == (role.canonical_hint or "").casefold()
+        )
 
     def _has_negative_signal(self, record: FactCandidateRecord) -> bool:
         return any(signal.polarity is SignalPolarity.NEGATIVE for signal in record.signals)
