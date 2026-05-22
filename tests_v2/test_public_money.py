@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.entity_classification import EntityClassificationStage
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
@@ -59,6 +60,7 @@ def run_public_money_stage(text: str) -> ArticleDocument:
     morphology = Morfeusz2MorphologyAdapter()
     ParagraphSentenceSegmenter().run(document)
     MorfeuszMorphologyStage(morphology).run(document)
+    EntityClassificationStage().run(document)
     PublicMoneyCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
     return document
@@ -83,6 +85,7 @@ def run_public_money_stage_with_entities(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
     ).run(document)
+    EntityClassificationStage().run(document)
     PublicMoneyCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
     return document
@@ -303,3 +306,37 @@ def test_compensation_without_funder_or_recipient_does_not_materialize() -> None
     document = run_public_money_stage("Premia wyniosła 100 tys. zł.")
 
     assert fact_records(document) == ()
+
+
+def test_funding_stage_does_not_materialize_same_surface_for_funder_and_recipient() -> None:
+    text = "Fundacja Lux Veritatis otrzymała od Fundacji Lux Veritatis 100 tys. zł dotacji."
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="Fundacja Lux Veritatis",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Fundacja Lux Veritatis"),
+                    text.index("Fundacja Lux Veritatis") + 22,
+                ),
+            ),
+            NamedEntitySpan(
+                text="Fundacji Lux Veritatis",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Fundacji Lux Veritatis"),
+                    text.index("Fundacji Lux Veritatis") + 22,
+                ),
+            ),
+        ),
+    )
+
+    for record in fact_records(document):
+        if record.kind is not FactKind.FUNDING:
+            continue
+        roles = {argument.to_json()["role"] for argument in record.arguments}
+        if {"funder", "recipient"} <= roles:
+            assert entity_hint_for_role(document, record, "funder") != entity_hint_for_role(
+                document, record, "recipient"
+            )

@@ -7,6 +7,7 @@ from pipeline_v2.candidates import (
     EventCandidate,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.entity_classification import entity_has_tag
 from pipeline_v2.ids import EntityCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
@@ -16,6 +17,7 @@ from pipeline_v2.types import (
     AppointmentLemmaSignal,
     DismissalLemmaSignal,
     EntityKind,
+    EntityTag,
     EventRole,
     FactKind,
     GenericOwnerContextSignal,
@@ -55,24 +57,6 @@ class GovernanceCandidateStage:
         }
     )
 
-    _generic_owner_canonical_hints = frozenset(
-        {
-            "map",
-            "mon",
-            "ministerstwo aktywów państwowych",
-            "ministerstwo obrony narodowej",
-            "skarb państwa",
-            "skarb państwa rp",
-            "minister skarbu",
-            "państwo",
-        }
-    )
-    _generic_owner_head_lemmas = frozenset(
-        {
-            "skarb",  # Skarb Państwa
-            "ministerstwo",
-        }
-    )
     _org_like_person_hint_tokens = frozenset(
         {
             "biuro",
@@ -156,14 +140,6 @@ class GovernanceCandidateStage:
             "wiceprezes",
             "kierownik",
             "szef",
-        }
-    )
-    _governing_body_head_lemmas = frozenset(
-        {
-            "rada",
-            "zarząd",
-            "komisja",
-            "komitet",
         }
     )
 
@@ -792,37 +768,12 @@ class GovernanceCandidateStage:
                     return True
         return False
 
-    def _organization_lemmas(
-        self,
-        document: ArticleDocument,
-        entity_id: EntityCandidateId,
-    ) -> frozenset[str]:
-        lemmas: set[str] = set()
-        for mention in document.store.candidate_mentions(entity_id):
-            for token in document.store.tokens_for_mention(mention.id):
-                for analysis in token.morph:
-                    lemmas.add(analysis.lemma)
-        return frozenset(lemmas)
-
     def _is_governing_body_organization(
         self,
         document: ArticleDocument,
         entity_id: EntityCandidateId,
     ) -> bool:
-        candidate = document.store.entity_candidates[entity_id]
-        canonical_hint = (candidate.canonical_hint or "").casefold()
-        if (
-            canonical_hint.startswith("rada ")
-            or canonical_hint.startswith("zarząd ")
-            or canonical_hint.startswith("rn ")
-        ):
-            return True
-        lemmas = self._organization_lemmas(document, entity_id)
-        if not lemmas:
-            return False
-        if "nadzorczy" in lemmas and "rada" in lemmas:
-            return True
-        return bool(lemmas & self._governing_body_head_lemmas and lemmas & {"nadzorczy", "członek"})
+        return entity_has_tag(document.store, entity_id, EntityTag.GOVERNING_BODY)
 
     def _is_generic_owner_organization(
         self,
@@ -831,12 +782,7 @@ class GovernanceCandidateStage:
     ) -> bool:
         """Return True for state/treasury entities that act as a governance authority
         but should not win the appointed-institution role."""
-        candidate = document.store.entity_candidates[entity_id]
-        canonical_hint = (candidate.canonical_hint or "").casefold()
-        if canonical_hint in self._generic_owner_canonical_hints:
-            return True
-        lemmas = self._organization_lemmas(document, entity_id)
-        return bool(lemmas & self._generic_owner_head_lemmas)
+        return entity_has_tag(document.store, entity_id, EntityTag.GENERIC_OWNER)
 
     def _synthesize_proxy_person(
         self,

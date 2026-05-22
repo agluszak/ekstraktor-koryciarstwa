@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
 from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument, PipelineInput
+from pipeline_v2.entity_classification import EntityClassificationStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId, FactCandidateId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
@@ -130,6 +131,7 @@ def run_article_pipeline(
                     provider=StaticEntityProvider(entities),
                     morphology=morphology,
                 ),
+                EntityClassificationStage(),
                 PartyCandidateStage(morphology),
                 RoleCandidateStage(morphology),
                 NominalKinshipCandidateStage(),
@@ -433,7 +435,8 @@ def test_regression_tvn_warszawa_bielskiego() -> None:
 
         if (
             funder == "urzędu marszałkowskiego"
-            and recipient == "fundacja"
+            and recipient is not None
+            and recipient.startswith("fundacja")
             and amount == "100 tysięcy złotych"
         ):
             score = get_assessment_score(document, record.id)

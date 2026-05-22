@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import EntityFactArgument, FactCandidateRecord
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.entity_classification import EntityClassificationStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
@@ -12,6 +13,7 @@ from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
+    EntityTag,
     FactKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
@@ -60,6 +62,7 @@ def run_governance_stage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
     ).run(document)
+    EntityClassificationStage().run(document)
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
@@ -290,6 +293,48 @@ def test_governance_stage_keeps_party_organization_out_of_primary_facts() -> Non
         and PartyOrganizationSignal() in binding.signals
         for bindings in document.store.argument_bindings_by_event_id.values()
         for binding in bindings
+    )
+
+
+def test_governance_stage_treats_inflected_ministry_as_context_not_organization() -> None:
+    text = (
+        "Jan Kowalski został powołany na prezesa Orlenu decyzją Ministerstwa Aktywów Państwowych."
+    )
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+            NamedEntitySpan(
+                text="Orlenu",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Orlenu"), text.index("Orlenu") + 6),
+            ),
+            NamedEntitySpan(
+                text="Ministerstwa Aktywów Państwowych",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Ministerstwa Aktywów Państwowych"),
+                    text.index("Ministerstwa Aktywów Państwowych") + 33,
+                ),
+            ),
+        ),
+    )
+
+    record = first_fact_record(document)
+    ministry_entity = next(
+        entity
+        for entity in document.store.entity_candidates.values()
+        if entity.canonical_hint == "Ministerstwa Aktywów Państwowych"
+    )
+
+    assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    assert entity_hint_for_role(document, record, "organization") == "Orlenu"
+    assert document.store.entity_tags[ministry_entity.id] == frozenset(
+        {EntityTag.PUBLIC_INSTITUTION, EntityTag.GENERIC_OWNER}
     )
 
 

@@ -10,6 +10,7 @@ from pipeline_v2.candidates import (
     TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.entity_classification import entity_has_tag
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
     EntityCandidateId,
@@ -17,7 +18,6 @@ from pipeline_v2.ids import (
     ProducerId,
     TokenId,
 )
-from pipeline_v2.media import is_media_outlet_name
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
@@ -29,6 +29,7 @@ from pipeline_v2.types import (
     ControllerContextSignal,
     DirectPrepositionalAttachmentSignal,
     EntityKind,
+    EntityTag,
     EventRole,
     FactKind,
     FunderSignal,
@@ -332,10 +333,7 @@ class PublicMoneyCandidateStage:
     def _is_media_reporting_source(
         self, document: ArticleDocument, entity_id: EntityCandidateId
     ) -> bool:
-        candidate = document.store.entity_candidates.get(entity_id)
-        if candidate is None:
-            return False
-        return is_media_outlet_name(candidate.canonical_hint)
+        return entity_has_tag(document.store, entity_id, EntityTag.MEDIA_OUTLET)
 
     def _build_signals_for_role(
         self,

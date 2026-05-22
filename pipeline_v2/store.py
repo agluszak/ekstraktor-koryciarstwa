@@ -25,7 +25,7 @@ from pipeline_v2.ids import (
     TokenId,
 )
 from pipeline_v2.nlp import DependencyArc, EvidenceSpan, Mention, ReferenceMention, Sentence, Token
-from pipeline_v2.types import EntityKind
+from pipeline_v2.types import EntityKind, EntityTag
 
 
 class ExtractionStore:
@@ -45,6 +45,7 @@ class ExtractionStore:
         self.mentions: dict[MentionId, Mention] = {}
         self.references: dict[MentionId, ReferenceMention] = {}
         self.entity_candidates: dict[EntityCandidateId, EntityCandidate] = {}
+        self.entity_tags: dict[EntityCandidateId, frozenset[EntityTag]] = {}
         self.event_candidates: dict[EventCandidateId, EventCandidate] = {}
         self.argument_bindings_by_event_id: dict[
             EventCandidateId, list[ArgumentBindingCandidate]
@@ -112,6 +113,14 @@ class ExtractionStore:
         if candidate.reuse_key is not None:
             self.entity_ids_by_reuse_key[candidate.reuse_key].append(candidate.id)
         return candidate.id
+
+    def add_entity_tags(
+        self,
+        entity_id: EntityCandidateId,
+        tags: frozenset[EntityTag],
+    ) -> None:
+        existing = self.entity_tags.get(entity_id, frozenset())
+        self.entity_tags[entity_id] = existing | tags
 
     def add_event_candidate(self, candidate: EventCandidate) -> EventCandidateId:
         self.event_candidates[candidate.id] = candidate
