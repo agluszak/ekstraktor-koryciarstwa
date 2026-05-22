@@ -11,9 +11,9 @@ from pipeline_v2.coreference import (
 )
 from pipeline_v2.document import StageDiagnosticStatus
 from pipeline_v2.embeddings import SentenceTransformerEmbeddingProvider
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.inference.backend import InferenceBackend
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage, SpacyNamedEntityProvider
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter
@@ -135,7 +135,9 @@ def _ordered_stages(
                 ),
             )
         )
-    plan.extend((OrderedStage(V2StagePhase.SCORING, FactScoringStage(config.inference_backend)),))
+    plan.extend(
+        (OrderedStage(V2StagePhase.SCORING, ProbabilisticInferenceStage(config.inference_backend)),)
+    )
     return tuple(plan)
 
 

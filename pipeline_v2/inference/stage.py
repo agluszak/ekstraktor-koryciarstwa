@@ -6,6 +6,7 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.inference.backend import InferenceBackend
 from pipeline_v2.inference.backends.pgmpy_backend import PgmpyInferenceBackend
 from pipeline_v2.inference.components import BuiltInferenceComponents, InferenceComponentBuilder
+from pipeline_v2.inference.external_factors import ExternalInferenceFactorBuilder
 from pipeline_v2.inference.factor_builders import FactInferenceGraphBuilder
 from pipeline_v2.inference.graph_spec import InferenceGraphSpec, InferenceResult
 from pipeline_v2.inference.materialize import FactAssessmentMaterializer
@@ -23,6 +24,7 @@ class ProbabilisticInferenceStage:
     resolution_graph_builder: ResolutionInferenceGraphBuilder | None = None
     resolution_materializer: ResolutionAssessmentMaterializer | None = None
     component_builder: InferenceComponentBuilder | None = None
+    external_factor_builders: tuple[ExternalInferenceFactorBuilder, ...] = ()
 
     def name(self) -> str:
         return "probabilistic_inference_stage_v2"
@@ -41,6 +43,16 @@ class ProbabilisticInferenceStage:
             variables=(*built_graph.spec.variables, *built_resolution_graph.spec.variables),
             factors=(*built_graph.spec.factors, *built_resolution_graph.spec.factors),
         )
+        external_factors = tuple(
+            factor
+            for factor_builder in self.external_factor_builders
+            for factor in factor_builder.build(document=document, spec=combined_spec)
+        )
+        if external_factors:
+            combined_spec = InferenceGraphSpec(
+                variables=combined_spec.variables,
+                factors=(*combined_spec.factors, *external_factors),
+            )
         component_builder = self.component_builder or InferenceComponentBuilder()
         built_components = component_builder.build(combined_spec)
         backend = self.backend or PgmpyInferenceBackend()

@@ -11,6 +11,7 @@ from pipeline_v2.candidates import (
     EntityFiller,
     EventCandidate,
     ReferenceResolutionProposal,
+    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
@@ -43,20 +44,25 @@ from pipeline_v2.inference.graph_spec import (
 )
 from pipeline_v2.inference.resolution import ResolutionInferenceGraphBuilder
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
+from pipeline_v2.nlp import EvidenceSpan, Mention, ReferenceMention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
 from pipeline_v2.types import (
     CoreferenceProviderLinkSignal,
     EntityKind,
     EventRole,
     FactKind,
+    FactResolutionStrategy,
     GroundingKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
     MentionKind,
     PartyOrganizationSignal,
+    PublicContractLemmaSignal,
     PublicEmploymentLemmaSignal,
+    ReferenceKind,
+    RelationshipDetail,
     ResolutionRelation,
+    SemanticEvidenceSimilaritySignal,
 )
 from tests_v2.materialized import entity_argument
 
@@ -439,6 +445,30 @@ class FakeInferenceBackend(InferenceBackend):
         return tuple(StateProbability(state.id, 0.0) for state in variable.states)
 
 
+@dataclass(slots=True)
+class FakeExternalFactorBuilder:
+    def build(
+        self,
+        *,
+        document: ArticleDocument,
+        spec: InferenceGraphSpec,
+    ) -> tuple[InferenceFactor, ...]:
+        _ = document
+        event_variable = next(
+            variable
+            for variable in spec.variables
+            if variable.kind is InferenceVariableKind.EVENT_ACTIVE
+        )
+        return (
+            InferenceFactor(
+                id=InferenceFactorId("external-support"),
+                kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                variable_ids=(event_variable.id,),
+                potentials=(0.2, 0.8),
+            ),
+        )
+
+
 def test_probabilistic_stage_depends_on_backend_facade() -> None:
     document = ArticleDocument(
         document_id=DocumentId("doc"),
@@ -496,6 +526,38 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
         record.id for record in document.materialized_fact_records
     }
     assert document.fact_assessments[0].assessment.score >= 0.7
+
+
+def test_probabilistic_stage_accepts_typed_external_factor_builders() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=EventCandidateId("event-1"),
+            kind=FactKind.PUBLIC_CONTRACT,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+        )
+    )
+    backend = FakeInferenceBackend()
+
+    ProbabilisticInferenceStage(
+        backend=backend,
+        external_factor_builders=(FakeExternalFactorBuilder(),),
+    ).run(document)
+
+    assert backend.observed_spec is not None
+    assert any(
+        factor.id == InferenceFactorId("external-support")
+        for factor in backend.observed_spec.factors
+    )
 
 
 def test_fact_graph_builder_maps_public_employment_arguments_to_event_roles() -> None:
@@ -961,6 +1023,341 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
     proposal = next(iter(built.same_event_proposal_by_variable_id.values()))
     assert proposal.strategy.value == "entity_alignment_relaxed"
     assert proposal.linked_entity_pairs == ((full_person_id, surname_person_id),)
+
+
+def test_semantic_evidence_proposes_same_event_candidate_for_similar_contract_events() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    left_evidence_id = EvidenceId("contract-left")
+    right_evidence_id = EvidenceId("contract-right")
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=left_evidence_id,
+            text="umowa na obsługę urzędu",
+            span=Span(0, 23),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=right_evidence_id,
+            text="kontrakt dotyczący usług dla urzędu",
+            span=Span(24, 58),
+        )
+    )
+    document.evidence_index.add(left_evidence_id, (1.0, 0.0))
+    document.evidence_index.add(right_evidence_id, (0.95, 0.05))
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("contractor"),
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(),
+            canonical_hint="Firma",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    for suffix, evidence_id, amount in (
+        ("left", left_evidence_id, "100 tys. zł"),
+        ("right", right_evidence_id, "120 tys. zł"),
+    ):
+        event_id = EventCandidateId(f"event-{suffix}")
+        document.store.add_event_candidate(
+            EventCandidate(
+                id=event_id,
+                kind=FactKind.PUBLIC_CONTRACT,
+                trigger_evidence_id=evidence_id,
+                evidence_ids=(evidence_id,),
+                source=ProducerId("test"),
+                signals=(PublicContractLemmaSignal(lemma="umowa"),),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId(f"contractor-{suffix}"),
+                event_id=event_id,
+                role=EventRole.CONTRACTOR,
+                filler=EntityFiller(EntityCandidateId("contractor")),
+                evidence_ids=(evidence_id,),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId(f"amount-{suffix}"),
+                event_id=event_id,
+                role=EventRole.AMOUNT,
+                filler=TextFiller(amount),
+                evidence_ids=(evidence_id,),
+            )
+        )
+
+    fact_graph = FactInferenceGraphBuilder().build(document)
+    resolution_graph = ResolutionInferenceGraphBuilder().build(
+        document=document,
+        fact_graph=fact_graph,
+    )
+
+    semantic_proposals = tuple(
+        proposal
+        for proposal in resolution_graph.same_event_proposal_by_variable_id.values()
+        if proposal.strategy is FactResolutionStrategy.SEMANTIC_EVIDENCE
+    )
+    assert len(semantic_proposals) == 1
+    proposal = semantic_proposals[0]
+    assert proposal.fact_proposal.evidence_ids == (left_evidence_id, right_evidence_id)
+    assert SemanticEvidenceSimilaritySignal(score=0.998618) in (
+        proposal.fact_proposal.retrieval_signals
+    )
+
+
+def test_semantic_evidence_adds_role_filler_support_factor() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    event_evidence_id = EvidenceId("contract-clause")
+    filler_evidence_id = EvidenceId("contractor-mention")
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=event_evidence_id,
+            text="umowa zawarta z miejską spółką",
+            span=Span(0, 30),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=filler_evidence_id,
+            text="miejska spółka jako wykonawca umowy",
+            span=Span(31, 67),
+        )
+    )
+    document.evidence_index.add(event_evidence_id, (1.0, 0.0))
+    document.evidence_index.add(filler_evidence_id, (0.95, 0.05))
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("contractor"),
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(),
+            canonical_hint="Miejska spółka",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    event_id = EventCandidateId("contract-event")
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PUBLIC_CONTRACT,
+            trigger_evidence_id=event_evidence_id,
+            evidence_ids=(event_evidence_id,),
+            source=ProducerId("test"),
+            signals=(PublicContractLemmaSignal(lemma="umowa"),),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("contractor-binding"),
+            event_id=event_id,
+            role=EventRole.CONTRACTOR,
+            filler=EntityFiller(EntityCandidateId("contractor")),
+            evidence_ids=(filler_evidence_id,),
+        )
+    )
+
+    fact_graph = FactInferenceGraphBuilder().build(document)
+
+    contractor_variable = next(
+        variable
+        for variable in fact_graph.spec.variables
+        if variable.kind is InferenceVariableKind.ROLE_FILLER
+        and variable.role is EventRole.CONTRACTOR
+    )
+    assert any(
+        factor.variable_ids == (contractor_variable.id,)
+        and SemanticEvidenceSimilaritySignal(score=0.998618) in factor.signals
+        for factor in fact_graph.spec.factors
+    )
+
+
+def test_semantic_evidence_adds_reference_target_support_factor() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Ten lokalny polityk podpisał umowę.",
+        paragraphs=("Ten lokalny polityk podpisał umowę.",),
+    )
+    reference_evidence_id = EvidenceId("reference")
+    entity_evidence_id = EvidenceId("person")
+    reference_id = MentionId("reference")
+    mention_id = MentionId("person-mention")
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=reference_evidence_id,
+            text="Ten lokalny polityk",
+            span=Span(0, 18),
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=entity_evidence_id,
+            text="Jan Kowalski, lokalny polityk",
+            span=Span(40, 68),
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_reference(
+        ReferenceMention(
+            id=reference_id,
+            text="Ten lokalny polityk",
+            kind=ReferenceKind.DESCRIPTOR_NOUN_PHRASE,
+            evidence_id=reference_evidence_id,
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=mention_id,
+            text="Jan Kowalski",
+            kind=MentionKind.NER,
+            evidence_id=entity_evidence_id,
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.evidence_index.add(reference_evidence_id, (1.0, 0.0))
+    document.evidence_index.add(entity_evidence_id, (0.95, 0.05))
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(mention_id,),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.reference_resolution_proposals.append(
+        ReferenceResolutionProposal(
+            reference_id=reference_id,
+            candidate_entity_id=EntityCandidateId("person"),
+            evidence_ids=(reference_evidence_id, entity_evidence_id),
+        )
+    )
+
+    resolution_graph = ResolutionInferenceGraphBuilder().build(
+        document=document,
+        fact_graph=FactInferenceGraphBuilder().build(document),
+    )
+
+    reference_variables = {
+        variable.id
+        for variable in resolution_graph.spec.variables
+        if variable.kind is InferenceVariableKind.REFERENCE_TARGET
+    }
+    assert any(
+        set(factor.variable_ids).issubset(reference_variables)
+        and SemanticEvidenceSimilaritySignal(score=0.998618) in factor.signals
+        for factor in resolution_graph.spec.factors
+    )
+
+
+def test_semantic_evidence_proposes_visible_same_entity_hypothesis_without_name_match() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Jan Kowalski. Burmistrz miasta.",
+        paragraphs=("Jan Kowalski. Burmistrz miasta.",),
+    )
+    first_evidence_id = EvidenceId("named-person")
+    second_evidence_id = EvidenceId("descriptor-person")
+    first_mention_id = MentionId("named-mention")
+    second_mention_id = MentionId("descriptor-mention")
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=first_evidence_id,
+            text="Jan Kowalski",
+            span=Span(0, 12),
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=second_evidence_id,
+            text="Burmistrz miasta",
+            span=Span(14, 29),
+            sentence_id=SentenceId("sentence-2"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=first_mention_id,
+            text="Jan Kowalski",
+            kind=MentionKind.NER,
+            evidence_id=first_evidence_id,
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=second_mention_id,
+            text="Burmistrz miasta",
+            kind=MentionKind.NER,
+            evidence_id=second_evidence_id,
+            sentence_id=SentenceId("sentence-2"),
+        )
+    )
+    document.evidence_index.add(first_evidence_id, (1.0, 0.0))
+    document.evidence_index.add(second_evidence_id, (0.95, 0.05))
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("named-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(first_mention_id,),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("descriptor-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(second_mention_id,),
+            canonical_hint="Burmistrz miasta",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+
+    resolution_graph = ResolutionInferenceGraphBuilder().build(
+        document=document,
+        fact_graph=FactInferenceGraphBuilder().build(document),
+    )
+
+    same_entity_variables = {
+        variable.id
+        for variable in resolution_graph.spec.variables
+        if variable.kind is InferenceVariableKind.SAME_ENTITY
+    }
+    assert any(
+        factor.variable_ids == (variable_id,)
+        and SemanticEvidenceSimilaritySignal(score=0.998618) in factor.signals
+        for factor in resolution_graph.spec.factors
+        for variable_id in same_entity_variables
+    )
 
 
 def _make_proxy_employment_document(
@@ -1449,7 +1846,7 @@ def test_exact_argument_match_suppresses_duplicate_materialized_fact() -> None:
     assert alts[0].record.kind is FactKind.PUBLIC_EMPLOYMENT
 
 
-def test_party_organization_workplace_scores_low_via_graph_without_cap() -> None:
+def test_party_organization_workplace_stays_below_primary_materialization_threshold() -> None:
     document = ArticleDocument(
         document_id=DocumentId("doc"),
         source_url=None,
@@ -1517,6 +1914,69 @@ def test_party_organization_workplace_scores_low_via_graph_without_cap() -> None
 
     ProbabilisticInferenceStage().run(document)
 
-    assert len(document.materialized_fact_records) == 1
-    assessment = document.fact_assessments[0].assessment
-    assert assessment.score < 0.49
+    assert document.materialized_fact_records == []
+    assert document.fact_assessments == []
+
+
+def test_direct_self_tie_stays_below_primary_materialization_threshold() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    event_id = EventCandidateId("event-1")
+    person_id = EntityCandidateId("person-1")
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=person_id,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            filler=EntityFiller(person_id),
+            evidence_ids=(),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            filler=EntityFiller(person_id),
+            evidence_ids=(),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-detail"),
+            event_id=event_id,
+            role=EventRole.RELATIONSHIP_DETAIL,
+            filler=TextFiller(RelationshipDetail.SPOUSE.value),
+            evidence_ids=(),
+        )
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    assert document.materialized_fact_records == []
+    assert document.fact_assessments == []

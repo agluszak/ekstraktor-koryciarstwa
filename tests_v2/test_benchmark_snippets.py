@@ -6,7 +6,6 @@ from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
 from pipeline_v2.candidates import EntityCandidate
 from pipeline_v2.coreference import CoreferenceReferenceStage
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
@@ -17,6 +16,7 @@ from pipeline_v2.ids import (
     ProducerId,
     SentenceId,
 )
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import (
@@ -166,7 +166,7 @@ def test_benchmark_split_sentence_governance_scenario() -> None:
 
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
@@ -197,7 +197,7 @@ def test_benchmark_public_employment_scenario() -> None:
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
     PublicEmploymentCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
@@ -227,7 +227,7 @@ def test_benchmark_public_contract_scenario() -> None:
 
     PublicMoneyCandidateStage().run(document)
     PublicEmploymentCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
@@ -254,7 +254,7 @@ def test_benchmark_anti_corruption_mixed_party_context_scenario() -> None:
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
     AntiCorruptionCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     records = fact_records(document)
     assert tuple(record.kind for record in records) == (FactKind.ANTI_CORRUPTION_REFERRAL,)
@@ -295,7 +295,7 @@ def test_benchmark_proxy_family_tie_scenario() -> None:
     ).run(document)
     FamilyProxyCandidateStage().run(document)
     PersonalTieCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
@@ -312,7 +312,7 @@ def test_benchmark_party_true_negative_scenario() -> None:
     document, morphology = build_document(text)
 
     PartyCandidateStage(morphology).run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     assert tuple(record.kind for record in fact_records(document)) == ()
 
@@ -322,7 +322,7 @@ def test_benchmark_anti_corruption_investigation_scenario() -> None:
     document, _morphology = build_document(text, (person_span(text, "Jana Nowaka"),))
 
     AntiCorruptionCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
@@ -359,7 +359,7 @@ def test_benchmark_family_name_overlap_tie_scenario() -> None:
     )
 
     PersonalTieCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
@@ -377,7 +377,7 @@ def test_benchmark_party_and_oversight_true_negative_scenario() -> None:
 
     PartyCandidateStage(morphology).run(document)
     AntiCorruptionCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     assert fact_records(document) == ()
 
@@ -420,7 +420,7 @@ def test_benchmark_multiparagraph_surname_only_resolution() -> None:
         morphology=morphology,
     ).run(document)
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     entity_candidates = list(document.store.entity_candidates.values())
     assert len(entity_candidates) == 2
@@ -543,7 +543,7 @@ def test_benchmark_multiparagraph_same_name_party_contrast() -> None:
         entity_id=pis_party_id,
     )
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     # Party-contradicted same-name pairs produce no resolution claim: the same-entity
     # posterior falls below the 0.5 gate, so the pair is not merged.

@@ -37,6 +37,9 @@ class EvidenceVectorIndex:
     def add(self, evidence_id: EvidenceId, vector: EmbeddingVector) -> None:
         self._vectors_by_evidence_id[evidence_id] = self._normalize(vector)
 
+    def vector_for(self, evidence_id: EvidenceId) -> EmbeddingVector | None:
+        return self._vectors_by_evidence_id.get(evidence_id)
+
     def search(
         self,
         query: EmbeddingVector,

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import EntityFactArgument, FactCandidateRecord
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -62,7 +62,7 @@ def run_governance_stage(
     ).run(document)
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     return document
 
 
@@ -116,7 +116,7 @@ def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
         ),
     )
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     # Both GOVERNANCE_APPOINTMENT (from 'zostać') and GOVERNANCE_DISMISSAL
     # (from 'odwołać') are emitted; find the dismissal specifically.
     dismissal_record = next(
@@ -256,7 +256,7 @@ def test_governance_stage_ignores_following_sentence_background_organization() -
     assert entity_hint_for_role(document, record, "role") == "prezes"
 
 
-def test_governance_stage_marks_party_name_as_organization() -> None:
+def test_governance_stage_keeps_party_organization_out_of_primary_facts() -> None:
     text = "Sławomir Czwal, działacz Koalicji Obywatelskiej, został powołany na dyrektora."
     document = run_governance_stage(
         text,
@@ -277,10 +277,15 @@ def test_governance_stage_marks_party_name_as_organization() -> None:
         ),
     )
 
-    record = first_fact_record(document)
-
-    assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
-    assert PartyOrganizationSignal() in record.signals
+    assert fact_records(document) == ()
+    assert any(
+        binding.event_id in document.store.event_candidates
+        and document.store.event_candidates[binding.event_id].kind
+        is FactKind.GOVERNANCE_APPOINTMENT
+        and PartyOrganizationSignal() in binding.signals
+        for bindings in document.store.argument_bindings_by_event_id.values()
+        for binding in bindings
+    )
 
 
 def test_governance_stage_prefers_one_window_organization_candidate() -> None:
@@ -345,7 +350,7 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
             ),
         ),
     )
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     bad_candidate = next(
         (

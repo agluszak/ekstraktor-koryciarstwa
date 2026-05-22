@@ -52,3 +52,4 @@ def test_evidence_embedding_stage_indexes_evidence_for_semantic_search() -> None
     matches = document.evidence_index.search((1.0, 0.0), limit=1)
 
     assert tuple(match.evidence_id for match in matches) == (EvidenceId("contract"),)
+    assert document.evidence_index.vector_for(EvidenceId("contract")) == (1.0, 0.0)

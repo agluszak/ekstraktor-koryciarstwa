@@ -12,6 +12,7 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
     EntityCandidateId,
     EventCandidateId,
+    EvidenceId,
     FactCandidateId,
     InferenceFactorId,
     InferenceStateId,
@@ -44,6 +45,7 @@ from pipeline_v2.types import (
     ReferenceKind,
     ReportingSourceContextSignal,
     SelfTieContradictionSignal,
+    SemanticEvidenceSimilaritySignal,
     Signal,
     SignalPolarity,
     WeakSyntacticBindingSignal,
@@ -201,6 +203,8 @@ class RoleFillerWeightModel:
 
 
 class FactInferenceGraphBuilder:
+    semantic_role_threshold = 0.82
+
     def __init__(
         self,
         prior_registry: FactPriorPolicyRegistry | None = None,
@@ -266,6 +270,14 @@ class FactInferenceGraphBuilder:
                             state_count=len(states),
                         )
                     )
+                    semantic_factor = self._semantic_role_support_factor(
+                        document=document,
+                        event_id=event.id,
+                        role_variable=role_variable,
+                        states=states,
+                    )
+                    if semantic_factor is not None:
+                        factors.append(semantic_factor)
                 role_variable_id_by_event_role[(event.id, role)] = role_variable.id
                 filler_states_by_variable_id[role_variable.id] = states
 
@@ -496,7 +508,7 @@ class FactInferenceGraphBuilder:
                     and o_entity_id is not None
                     and s_entity_id == o_entity_id
                 ):
-                    values.append(0.02)
+                    values.append(0.000001)
                 else:
                     values.append(1.0)
         return InferenceFactor(
@@ -505,6 +517,90 @@ class FactInferenceGraphBuilder:
             variable_ids=(subject_variable.id, object_variable.id),
             potentials=tuple(values),
         )
+
+    def _semantic_role_support_factor(
+        self,
+        *,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+        role_variable: InferenceVariable,
+        states: tuple[RoleFillerState, ...],
+    ) -> InferenceFactor | None:
+        event_evidence_ids = self._event_evidence_ids(document, event_id)
+        if not event_evidence_ids:
+            return None
+
+        potentials: list[float] = []
+        matched_evidence_ids: list[EvidenceId] = []
+        matched_signals: list[Signal] = []
+        for state in states:
+            match state.filler:
+                case EntityFiller():
+                    match_result = self._semantic_evidence_similarity(
+                        document=document,
+                        left_evidence_ids=event_evidence_ids,
+                        right_evidence_ids=tuple(state.evidence_ids),
+                        threshold=self.semantic_role_threshold,
+                    )
+                case TextFiller():
+                    match_result = None
+                case _:
+                    match_result = None
+            if match_result is None:
+                potentials.append(1.0)
+                continue
+            evidence_pair, score = match_result
+            potentials.append(1.25)
+            matched_evidence_ids.extend(evidence_pair)
+            matched_signals.append(SemanticEvidenceSimilaritySignal(score=score))
+
+        if not matched_signals:
+            return None
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:semantic-role:{event_id}:{role_variable.role}"),
+            kind=InferenceFactorKind.EVIDENCE_PRIOR,
+            variable_ids=(role_variable.id,),
+            potentials=tuple(potentials),
+            evidence_ids=tuple(dict.fromkeys(matched_evidence_ids)),
+            signals=tuple(dict.fromkeys(matched_signals)),
+        )
+
+    def _event_evidence_ids(
+        self,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+    ) -> tuple[EvidenceId, ...]:
+        event = document.store.event_candidates[event_id]
+        evidence_ids = list(event.evidence_ids)
+        if event.trigger_evidence_id is not None:
+            evidence_ids.append(event.trigger_evidence_id)
+        return tuple(dict.fromkeys(evidence_ids))
+
+    def _semantic_evidence_similarity(
+        self,
+        *,
+        document: ArticleDocument,
+        left_evidence_ids: tuple[EvidenceId, ...],
+        right_evidence_ids: tuple[EvidenceId, ...],
+        threshold: float,
+    ) -> tuple[tuple[EvidenceId, EvidenceId], float] | None:
+        right_evidence_set = frozenset(right_evidence_ids)
+        best: tuple[tuple[EvidenceId, EvidenceId], float] | None = None
+        for left_evidence_id in left_evidence_ids:
+            left_vector = document.evidence_index.vector_for(left_evidence_id)
+            if left_vector is None:
+                continue
+            for match in document.evidence_index.search(
+                left_vector,
+                limit=8,
+                min_score=threshold,
+            ):
+                if match.evidence_id not in right_evidence_set:
+                    continue
+                evidence_pair = (left_evidence_id, match.evidence_id)
+                if best is None or match.score > best[1]:
+                    best = (evidence_pair, match.score)
+        return best
 
     def _has_party_organization_signal(self, signals: tuple[Signal, ...]) -> bool:
         for signal in signals:

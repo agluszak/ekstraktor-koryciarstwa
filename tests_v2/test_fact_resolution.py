@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import Assessment, EntityResolutionClaim
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
     DocumentId,
@@ -12,6 +11,7 @@ from pipeline_v2.ids import (
     ResolutionClaimId,
     ScorerId,
 )
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
     EntityKind,
@@ -120,7 +120,7 @@ def test_probabilistic_inference_emits_same_fact_claim_and_suppresses_duplicate(
             entity_id=EntityCandidateId("role"),
         )
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
     materialized_ids = {record.id for record in fact_records(document)}
@@ -232,7 +232,7 @@ def test_probabilistic_inference_merges_governance_duplicates_with_matching_org(
         entity_id=EntityCandidateId("role-2"),
     )
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
     materialized_ids = {record.id for record in fact_records(document)}
@@ -308,7 +308,7 @@ def test_probabilistic_inference_keeps_governance_facts_separate_without_shared_
         entity_id=EntityCandidateId("role-2"),
     )
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     assert document.store.fact_resolution_claims == {}
 
@@ -421,7 +421,7 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
         )
     )
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     claim = next(iter(document.store.fact_resolution_claims.values()))
     materialized_ids = {record.id for record in fact_records(document)}

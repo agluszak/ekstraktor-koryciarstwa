@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
     Assessment,
+    EntityCandidate,
     EntityFiller,
     EntityResolutionClaim,
     EntityResolutionProposal,
@@ -17,6 +18,7 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
     EntityCandidateId,
     EventCandidateId,
+    EvidenceId,
     FactCandidateId,
     InferenceFactorId,
     InferenceStateId,
@@ -54,6 +56,7 @@ from pipeline_v2.types import (
     FactResolutionStrategy,
     GroundingKind,
     ResolutionRelation,
+    SemanticEvidenceSimilaritySignal,
     Signal,
     SignalPolarity,
 )
@@ -88,6 +91,9 @@ class _EventBindingView:
 
 class ResolutionInferenceGraphBuilder:
     producer_id = ProducerId("probabilistic_inference_stage_v2")
+    semantic_same_entity_threshold = 0.9
+    semantic_same_event_threshold = 0.82
+    semantic_reference_threshold = 0.82
 
     def build(
         self,
@@ -167,9 +173,18 @@ class ResolutionInferenceGraphBuilder:
         retriever = EntityCandidateRetriever(document.store)
         signal_producer = EvidenceSignalProducer()
         scorer = EntityResolutionScorer(document.store)
+        entity_ids_by_evidence_id = self._entity_ids_by_evidence_id(document)
         seen_pairs: set[tuple[EntityCandidateId, EntityCandidateId]] = set()
         for entity in document.store.entity_candidates.values():
-            for proposal in retriever.proposals_for_entity(entity):
+            proposals = (
+                *retriever.proposals_for_entity(entity),
+                *self._semantic_entity_proposals(
+                    document=document,
+                    entity=entity,
+                    entity_ids_by_evidence_id=entity_ids_by_evidence_id,
+                ),
+            )
+            for proposal in proposals:
                 enriched = signal_producer.enrich_resolution_proposal(document.store, proposal)
                 pair_key = self._entity_pair(enriched.left_entity_id, enriched.right_entity_id)
                 if pair_key in seen_pairs:
@@ -200,6 +215,14 @@ class ResolutionInferenceGraphBuilder:
                         ),
                     )
                 )
+                semantic_factor = self._semantic_same_entity_factor(
+                    document=document,
+                    variable_id=variable_id,
+                    left_entity_id=enriched.left_entity_id,
+                    right_entity_id=enriched.right_entity_id,
+                )
+                if semantic_factor is not None:
+                    factors.append(semantic_factor)
                 entity_proposal_by_variable_id[variable_id] = enriched
                 same_entity_variable_id_by_pair[
                     self._entity_pair(enriched.left_entity_id, enriched.right_entity_id)
@@ -240,6 +263,9 @@ class ResolutionInferenceGraphBuilder:
             state_map: dict[InferenceStateId, ReferenceResolutionProposal] = {}
             evidence_ids: list = []
             signals: list[Signal] = []
+            semantic_potentials: list[float] = [1.0]
+            semantic_evidence_ids: list[EvidenceId] = []
+            semantic_signals: list[Signal] = []
             for proposal in ordered:
                 state_id = self._reference_state_id_for_entity(proposal.candidate_entity_id)
                 states.append(InferenceState(state_id, str(proposal.candidate_entity_id)))
@@ -248,6 +274,18 @@ class ResolutionInferenceGraphBuilder:
                 evidence_ids.extend(proposal.evidence_ids)
                 signals.extend(proposal.retrieval_signals)
                 signals.extend(proposal.context_signals)
+                semantic_match = self._semantic_reference_similarity(
+                    document=document,
+                    reference_id=proposal.reference_id,
+                    candidate_entity_id=proposal.candidate_entity_id,
+                )
+                if semantic_match is None:
+                    semantic_potentials.append(1.0)
+                    continue
+                semantic_evidence_pair, semantic_score = semantic_match
+                semantic_potentials.append(1.25)
+                semantic_evidence_ids.extend(semantic_evidence_pair)
+                semantic_signals.append(SemanticEvidenceSimilaritySignal(score=semantic_score))
             variables.append(
                 InferenceVariable(
                     id=variable_id,
@@ -265,6 +303,17 @@ class ResolutionInferenceGraphBuilder:
                     signals=tuple(dict.fromkeys(signals)),
                 )
             )
+            if semantic_signals:
+                factors.append(
+                    InferenceFactor(
+                        id=InferenceFactorId(f"factor:semantic-reference-target:{reference_key}"),
+                        kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                        variable_ids=(variable_id,),
+                        potentials=tuple(semantic_potentials),
+                        evidence_ids=tuple(dict.fromkeys(semantic_evidence_ids)),
+                        signals=tuple(dict.fromkeys(semantic_signals)),
+                    )
+                )
             reference_state_proposals_by_variable_id[variable_id] = state_map
             reference_variable_id_by_reference_id[ordered[0].reference_id] = variable_id
 
@@ -353,7 +402,7 @@ class ResolutionInferenceGraphBuilder:
                         (left_entity_id, right_entity_id),
                         (right_entity_id, left_entity_id),
                     ):
-                        values.append(0.02)
+                        values.append(0.000001)
                     else:
                         values.append(1.0)
         return InferenceFactor(
@@ -442,6 +491,7 @@ class ResolutionInferenceGraphBuilder:
             for variable_id, event_id in fact_graph.index.event_id_by_event_variable_id.items()
         }
         proposals = self._same_event_proposals(
+            document=document,
             event_views=event_views,
             fact_id_by_event_id=fact_id_by_event_id,
             same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
@@ -531,6 +581,7 @@ class ResolutionInferenceGraphBuilder:
     def _same_event_proposals(
         self,
         *,
+        document: ArticleDocument,
         event_views: dict[EventCandidateId, _EventBindingView],
         fact_id_by_event_id: dict[EventCandidateId, FactCandidateId],
         same_entity_variable_id_by_pair: dict[
@@ -547,11 +598,27 @@ class ResolutionInferenceGraphBuilder:
                 if left.kind is not right.kind:
                     continue
                 strategy = self._same_event_strategy(left, right, same_entity_variable_id_by_pair)
+                semantic_match = self._semantic_event_similarity(
+                    document=document,
+                    left_event_id=left_event_id,
+                    right_event_id=right_event_id,
+                )
                 if strategy is None:
-                    continue
+                    if semantic_match is None:
+                        continue
+                    strategy = FactResolutionStrategy.SEMANTIC_EVIDENCE
                 linked_entity_pairs = self._linked_entity_pairs(
                     left, right, strategy, same_entity_variable_id_by_pair
                 )
+                evidence_ids = semantic_match[0] if semantic_match is not None else ()
+                signals: tuple[Signal, ...] = (
+                    DuplicateFactSignal(strategy=strategy, fact_kind=left.kind),
+                )
+                if semantic_match is not None:
+                    signals = (
+                        *signals,
+                        SemanticEvidenceSimilaritySignal(score=semantic_match[1]),
+                    )
                 proposals.append(
                     SameEventProposal(
                         left_event_id=left_event_id,
@@ -561,15 +628,193 @@ class ResolutionInferenceGraphBuilder:
                             left_fact_id=fact_id_by_event_id[left_event_id],
                             right_fact_id=fact_id_by_event_id[right_event_id],
                             relation=ResolutionRelation.SAME_FACT,
-                            evidence_ids=(),
-                            retrieval_signals=(
-                                DuplicateFactSignal(strategy=strategy, fact_kind=left.kind),
-                            ),
+                            evidence_ids=evidence_ids,
+                            retrieval_signals=signals,
                         ),
                         linked_entity_pairs=linked_entity_pairs,
                     )
                 )
         return tuple(proposals)
+
+    def _semantic_event_similarity(
+        self,
+        *,
+        document: ArticleDocument,
+        left_event_id: EventCandidateId,
+        right_event_id: EventCandidateId,
+    ) -> tuple[tuple[EvidenceId, EvidenceId], float] | None:
+        return self._semantic_evidence_similarity(
+            document=document,
+            left_evidence_ids=self._event_evidence_ids(document, left_event_id),
+            right_evidence_ids=self._event_evidence_ids(document, right_event_id),
+            threshold=self.semantic_same_event_threshold,
+        )
+
+    def _semantic_same_entity_factor(
+        self,
+        *,
+        document: ArticleDocument,
+        variable_id: InferenceVariableId,
+        left_entity_id: EntityCandidateId,
+        right_entity_id: EntityCandidateId,
+    ) -> InferenceFactor | None:
+        semantic_match = self._semantic_entity_similarity(
+            document=document,
+            left_entity_id=left_entity_id,
+            right_entity_id=right_entity_id,
+        )
+        if semantic_match is None:
+            return None
+        evidence_pair, score = semantic_match
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:semantic-same-entity:{left_entity_id}:{right_entity_id}"),
+            kind=InferenceFactorKind.EVIDENCE_PRIOR,
+            variable_ids=(variable_id,),
+            potentials=(1.0, 1.15),
+            evidence_ids=evidence_pair,
+            signals=(SemanticEvidenceSimilaritySignal(score=score),),
+        )
+
+    def _semantic_reference_similarity(
+        self,
+        *,
+        document: ArticleDocument,
+        reference_id: MentionId,
+        candidate_entity_id: EntityCandidateId,
+    ) -> tuple[tuple[EvidenceId, EvidenceId], float] | None:
+        reference = document.store.references.get(reference_id)
+        if reference is None:
+            return None
+        return self._semantic_evidence_similarity(
+            document=document,
+            left_evidence_ids=(reference.evidence_id,),
+            right_evidence_ids=self._entity_evidence_ids(document, candidate_entity_id),
+            threshold=self.semantic_reference_threshold,
+        )
+
+    def _semantic_entity_similarity(
+        self,
+        *,
+        document: ArticleDocument,
+        left_entity_id: EntityCandidateId,
+        right_entity_id: EntityCandidateId,
+    ) -> tuple[tuple[EvidenceId, EvidenceId], float] | None:
+        return self._semantic_evidence_similarity(
+            document=document,
+            left_evidence_ids=self._entity_evidence_ids(document, left_entity_id),
+            right_evidence_ids=self._entity_evidence_ids(document, right_entity_id),
+            threshold=self.semantic_same_entity_threshold,
+        )
+
+    def _semantic_entity_proposals(
+        self,
+        *,
+        document: ArticleDocument,
+        entity: EntityCandidate,
+        entity_ids_by_evidence_id: dict[EvidenceId, tuple[EntityCandidateId, ...]],
+    ) -> tuple[EntityResolutionProposal, ...]:
+        if not entity.mention_ids and not entity.reference_ids:
+            return ()
+        proposals: list[EntityResolutionProposal] = []
+        seen: set[EntityCandidateId] = set()
+        for evidence_id in self._entity_evidence_ids(document, entity.id):
+            vector = document.evidence_index.vector_for(evidence_id)
+            if vector is None:
+                continue
+            for match in document.evidence_index.search(
+                vector,
+                limit=8,
+                min_score=self.semantic_same_entity_threshold,
+            ):
+                for other_id in entity_ids_by_evidence_id.get(match.evidence_id, ()):
+                    if other_id == entity.id or other_id in seen:
+                        continue
+                    other = document.store.entity_candidates.get(other_id)
+                    if other is None or other.kind is not entity.kind:
+                        continue
+                    seen.add(other_id)
+                    proposals.append(
+                        EntityResolutionProposal(
+                            left_entity_id=entity.id,
+                            right_entity_id=other_id,
+                            evidence_ids=(evidence_id, match.evidence_id),
+                            retrieval_signals=(
+                                SemanticEvidenceSimilaritySignal(score=match.score),
+                            ),
+                        )
+                    )
+        return tuple(proposals)
+
+    def _semantic_evidence_similarity(
+        self,
+        *,
+        document: ArticleDocument,
+        left_evidence_ids: tuple[EvidenceId, ...],
+        right_evidence_ids: tuple[EvidenceId, ...],
+        threshold: float,
+    ) -> tuple[tuple[EvidenceId, EvidenceId], float] | None:
+        best: tuple[tuple[EvidenceId, EvidenceId], float] | None = None
+        right_evidence_set = frozenset(right_evidence_ids)
+        for left_evidence_id in left_evidence_ids:
+            left_vector = document.evidence_index.vector_for(left_evidence_id)
+            if left_vector is None:
+                continue
+            for match in document.evidence_index.search(
+                left_vector,
+                limit=8,
+                min_score=threshold,
+            ):
+                if match.evidence_id not in right_evidence_set:
+                    continue
+                evidence_pair = (left_evidence_id, match.evidence_id)
+                if best is None or match.score > best[1]:
+                    best = (evidence_pair, match.score)
+        return best
+
+    def _entity_ids_by_evidence_id(
+        self,
+        document: ArticleDocument,
+    ) -> dict[EvidenceId, tuple[EntityCandidateId, ...]]:
+        entity_ids_by_evidence_id: dict[EvidenceId, list[EntityCandidateId]] = {}
+        for entity_id in document.store.entity_candidates:
+            for evidence_id in self._entity_evidence_ids(document, entity_id):
+                entity_ids_by_evidence_id.setdefault(evidence_id, []).append(entity_id)
+        return {
+            evidence_id: tuple(entity_ids)
+            for evidence_id, entity_ids in entity_ids_by_evidence_id.items()
+        }
+
+    def _entity_evidence_ids(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> tuple[EvidenceId, ...]:
+        entity = document.store.entity_candidates.get(entity_id)
+        if entity is None:
+            return ()
+        evidence_ids: list[EvidenceId] = []
+        for mention_id in entity.mention_ids:
+            mention = document.store.mentions.get(mention_id)
+            if mention is not None:
+                evidence_ids.append(mention.evidence_id)
+        for reference_id in entity.reference_ids:
+            reference = document.store.references.get(reference_id)
+            if reference is not None:
+                evidence_ids.append(reference.evidence_id)
+        return tuple(dict.fromkeys(evidence_ids))
+
+    def _event_evidence_ids(
+        self,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+    ) -> tuple[EvidenceId, ...]:
+        event = document.store.event_candidates[event_id]
+        evidence_ids = list(event.evidence_ids)
+        if event.trigger_evidence_id is not None:
+            evidence_ids.append(event.trigger_evidence_id)
+        for binding in document.store.argument_bindings_for_event(event_id):
+            evidence_ids.extend(binding.evidence_ids)
+        return tuple(dict.fromkeys(evidence_ids))
 
     def _same_event_strategy(
         self,
@@ -812,6 +1057,8 @@ class ResolutionInferenceGraphBuilder:
     ) -> tuple[float, float]:
         if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED:
             return (0.55, 0.45)
+        if strategy is FactResolutionStrategy.SEMANTIC_EVIDENCE:
+            return (0.6, 0.4)
         return (0.35, 0.65)
 
     def _state_depends_on_reference(
