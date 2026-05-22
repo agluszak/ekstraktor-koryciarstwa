@@ -10,6 +10,7 @@ from pipeline_v2.candidates import (
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
+    EntityCandidateId,
     EventCandidateId,
     FactCandidateId,
     InferenceFactorId,
@@ -30,12 +31,19 @@ from pipeline_v2.types import (
     AppointerContextSignal,
     ControllerContextSignal,
     EventRole,
+    FactKind,
+    GenericOwnerContextSignal,
+    GoverningBodyContextSignal,
+    GroundingKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
     PartyOrganizationSignal,
     PossessiveKinshipSignal,
     ProxyFamilyEntitySignal,
+    ReferenceKind,
+    ReportingSourceContextSignal,
+    SelfTieContradictionSignal,
     Signal,
     SignalPolarity,
     WeakSyntacticBindingSignal,
@@ -47,6 +55,59 @@ from pipeline_v2.types import (
 TRUE_STATE = InferenceState(InferenceStateId("true"), "true")
 FALSE_STATE = InferenceState(InferenceStateId("false"), "false")
 UNKNOWN_STATE = InferenceState(InferenceStateId("unknown"), "unknown")
+
+
+def resolve_entity_id(store, entity_id: EntityCandidateId) -> EntityCandidateId:
+    visited = {entity_id}
+    queue = [entity_id]
+    all_entities: list[EntityCandidateId] = []
+
+    while queue:
+        curr = queue.pop(0)
+        all_entities.append(curr)
+
+        # 1. Entity resolution claims (same_as)
+        for claim in store.resolution_claims_for_entity(curr):
+            other = claim.right_entity_id if claim.left_entity_id == curr else claim.left_entity_id
+            if other not in visited:
+                visited.add(other)
+                queue.append(other)
+
+        # 2. Reference resolution claims for proxy entities
+        entity_cand = store.entity_candidates.get(curr)
+        if entity_cand is not None:
+            for ref_id in entity_cand.reference_ids:
+                ref_mention = store.references.get(ref_id)
+                if (
+                    ref_mention is not None
+                    and ref_mention.kind == ReferenceKind.PROXY_FAMILY_PHRASE
+                ):
+                    continue
+                for ref_claim in store.reference_resolution_claims_for_reference(ref_id):
+                    target = ref_claim.candidate_entity_id
+                    if target not in visited:
+                        visited.add(target)
+                        queue.append(target)
+
+    # Find the best representative from all_entities
+    def candidate_key(ent_id: EntityCandidateId) -> tuple[int, int, int, str]:
+        cand = store.entity_candidates.get(ent_id)
+        if cand is None:
+            return (0, 0, 0, "")
+
+        g_prio = 0
+        if cand.grounding == GroundingKind.OBSERVED:
+            g_prio = 3
+        elif cand.grounding == GroundingKind.INFERRED:
+            g_prio = 2
+        elif cand.grounding == GroundingKind.PROXY:
+            g_prio = 1
+
+        num_mentions = len(cand.mention_ids)
+        hint_len = len(cand.canonical_hint) if cand.canonical_hint else 0
+        return (g_prio, num_mentions, hint_len, str(ent_id))
+
+    return max(all_entities, key=candidate_key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +163,10 @@ class BindingSignalWeightPolicy:
                 | AppointerContextSignal()
                 | ControllerContextSignal()
                 | PartyOrganizationSignal()
+                | ReportingSourceContextSignal()
+                | GenericOwnerContextSignal()
+                | GoverningBodyContextSignal()
+                | SelfTieContradictionSignal()
             ):
                 return -0.85
             case _ if signal.polarity is SignalPolarity.POSITIVE:
@@ -171,11 +236,15 @@ class FactInferenceGraphBuilder:
 
             required_roles = {role_spec.role for role_spec in schema.roles if role_spec.required}
             all_roles = required_roles | set(bindings_by_role)
+            role_vars = {}
+            role_states_map = {}
             for role in sorted(all_roles, key=lambda item: item.value):
                 role_spec = schema.role_spec_for(role)
                 states = self._role_states(bindings_by_role.get(role, ()))
                 role_variable = self._role_variable(event.id, event.kind, role, states)
                 variables.append(role_variable)
+                role_vars[role] = role_variable
+                role_states_map[role] = states
                 factors.append(self._role_prior_factor(event.id, role_variable, states))
                 if role_spec is not None:
                     factors.append(
@@ -199,6 +268,21 @@ class FactInferenceGraphBuilder:
                     )
                 role_variable_id_by_event_role[(event.id, role)] = role_variable.id
                 filler_states_by_variable_id[role_variable.id] = states
+
+            if event.kind == FactKind.PERSONAL_OR_POLITICAL_TIE:
+                subject_var = role_vars.get(EventRole.SUBJECT)
+                object_var = role_vars.get(EventRole.OBJECT)
+                if subject_var is not None and object_var is not None:
+                    factors.append(
+                        self._self_tie_constraint_factor(
+                            event_id=event.id,
+                            subject_variable=subject_var,
+                            subject_states=role_states_map[EventRole.SUBJECT],
+                            object_variable=object_var,
+                            object_states=role_states_map[EventRole.OBJECT],
+                            document=document,
+                        )
+                    )
 
         return BuiltFactInferenceGraph(
             spec=InferenceGraphSpec(variables=tuple(variables), factors=tuple(factors)),
@@ -338,21 +422,116 @@ class FactInferenceGraphBuilder:
         _ = role
         potentials: list[float] = []
         for state in states:
+            is_compatible = True
             match state.filler:
                 case EntityFiller(entity_id=entity_id):
                     entity = document.store.entity_candidates.get(entity_id)
                     if entity is None or entity.kind not in role_spec.allowed_entity_kinds:
-                        potentials.append(0.02)
-                    else:
-                        potentials.append(1.0)
+                        is_compatible = False
                 case _:
-                    potentials.append(1.0)
+                    pass
+
+            if is_compatible:
+                has_party_signal = self._has_party_organization_signal(state.signals)
+                has_reporting_signal = self._has_reporting_source_signal(state.signals)
+                has_owner_signal = self._has_owner_context_signal(state.signals)
+
+                if has_party_signal and role_variable.role in {
+                    EventRole.WORKPLACE,
+                    EventRole.ORGANIZATION,
+                    EventRole.FUNDER,
+                    EventRole.RECIPIENT,
+                    EventRole.COUNTERPARTY,
+                    EventRole.HIRING_AUTHORITY,
+                }:
+                    is_compatible = False
+                elif has_reporting_signal and role_variable.role in {
+                    EventRole.FUNDER,
+                    EventRole.RECIPIENT,
+                    EventRole.COUNTERPARTY,
+                }:
+                    is_compatible = False
+                elif has_owner_signal and role_variable.role == EventRole.ORGANIZATION:
+                    is_compatible = False
+
+            if is_compatible:
+                potentials.append(1.0)
+            else:
+                potentials.append(0.02)
         return InferenceFactor(
             id=InferenceFactorId(f"factor:role-compatibility:{event_id}:{role_variable.role}"),
             kind=InferenceFactorKind.ROLE_COMPATIBILITY,
             variable_ids=(role_variable.id,),
             potentials=tuple(potentials),
         )
+
+    def _self_tie_constraint_factor(
+        self,
+        *,
+        event_id: EventCandidateId,
+        subject_variable: InferenceVariable,
+        subject_states: tuple[RoleFillerState, ...],
+        object_variable: InferenceVariable,
+        object_states: tuple[RoleFillerState, ...],
+        document: ArticleDocument,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        for s_state in subject_states:
+            for o_state in object_states:
+                s_entity_id = None
+                o_entity_id = None
+                match s_state.filler:
+                    case EntityFiller(entity_id=entity_id):
+                        s_entity_id = resolve_entity_id(document.store, entity_id)
+                    case _:
+                        pass
+                match o_state.filler:
+                    case EntityFiller(entity_id=entity_id):
+                        o_entity_id = resolve_entity_id(document.store, entity_id)
+                    case _:
+                        pass
+
+                if (
+                    s_entity_id is not None
+                    and o_entity_id is not None
+                    and s_entity_id == o_entity_id
+                ):
+                    values.append(0.02)
+                else:
+                    values.append(1.0)
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:self-tie:{event_id}"),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(subject_variable.id, object_variable.id),
+            potentials=tuple(values),
+        )
+
+    def _has_party_organization_signal(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case PartyOrganizationSignal():
+                    return True
+                case _:
+                    continue
+        return False
+
+    def _has_reporting_source_signal(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case ReportingSourceContextSignal():
+                    return True
+                case _:
+                    continue
+        return False
+
+    def _has_owner_context_signal(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case GenericOwnerContextSignal() | GoverningBodyContextSignal():
+                    return True
+                case _:
+                    continue
+        return False
 
     def _normalized_weights(
         self,

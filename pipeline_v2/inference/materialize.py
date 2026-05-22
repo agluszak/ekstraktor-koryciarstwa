@@ -6,24 +6,31 @@ from pipeline_v2.candidates import (
     Assessment,
     EntityFactArgument,
     EntityFiller,
+    FactArgument,
     FactCandidateRecord,
+    MaterializedRoleAlternative,
     TextFactArgument,
     TextFiller,
 )
 from pipeline_v2.document import ArticleDocument, FactAssessment
-from pipeline_v2.ids import EntityCandidateId, EventCandidateId, FactCandidateId, ScorerId
+from pipeline_v2.ids import EventCandidateId, FactCandidateId, ScorerId
 from pipeline_v2.inference.event_schema import RoleSpec, schema_for
 from pipeline_v2.inference.factor_builders import (
     TRUE_STATE,
     BuiltFactInferenceGraph,
     RoleFillerState,
+    resolve_entity_id,
 )
 from pipeline_v2.inference.graph_spec import InferenceResult, VariableMarginal
 from pipeline_v2.types import (
     EmploymentContractFormSignal,
     FactArgumentRole,
-    GroundingKind,
-    ReferenceKind,
+    FactKind,
+    GenericOwnerContextSignal,
+    GoverningBodyContextSignal,
+    PartyOrganizationSignal,
+    ReportingSourceContextSignal,
+    SelfTieContradictionSignal,
     SignalPolarity,
 )
 
@@ -47,6 +54,7 @@ class FactAssessmentMaterializer:
         result: InferenceResult,
     ) -> ArticleDocument:
         document.materialized_fact_records = []
+        document.materialized_role_alternatives = {}
         document.fact_assessments = []
         for variable_id, event_id in built_graph.index.event_id_by_event_variable_id.items():
             event_marginal = result.marginal_for(variable_id)
@@ -54,51 +62,46 @@ class FactAssessmentMaterializer:
                 continue
             event_probability = event_marginal.probability_for(TRUE_STATE.id)
             base_fact_id = built_graph.index.fact_id_by_event_variable_id[variable_id]
-            for index, (record, score) in enumerate(
-                self._materialized_records(
-                    document=document,
-                    built_graph=built_graph,
-                    result=result,
-                    event_id=event_id,
-                    base_fact_id=base_fact_id,
-                    event_probability=event_probability,
-                )
-            ):
-                materialized_id = (
-                    base_fact_id if index == 0 else FactCandidateId(f"{base_fact_id}-alt-{index}")
-                )
-                projected = FactCandidateRecord(
-                    id=materialized_id,
-                    kind=record.kind,
-                    arguments=record.arguments,
-                    evidence_ids=record.evidence_ids,
-                    source=record.source,
-                    signals=record.signals,
-                )
-                document.materialized_fact_records.append(projected)
-                document.fact_assessments.append(
-                    FactAssessment(
-                        materialized_fact_id=projected.id,
-                        assessment=Assessment(
-                            score=round(score, 3),
-                            positive_signals=tuple(
-                                signal
-                                for signal in projected.signals
-                                if signal.polarity is SignalPolarity.POSITIVE
-                            ),
-                            negative_signals=tuple(
-                                signal
-                                for signal in projected.signals
-                                if signal.polarity is SignalPolarity.NEGATIVE
-                            ),
-                            scorer_id=self.scorer_id,
-                            explanation="event posterior from typed probabilistic inference graph",
+            materialized = self._materialized_record(
+                document=document,
+                built_graph=built_graph,
+                result=result,
+                event_id=event_id,
+                base_fact_id=base_fact_id,
+                event_probability=event_probability,
+            )
+            if materialized is None:
+                continue
+            record, score, alternatives = materialized
+            document.materialized_fact_records.append(record)
+            if alternatives:
+                document.materialized_role_alternatives[record.id] = alternatives
+            document.fact_assessments.append(
+                FactAssessment(
+                    materialized_fact_id=record.id,
+                    assessment=Assessment(
+                        score=round(score, 3),
+                        positive_signals=tuple(
+                            signal
+                            for signal in record.signals
+                            if signal.polarity is SignalPolarity.POSITIVE
                         ),
-                    )
+                        negative_signals=tuple(
+                            signal
+                            for signal in record.signals
+                            if signal.polarity is SignalPolarity.NEGATIVE
+                        ),
+                        scorer_id=self.scorer_id,
+                        explanation=(
+                            "event posterior and role posteriors from typed probabilistic "
+                            "inference graph"
+                        ),
+                    ),
                 )
+            )
         return document
 
-    def _materialized_records(
+    def _materialized_record(
         self,
         *,
         document: ArticleDocument,
@@ -107,131 +110,95 @@ class FactAssessmentMaterializer:
         event_id: EventCandidateId,
         base_fact_id: FactCandidateId,
         event_probability: float,
-    ) -> tuple[tuple[FactCandidateRecord, float], ...]:
+    ) -> tuple[FactCandidateRecord, float, tuple[MaterializedRoleAlternative, ...]] | None:
         event = document.store.event_candidates[event_id]
         schema = schema_for(event.kind)
         selected_by_role: dict[FactArgumentRole, _RoleSelection] = {}
-        alternatives: list[tuple[FactArgumentRole, _RoleSelection]] = []
+        alternatives: list[MaterializedRoleAlternative] = []
         for role_spec in schema.roles:
             variable_id = built_graph.index.role_variable_id_by_event_role.get(
                 (event_id, role_spec.role)
             )
             if variable_id is None:
                 if role_spec.required:
-                    return ()
+                    return None
                 continue
             marginal = result.marginal_for(variable_id)
             states = built_graph.index.filler_states_by_variable_id.get(variable_id, ())
             ranked = self._ranked_states(states, marginal)
             if not ranked:
                 if role_spec.required:
-                    return ()
+                    return None
                 continue
             selected_by_role[role_spec.output_role] = _RoleSelection(role_spec, *ranked[0])
             for state, probability in ranked[1:]:
-                if probability >= self._alternative_threshold:
-                    alternatives.append(
-                        (role_spec.output_role, _RoleSelection(role_spec, state, probability))
+                if probability < self._alternative_threshold:
+                    continue
+                filler = self._fact_argument_from_state(
+                    store=document.store,
+                    output_role=role_spec.output_role,
+                    state=state,
+                )
+                if filler is None:
+                    continue
+                alternatives.append(
+                    MaterializedRoleAlternative(
+                        role=role_spec.output_role,
+                        filler=filler,
+                        posterior=round(probability, 6),
+                        evidence_ids=state.evidence_ids,
+                        signals=state.signals,
                     )
+                )
 
+        selections = tuple(selected_by_role.values())
         base_record = self._record_from_selection(
             store=document.store,
             event=event,
             fact_id=base_fact_id,
-            selections=tuple(selected_by_role.values()),
+            selections=selections,
         )
         if base_record is None:
-            return ()
-        materialized: list[tuple[FactCandidateRecord, float]] = [
-            (
-                base_record,
-                self._primary_score(
-                    event_probability=event_probability,
-                    selections=tuple(selected_by_role.values()),
-                ),
-            )
-        ]
-        for role, alternative in alternatives:
-            alternative_selection = dict(selected_by_role)
-            alternative_selection[role] = alternative
-            alternative_record = self._record_from_selection(
-                store=document.store,
-                event=event,
-                fact_id=base_fact_id,
-                selections=tuple(alternative_selection.values()),
-            )
-            if alternative_record is None:
-                continue
-            materialized.append((alternative_record, event_probability * alternative.probability))
-        return tuple(materialized)
+            return None
+        score = self._primary_score(
+            event_probability=event_probability,
+            selections=selections,
+            record=base_record,
+        )
+        return base_record, score, tuple(alternatives)
 
     def _primary_score(
         self,
         *,
         event_probability: float,
         selections: tuple[_RoleSelection, ...],
+        record: FactCandidateRecord,
     ) -> float:
         if not selections:
-            return event_probability
-        mean_role_probability = sum(selection.probability for selection in selections) / len(
-            selections
-        )
-        blended = min(1.0, 0.3 * event_probability + 0.7 * mean_role_probability)
-        return blended
+            score = event_probability
+        else:
+            mean_role_probability = sum(selection.probability for selection in selections) / len(
+                selections
+            )
+            score = min(1.0, 0.3 * event_probability + 0.7 * mean_role_probability)
+        if self._has_materialized_contradiction(record.signals):
+            return min(score, 0.49)
+        return score
 
-    def _resolve_entity_id(self, store, entity_id: EntityCandidateId) -> EntityCandidateId:
-        visited = {entity_id}
-        queue = [entity_id]
-        all_entities: list[EntityCandidateId] = []
-
-        while queue:
-            curr = queue.pop(0)
-            all_entities.append(curr)
-
-            # 1. Entity resolution claims (same_as)
-            for claim in store.resolution_claims_for_entity(curr):
-                other = (
-                    claim.right_entity_id if claim.left_entity_id == curr else claim.left_entity_id
-                )
-                if other not in visited:
-                    visited.add(other)
-                    queue.append(other)
-
-            # 2. Reference resolution claims for proxy entities
-            entity_cand = store.entity_candidates.get(curr)
-            if entity_cand is not None:
-                for ref_id in entity_cand.reference_ids:
-                    ref_mention = store.references.get(ref_id)
-                    if (
-                        ref_mention is not None
-                        and ref_mention.kind == ReferenceKind.PROXY_FAMILY_PHRASE
-                    ):
-                        continue
-                    for ref_claim in store.reference_resolution_claims_for_reference(ref_id):
-                        target = ref_claim.candidate_entity_id
-                        if target not in visited:
-                            visited.add(target)
-                            queue.append(target)
-
-        # Find the best representative from all_entities
-        def candidate_key(ent_id: EntityCandidateId) -> tuple[int, int, int, str]:
-            cand = store.entity_candidates.get(ent_id)
-            if cand is None:
-                return (0, 0, 0, "")
-
-            g_prio = 0
-            if cand.grounding == GroundingKind.OBSERVED:
-                g_prio = 3
-            elif cand.grounding == GroundingKind.INFERRED:
-                g_prio = 2
-            elif cand.grounding == GroundingKind.PROXY:
-                g_prio = 1
-
-            num_mentions = len(cand.mention_ids)
-            hint_len = len(cand.canonical_hint) if cand.canonical_hint else 0
-            return (g_prio, num_mentions, hint_len, str(ent_id))
-
-        return max(all_entities, key=candidate_key)
+    def _has_materialized_contradiction(self, signals) -> bool:
+        for signal in signals:
+            match signal:
+                case (
+                    GenericOwnerContextSignal()
+                    | GoverningBodyContextSignal()
+                    | PartyOrganizationSignal()
+                    | ReportingSourceContextSignal()
+                    | SelfTieContradictionSignal()
+                ):
+                    return True
+                case _:
+                    continue
+        return False
 
     def _record_from_selection(
         self,
@@ -249,7 +216,7 @@ class FactAssessmentMaterializer:
             signals.extend(selection.state.signals)
             match selection.state.filler:
                 case EntityFiller(entity_id=entity_id):
-                    resolved_entity_id = self._resolve_entity_id(store, entity_id)
+                    resolved_entity_id = resolve_entity_id(store, entity_id)
                     arguments.append(
                         EntityFactArgument(selection.role_spec.output_role, resolved_entity_id)
                     )
@@ -262,6 +229,12 @@ class FactAssessmentMaterializer:
             match signal:
                 case EmploymentContractFormSignal(form=form):
                     arguments.append(TextFactArgument(FactArgumentRole.CONTEXT, form))
+        if event.kind is FactKind.PERSONAL_OR_POLITICAL_TIE and self._is_self_tie(arguments):
+            signals.append(
+                SelfTieContradictionSignal(
+                    reason="subject and object resolve to the same entity representative"
+                )
+            )
         return FactCandidateRecord(
             id=fact_id,
             kind=event.kind,
@@ -270,6 +243,34 @@ class FactAssessmentMaterializer:
             source=event.source,
             signals=tuple(dict.fromkeys(signals)),
         )
+
+    def _fact_argument_from_state(
+        self,
+        *,
+        store,
+        output_role: FactArgumentRole,
+        state: RoleFillerState,
+    ) -> FactArgument | None:
+        match state.filler:
+            case EntityFiller(entity_id=entity_id):
+                return EntityFactArgument(output_role, resolve_entity_id(store, entity_id))
+            case TextFiller(value=value):
+                return TextFactArgument(output_role, value)
+            case None:
+                return None
+
+    def _is_self_tie(self, arguments: list[FactArgument]) -> bool:
+        subject_id = None
+        object_id = None
+        for argument in arguments:
+            match argument:
+                case EntityFactArgument(role=FactArgumentRole.SUBJECT, entity_id=entity_id):
+                    subject_id = entity_id
+                case EntityFactArgument(role=FactArgumentRole.OBJECT, entity_id=entity_id):
+                    object_id = entity_id
+                case _:
+                    continue
+        return subject_id is not None and subject_id == object_id
 
     def _ranked_states(
         self,

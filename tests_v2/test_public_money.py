@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import DocumentId
@@ -11,6 +12,7 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
     ContractCounterpartySignal,
     ContractorSignal,
+    DirectPrepositionalAttachmentSignal,
     FactArgumentRole,
     FactKind,
     FundingLemmaSignal,
@@ -35,6 +37,14 @@ class StaticEntityProvider:
     def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
         _ = text
         return self.entities
+
+
+def entity_filler_hint(document: ArticleDocument, filler) -> str | None:
+    match filler:
+        case EntityFactArgument(entity_id=entity_id):
+            return document.store.entity_candidates[entity_id].canonical_hint
+        case _:
+            return None
 
 
 def run_public_money_stage(text: str) -> ArticleDocument:
@@ -154,6 +164,10 @@ def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_argumen
         PublicContractLemmaSignal(lemma="podpisać"),
         ContractCounterpartySignal(),
         ContractorSignal(),
+        # Both parties now carry syntactic-position evidence:
+        # Urząd Miasta is subject (no prep) → counterparty boost;
+        # Alfa follows "z" → contractor boost.
+        DirectPrepositionalAttachmentSignal(),
     }
 
 
@@ -242,4 +256,11 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
         scores_by_funder_hint[funder_hint] = assessment.score
 
     assert scores_by_funder_hint["AMW Rewita"] >= 0.6
-    assert scores_by_funder_hint["Ministerstwu Obrony Narodowej"] < 0.5
+    alternatives = document.materialized_role_alternatives[first_fact_record(document).id]
+    mon_funder_alternative = next(
+        alternative
+        for alternative in alternatives
+        if alternative.role is FactArgumentRole.FUNDER
+        and entity_filler_hint(document, alternative.filler) == "Ministerstwu Obrony Narodowej"
+    )
+    assert mon_funder_alternative.posterior < 0.1

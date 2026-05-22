@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
+from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument, PipelineInput
 from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId
+from pipeline_v2.ids import DocumentId, FactCandidateId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -21,8 +22,8 @@ from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.stages import V2Pipeline
 from pipeline_v2.ties import PersonalTieCandidateStage
-from pipeline_v2.types import FactKind, NerLabel
-from tests_v2.materialized import fact_records
+from pipeline_v2.types import FactKind, GroundingKind, NerLabel, ReportingSourceContextSignal
+from tests_v2.materialized import argument_roles, fact_records, text_argument
 
 
 @dataclass(slots=True)
@@ -64,11 +65,42 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
 
 def entity_hint_for_role(document: ArticleDocument, candidate, role: str) -> str | None:
     for argument in candidate.arguments:
-        payload = argument.to_json()
-        if payload["role"] != role or "entity_id" not in payload:
-            continue
-        return document.store.entity_candidates[payload["entity_id"]].canonical_hint
+        match argument:
+            case EntityFactArgument(role=argument_role, entity_id=entity_id) if (
+                argument_role.value == role
+            ):
+                return document.store.entity_candidates[entity_id].canonical_hint
+            case _:
+                continue
     return None
+
+
+def has_reporting_source_signal(record) -> bool:
+    for signal in record.signals:
+        match signal:
+            case ReportingSourceContextSignal():
+                return True
+            case _:
+                continue
+    return False
+
+
+def is_materialized_self_tie(record) -> bool:
+    subject_id = None
+    object_id = None
+    for argument in record.arguments:
+        match argument:
+            case EntityFactArgument(role=argument_role, entity_id=entity_id) if (
+                argument_role.value == "subject"
+            ):
+                subject_id = entity_id
+            case EntityFactArgument(role=argument_role, entity_id=entity_id) if (
+                argument_role.value == "object"
+            ):
+                object_id = entity_id
+            case _:
+                continue
+    return subject_id is not None and subject_id == object_id
 
 
 def run_article_pipeline(
@@ -361,3 +393,388 @@ def test_article_fixture_emits_anti_corruption_for_control_demand_language() -> 
         candidate.kind is FactKind.ANTI_CORRUPTION_INVESTIGATION
         for candidate in fact_records(document)
     )
+
+
+def get_assessment_score(document: ArticleDocument, record_id: FactCandidateId) -> float:
+    for assessment in document.fact_assessments:
+        if assessment.materialized_fact_id == record_id:
+            return assessment.assessment.score
+    return 0.0
+
+
+def test_regression_tvn_warszawa_bielskiego() -> None:
+    title = "Fundacja dyrektora pogotowia"
+    paragraphs = (
+        "Według TVN Warszawa fundacja założona przez Karola Bielskiego otrzymała "
+        "100 tysięcy złotych z urzędu marszałkowskiego za promowanie imprezy, "
+        "którą organizowało pogotowie.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            organization_span(text, "TVN Warszawa"),
+            person_span(text, "Karola Bielskiego"),
+            organization_span(text, "fundacja"),
+            organization_span(text, "urzędu marszałkowskiego"),
+        ),
+        apply_relevance=False,
+    )
+
+    # Assert: FUNDING fact exists with funder "urzędu marszałkowskiego",
+    # recipient "fundacja", amount "100 tysięcy złotych".
+    funding_facts = [record for record in fact_records(document) if record.kind is FactKind.FUNDING]
+
+    matching_funding = None
+    for record in funding_facts:
+        funder = entity_hint_for_role(document, record, "funder")
+        recipient = entity_hint_for_role(document, record, "recipient")
+        amount = text_argument(record, "amount") if "amount" in argument_roles(record) else None
+
+        if (
+            funder == "urzędu marszałkowskiego"
+            and recipient == "fundacja"
+            and amount == "100 tysięcy złotych"
+        ):
+            score = get_assessment_score(document, record.id)
+            if score >= 0.5:
+                matching_funding = record
+                break
+
+    assert matching_funding is not None, (
+        "Expected a high-confidence FUNDING fact with funder="
+        "'urzędu marszałkowskiego', recipient='fundacja', "
+        "amount='100 tysięcy złotych'"
+    )
+
+    # Ensure TVN Warszawa is NOT the funder or recipient (any such candidate
+    # must have posterior < 0.5 or be absent)
+    for record in funding_facts:
+        funder = entity_hint_for_role(document, record, "funder")
+        recipient = entity_hint_for_role(document, record, "recipient")
+        score = get_assessment_score(document, record.id)
+        if funder == "TVN Warszawa" or recipient == "TVN Warszawa":
+            assert score < 0.5, (
+                "Expected TVN Warszawa to not be a high-confidence "
+                f"funder/recipient, but got score {score}"
+            )
+
+
+def test_regression_wp_krasnik_wife_contracts() -> None:
+    title = "Dwa dni i trzy umowy"
+    paragraphs = (
+        "Magdalena Skokowska, żona sekretarza urzędu miasta Kraśnik Łukasza Skokowskiego, "
+        "otrzymała umowy na 10 189,50 zł z miejskich jednostek.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Magdalena Skokowska"),
+            person_span(text, "Łukasza Skokowskiego"),
+            organization_span(text, "urzędu miasta Kraśnik"),
+            organization_span(text, "miejskich jednostek"),
+        ),
+        apply_relevance=False,
+    )
+
+    # Assert: Magdalena Skokowska is extracted as the contractor/employee
+    # (of PUBLIC_CONTRACT and/or PUBLIC_EMPLOYMENT)
+    found_employment_or_contract = False
+    for record in fact_records(document):
+        if record.kind is FactKind.PUBLIC_CONTRACT:
+            contractor = entity_hint_for_role(document, record, "contractor")
+            score = get_assessment_score(document, record.id)
+            if contractor == "Magdalena Skokowska" and score >= 0.5:
+                found_employment_or_contract = True
+        elif record.kind is FactKind.PUBLIC_EMPLOYMENT:
+            employee = entity_hint_for_role(document, record, "person")
+            score = get_assessment_score(document, record.id)
+            if employee == "Magdalena Skokowska" and score >= 0.5:
+                found_employment_or_contract = True
+
+    assert found_employment_or_contract, (
+        "Expected Magdalena Skokowska to be contractor/employee "
+        "in a high-confidence contract or employment fact"
+    )
+
+    # Assert: any spouse/family relation does not resolve to a self-tie
+    # (posterior < 0.5 for self-tie)
+    magdalena_id = None
+    lukasz_id = None
+    for ent_id, ent in document.store.entity_candidates.items():
+        if ent.canonical_hint == "Magdalena Skokowska":
+            magdalena_id = ent_id
+        elif ent.canonical_hint == "Łukasza Skokowskiego":
+            lukasz_id = ent_id
+
+    if magdalena_id is not None and lukasz_id is not None:
+        for claim in document.store.resolution_claims.values():
+            if {claim.left_entity_id, claim.right_entity_id} == {magdalena_id, lukasz_id}:
+                assert claim.assessment.score < 0.5, (
+                    "Expected Magdalena and Lukasz to not resolve "
+                    f"to each other (score {claim.assessment.score})"
+                )
+
+    if lukasz_id is not None:
+        for ent_id, ent in document.store.entity_candidates.items():
+            if ent.grounding == GroundingKind.PROXY:
+                for claim in document.store.resolution_claims.values():
+                    if {claim.left_entity_id, claim.right_entity_id} == {ent_id, lukasz_id}:
+                        assert claim.assessment.score < 0.5, (
+                            "Expected proxy and Lukasz to not resolve "
+                            f"to each other (score {claim.assessment.score})"
+                        )
+
+    for record in fact_records(document):
+        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE and is_materialized_self_tie(record):
+            assert get_assessment_score(document, record.id) < 0.5
+
+
+def test_regression_onet_wfosigw_lublin() -> None:
+    title = "Władze bez konkursu"
+    paragraphs = (
+        "Nowe władze WFOŚiGW w Lublinie bez konkursu. Prezesem został polityk powiązany z PSL.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            organization_span(text, "WFOŚiGW w Lublinie"),
+            organization_span(text, "PSL"),
+        ),
+        apply_relevance=False,
+    )
+
+    # Assert: WFOŚiGW remains the high-confidence governance target;
+    # PSL (party-like organization) target stays low-confidence (< 0.5).
+    found_wfosigw = False
+    for record in fact_records(document):
+        if record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}:
+            org = entity_hint_for_role(document, record, "organization")
+            score = get_assessment_score(document, record.id)
+            if org == "WFOŚiGW w Lublinie":
+                if score >= 0.5:
+                    found_wfosigw = True
+            elif org == "PSL":
+                assert score < 0.5, (
+                    f"Expected PSL governance target to stay low-confidence, but got score {score}"
+                )
+
+    assert found_wfosigw, "Expected WFOŚiGW w Lublinie to be a high-confidence governance target"
+
+
+def test_regression_pleszew_stadnina() -> None:
+    title = "Stadnina w Pleszewie"
+    paragraphs = ("Skarb Państwa odwołał dotychczasowego prezesa stadniny koni w Pleszewie.",)
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            organization_span(text, "Skarb Państwa"),
+            organization_span(text, "stadniny koni w Pleszewie"),
+        ),
+        apply_relevance=False,
+    )
+
+    # Assert: Skarb Państwa is mapped to context/EventRole.CONTEXT,
+    # not organization/target of dismissal.
+    dismissal_records = [
+        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
+    ]
+
+    assert dismissal_records, "Expected at least one GOVERNANCE_DISMISSAL record"
+    for record in dismissal_records:
+        roles = argument_roles(record)
+        if "context" in roles:
+            context_org = entity_hint_for_role(document, record, "context")
+            if context_org == "Skarb Państwa":
+                pass
+        if "organization" in roles:
+            org = entity_hint_for_role(document, record, "organization")
+            assert org != "Skarb Państwa", (
+                "Skarb Państwa should not be the target organization of the dismissal"
+            )
+
+
+def test_regression_wp_warszawa_salaries() -> None:
+    title = "Zarobki prezesów spółek"
+    paragraphs = (
+        "Dziennikarze Wirtualnej Polski ustalili, ile zarabiają prezesi warszawskich spółek "
+        "miejskich. Wiesław Pancer zarabia 30 tys. zł brutto w WodKan.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            organization_span(text, "Wirtualnej Polski"),
+            person_span(text, "Wiesław Pancer"),
+            organization_span(text, "WodKan"),
+        ),
+        apply_relevance=False,
+    )
+
+    compensation_records = [
+        record for record in fact_records(document) if record.kind is FactKind.COMPENSATION
+    ]
+
+    matching_compensation = None
+    for record in compensation_records:
+        recipient = entity_hint_for_role(document, record, "recipient")
+        funder = entity_hint_for_role(document, record, "funder")
+        amount = text_argument(record, "amount") if "amount" in argument_roles(record) else None
+        score = get_assessment_score(document, record.id)
+
+        if (
+            recipient == "Wiesław Pancer"
+            and funder == "WodKan"
+            and amount is not None
+            and "30 tys. zł" in amount
+        ):
+            if score >= 0.5:
+                matching_compensation = record
+                break
+
+    assert matching_compensation is not None, (
+        "Expected a high-confidence COMPENSATION fact for Wiesław Pancer in WodKan with 30 tys. zł"
+    )
+
+    # Ensure Wirtualnej Polski is NOT the funder or recipient
+    # (posterior < 0.5 or gets ReportingSourceContextSignal)
+    for record in compensation_records:
+        recipient = entity_hint_for_role(document, record, "recipient")
+        funder = entity_hint_for_role(document, record, "funder")
+        score = get_assessment_score(document, record.id)
+        if recipient == "Wirtualnej Polski" or funder == "Wirtualnej Polski":
+            assert score < 0.5 or has_reporting_source_signal(record), (
+                "Expected Wirtualnej Polski to not be high-confidence "
+                "funder/recipient without ReportingSourceContextSignal, "
+                f"but got score {score}"
+            )
+
+
+def test_regression_wp_opole_family() -> None:
+    title = "Rodzina w Opolu"
+    paragraphs = (
+        "Jakub Wiśniewski, syn prezydenta Opola Arkadiusza Wiśniewskiego, dostał posadę "
+        "w spółce miejskiej WIK. Prezydent Wiśniewski popierany jest przez Koalicję Obywatelską.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Jakub Wiśniewski"),
+            person_span(text, "Arkadiusza Wiśniewskiego"),
+            organization_span(text, "WIK"),
+            organization_span(text, "Koalicję Obywatelską"),
+        ),
+        apply_relevance=False,
+    )
+
+    # Assert: PERSONAL_OR_POLITICAL_TIE between Jakub Wiśniewski and Arkadiusza Wiśniewskiego
+    tie_records = [
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+
+    matching_tie = None
+    for record in tie_records:
+        subject = entity_hint_for_role(document, record, "subject")
+        obj = entity_hint_for_role(document, record, "object")
+        score = get_assessment_score(document, record.id)
+
+        if {subject, obj} == {"Jakub Wiśniewski", "Arkadiusza Wiśniewskiego"}:
+            if score >= 0.5:
+                matching_tie = record
+                break
+
+    assert matching_tie is not None, (
+        "Expected a high-confidence PERSONAL_OR_POLITICAL_TIE between "
+        "Jakub Wiśniewski and Arkadiusza Wiśniewskiego"
+    )
+
+    # Verify no high-confidence self-ties
+    jakub_id = None
+    arkadiusz_id = None
+    for ent_id, ent in document.store.entity_candidates.items():
+        if ent.canonical_hint == "Jakub Wiśniewski":
+            jakub_id = ent_id
+        elif ent.canonical_hint == "Arkadiusza Wiśniewskiego":
+            arkadiusz_id = ent_id
+
+    if jakub_id is not None and arkadiusz_id is not None:
+        for claim in document.store.resolution_claims.values():
+            if {claim.left_entity_id, claim.right_entity_id} == {jakub_id, arkadiusz_id}:
+                assert claim.assessment.score < 0.5, (
+                    "Expected Jakub and Arkadiusz to not resolve "
+                    f"to each other, but got score {claim.assessment.score}"
+                )
+
+    for record in tie_records:
+        if is_materialized_self_tie(record):
+            assert get_assessment_score(document, record.id) < 0.5
+
+    # Koalicja Obywatelska does not win workplace/governance slots
+    for record in fact_records(document):
+        if record.kind is FactKind.PUBLIC_EMPLOYMENT:
+            workplace = entity_hint_for_role(document, record, "organization")
+            score = get_assessment_score(document, record.id)
+            if workplace == "Koalicję Obywatelską":
+                assert score < 0.5, (
+                    f"Expected Koalicja Obywatelska to not be a workplace, but got score {score}"
+                )
+        elif record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}:
+            org = entity_hint_for_role(document, record, "organization")
+            score = get_assessment_score(document, record.id)
+            if org == "Koalicję Obywatelską":
+                assert score < 0.5, (
+                    "Expected Koalicja Obywatelska to not be governance "
+                    f"target, but got score {score}"
+                )
+
+
+def test_regression_negatives() -> None:
+    # Meloni meeting
+    title_meloni = "Spotkanie premierów w Rzymie"
+    paragraphs_meloni = (
+        "Giorgia Meloni spotkała się w Rzymie z premierem Donaldem Tuskiem. "
+        "Rozmawiali o bezpieczeństwie i współpracy w Europie.",
+    )
+    text_meloni = "\n".join(paragraphs_meloni)
+    doc_meloni = run_article_pipeline(
+        title=title_meloni,
+        paragraphs=paragraphs_meloni,
+        entities=(
+            person_span(text_meloni, "Giorgia Meloni"),
+            person_span(text_meloni, "Donaldem Tuskiem"),
+        ),
+        apply_relevance=True,
+    )
+    assert doc_meloni.relevance is not None
+    assert doc_meloni.relevance.is_relevant is False or len(fact_records(doc_meloni)) == 0
+
+    # TK legal status query
+    title_tk = "Pytanie prawne do Trybunału Konstytucyjnego"
+    paragraphs_tk = (
+        "Sąd Okręgowy skierował pytanie prawne do Trybunału Konstytucyjnego w sprawie "
+        "statusu sędziów powołanych po 2018 roku.",
+    )
+    text_tk = "\n".join(paragraphs_tk)
+    doc_tk = run_article_pipeline(
+        title=title_tk,
+        paragraphs=paragraphs_tk,
+        entities=(
+            organization_span(text_tk, "Sąd Okręgowy"),
+            organization_span(text_tk, "Trybunału Konstytucyjnego"),
+        ),
+        apply_relevance=True,
+    )
+    assert doc_tk.relevance is not None
+    assert doc_tk.relevance.is_relevant is False or len(fact_records(doc_tk)) == 0

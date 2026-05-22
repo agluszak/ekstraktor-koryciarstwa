@@ -137,6 +137,24 @@ class FactCandidateRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class MaterializedRoleAlternative:
+    role: FactArgumentRole
+    filler: FactArgument
+    posterior: float
+    evidence_ids: tuple[EvidenceId, ...]
+    signals: tuple[Signal, ...] = ()
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "role": self.role.value,
+            "filler": self.filler.to_json(),
+            "posterior": self.posterior,
+            "evidence_ids": [str(evidence_id) for evidence_id in self.evidence_ids],
+            "signals": [signal.to_json() for signal in self.signals],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class Assessment:
     score: float
     positive_signals: tuple[Signal, ...]

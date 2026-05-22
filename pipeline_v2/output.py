@@ -142,6 +142,12 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
             "materialized_facts": [
                 fact_record_to_json(record) for record in document.materialized_fact_records
             ],
+            "materialized_role_alternatives": {
+                str(fact_id): [
+                    cast(JsonObject, alternative.to_json()) for alternative in alternatives
+                ]
+                for fact_id, alternatives in document.materialized_role_alternatives.items()
+            },
             "materialized_fact_assessments": [
                 {
                     "materialized_fact_id": str(fact_assessment.materialized_fact_id),

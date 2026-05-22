@@ -10,7 +10,7 @@ from pipeline_v2.candidates import (
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
-from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
+from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
@@ -42,13 +42,16 @@ class EmploymentCue:
     anchor_char: int
     detail: str
     context_text: str | None = None
+    active_subject_is_employee: bool = False
 
 
 class PublicEmploymentCandidateStage:
     producer_id = ProducerId("public_employment_candidate_stage_v2")
 
-    _employment_lemmas = frozenset({"etat", "zatrudnić", "zatrudnienie"})
-    _employment_role_lemmas = frozenset({"doradca", "konsultant", "konsultantka", "pełnomocnik"})
+    _employment_lemmas = frozenset({"etat", "posada", "zatrudnić", "zatrudnienie"})
+    _employment_role_lemmas = frozenset(
+        {"doradca", "konsultant", "konsultantka", "pełnomocnik", "radca"}
+    )
     _public_org_head_lemmas = frozenset({"gmina", "samorząd", "starostwo", "urząd"})
     _supporting_lemmas = frozenset({"praca", "pracować", "stanowisko", "zostać"})
     _contract_form_lemmas = frozenset({"umowa", "zlecenie"})
@@ -212,7 +215,10 @@ class PublicEmploymentCandidateStage:
             if relation is not None and syntax.is_object_relation(relation):
                 candidates.append((entity, (DependencyObjectSignal(relation=relation),)))
                 continue
-            if self._is_nominative_subject_in_active_sentence(document, sentence, entity.id):
+            if (
+                not cue.active_subject_is_employee
+                and self._is_nominative_subject_in_active_sentence(document, sentence, entity.id)
+            ):
                 continue
             candidates.append((entity, (LocalPersonSignal(),)))
         if candidates:
@@ -223,7 +229,9 @@ class PublicEmploymentCandidateStage:
         if not people:
             return ()
         candidate = people[-1]
-        if self._is_nominative_subject_in_active_sentence(document, sentence, candidate.id):
+        if not cue.active_subject_is_employee and self._is_nominative_subject_in_active_sentence(
+            document, sentence, candidate.id
+        ):
             return ()
         return ((candidate, (WindowPersonSignal(),)),)
 
@@ -342,8 +350,48 @@ class PublicEmploymentCandidateStage:
                 context_text="umowa-zlecenie",
             )
         if (lemmas & self._employment_role_lemmas) and (lemmas & self._supporting_lemmas):
+            role_token = self._first_token_with_lemmas(
+                document,
+                sentence,
+                self._employment_role_lemmas,
+            )
             detail = next(iter(sorted(lemmas & self._employment_role_lemmas)))
-            return EmploymentCue(anchor_char=sentence.span.start_char, detail=detail)
+            return EmploymentCue(
+                anchor_char=(
+                    role_token.span.start_char
+                    if role_token is not None
+                    else sentence.span.start_char
+                ),
+                detail=detail,
+                active_subject_is_employee=True,
+            )
+        if "zająć" in lemmas and "stanowisko" in lemmas:
+            trigger_token = self._first_token_with_lemmas(
+                document,
+                sentence,
+                frozenset({"zająć"}),
+            )
+            return EmploymentCue(
+                anchor_char=(
+                    trigger_token.span.start_char
+                    if trigger_token is not None
+                    else sentence.span.start_char
+                ),
+                detail="stanowisko",
+                active_subject_is_employee=True,
+            )
+        return None
+
+    def _first_token_with_lemmas(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        lemmas: frozenset[str],
+    ) -> Token | None:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if {analysis.lemma for analysis in token.morph} & lemmas:
+                return token
         return None
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence: Sentence) -> frozenset[str]:
