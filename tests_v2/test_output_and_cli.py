@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from pipeline_v2.candidates import Assessment
+from pipeline_v2.candidates import Assessment, FactCandidateRecord, MaterializedFactAlternative
 from pipeline_v2.cli import main
 from pipeline_v2.document import (
     ArticleDocument,
@@ -21,13 +21,20 @@ from pipeline_v2.ids import (
     InferenceStateId,
     InferenceVariableId,
     ProducerId,
+    ResolutionClaimId,
     ScorerId,
     SentenceId,
 )
 from pipeline_v2.inference.graph_spec import InferenceDiagnostic, StateProbability, VariableMarginal
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span
 from pipeline_v2.output import document_to_json
-from pipeline_v2.types import DependencyObjectSignal, DependencyRelation, PublicMoneyRelevanceSignal
+from pipeline_v2.types import (
+    DependencyObjectSignal,
+    DependencyRelation,
+    FactKind,
+    PublicMoneyRelevanceSignal,
+    ResolutionRelation,
+)
 
 
 def test_document_output_includes_evidence_and_materialized_facts() -> None:
@@ -232,3 +239,59 @@ def test_v2_cli_writes_one_json_file_per_html_input(tmp_path: Path, monkeypatch)
     assert exit_code == 0
     written = json.loads((output_dir / "doc.json").read_text(encoding="utf-8"))
     assert written["document_id"] == "doc"
+
+
+def test_document_output_serializes_materialized_fact_alternatives() -> None:
+    surviving_id = FactCandidateId("fact-surviving")
+    suppressed_id = FactCandidateId("fact-suppressed")
+    surviving_record = FactCandidateRecord(
+        id=surviving_id,
+        kind=FactKind.PUBLIC_EMPLOYMENT,
+        arguments=(),
+        evidence_ids=(),
+        source=ProducerId("test"),
+    )
+    suppressed_record = FactCandidateRecord(
+        id=suppressed_id,
+        kind=FactKind.PUBLIC_EMPLOYMENT,
+        arguments=(),
+        evidence_ids=(),
+        source=ProducerId("test"),
+    )
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=(),
+    )
+    document.materialized_fact_records.append(surviving_record)
+    document.materialized_fact_alternatives[surviving_id] = (
+        MaterializedFactAlternative(
+            record=suppressed_record,
+            score=0.731,
+            claim_id=ResolutionClaimId("claim-1"),
+            relation=ResolutionRelation.SAME_FACT,
+        ),
+    )
+
+    rendered = document_to_json(document)
+
+    assert rendered["materialized_fact_alternatives"] == {
+        str(surviving_id): [
+            {
+                "score": 0.731,
+                "claim_id": "claim-1",
+                "relation": "same_fact",
+                "record": {
+                    "id": str(suppressed_id),
+                    "kind": FactKind.PUBLIC_EMPLOYMENT.value,
+                    "arguments": [],
+                    "evidence_ids": [],
+                    "source": "test",
+                    "signals": [],
+                },
+            }
+        ]
+    }

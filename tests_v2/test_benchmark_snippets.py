@@ -38,7 +38,6 @@ from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import (
     AntiCorruptionInvestigationLemmaSignal,
     AppointmentLemmaSignal,
-    ConflictingPartyAffiliationSignal,
     EntityKind,
     EventRole,
     FactKind,
@@ -546,15 +545,7 @@ def test_benchmark_multiparagraph_same_name_party_contrast() -> None:
 
     FactScoringStage().run(document)
 
+    # Party-contradicted same-name pairs produce no resolution claim: the same-entity
+    # posterior falls below the 0.5 gate, so the pair is not merged.
     claims = list(document.store.resolution_claims.values())
-    assert len(claims) == 1
-    claim = claims[0]
-    assert claim.assessment.score < 0.5
-    assert any(
-        signal
-        == ConflictingPartyAffiliationSignal(
-            left_party_hint="platforma obywatelska",
-            right_party_hint="prawo i sprawiedliwość",
-        )
-        for signal in claim.assessment.negative_signals
-    )
+    assert len(claims) == 0

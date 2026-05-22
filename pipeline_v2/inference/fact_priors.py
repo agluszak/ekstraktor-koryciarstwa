@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from pipeline_v2.candidates import FactCandidateRecord
 from pipeline_v2.types import (
     AntiCorruptionInvestigationLemmaSignal,
     AntiCorruptionReferralLemmaSignal,
@@ -226,9 +225,6 @@ class FactPriorPolicyRegistry:
             PersonalTiePriorPolicy(),
             DefaultPriorPolicy(),
         )
-
-    def prior_for(self, record: FactCandidateRecord) -> FactPrior:
-        return self.prior_for_kind(record.kind, record.signals)
 
     def prior_for_kind(
         self,

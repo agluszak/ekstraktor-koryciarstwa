@@ -45,7 +45,19 @@ from pipeline_v2.inference.resolution import ResolutionInferenceGraphBuilder
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
-from pipeline_v2.types import EntityKind, EventRole, FactKind, GroundingKind, MentionKind
+from pipeline_v2.types import (
+    CoreferenceProviderLinkSignal,
+    EntityKind,
+    EventRole,
+    FactKind,
+    GroundingKind,
+    LocalOrganizationSignal,
+    LocalPersonSignal,
+    MentionKind,
+    PartyOrganizationSignal,
+    PublicEmploymentLemmaSignal,
+    ResolutionRelation,
+)
 from tests_v2.materialized import entity_argument
 
 
@@ -949,3 +961,562 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
     proposal = next(iter(built.same_event_proposal_by_variable_id.values()))
     assert proposal.strategy.value == "entity_alignment_relaxed"
     assert proposal.linked_entity_pairs == ((full_person_id, surname_person_id),)
+
+
+def _make_proxy_employment_document(
+    *,
+    reference_signals: tuple,
+) -> ArticleDocument:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    reference_id = MentionId("reference-1")
+    event_id = EventCandidateId("event-1")
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("anchor-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("proxy-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Kowalski",
+            grounding=GroundingKind.PROXY,
+            source=ProducerId("test"),
+            reference_ids=(reference_id,),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("org"),
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(),
+            canonical_hint="Urzad Miasta",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.reference_resolution_proposals.append(
+        ReferenceResolutionProposal(
+            reference_id=reference_id,
+            candidate_entity_id=EntityCandidateId("anchor-person"),
+            evidence_ids=(),
+            retrieval_signals=reference_signals,
+        )
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PUBLIC_EMPLOYMENT,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-employee"),
+            event_id=event_id,
+            role=EventRole.EMPLOYEE,
+            filler=EntityFiller(EntityCandidateId("proxy-person")),
+            evidence_ids=(),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-workplace"),
+            event_id=event_id,
+            role=EventRole.WORKPLACE,
+            filler=EntityFiller(EntityCandidateId("org")),
+            evidence_ids=(),
+        )
+    )
+    return document
+
+
+def test_stronger_reference_raises_proxy_backed_role_posterior() -> None:
+    doc_strong = _make_proxy_employment_document(
+        reference_signals=(CoreferenceProviderLinkSignal(),)
+    )
+    doc_weak = _make_proxy_employment_document(reference_signals=())
+
+    fact_graph = FactInferenceGraphBuilder().build(doc_strong)
+    event_id = next(iter(doc_strong.store.event_candidates.keys()))
+    employee_variable_id = fact_graph.index.role_variable_id_by_event_role[
+        (event_id, EventRole.EMPLOYEE)
+    ]
+    proxy_state_id = None
+    for state in fact_graph.index.filler_states_by_variable_id[employee_variable_id]:
+        match state.filler:
+            case EntityFiller(entity_id=eid):
+                entity = doc_strong.store.entity_candidates.get(eid)
+                if entity is not None and entity.grounding is GroundingKind.PROXY:
+                    proxy_state_id = state.state.id
+    assert proxy_state_id is not None
+
+    ProbabilisticInferenceStage().run(doc_strong)
+    ProbabilisticInferenceStage().run(doc_weak)
+
+    strong_marginal = next(
+        m for m in doc_strong.inference_marginals if m.variable_id == employee_variable_id
+    )
+    weak_marginal = next(
+        m for m in doc_weak.inference_marginals if m.variable_id == employee_variable_id
+    )
+    assert strong_marginal.probability_for(proxy_state_id) > weak_marginal.probability_for(
+        proxy_state_id
+    )
+
+
+def test_strong_reference_propagates_to_materialized_fact_employee_role() -> None:
+    document = _make_proxy_employment_document(reference_signals=(CoreferenceProviderLinkSignal(),))
+
+    ProbabilisticInferenceStage().run(document)
+
+    assert len(document.materialized_fact_records) == 1
+    employee_entity = entity_argument(document.materialized_fact_records[0], "person")
+    assert employee_entity == EntityCandidateId("anchor-person")
+
+
+def test_wrong_kind_reference_does_not_raise_proxy_employee_posterior() -> None:
+    reference_id = MentionId("reference-1")
+    event_id = EventCandidateId("event-1")
+
+    def _make_doc(
+        *, org_candidate_signals: tuple, person_candidate_signals: tuple
+    ) -> ArticleDocument:
+        document = ArticleDocument(
+            document_id=DocumentId("doc"),
+            source_url=None,
+            title="Title",
+            publication_date=None,
+            cleaned_text="Text.",
+            paragraphs=("Text.",),
+        )
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=EntityCandidateId("anchor-person"),
+                kind=EntityKind.PERSON,
+                mention_ids=(),
+                canonical_hint="Jan Kowalski",
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=EntityCandidateId("proxy-person"),
+                kind=EntityKind.PERSON,
+                mention_ids=(),
+                canonical_hint="Kowalski",
+                grounding=GroundingKind.PROXY,
+                source=ProducerId("test"),
+                reference_ids=(reference_id,),
+            )
+        )
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=EntityCandidateId("org"),
+                kind=EntityKind.ORGANIZATION,
+                mention_ids=(),
+                canonical_hint="Urzad Miasta",
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
+        document.reference_resolution_proposals.append(
+            ReferenceResolutionProposal(
+                reference_id=reference_id,
+                candidate_entity_id=EntityCandidateId("anchor-person"),
+                evidence_ids=(),
+                retrieval_signals=person_candidate_signals,
+            )
+        )
+        document.reference_resolution_proposals.append(
+            ReferenceResolutionProposal(
+                reference_id=reference_id,
+                candidate_entity_id=EntityCandidateId("org"),
+                evidence_ids=(),
+                retrieval_signals=org_candidate_signals,
+            )
+        )
+        document.store.add_event_candidate(
+            EventCandidate(
+                id=event_id,
+                kind=FactKind.PUBLIC_EMPLOYMENT,
+                trigger_evidence_id=None,
+                evidence_ids=(),
+                source=ProducerId("test"),
+                signals=(
+                    PublicEmploymentLemmaSignal(lemma="zatrudnić"),
+                    LocalPersonSignal(),
+                    LocalOrganizationSignal(),
+                ),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId("binding-employee"),
+                event_id=event_id,
+                role=EventRole.EMPLOYEE,
+                filler=EntityFiller(EntityCandidateId("proxy-person")),
+                evidence_ids=(),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId("binding-workplace"),
+                event_id=event_id,
+                role=EventRole.WORKPLACE,
+                filler=EntityFiller(EntityCandidateId("org")),
+                evidence_ids=(),
+            )
+        )
+        return document
+
+    doc_person_wins = _make_doc(
+        person_candidate_signals=(CoreferenceProviderLinkSignal(),),
+        org_candidate_signals=(),
+    )
+    doc_org_wins = _make_doc(
+        person_candidate_signals=(),
+        org_candidate_signals=(CoreferenceProviderLinkSignal(),),
+    )
+
+    fact_graph = FactInferenceGraphBuilder().build(doc_person_wins)
+    proxy_state_id = None
+    employee_variable_id = fact_graph.index.role_variable_id_by_event_role[
+        (event_id, EventRole.EMPLOYEE)
+    ]
+    for state in fact_graph.index.filler_states_by_variable_id[employee_variable_id]:
+        match state.filler:
+            case EntityFiller(entity_id=eid):
+                entity = doc_person_wins.store.entity_candidates.get(eid)
+                if entity is not None and entity.grounding is GroundingKind.PROXY:
+                    proxy_state_id = state.state.id
+
+    assert proxy_state_id is not None
+
+    ProbabilisticInferenceStage().run(doc_person_wins)
+    ProbabilisticInferenceStage().run(doc_org_wins)
+
+    person_wins_marginal = next(
+        m for m in doc_person_wins.inference_marginals if m.variable_id == employee_variable_id
+    )
+    org_wins_marginal = next(
+        m for m in doc_org_wins.inference_marginals if m.variable_id == employee_variable_id
+    )
+    assert person_wins_marginal.probability_for(proxy_state_id) > org_wins_marginal.probability_for(
+        proxy_state_id
+    )
+
+
+def _make_same_surname_document(*, nie_mylic_in_evidence: bool) -> ArticleDocument:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    sentence_id = SentenceId("s1")
+    full_evidence_text = (
+        "Jan Kowalski, nie mylić z Piotr Kowalski" if nie_mylic_in_evidence else "Jan Kowalski"
+    )
+    full_evidence_id = EvidenceId("full-evidence")
+    surname_evidence_id = EvidenceId("surname-evidence")
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=full_evidence_id,
+            text=full_evidence_text,
+            span=Span(0, len(full_evidence_text)),
+            paragraph_index=0,
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=surname_evidence_id,
+            text="Kowalski",
+            span=Span(0, 8),
+            paragraph_index=0,
+        )
+    )
+    full_mention_id = MentionId("full-mention")
+    surname_mention_id = MentionId("surname-mention")
+    document.store.add_mention(
+        Mention(
+            id=full_mention_id,
+            text="Jan Kowalski",
+            kind=MentionKind.NER,
+            evidence_id=full_evidence_id,
+            sentence_id=sentence_id,
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=surname_mention_id,
+            text="Kowalski",
+            kind=MentionKind.SURNAME_ONLY,
+            evidence_id=surname_evidence_id,
+            sentence_id=sentence_id,
+            head_lemma="kowalski",
+        )
+    )
+    producer = SimpleEntityCandidateProducer()
+    producer.add_full_person(
+        document.store,
+        candidate_id=EntityCandidateId("person-full"),
+        mention_ids=(full_mention_id,),
+        given_name_lemma="jan",
+        surname_base="kowalski",
+        canonical_hint="Jan Kowalski",
+    )
+    producer.add_surname_only_person(
+        document.store,
+        candidate_id=EntityCandidateId("person-surname"),
+        mention_ids=(surname_mention_id,),
+        canonical_hint="Kowalski",
+    )
+    return document
+
+
+def test_same_name_contradiction_lowers_same_entity_posterior() -> None:
+    doc_neutral = _make_same_surname_document(nie_mylic_in_evidence=False)
+    doc_contradiction = _make_same_surname_document(nie_mylic_in_evidence=True)
+
+    fact_graph = FactInferenceGraphBuilder().build(doc_neutral)
+    resolution_graph = ResolutionInferenceGraphBuilder().build(
+        document=doc_neutral, fact_graph=fact_graph
+    )
+    assert len(resolution_graph.entity_proposal_by_variable_id) == 1
+    same_entity_variable_id = next(iter(resolution_graph.entity_proposal_by_variable_id.keys()))
+
+    ProbabilisticInferenceStage().run(doc_neutral)
+    ProbabilisticInferenceStage().run(doc_contradiction)
+
+    neutral_marginal = next(
+        m for m in doc_neutral.inference_marginals if m.variable_id == same_entity_variable_id
+    )
+    contradiction_marginal = next(
+        m for m in doc_contradiction.inference_marginals if m.variable_id == same_entity_variable_id
+    )
+    assert neutral_marginal.probability_for(TRUE_STATE.id) > contradiction_marginal.probability_for(
+        TRUE_STATE.id
+    )
+
+
+def test_nie_mylic_evidence_suppresses_entity_resolution_claim() -> None:
+    doc_neutral = _make_same_surname_document(nie_mylic_in_evidence=False)
+    ProbabilisticInferenceStage().run(doc_neutral)
+
+    doc_contradiction = _make_same_surname_document(nie_mylic_in_evidence=True)
+    ProbabilisticInferenceStage().run(doc_contradiction)
+
+    full_id = EntityCandidateId("person-full")
+    surname_id = EntityCandidateId("person-surname")
+    assert any(
+        {c.left_entity_id, c.right_entity_id} == {full_id, surname_id}
+        and c.relation is ResolutionRelation.SAME_AS
+        for c in doc_neutral.store.resolution_claims.values()
+    )
+    assert not any(
+        {c.left_entity_id, c.right_entity_id} == {full_id, surname_id}
+        for c in doc_contradiction.store.resolution_claims.values()
+    )
+
+
+def _make_duplicate_employment_document(
+    *,
+    shared_entities: bool,
+) -> ArticleDocument:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    person_id = EntityCandidateId("person-1")
+    org_id = EntityCandidateId("org-1")
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=person_id,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=org_id,
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(),
+            canonical_hint="Urzad",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    if not shared_entities:
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=EntityCandidateId("person-2"),
+                kind=EntityKind.PERSON,
+                mention_ids=(),
+                canonical_hint="Jan Kowalski",
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
+    for event_suffix, employee_id in (
+        ("event-1", person_id),
+        ("event-2", EntityCandidateId("person-2") if not shared_entities else person_id),
+    ):
+        document.store.add_event_candidate(
+            EventCandidate(
+                id=EventCandidateId(event_suffix),
+                kind=FactKind.PUBLIC_EMPLOYMENT,
+                trigger_evidence_id=None,
+                evidence_ids=(),
+                source=ProducerId("test"),
+                signals=(
+                    PublicEmploymentLemmaSignal(lemma="zatrudnić"),
+                    LocalPersonSignal(),
+                    LocalOrganizationSignal(),
+                ),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId(f"binding-employee-{event_suffix}"),
+                event_id=EventCandidateId(event_suffix),
+                role=EventRole.EMPLOYEE,
+                filler=EntityFiller(employee_id),
+                evidence_ids=(),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId(f"binding-workplace-{event_suffix}"),
+                event_id=EventCandidateId(event_suffix),
+                role=EventRole.WORKPLACE,
+                filler=EntityFiller(org_id),
+                evidence_ids=(),
+            )
+        )
+    return document
+
+
+def test_exact_argument_match_produces_fact_resolution_claim() -> None:
+    document = _make_duplicate_employment_document(shared_entities=True)
+
+    ProbabilisticInferenceStage().run(document)
+
+    assert len(document.store.fact_resolution_claims) == 1
+    claim = next(iter(document.store.fact_resolution_claims.values()))
+    assert claim.relation is ResolutionRelation.SAME_FACT
+    assert claim.assessment.score >= 0.5
+
+
+def test_exact_argument_match_suppresses_duplicate_materialized_fact() -> None:
+    document = _make_duplicate_employment_document(shared_entities=True)
+
+    ProbabilisticInferenceStage().run(document)
+
+    assert len(document.materialized_fact_records) == 1
+    record = document.materialized_fact_records[0]
+    assert record.kind is FactKind.PUBLIC_EMPLOYMENT
+    assert entity_argument(record, "person") == EntityCandidateId("person-1")
+    assert entity_argument(record, "organization") == EntityCandidateId("org-1")
+    assert record.id in document.materialized_fact_alternatives
+    alts = document.materialized_fact_alternatives[record.id]
+    assert len(alts) == 1
+    assert alts[0].record.kind is FactKind.PUBLIC_EMPLOYMENT
+
+
+def test_party_organization_workplace_scores_low_via_graph_without_cap() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    event_id = EventCandidateId("event-1")
+    party_id = EntityCandidateId("party-1")
+    person_id = EntityCandidateId("person-1")
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=party_id,
+            kind=EntityKind.POLITICAL_PARTY,
+            mention_ids=(),
+            canonical_hint="Platforma",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=person_id,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PUBLIC_EMPLOYMENT,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+            signals=(
+                PublicEmploymentLemmaSignal(lemma="zatrudnić"),
+                LocalPersonSignal(),
+                LocalOrganizationSignal(),
+            ),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-employee"),
+            event_id=event_id,
+            role=EventRole.EMPLOYEE,
+            filler=EntityFiller(person_id),
+            evidence_ids=(),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-workplace-party"),
+            event_id=event_id,
+            role=EventRole.WORKPLACE,
+            filler=EntityFiller(party_id),
+            evidence_ids=(),
+            signals=(PartyOrganizationSignal(),),
+        )
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    assert len(document.materialized_fact_records) == 1
+    assessment = document.fact_assessments[0].assessment
+    assert assessment.score < 0.49

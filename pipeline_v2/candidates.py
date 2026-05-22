@@ -226,3 +226,19 @@ class FactResolutionClaim:
     evidence_ids: tuple[EvidenceId, ...]
     assessment: Assessment
     source: ProducerId
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializedFactAlternative:
+    record: FactCandidateRecord
+    score: float
+    claim_id: ResolutionClaimId
+    relation: ResolutionRelation
+
+    def to_json(self) -> dict[str, object]:
+        return {
+            "record": self.record.to_json(),
+            "score": self.score,
+            "claim_id": str(self.claim_id),
+            "relation": self.relation.value,
+        }

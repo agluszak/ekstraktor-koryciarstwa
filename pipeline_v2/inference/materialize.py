@@ -8,12 +8,13 @@ from pipeline_v2.candidates import (
     EntityFiller,
     FactArgument,
     FactCandidateRecord,
+    MaterializedFactAlternative,
     MaterializedRoleAlternative,
     TextFactArgument,
     TextFiller,
 )
 from pipeline_v2.document import ArticleDocument, FactAssessment
-from pipeline_v2.ids import EventCandidateId, FactCandidateId, ScorerId
+from pipeline_v2.ids import EventCandidateId, FactCandidateId, ResolutionClaimId, ScorerId
 from pipeline_v2.inference.event_schema import RoleSpec, schema_for
 from pipeline_v2.inference.factor_builders import (
     TRUE_STATE,
@@ -26,10 +27,7 @@ from pipeline_v2.types import (
     EmploymentContractFormSignal,
     FactArgumentRole,
     FactKind,
-    GenericOwnerContextSignal,
-    GoverningBodyContextSignal,
-    PartyOrganizationSignal,
-    ReportingSourceContextSignal,
+    ResolutionRelation,
     SelfTieContradictionSignal,
     SignalPolarity,
 )
@@ -40,6 +38,14 @@ class _RoleSelection:
     role_spec: RoleSpec
     state: RoleFillerState
     probability: float
+
+
+@dataclass(frozen=True, slots=True)
+class _FactProjection:
+    primary_id: FactCandidateId
+    alternative_ids: tuple[FactCandidateId, ...]
+    claim_id: ResolutionClaimId
+    relation: ResolutionRelation
 
 
 class FactAssessmentMaterializer:
@@ -55,7 +61,13 @@ class FactAssessmentMaterializer:
     ) -> ArticleDocument:
         document.materialized_fact_records = []
         document.materialized_role_alternatives = {}
+        document.materialized_fact_alternatives = {}
         document.fact_assessments = []
+
+        records: dict[FactCandidateId, FactCandidateRecord] = {}
+        scores: dict[FactCandidateId, float] = {}
+        alternatives_map: dict[FactCandidateId, tuple[MaterializedRoleAlternative, ...]] = {}
+
         for variable_id, event_id in built_graph.index.event_id_by_event_variable_id.items():
             event_marginal = result.marginal_for(variable_id)
             if event_marginal is None:
@@ -72,10 +84,38 @@ class FactAssessmentMaterializer:
             )
             if materialized is None:
                 continue
-            record, score, alternatives = materialized
+            record, score, alts = materialized
+            records[base_fact_id] = record
+            scores[base_fact_id] = score
+            alternatives_map[base_fact_id] = alts
+
+        projections = self._fact_projection_groups(document, scores)
+        suppressed_ids = frozenset(
+            alt_id for proj in projections for alt_id in proj.alternative_ids
+        )
+        projection_by_suppressed = {
+            alt_id: proj for proj in projections for alt_id in proj.alternative_ids
+        }
+
+        for fact_id, record in records.items():
+            if fact_id in suppressed_ids:
+                proj = projection_by_suppressed[fact_id]
+                existing = document.materialized_fact_alternatives.get(proj.primary_id, ())
+                document.materialized_fact_alternatives[proj.primary_id] = (
+                    *existing,
+                    MaterializedFactAlternative(
+                        record=record,
+                        score=round(scores[fact_id], 3),
+                        claim_id=proj.claim_id,
+                        relation=proj.relation,
+                    ),
+                )
+                continue
+            score = scores[fact_id]
+            alts = alternatives_map[fact_id]
             document.materialized_fact_records.append(record)
-            if alternatives:
-                document.materialized_role_alternatives[record.id] = alternatives
+            if alts:
+                document.materialized_role_alternatives[record.id] = alts
             document.fact_assessments.append(
                 FactAssessment(
                     materialized_fact_id=record.id,
@@ -100,6 +140,38 @@ class FactAssessmentMaterializer:
                 )
             )
         return document
+
+    def _fact_projection_groups(
+        self,
+        document: ArticleDocument,
+        scores: dict[FactCandidateId, float],
+    ) -> tuple[_FactProjection, ...]:
+        projections: list[_FactProjection] = []
+        for claim in document.store.fact_resolution_claims.values():
+            left, right = claim.left_fact_id, claim.right_fact_id
+            left_score = scores.get(left)
+            right_score = scores.get(right)
+            if left_score is None or right_score is None:
+                continue
+            if left_score >= right_score:
+                projections.append(
+                    _FactProjection(
+                        primary_id=left,
+                        alternative_ids=(right,),
+                        claim_id=claim.id,
+                        relation=claim.relation,
+                    )
+                )
+            else:
+                projections.append(
+                    _FactProjection(
+                        primary_id=right,
+                        alternative_ids=(left,),
+                        claim_id=claim.id,
+                        relation=claim.relation,
+                    )
+                )
+        return tuple(projections)
 
     def _materialized_record(
         self,
@@ -163,7 +235,6 @@ class FactAssessmentMaterializer:
         score = self._primary_score(
             event_probability=event_probability,
             selections=selections,
-            record=base_record,
         )
         return base_record, score, tuple(alternatives)
 
@@ -172,33 +243,13 @@ class FactAssessmentMaterializer:
         *,
         event_probability: float,
         selections: tuple[_RoleSelection, ...],
-        record: FactCandidateRecord,
     ) -> float:
         if not selections:
-            score = event_probability
-        else:
-            mean_role_probability = sum(selection.probability for selection in selections) / len(
-                selections
-            )
-            score = min(1.0, 0.3 * event_probability + 0.7 * mean_role_probability)
-        if self._has_materialized_contradiction(record.signals):
-            return min(score, 0.49)
-        return score
-
-    def _has_materialized_contradiction(self, signals) -> bool:
-        for signal in signals:
-            match signal:
-                case (
-                    GenericOwnerContextSignal()
-                    | GoverningBodyContextSignal()
-                    | PartyOrganizationSignal()
-                    | ReportingSourceContextSignal()
-                    | SelfTieContradictionSignal()
-                ):
-                    return True
-                case _:
-                    continue
-        return False
+            return event_probability
+        mean_role_probability = sum(selection.probability for selection in selections) / len(
+            selections
+        )
+        return min(1.0, 0.3 * event_probability + 0.7 * mean_role_probability)
 
     def _record_from_selection(
         self,
