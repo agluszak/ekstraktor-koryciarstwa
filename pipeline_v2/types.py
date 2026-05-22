@@ -215,6 +215,7 @@ class FactResolutionStrategy(StrEnum):
     ENTITY_ALIGNMENT_RELAXED = "entity_alignment_relaxed"
     GOVERNANCE_ROLE_RELAXED = "governance_role_relaxed"
     TIE_CONTEXT_RELAXED = "tie_context_relaxed"
+    INVERSE_CHILD_TIE = "inverse_child_tie"
     PROXY_NAMED_TIE = "proxy_named_tie"
     SEMANTIC_EVIDENCE = "semantic_evidence"
 

@@ -529,7 +529,7 @@ class ResolutionInferenceGraphBuilder:
         ],
     ) -> None:
         for event in document.store.event_candidates.values():
-            if event.kind is not FactKind.PERSONAL_OR_POLITICAL_TIE:
+            if not self._has_distinct_subject_object_constraint(event.kind):
                 continue
             subject_var_id = fact_graph.index.role_variable_id_by_event_role.get(
                 (event.id, EventRole.SUBJECT)
@@ -571,6 +571,11 @@ class ResolutionInferenceGraphBuilder:
                             event_id=event.id,
                         )
                     )
+
+    def _has_distinct_subject_object_constraint(self, fact_kind: FactKind) -> bool:
+        schema = schema_for(fact_kind)
+        role_set = {role_spec.role for role_spec in schema.roles}
+        return EventRole.SUBJECT in role_set and EventRole.OBJECT in role_set
 
     def _self_tie_entity_factor(
         self,
@@ -946,6 +951,8 @@ class ResolutionInferenceGraphBuilder:
                     right_event_id=right_event_id,
                 )
                 if strategy is None:
+                    if left.kind in {FactKind.PARTY_AFFILIATION, FactKind.POLITICAL_SUPPORT}:
+                        continue
                     if semantic_match is None:
                         continue
                     strategy = FactResolutionStrategy.SEMANTIC_EVIDENCE
@@ -1208,6 +1215,8 @@ class ResolutionInferenceGraphBuilder:
     ) -> FactResolutionStrategy | None:
         if left.entity_fillers == right.entity_fillers and left.text_fillers == right.text_fillers:
             return FactResolutionStrategy.EXACT_ARGUMENTS
+        if left.kind in {FactKind.PARTY_AFFILIATION, FactKind.POLITICAL_SUPPORT}:
+            return None
         if left.kind in {
             FactKind.GOVERNANCE_APPOINTMENT,
             FactKind.GOVERNANCE_DISMISSAL,
@@ -1218,6 +1227,18 @@ class ResolutionInferenceGraphBuilder:
             right_object = right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
             left_detail = left.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
             right_detail = right.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
+            left_subject = left.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
+            right_subject = right.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
+            if (
+                left_detail == right_detail == frozenset({RelationshipDetail.CHILD.value})
+                and len(left_subject) == 1
+                and len(right_subject) == 1
+                and len(left_object) == 1
+                and len(right_object) == 1
+                and left_subject == right_object
+                and left_object == right_subject
+            ):
+                return FactResolutionStrategy.INVERSE_CHILD_TIE
             object_pair = self._aligned_single_filler_pair_with_resolution(
                 left_fillers=left_object,
                 right_fillers=right_object,
@@ -1229,8 +1250,6 @@ class ResolutionInferenceGraphBuilder:
                 or not left_detail
             ):
                 return None
-            left_subject = left.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
-            right_subject = right.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
             left_proxy = GroundingKind.PROXY in left.entity_groundings.get(
                 FactArgumentRole.SUBJECT,
                 (),
@@ -1281,6 +1300,8 @@ class ResolutionInferenceGraphBuilder:
             if object_pair is not None:
                 linked_pairs.append(object_pair)
             return tuple(linked_pairs)
+        if strategy is FactResolutionStrategy.INVERSE_CHILD_TIE:
+            return ()
         if strategy is FactResolutionStrategy.TIE_CONTEXT_RELAXED:
             object_pair = self._aligned_single_filler_pair_with_resolution(
                 left_fillers=left.entity_fillers.get(FactArgumentRole.OBJECT, frozenset()),
@@ -1485,6 +1506,8 @@ class ResolutionInferenceGraphBuilder:
         self,
         strategy: FactResolutionStrategy,
     ) -> tuple[float, float]:
+        if strategy is FactResolutionStrategy.INVERSE_CHILD_TIE:
+            return (0.2, 0.8)
         if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED:
             return (0.55, 0.45)
         if strategy is FactResolutionStrategy.SEMANTIC_EVIDENCE:
@@ -1642,7 +1665,15 @@ class ResolutionAssessmentMaterializer:
             if marginal is None:
                 continue
             probability = marginal.probability_for(TRUE_STATE.id)
-            if probability < 0.5:
+            claim_threshold = 0.5
+            if proposal.strategy is FactResolutionStrategy.INVERSE_CHILD_TIE:
+                claim_threshold = 0.2
+            elif proposal.strategy in {
+                FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED,
+                FactResolutionStrategy.TIE_CONTEXT_RELAXED,
+            }:
+                claim_threshold = 0.3
+            if probability < claim_threshold:
                 continue
             document.store.add_fact_resolution_claim(
                 FactResolutionClaim(

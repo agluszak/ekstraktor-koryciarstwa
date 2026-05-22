@@ -13,6 +13,7 @@ from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import EntityKind, FactKind, NerLabel
 from tests_v2.materialized import (
+    argument_roles,
     entity_argument,
     entity_hint_for_role,
     fact_record_by_id,
@@ -114,10 +115,11 @@ def test_anti_corruption_stage_emits_referral_with_party_actor_context() -> None
         for record in records
         if record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
     )
+    party_hint = party_entity.canonical_hint
     assert all(
-        argument.to_json() != {"role": "organization", "entity_id": str(party_entity.id)}
+        "organization" not in argument_roles(record)
+        or entity_hint_for_role(document, record, "organization") != party_hint
         for record in governance_records
-        for argument in record.arguments
     )
 
 
