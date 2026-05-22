@@ -566,6 +566,42 @@ def test_regression_onet_wfosigw_lublin() -> None:
     assert found_wfosigw, "Expected WFOŚiGW w Lublinie to be a high-confidence governance target"
 
 
+def test_regression_businessinsider_map_stays_context_not_target() -> None:
+    title = "Kadrowa czystka"
+    paragraphs = ("MAP odwołało Pawła Góreckiego z rady nadzorczej PZU.",)
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Pawła Góreckiego"),
+            organization_span(text, "MAP"),
+            organization_span(text, "PZU"),
+        ),
+        apply_relevance=False,
+    )
+
+    dismissals = [
+        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
+    ]
+    assert dismissals
+
+    found_pzu_target = False
+    for record in dismissals:
+        score = get_assessment_score(document, record.id)
+        roles = argument_roles(record)
+        if "organization" in roles:
+            organization = entity_hint_for_role(document, record, "organization")
+            assert organization != "MAP" or score < 0.5
+            if organization == "PZU" and score >= 0.5:
+                found_pzu_target = True
+        if "context" in roles:
+            context = entity_hint_for_role(document, record, "context")
+            if context == "MAP":
+                assert score >= 0.5
+    assert found_pzu_target
+
+
 def test_regression_pleszew_stadnina() -> None:
     title = "Stadnina w Pleszewie"
     paragraphs = ("Skarb Państwa odwołał dotychczasowego prezesa stadniny koni w Pleszewie.",)

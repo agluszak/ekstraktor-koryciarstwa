@@ -295,6 +295,20 @@ class FactInferenceGraphBuilder:
                             document=document,
                         )
                     )
+            if event.kind == FactKind.PUBLIC_CONTRACT:
+                counterparty_var = role_vars.get(EventRole.COUNTERPARTY)
+                contractor_var = role_vars.get(EventRole.CONTRACTOR)
+                if counterparty_var is not None and contractor_var is not None:
+                    factors.append(
+                        self._contract_counterparty_distinctness_factor(
+                            event_id=event.id,
+                            counterparty_variable=counterparty_var,
+                            counterparty_states=role_states_map[EventRole.COUNTERPARTY],
+                            contractor_variable=contractor_var,
+                            contractor_states=role_states_map[EventRole.CONTRACTOR],
+                            document=document,
+                        )
+                    )
 
         return BuiltFactInferenceGraph(
             spec=InferenceGraphSpec(variables=tuple(variables), factors=tuple(factors)),
@@ -517,6 +531,58 @@ class FactInferenceGraphBuilder:
             variable_ids=(subject_variable.id, object_variable.id),
             potentials=tuple(values),
         )
+
+    def _contract_counterparty_distinctness_factor(
+        self,
+        *,
+        event_id: EventCandidateId,
+        counterparty_variable: InferenceVariable,
+        counterparty_states: tuple[RoleFillerState, ...],
+        contractor_variable: InferenceVariable,
+        contractor_states: tuple[RoleFillerState, ...],
+        document: ArticleDocument,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        for counterparty_state in counterparty_states:
+            for contractor_state in contractor_states:
+                values.append(
+                    0.02
+                    if self._contract_roles_overlap(
+                        document=document,
+                        counterparty_state=counterparty_state,
+                        contractor_state=contractor_state,
+                    )
+                    else 1.0
+                )
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:contract-distinct:{event_id}"),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(counterparty_variable.id, contractor_variable.id),
+            potentials=tuple(values),
+        )
+
+    def _contract_roles_overlap(
+        self,
+        *,
+        document: ArticleDocument,
+        counterparty_state: RoleFillerState,
+        contractor_state: RoleFillerState,
+    ) -> bool:
+        if not isinstance(counterparty_state.filler, EntityFiller):
+            return False
+        if not isinstance(contractor_state.filler, EntityFiller):
+            return False
+        left_resolved = resolve_entity_id(document.store, counterparty_state.filler.entity_id)
+        right_resolved = resolve_entity_id(document.store, contractor_state.filler.entity_id)
+        if left_resolved == right_resolved:
+            return True
+        left = document.store.entity_candidates.get(counterparty_state.filler.entity_id)
+        right = document.store.entity_candidates.get(contractor_state.filler.entity_id)
+        if left is None or right is None:
+            return False
+        left_hint = (left.canonical_hint or "").casefold()
+        right_hint = (right.canonical_hint or "").casefold()
+        return bool(left_hint) and left_hint == right_hint
 
     def _semantic_role_support_factor(
         self,

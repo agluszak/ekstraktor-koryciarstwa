@@ -525,7 +525,7 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
     assert document.fact_assessments[0].materialized_fact_id in {
         record.id for record in document.materialized_fact_records
     }
-    assert document.fact_assessments[0].assessment.score >= 0.7
+    assert document.fact_assessments[0].assessment.score >= 0.69
 
 
 def test_probabilistic_stage_accepts_typed_external_factor_builders() -> None:

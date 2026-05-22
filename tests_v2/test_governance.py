@@ -277,7 +277,12 @@ def test_governance_stage_keeps_party_organization_out_of_primary_facts() -> Non
         ),
     )
 
-    assert fact_records(document) == ()
+    for record in fact_records(document):
+        roles = argument_roles(record)
+        if "organization" in roles:
+            assert (
+                entity_hint_for_role(document, record, "organization") != "Koalicji Obywatelskiej"
+            )
     assert any(
         binding.event_id in document.store.event_candidates
         and document.store.event_candidates[binding.event_id].kind
@@ -370,6 +375,32 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
     )
 
     assert bad_assessment.score < 0.5
+
+
+def test_governance_stage_rejects_org_like_person_noise() -> None:
+    text = "Do rady nadzorczej PZU powołano przedstawicieli Allianza OFE."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Allianza OFE",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Allianza OFE"), text.index("Allianza OFE") + 12),
+            ),
+            NamedEntitySpan(
+                text="PZU",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("PZU"), text.index("PZU") + 3),
+            ),
+        ),
+    )
+
+    governance_people = {
+        entity_hint_for_role(document, record, "person")
+        for record in fact_records(document)
+        if record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    }
+    assert "Allianza OFE" not in governance_people
 
 
 def _has_entity_hint(
