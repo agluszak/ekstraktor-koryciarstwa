@@ -49,7 +49,9 @@ from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import EvidenceSpan, Mention, ReferenceMention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
 from pipeline_v2.types import (
+    AppointmentLemmaSignal,
     CoreferenceProviderLinkSignal,
+    DescriptorPersonCandidateSignal,
     EntityKind,
     EntityTag,
     EventRole,
@@ -59,6 +61,7 @@ from pipeline_v2.types import (
     GroundingKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
+    LocalRoleSignal,
     MediaOutletLemmaSignal,
     MentionKind,
     PartyOrganizationSignal,
@@ -70,7 +73,7 @@ from pipeline_v2.types import (
     ResolutionRelation,
     SemanticEvidenceSimilaritySignal,
 )
-from tests_v2.materialized import entity_argument
+from tests_v2.materialized import add_entity, add_event, bind_entity, entity_argument, fact_records
 
 
 def test_pgmpy_backend_returns_marginal_for_typed_unary_factor() -> None:
@@ -1364,6 +1367,310 @@ def test_semantic_evidence_proposes_visible_same_entity_hypothesis_without_name_
         for factor in resolution_graph.spec.factors
         for variable_id in same_entity_variables
     )
+
+
+def test_descriptor_person_resolution_proposes_nearby_named_person() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Jan Kowalski został prezesem. Prezes obejmie stanowisko jutro.",
+        paragraphs=("Jan Kowalski został prezesem. Prezes obejmie stanowisko jutro.",),
+    )
+    document.store.add_sentence(
+        Sentence(
+            id=SentenceId("sentence-1"),
+            sentence_index=0,
+            paragraph_index=0,
+            text="Jan Kowalski został prezesem.",
+            span=Span(0, 28),
+        )
+    )
+    document.store.add_sentence(
+        Sentence(
+            id=SentenceId("sentence-2"),
+            sentence_index=1,
+            paragraph_index=0,
+            text="Prezes obejmie stanowisko jutro.",
+            span=Span(29, len(document.cleaned_text)),
+        )
+    )
+    named_evidence_id = EvidenceId("named-person")
+    descriptor_evidence_id = EvidenceId("descriptor-person")
+    named_mention_id = MentionId("named-mention")
+    descriptor_mention_id = MentionId("descriptor-mention")
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=named_evidence_id,
+            text="Jan Kowalski",
+            span=Span(0, 12),
+            sentence_id=SentenceId("sentence-1"),
+            paragraph_index=0,
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=descriptor_evidence_id,
+            text="Prezes",
+            span=Span(30, 36),
+            sentence_id=SentenceId("sentence-2"),
+            paragraph_index=0,
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=named_mention_id,
+            text="Jan Kowalski",
+            kind=MentionKind.NER,
+            evidence_id=named_evidence_id,
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=descriptor_mention_id,
+            text="Prezes",
+            kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
+            evidence_id=descriptor_evidence_id,
+            sentence_id=SentenceId("sentence-2"),
+            head_lemma="prezes",
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("named-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(named_mention_id,),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("descriptor-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(descriptor_mention_id,),
+            canonical_hint="Prezes",
+            grounding=GroundingKind.INFERRED,
+            source=ProducerId("test"),
+        )
+    )
+
+    resolution_graph = ResolutionInferenceGraphBuilder().build(
+        document=document,
+        fact_graph=FactInferenceGraphBuilder().build(document),
+    )
+
+    assert any(
+        DescriptorPersonCandidateSignal(descriptor_lemma="prezes", sentence_distance=1)
+        in proposal.retrieval_signals
+        for proposal in resolution_graph.entity_proposal_by_variable_id.values()
+    )
+
+
+def test_probabilistic_inference_keeps_unresolved_descriptor_person_visible() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=(),
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("descriptor-person"),
+        kind=EntityKind.PERSON,
+        canonical_hint="prezes",
+        grounding=GroundingKind.INFERRED,
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("role"),
+        kind=EntityKind.ROLE,
+        canonical_hint="prezes",
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("org"),
+        kind=EntityKind.ORGANIZATION,
+        canonical_hint="Wodkan",
+    )
+    add_event(
+        document,
+        event_id=EventCandidateId("event-1"),
+        kind=FactKind.GOVERNANCE_DISMISSAL,
+        signals=(LocalPersonSignal(), LocalOrganizationSignal(), LocalRoleSignal()),
+    )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-person"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.PERSON,
+        entity_id=EntityCandidateId("descriptor-person"),
+        signals=(LocalPersonSignal(),),
+    )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-role"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.ROLE,
+        entity_id=EntityCandidateId("role"),
+        signals=(LocalRoleSignal(),),
+    )
+    bind_entity(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-org"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.ORGANIZATION,
+        entity_id=EntityCandidateId("org"),
+        signals=(LocalOrganizationSignal(),),
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    records = fact_records(document)
+    assert len(records) == 1
+    assert entity_argument(records[0], "person") == EntityCandidateId("descriptor-person")
+
+
+def test_probabilistic_inference_projects_named_person_for_resolved_descriptor_duplicate() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=(),
+    )
+    named_evidence_id = EvidenceId("named-person")
+    descriptor_evidence_id = EvidenceId("descriptor-person")
+    named_mention_id = MentionId("named-mention")
+    descriptor_mention_id = MentionId("descriptor-mention")
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=named_evidence_id,
+            text="Jan Kowalski",
+            span=Span(0, 12),
+            sentence_id=SentenceId("sentence-1"),
+            paragraph_index=0,
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=descriptor_evidence_id,
+            text="Prezes",
+            span=Span(14, 20),
+            sentence_id=SentenceId("sentence-1"),
+            paragraph_index=0,
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=named_mention_id,
+            text="Jan Kowalski",
+            kind=MentionKind.NER,
+            evidence_id=named_evidence_id,
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=descriptor_mention_id,
+            text="Prezes",
+            kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
+            evidence_id=descriptor_evidence_id,
+            sentence_id=SentenceId("sentence-1"),
+            head_lemma="prezes",
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("named-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(named_mention_id,),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("descriptor-person"),
+            kind=EntityKind.PERSON,
+            mention_ids=(descriptor_mention_id,),
+            canonical_hint="prezes",
+            grounding=GroundingKind.INFERRED,
+            source=ProducerId("test"),
+        )
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("org"),
+        kind=EntityKind.ORGANIZATION,
+        canonical_hint="Wodkan",
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("role"),
+        kind=EntityKind.ROLE,
+        canonical_hint="prezes",
+    )
+    for event_id, person_id, signal in (
+        (
+            EventCandidateId("event-named"),
+            EntityCandidateId("named-person"),
+            LocalPersonSignal(),
+        ),
+        (
+            EventCandidateId("event-descriptor"),
+            EntityCandidateId("descriptor-person"),
+            LocalPersonSignal(),
+        ),
+    ):
+        add_event(
+            document,
+            event_id=event_id,
+            kind=FactKind.GOVERNANCE_APPOINTMENT,
+            signals=(
+                AppointmentLemmaSignal(lemma="powołać"),
+                LocalOrganizationSignal(),
+                LocalRoleSignal(),
+            ),
+        )
+        bind_entity(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{event_id}-person"),
+            event_id=event_id,
+            role=EventRole.PERSON,
+            entity_id=person_id,
+            signals=(signal,),
+        )
+        bind_entity(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{event_id}-org"),
+            event_id=event_id,
+            role=EventRole.ORGANIZATION,
+            entity_id=EntityCandidateId("org"),
+            signals=(LocalOrganizationSignal(),),
+        )
+        bind_entity(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{event_id}-role"),
+            event_id=event_id,
+            role=EventRole.ROLE,
+            entity_id=EntityCandidateId("role"),
+            signals=(LocalRoleSignal(),),
+        )
+
+    ProbabilisticInferenceStage().run(document)
+
+    records = fact_records(document)
+    assert len(records) == 1
+    assert entity_argument(records[0], "person") == EntityCandidateId("named-person")
+    assert document.store.resolution_claims != {}
 
 
 def _make_proxy_employment_document(

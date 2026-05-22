@@ -458,3 +458,322 @@ for demoting contextual career-history appointments.
 4. **party/employer role compatibility tightening**
    - continue preventing parties and broad political labels from winning
      employment or governance-organization slots.
+
+---
+
+## Descriptor-resolution rerun — after inference update
+
+After the descriptor-preserving inference slice, I reran the most relevant
+descriptor/proxy samples:
+
+- `tp.com.pl__...__nowy-zarzad-inwestycji-miejskich...`
+- `zona-posla-pis.html`
+- `pleszew24...stadnina...`
+- `interwencja.polsatnews.pl__...__bardzo-rodzinne-starostwo...`
+
+### What improved
+
+- **`tp.com.pl__...__nowy-zarzad-inwestycji-miejskich...`**
+  - earlier run: a false descriptor-only governance fact materialized as
+    `person=prezesa`
+  - rerun: that artifact no longer appears literally; the strongest dismissal now
+    materializes as `person=Kamil Rybacki`
+  - interpretation: descriptor-only person hypotheses are still being produced, but
+    inference/projection is now able to resolve at least some of them to a named
+    person instead of exposing the raw descriptor in final output.
+
+### What did not improve yet
+
+- **`zona-posla-pis.html`**
+  - party/employer leakage is still present, now as
+    `public_employment person=Dariusza Stefaniuka; organization=PiS`
+  - this confirms the remaining issue is role compatibility and spouse/person
+    selection, not only descriptor projection.
+
+- **`pleszew24...stadnina...`**
+  - still shows a thin dismissal fact with `role=prezesa`
+  - the owner/controller context behavior remains good, but descriptor resolution is
+    still incomplete when there is not enough nearby named evidence.
+
+- **`interwencja.polsatnews.pl__...__bardzo-rodzinne-starostwo...`**
+  - proxy-family duplication is largely unchanged
+  - this slice helped descriptor-person resolution, not the broader family proxy
+    linking problem.
+
+### Updated takeaway
+
+The descriptor change is a real architectural improvement:
+
+- descriptor-only people remain valid hypotheses,
+- they are no longer hard-suppressed in materialization,
+- and when local evidence is strong enough, output can now project a named person
+  instead of the raw descriptor.
+
+The next remaining gaps are still:
+
+1. party/employer compatibility,
+2. broader proxy-family resolution,
+3. descriptor resolution in thinner articles where the nearby named evidence is
+   weaker than in the `tp.com.pl` case.
+
+---
+
+## E2E rerun after proxy-family inference update (late 2026-05-22)
+
+Rerun inputs:
+
+- `zona-posla-pis.html`
+- `interwencja.polsatnews.pl__...__bardzo-rodzinne-starostwo...`
+- `pleszew24...stadnina...`
+
+Also rerun fixture-style E2E regression tests:
+
+- `uv run pytest -c pytest-v2.ini -q tests_v2/test_article_regression_fixtures.py`
+- result: **17 passed**
+
+Observed rerun summary:
+
+- `zona-posla-pis.html`
+  - relevance: `true`
+  - materialized facts: `3` (governance only)
+  - `public_employment`: `0` (**pass** for the previous party/employer leak symptom)
+- `bardzo-rodzinne-starostwo`
+  - relevance: `true`
+  - materialized facts: `7` (`5` ties, `1` public employment, `1` governance)
+  - still proxy-heavy with repeated tie variants (**not fully passed**; consolidation still incomplete)
+- `pleszew24...stadnina...`
+  - relevance: `true`
+  - materialized facts: `2` (appointment + dismissal)
+  - still sparse/thin governance completion (**not fully passed**; destination-role completion still needed)
+
+---
+
+## E2E rerun after sparse-governance + tie-consolidation follow-up (late 2026-05-22)
+
+Rerun inputs:
+
+- `interwencja.polsatnews.pl__...__bardzo-rodzinne-starostwo...`
+- `pleszew24...stadnina...`
+
+Observed changes vs previous rerun:
+
+- `bardzo-rodzinne-starostwo`
+  - materialized facts: `7 -> 6`
+  - tie count: `5 -> 4`
+  - the lower-confidence inverse `child` duplicate was suppressed in projection.
+  - still not fully solved: proxy-heavy tie variants remain, but duplicate pressure is reduced.
+
+- `pleszew24...stadnina...`
+  - still `2` governance facts, but appointment completion improved:
+    - appointment now materializes with explicit `organization` (stadnina mention),
+    - `Skarb Państwa` remains in `context`, not as target organization.
+  - dismissal remains relatively thin (`person + role`) and is still a follow-up target.
+
+---
+
+## Fresh mini-batch (late 2026-05-22)
+
+Inputs:
+
+- `wiadomosci.onet.pl__kraj__...__ezt8y9t.html`
+- `onet_trzaskowski_kopania_phn.html`
+- `dziennikzachodni.pl__nepotyzm-w-bytomiu...cba...html`
+- `businessinsider_kadrowa_czystka_panstwowa_spolka.html`
+- `niezalezna_polski2050_synekury.html`
+
+Observed summary:
+
+- `onet_trzaskowski_kopania_phn`:
+  - relevance `true`, 12 facts, broad mixed extraction (governance/employment/tie/contract).
+  - still noisy with several parallel high-confidence employment/governance outputs.
+- `businessinsider_kadrowa_czystka_panstwowa_spolka`:
+  - relevance `true`, 2 governance dismissal facts.
+  - sparse but plausible; still one thin role-heavy dismissal.
+- `niezalezna_polski2050_synekury`:
+  - relevance `true`, 17 facts.
+  - strong compensation/governance recall, but likely overproduction in mixed governance+employment surface.
+- `onet ... ezt8y9t`:
+  - relevance `true`, 18 facts.
+  - high recall (party + governance + ties), but candidate volume indicates overfire risk.
+- `dziennikzachodni ... cba`:
+  - relevance `true`, 6 facts, including 3 `anti_corruption_referral`.
+  - anti-corruption coverage is working; still multiple near-duplicate referrals.
+
+Takeaway from this fresh batch:
+
+- recall remains strong for governance/network-heavy articles,
+- anti-corruption referrals are reliably detected,
+- remaining precision pressure is mostly duplicate/parallel fact surfaces rather than missing extraction.
+
+---
+
+## Additional fresh mini-batch (late 2026-05-22)
+
+Inputs:
+
+- `ai42.pl__2024__08__04__czy-wojt-ukrywa-nepotyzm.html`
+- `tvn24.pl__polska__kolesiostwo-i-rozdawanie-posad...html`
+- `wiadomosci.wp.pl__odpartyjnienie-rad-nadzorczych...html`
+- `wp_lubczyk.html`
+- `natemat_giermasinska.html`
+
+Observed summary:
+
+- `ai42 ... czy-wojt-ukrywa-nepotyzm`:
+  - relevance `true`, 4 facts (`2` employment, `2` ties),
+  - good local nepotism recovery with one remaining proxy tie alternative.
+- `tvn24 ... kolesiostwo-i-rozdawanie-posad`:
+  - relevance `true`, 3 facts, all `party_affiliation`,
+  - likely underextracts governance/employment despite relevant framing.
+- `wp ... odpartyjnienie-rad-nadzorczych`:
+  - relevance `true`, 8 facts (governance + compensation + affiliation),
+  - good mixed extraction; still multiple governance variants around the same person/org.
+- `wp_lubczyk`:
+  - relevance `true`, 2 facts (compensation + affiliation),
+  - sparse but consistent with salary-focused article framing.
+- `natemat_giermasinska`:
+  - relevance `true`, 9 facts, tie-heavy (`6` ties) plus governance/employment overlap,
+  - still duplicate pressure between employment/governance surfaces for the same role.
+
+Takeaway:
+
+- V2 keeps strong recall on nepotism/network content,
+- precision pressure remains visible as duplicate role surfaces (especially tie-heavy articles),
+- some politically framed articles still collapse mostly to party-affiliation output.
+
+---
+
+## Rerun after patronage-complaint slice (late 2026-05-22)
+
+Command:
+
+```bash
+uv run extractor-v2 --input-dir inputs --glob "tvn24.pl__polska__kolesiostwo-i-rozdawanie-posad-miasto-umiera-radna-po-ze-slaska-pisze-do-premiera-ra323735-ls3431831__webarchive_20250427191848.html" --output-dir /tmp/v2-rerun-20260522
+uv run extractor-v2 --input-dir inputs --glob "rp_klich.html" --output-dir /tmp/v2-rerun-20260522
+```
+
+### `tvn24 ... kolesiostwo-i-rozdawanie-posad`
+
+Before (earlier in this report):
+- relevance `true`, `3` facts, all `party_affiliation`.
+
+Now:
+- relevance `true`, `5` facts:
+  - `3` `party_affiliation`,
+  - `2` `public_procurement_abuse` (new complaint-level patronage kind).
+
+Delta:
+- no longer pure party-affiliation collapse,
+- still weak argument grounding in complaint facts (one complaint fact currently carries only `context=kolesiostwo`; one is argument-sparse).
+
+### `rp_klich`
+
+Before (earlier in this report):
+- relevance `true`, `2` facts with shallow appointment/employment coverage.
+
+Now:
+- relevance `true`, `5` facts:
+  - `3` `public_procurement_abuse`,
+  - `1` `public_employment`,
+  - `1` `governance_appointment`.
+
+Representative recovered facts:
+- `public_procurement_abuse`: `actor=Marcin Dulian`, `target=Bogdana Klicha` (`0.688`),
+- `governance_appointment`: `person=Jarosław Hodura`, `organization=Grupy Hoteli WAM`, `role=zarządu` (`0.664`),
+- `public_employment`: `person=Bogdana Klicha`, `organization=Wojskowej Agencji Mieszkaniowej` (`0.665`).
+
+Delta:
+- meaningful depth increase vs prior underextracting output,
+- complaint-level patronage signals are now present and materially scored.
+
+### Follow-up scope (deferred): list-level extraction
+
+Deferred to the next slice:
+- enumeration/list-aware tuple extraction for repeated appointment records (comma/bullet/list patterns),
+- list item-local role/org anchoring with shared article-level context propagation,
+- post-inference duplicate control tuned for list articles so high recall does not explode parallel near-duplicates.
+
+---
+
+## TVN24 rerun after adjacent-sentence grounding + sentence-evidence fix (late 2026-05-22)
+
+Command:
+
+```bash
+uv run extractor-v2 --input-dir inputs --glob "tvn24.pl__polska__kolesiostwo-i-rozdawanie-posad-miasto-umiera-radna-po-ze-slaska-pisze-do-premiera-ra323735-ls3431831__webarchive_20250427191848.html" --output-dir /tmp/v2-tvn24-grounding-rerun
+```
+
+Observed:
+- relevance `true`,
+- `6` materialized facts total:
+  - `3` `party_affiliation`,
+  - `3` `public_procurement_abuse`.
+- complaint facts now include grounded actors in two records:
+  - `actor=Donalda Tuska`, `context=kolesiostwo` (`0.588`),
+  - `actor=Bolesław Piecha`, `context=baron` (`0.526`),
+  - one context-only `kolesiostwo` alternative remains (`0.557`).
+- all complaint candidates now have sentence trigger evidence (`evidence_count=1` each), instead of empty evidence IDs.
+
+Delta vs previous rerun:
+- improved from mostly argument-sparse complaint outputs to mixed grounded + context-only alternatives,
+- recall-first behavior remains (context-only complaint still visible as an uncertainty branch).
+
+---
+
+## Two-layer patronage schema rerun (2026-05-23)
+
+Schema change in this slice:
+- split complaint modeling into:
+  - `patronage_allegation` (complaint/reporting frame),
+  - `patronage_network_tie` (underlying alleged patronage relation).
+
+### TVN24 `kolesiostwo-i-rozdawanie-posad`
+
+Observed:
+- `9` facts total:
+  - `3` `party_affiliation`,
+  - `3` `patronage_allegation`,
+  - `3` `patronage_network_tie`.
+
+Representative outputs:
+- `patronage_network_tie`: `subject=Donalda Tuska`, `context=kolesiostwo` (`0.576`),
+- `patronage_network_tie`: `subject=Bolesław Piecha`, `context=baron` (`0.576`),
+- `patronage_allegation`: `complainant=Donalda Tuska`, `context=kolesiostwo` (`0.559`),
+- `patronage_allegation`: `complainant=Bolesław Piecha`, `context=baron` (`0.559`),
+- one argument-sparse pair of allegation/network alternatives remains (`0.639`).
+
+Delta:
+- clear separation between allegation frame and underlying relation hypotheses,
+- higher network coverage than single-layer `public_procurement_abuse`,
+- still imperfect local salience (national actor can still dominate local actors).
+
+### RP `rp_klich`
+
+Observed:
+- `8` facts total:
+  - `3` `patronage_allegation`,
+  - `3` `patronage_network_tie`,
+  - `1` `public_employment`,
+  - `1` `governance_appointment`.
+
+Representative outputs:
+- `patronage_network_tie`: `subject=Marcin Dulian`, `object=Bogdana Klicha`, `institution=Grupy Hoteli` (`0.704`),
+- `patronage_network_tie`: `subject=Krzysztof Kuczmański`, `object=Bogdana Klicha`, `institution=MON` (`0.694`),
+- `patronage_allegation`: `complainant=Marcin Dulian`, `target=Bogdana Klicha`, `institution=Grupy Hoteli` (`0.685`).
+
+Delta:
+- richer two-layer patronage output while preserving governance/employment facts.
+
+### Complaint-control: Bytom CBA nepotism article
+
+Observed:
+- anti-corruption output remains present (`3` `anti_corruption_referral`),
+- two-layer patronage output appears in parallel (`1` allegation + `1` network tie),
+- no regression where anti-corruption extraction disappears.
+
+### Remaining issues after two-layer split
+
+- locality bias is still not strong enough in some TVN24-style cases (nationally salient
+  actors may still outrank local city actors),
+- occasional argument-sparse two-layer alternatives remain visible under recall-first output,
+- list-level network articles remain a separate follow-up.

@@ -27,7 +27,7 @@ from pipeline_v2.types import (
     EmploymentContractFormSignal,
     FactArgumentRole,
     FactKind,
-    GroundingKind,
+    RelationshipDetail,
     ResolutionRelation,
     SelfTieContradictionSignal,
     SignalPolarity,
@@ -55,6 +55,7 @@ class FactAssessmentMaterializer:
     _primary_fact_threshold = 0.5
     _optional_role_selection_threshold = 0.4
     _optional_money_party_threshold = 0.25
+    _optional_governance_organization_threshold = 0.25
 
     def materialize(
         self,
@@ -101,7 +102,12 @@ class FactAssessmentMaterializer:
             alt_id: proj for proj in projections for alt_id in proj.alternative_ids
         }
 
-        for fact_id, record in records.items():
+        seen_record_signatures: set[tuple[object, ...]] = set()
+        for fact_id, record in sorted(
+            records.items(),
+            key=lambda item: (scores[item[0]], str(item[0])),
+            reverse=True,
+        ):
             if fact_id in suppressed_ids:
                 proj = projection_by_suppressed[fact_id]
                 existing = document.materialized_fact_alternatives.get(proj.primary_id, ())
@@ -116,16 +122,25 @@ class FactAssessmentMaterializer:
                 )
                 continue
             score = scores[fact_id]
-            governance_descriptor_conflict = self._has_redundant_governance_descriptor(
-                document=document,
-                record=record,
-            )
-            if (
-                self._has_self_tie_contradiction(record)
-                or governance_descriptor_conflict
-                or (score < self._primary_fact_threshold and self._has_negative_signal(record))
+            if self._has_self_tie_contradiction(record) or (
+                score < self._primary_fact_threshold and self._has_negative_signal(record)
             ):
                 continue
+            if (
+                record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+                and score < self._primary_fact_threshold
+                and self._is_weaker_inverse_child_tie(
+                    record=record,
+                    score=score,
+                    records=records,
+                    scores=scores,
+                )
+            ):
+                continue
+            signature = self._record_signature(record)
+            if signature in seen_record_signatures:
+                continue
+            seen_record_signatures.add(signature)
             alts = alternatives_map[fact_id]
             document.materialized_fact_records.append(record)
             if alts:
@@ -293,6 +308,19 @@ class FactAssessmentMaterializer:
             product *= selection.probability
         return min(1.0, product ** (1.0 / (len(selections) + 1)))
 
+    def _record_signature(
+        self,
+        record: FactCandidateRecord,
+    ) -> tuple[object, ...]:
+        arguments: list[tuple[object, ...]] = []
+        for argument in record.arguments:
+            match argument:
+                case EntityFactArgument(role=role, entity_id=entity_id):
+                    arguments.append(("entity", role.value, str(entity_id)))
+                case TextFactArgument(role=role, value=value):
+                    arguments.append(("text", role.value, value))
+        return (record.kind.value, *arguments)
+
     def _record_from_selection(
         self,
         *,
@@ -395,39 +423,12 @@ class FactAssessmentMaterializer:
             FactArgumentRole.CONTRACTOR,
         }:
             return self._optional_money_party_threshold
+        if (
+            fact_kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
+            and role_spec.output_role is FactArgumentRole.ORGANIZATION
+        ):
+            return self._optional_governance_organization_threshold
         return self._optional_role_selection_threshold
-
-    def _has_redundant_governance_descriptor(
-        self,
-        *,
-        document: ArticleDocument,
-        record: FactCandidateRecord,
-    ) -> bool:
-        if record.kind not in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}:
-            return False
-        person_id = None
-        role_id = None
-        has_organization = False
-        for argument in record.arguments:
-            match argument:
-                case EntityFactArgument(role=FactArgumentRole.PERSON, entity_id=entity_id):
-                    person_id = entity_id
-                case EntityFactArgument(role=FactArgumentRole.ROLE, entity_id=entity_id):
-                    role_id = entity_id
-                case EntityFactArgument(role=FactArgumentRole.ORGANIZATION):
-                    has_organization = True
-                case _:
-                    continue
-        if person_id is None or role_id is None or has_organization:
-            return False
-        person = document.store.entity_candidates.get(person_id)
-        role = document.store.entity_candidates.get(role_id)
-        if person is None or role is None:
-            return False
-        return (
-            person.grounding is GroundingKind.INFERRED
-            and (person.canonical_hint or "").casefold() == (role.canonical_hint or "").casefold()
-        )
 
     def _has_negative_signal(self, record: FactCandidateRecord) -> bool:
         return any(signal.polarity is SignalPolarity.NEGATIVE for signal in record.signals)
@@ -439,6 +440,60 @@ class FactAssessmentMaterializer:
                     return True
                 case _:
                     continue
+        return False
+
+    def _is_weaker_inverse_child_tie(
+        self,
+        *,
+        record: FactCandidateRecord,
+        score: float,
+        records: dict[FactCandidateId, FactCandidateRecord],
+        scores: dict[FactCandidateId, float],
+    ) -> bool:
+        subject_id: str | None = None
+        object_id: str | None = None
+        detail_value: str | None = None
+        for argument in record.arguments:
+            match argument:
+                case EntityFactArgument(role=FactArgumentRole.SUBJECT, entity_id=entity_id):
+                    subject_id = str(entity_id)
+                case EntityFactArgument(role=FactArgumentRole.OBJECT, entity_id=entity_id):
+                    object_id = str(entity_id)
+                case TextFactArgument(role=FactArgumentRole.RELATIONSHIP_DETAIL, value=value):
+                    detail_value = value.casefold()
+        if (
+            subject_id is None
+            or object_id is None
+            or detail_value != RelationshipDetail.CHILD.value
+        ):
+            return False
+        for other_fact_id, other in records.items():
+            if other_fact_id == record.id or other.kind is not FactKind.PERSONAL_OR_POLITICAL_TIE:
+                continue
+            other_subject: str | None = None
+            other_object: str | None = None
+            other_detail: str | None = None
+            for argument in other.arguments:
+                match argument:
+                    case EntityFactArgument(role=FactArgumentRole.SUBJECT, entity_id=entity_id):
+                        other_subject = str(entity_id)
+                    case EntityFactArgument(role=FactArgumentRole.OBJECT, entity_id=entity_id):
+                        other_object = str(entity_id)
+                    case TextFactArgument(role=FactArgumentRole.RELATIONSHIP_DETAIL, value=value):
+                        other_detail = value.casefold()
+            if (
+                other_detail == RelationshipDetail.CHILD.value
+                and other_subject == object_id
+                and other_object == subject_id
+                and (
+                    scores.get(other_fact_id, 0.0) > score
+                    or (
+                        scores.get(other_fact_id, 0.0) == score
+                        and str(other_fact_id) < str(record.id)
+                    )
+                )
+            ):
+                return True
         return False
 
     def _ranked_states(

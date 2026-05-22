@@ -132,6 +132,33 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
         ),
     ),
+    FactKind.PUBLIC_PROCUREMENT_ABUSE: EventSchema(
+        fact_kind=FactKind.PUBLIC_PROCUREMENT_ABUSE,
+        roles=(
+            RoleSpec(EventRole.ACTOR, FactArgumentRole.ACTOR, _PERSON),
+            RoleSpec(EventRole.TARGET, FactArgumentRole.TARGET, _ANY_ENTITY),
+            RoleSpec(EventRole.INSTITUTION, FactArgumentRole.INSTITUTION, _ORG),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+    ),
+    FactKind.PATRONAGE_ALLEGATION: EventSchema(
+        fact_kind=FactKind.PATRONAGE_ALLEGATION,
+        roles=(
+            RoleSpec(EventRole.COMPLAINANT, FactArgumentRole.COMPLAINANT, _ANY_ENTITY),
+            RoleSpec(EventRole.TARGET, FactArgumentRole.TARGET, _ANY_ENTITY),
+            RoleSpec(EventRole.INSTITUTION, FactArgumentRole.INSTITUTION, _ORG),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+    ),
+    FactKind.PATRONAGE_NETWORK_TIE: EventSchema(
+        fact_kind=FactKind.PATRONAGE_NETWORK_TIE,
+        roles=(
+            RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON),
+            RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PERSON),
+            RoleSpec(EventRole.INSTITUTION, FactArgumentRole.INSTITUTION, _ORG),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+    ),
     FactKind.PERSONAL_OR_POLITICAL_TIE: EventSchema(
         fact_kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
         roles=(

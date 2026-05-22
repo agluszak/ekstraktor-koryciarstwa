@@ -10,9 +10,13 @@ from pipeline_v2.ids import EntityCandidateId
 from pipeline_v2.nlp import Sentence
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
+    DescriptorPersonCandidateSignal,
     EntityKind,
     FullNameReuseMatchSignal,
+    GroundingKind,
+    LemmaMatchSignal,
     MentionKind,
+    NearbyPersonCandidateSignal,
     Signal,
     SurnameBaseMatchSignal,
 )
@@ -118,6 +122,8 @@ class EntityCandidateRetriever:
             return self._person_proposals(entity)
         if entity.kind == EntityKind.ORGANIZATION:
             return self._organization_proposals(entity)
+        if entity.kind == EntityKind.ROLE:
+            return self._role_proposals(entity)
         return ()
 
     def _person_proposals(
@@ -165,6 +171,7 @@ class EntityCandidateRetriever:
                     )
                 continue
 
+        proposals.extend(self._descriptor_person_proposals(entity))
         return tuple(proposals)
 
     def _organization_proposals(
@@ -174,11 +181,37 @@ class EntityCandidateRetriever:
         # TODO: Implement organization acronym matching
         return ()
 
+    def _role_proposals(
+        self,
+        entity: EntityCandidate,
+    ) -> tuple[EntityResolutionProposal, ...]:
+        role_lemma = self._role_head_lemma(entity)
+        if role_lemma is None:
+            return ()
+        proposals: list[EntityResolutionProposal] = []
+        for candidate in self.store.candidates_by_kind(EntityKind.ROLE):
+            if candidate.id == entity.id:
+                continue
+            candidate_lemma = self._role_head_lemma(candidate)
+            if candidate_lemma != role_lemma:
+                continue
+            distance = self._minimum_paragraph_distance(entity, candidate)
+            if distance is None or distance > 3:
+                continue
+            proposals.append(
+                self._build_proposal(
+                    entity,
+                    candidate,
+                    LemmaMatchSignal(lemma=role_lemma),
+                )
+            )
+        return tuple(proposals)
+
     def _build_proposal(
         self,
         left: EntityCandidate,
         right: EntityCandidate,
-        signal: Signal,
+        *signals: Signal,
     ) -> EntityResolutionProposal:
         evidence_ids = tuple(
             mention.evidence_id
@@ -191,8 +224,40 @@ class EntityCandidateRetriever:
             left_entity_id=left.id,
             right_entity_id=right.id,
             evidence_ids=evidence_ids,
-            retrieval_signals=(signal,),
+            retrieval_signals=signals,
         )
+
+    def _descriptor_person_proposals(
+        self,
+        entity: EntityCandidate,
+    ) -> tuple[EntityResolutionProposal, ...]:
+        descriptor_lemma = self._descriptor_person_lemma(entity)
+        if descriptor_lemma is None:
+            return ()
+        proposals: list[EntityResolutionProposal] = []
+        for candidate in self.store.candidates_by_kind(EntityKind.PERSON):
+            if candidate.id == entity.id or self._descriptor_person_lemma(candidate) is not None:
+                continue
+            if candidate.grounding is not GroundingKind.OBSERVED:
+                continue
+            sentence_distance = self._minimum_sentence_distance(entity, candidate)
+            if sentence_distance is None or sentence_distance > 1:
+                continue
+            paragraph_distance = self._minimum_paragraph_distance(entity, candidate)
+            if paragraph_distance is not None and paragraph_distance > 1:
+                continue
+            proposals.append(
+                self._build_proposal(
+                    entity,
+                    candidate,
+                    NearbyPersonCandidateSignal(),
+                    DescriptorPersonCandidateSignal(
+                        descriptor_lemma=descriptor_lemma,
+                        sentence_distance=sentence_distance,
+                    ),
+                )
+            )
+        return tuple(proposals)
 
     def _surname_base_for_surname_only_entity(self, entity: EntityCandidate) -> str | None:
         for mention in self.store.candidate_mentions(entity.id):
@@ -222,3 +287,60 @@ class EntityCandidateRetriever:
             if left_paragraph is not None and right_paragraph is not None
         ]
         return min(distances) if distances else None
+
+    def _descriptor_person_lemma(self, entity: EntityCandidate) -> str | None:
+        if entity.kind is not EntityKind.PERSON:
+            return None
+        for mention in self.store.candidate_mentions(entity.id):
+            if mention.kind is not MentionKind.DESCRIPTOR_NOUN_PHRASE:
+                continue
+            if mention.head_lemma is not None:
+                return mention.head_lemma.casefold()
+            return mention.text.casefold()
+        if entity.grounding is GroundingKind.INFERRED and entity.canonical_hint is not None:
+            return entity.canonical_hint.casefold()
+        return None
+
+    def _role_head_lemma(self, entity: EntityCandidate) -> str | None:
+        if entity.kind is not EntityKind.ROLE:
+            return None
+        for mention in self.store.candidate_mentions(entity.id):
+            if mention.head_lemma is not None:
+                return mention.head_lemma.casefold()
+            return mention.text.casefold()
+        if entity.canonical_hint is not None:
+            return entity.canonical_hint.casefold()
+        return None
+
+    def _minimum_sentence_distance(
+        self,
+        left: EntityCandidate,
+        right: EntityCandidate,
+    ) -> int | None:
+        left_sentence_ids = {
+            evidence.sentence_id for evidence in self.store.evidence_for_entity(left.id)
+        } - {None}
+        right_sentence_ids = {
+            evidence.sentence_id for evidence in self.store.evidence_for_entity(right.id)
+        } - {None}
+        if not left_sentence_ids or not right_sentence_ids:
+            return None
+        if left_sentence_ids & right_sentence_ids:
+            return 0
+        left_indexes = [
+            self.store.sentences[sentence_id].sentence_index
+            for sentence_id in left_sentence_ids
+            if sentence_id in self.store.sentences
+        ]
+        right_indexes = [
+            self.store.sentences[sentence_id].sentence_index
+            for sentence_id in right_sentence_ids
+            if sentence_id in self.store.sentences
+        ]
+        if not left_indexes or not right_indexes:
+            return None
+        return min(
+            abs(left_index - right_index)
+            for left_index in left_indexes
+            for right_index in right_indexes
+        )

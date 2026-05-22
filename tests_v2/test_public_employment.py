@@ -285,3 +285,51 @@ def test_public_employment_stage_materializes_public_org_from_samorzad_and_locat
     assert organization.canonical_hint == "samorządzie"
     assert InferredPublicOrganizationSignal(head_lemma="samorząd") in record.signals
     assert LocationContextSignal(distance=1) in record.signals
+
+
+def test_public_employment_stage_demotes_party_workplace_with_public_org_phrase() -> None:
+    text = (
+        "Dariusz Stefaniuk z PiS komentował sprawę. "
+        "W spółce skarbu państwa zatrudniono Magdalenę Nowak."
+    )
+    document = run_public_employment_stage(
+        text,
+        (
+            person_span(text, "Dariusz Stefaniuk"),
+            person_span(text, "Magdalenę Nowak"),
+            organization_span(text, "PiS"),
+        ),
+    )
+
+    record = first_fact_record(document)
+
+    assert record.kind is FactKind.PUBLIC_EMPLOYMENT
+    assert entity_hint_for_role(document, record, "person") == "Magdalenę Nowak"
+    assert entity_hint_for_role(document, record, "organization") == "spółce"
+    assert InferredPublicOrganizationSignal(head_lemma="spółka") in record.signals
+
+
+def test_public_employment_stage_does_not_materialize_party_as_only_workplace() -> None:
+    text = "Dariusz Stefaniuk znalazł zatrudnienie w PiS."
+    document = run_public_employment_stage(
+        text,
+        (
+            person_span(text, "Dariusz Stefaniuk"),
+            organization_span(text, "PiS"),
+        ),
+    )
+
+    assert fact_records(document) == ()
+
+
+def test_public_employment_stage_rejects_collective_list_context_named_anchor() -> None:
+    text = (
+        "Dariusza Stefaniuka wymieniono na liście polityków, członków rodzin i znajomych, "
+        "którzy znaleźli zatrudnienie w spółce skarbu państwa."
+    )
+    document = run_public_employment_stage(
+        text,
+        (person_span(text, "Dariusza Stefaniuka"),),
+    )
+
+    assert fact_records(document) == ()
