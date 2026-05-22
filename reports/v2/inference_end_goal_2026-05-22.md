@@ -443,7 +443,7 @@ Implementation notes (completed in follow-up):
 - `ExtractionResult` now exposes `materialized_fact_alternatives` so the full result
   is available to pipeline consumers without parsing the debug JSON.
 
-### Phase 6: Retire Transitional Scoring And Caps - Partially Implemented 2026-05-22
+### Phase 6: Retire Transitional Scoring And Caps - Implemented 2026-05-22
 
 - Delete old scorer-shaped code once its logic is represented by factors.
 - Remove materialization-side contradiction caps after equivalent graph factors affect
@@ -467,11 +467,6 @@ Implementation notes:
     `_primary_score` (0.3 × event_prob + 0.7 × role_prob) stays below 0.49 for any
     realistic event probability. The cap was redundant.
   - These four signals are removed from `_has_materialized_contradiction`.
-- `SelfTieContradictionSignal` is kept in the cap because self-ties can emerge from
-  entity resolution claims that are created after inference (by
-  `ResolutionAssessmentMaterializer`). The graph's `_self_tie_constraint_factor` uses
-  `resolve_entity_id` at build time, before those claims exist, so it cannot see
-  resolution-based self-ties. The post-hoc cap remains as a targeted correction.
 - `FactPriorPolicyRegistry.prior_for(record)` was a dead method never called in
   production code (only `prior_for_kind` is called). It is removed along with the
   `FactCandidateRecord` import in `fact_priors.py`.
@@ -499,18 +494,66 @@ Implementation notes (completed in follow-up):
   appears as a visible signal in assessments, but it no longer gates any numeric score.
 - Phase 6 is now complete: all four role-compatibility caps and the self-tie cap are
   retired in favour of graph factors.
-  The self-tie cap remains. Phase 6 is partial.
-- The most direct next step is the `DISTINCT_ROLE` constraint that connects `SameEntity`
-  to role pairs where the two roles must not resolve to the same entity. This also closes
-  the Phase 4 gap (SameEntity ↔ RoleFiller connection).
 
-### Phase 7: Add Semantic And Optional RAG Support
+Handoff:
+
+- Phase 6 is complete for caps and dead flat-fact prior code.
+- The remaining inference gaps are not Phase 6 caps. They are broader Phase 4/5/7
+  modeling gaps: general `SameEntity ↔ RoleFiller` constraints beyond self-ties,
+  group-level same-event projection directly from marginals, and semantic/RAG support
+  beyond same-event evidence similarity.
+
+### Phase 7: Add Semantic And Optional RAG Support - Implemented 2026-05-22
 
 - Use sentence-transformer retrieval to propose or support candidate neighbors for
   roles, references, and same-event links.
 - Keep semantic evidence as typed factors with provenance.
 - Add optional LLM/RAG producers or factor builders only behind explicit interfaces.
 - Never let LLM/RAG output bypass typed candidates, factors, or evidence records.
+
+Implementation notes:
+
+- `EvidenceVectorIndex` now exposes `vector_for(evidence_id)` so inference code can
+  use existing indexed evidence embeddings without reaching into private storage.
+- Added `FactResolutionStrategy.SEMANTIC_EVIDENCE` and
+  `SemanticEvidenceSimilaritySignal(score=...)`.
+- `ResolutionInferenceGraphBuilder` now checks semantic evidence similarity for
+  same-kind event pairs. If no lexical/role-based same-event strategy applies and the
+  best cross-event evidence-vector match is above the semantic threshold, it emits a
+  typed `SAME_EVENT` variable using `SEMANTIC_EVIDENCE`.
+- Semantic same-event support is intentionally weak by default (`same_event` prior
+  true mass below 0.5). It proposes/supports a graph hypothesis; it does not directly
+  materialize or merge facts without event activity and normal inference support.
+- `tests_v2/test_inference_facade.py` covers similar PUBLIC_CONTRACT evidence spans
+  producing a semantic same-event proposal with typed evidence ids and
+  `SemanticEvidenceSimilaritySignal`.
+
+Handoff:
+
+- Phase 7 follow-up implemented semantic support beyond same-event candidates:
+  - `FactInferenceGraphBuilder` now adds a typed semantic support factor for role
+    filler variables when event evidence and entity-filler evidence have a strong
+    vector match.
+  - `ResolutionInferenceGraphBuilder` now adds typed semantic support factors for
+    `REFERENCE_TARGET` variables when reference evidence and candidate-entity evidence
+    match semantically.
+  - `ResolutionInferenceGraphBuilder` now uses bounded semantic neighborhoods to
+    propose visible `SAME_ENTITY` hypotheses for same-kind entity candidates even when
+    lexical blocking keys do not match. The semantic support is deliberately mild and
+    does not force a merge by itself.
+  - All semantic factors carry `SemanticEvidenceSimilaritySignal(score=...)` plus
+    concrete evidence ids, so the support remains inspectable at the graph/output
+    boundary instead of becoming an untyped scorer bump.
+  - `pipeline_v2.inference.external_factors.ExternalInferenceFactorBuilder` is the
+    typed seam for future optional LLM/RAG support. Such components may add normal
+    `InferenceFactor` records over existing V2 variables, but they must not emit
+    materialized facts or provider-specific payloads.
+- `tests_v2/test_inference_facade.py` now covers semantic support for role fillers,
+  reference targets, same-entity hypotheses without name matches, semantic same-event
+  hypotheses, and the external-factor extension seam.
+- Phase 7 is complete for the current architecture. Future work should be calibration
+  and domain-specific semantic quality evaluation, not adding provider details to
+  producers or central scorers.
 
 ### Phase 8: Calibrate And Evaluate
 
@@ -519,6 +562,23 @@ Implementation notes (completed in follow-up):
   alternatives remain inspectable, and whether false positives are visibly low.
 - Evaluate by domain: governance, employment, contracts, funding, compensation,
   party/ties, proxy/family ties, and anti-corruption referrals.
+
+Implementation notes (cleanup started 2026-05-22):
+
+- Removed the `FactScoringStage` compatibility wrapper. The active runtime and tests
+  now call `ProbabilisticInferenceStage` directly, so the explicit inference stage is
+  no longer hidden behind V1-shaped scoring terminology.
+- Primary materialization now withholds contradictory low-posterior facts from
+  `materialized_facts` while leaving the underlying event candidates and inference
+  marginals inspectable. This is a projection rule, not a producer deletion.
+- Self-tie contradictions are not primary materialized facts. Direct same-entity
+  subject/object assignments are near-impossible in the factor graph, and any
+  residual self-tie discovered after transitive resolution is withheld at projection
+  time rather than emitted as a high-looking fact.
+- Smoke check after the cleanup:
+  `uv run extractor-v2 --input-dir inputs --glob "*.html" --output-dir output`
+  completed successfully; the 33 current outputs had zero materialized self-ties and
+  no facts in the negative controls.
 
 ## Acceptance Criteria
 

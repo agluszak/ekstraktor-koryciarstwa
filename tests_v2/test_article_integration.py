@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import DocumentId
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -54,7 +54,7 @@ def build_article_excerpt(
     ).run(document)
     PartyCandidateStage(morphology).run(document)
     PublicMoneyCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     return document
 
 

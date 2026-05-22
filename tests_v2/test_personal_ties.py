@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 from pipeline_v2.coreference import CoreferenceReferenceStage
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import DocumentId
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import CoreferenceSpanLink, Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -103,7 +103,7 @@ def test_personal_tie_stage_emits_proxy_family_tie_from_family_reference() -> No
     ).run(document)
     FamilyProxyCandidateStage().run(document)
     PersonalTieCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
@@ -126,7 +126,7 @@ def test_personal_tie_stage_emits_named_kinship_tie_from_two_people_and_family_l
     )
 
     PersonalTieCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     record = first_fact_record(document)
 
@@ -147,7 +147,7 @@ def test_personal_tie_stage_emits_explicit_patronage_tie_from_two_people() -> No
     )
 
     PersonalTieCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     record = first_fact_record(document)
 
     assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE

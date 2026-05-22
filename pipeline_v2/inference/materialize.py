@@ -51,6 +51,7 @@ class _FactProjection:
 class FactAssessmentMaterializer:
     scorer_id = ScorerId("probabilistic_fact_inference_v2")
     _alternative_threshold = 0.01
+    _primary_fact_threshold = 0.5
 
     def materialize(
         self,
@@ -112,6 +113,10 @@ class FactAssessmentMaterializer:
                 )
                 continue
             score = scores[fact_id]
+            if self._has_self_tie_contradiction(record) or (
+                score < self._primary_fact_threshold and self._has_negative_signal(record)
+            ):
+                continue
             alts = alternatives_map[fact_id]
             document.materialized_fact_records.append(record)
             if alts:
@@ -322,6 +327,18 @@ class FactAssessmentMaterializer:
                 case _:
                     continue
         return subject_id is not None and subject_id == object_id
+
+    def _has_negative_signal(self, record: FactCandidateRecord) -> bool:
+        return any(signal.polarity is SignalPolarity.NEGATIVE for signal in record.signals)
+
+    def _has_self_tie_contradiction(self, record: FactCandidateRecord) -> bool:
+        for signal in record.signals:
+            match signal:
+                case SelfTieContradictionSignal():
+                    return True
+                case _:
+                    continue
+        return False
 
     def _ranked_states(
         self,

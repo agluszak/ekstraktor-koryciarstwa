@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
     DocumentId,
     EntityCandidateId,
     EventCandidateId,
 )
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.types import (
     DirectPrepositionalAttachmentSignal,
     EntityKind,
@@ -17,7 +17,7 @@ from pipeline_v2.types import (
     GroundingKind,
     PartyAliasMatchSignal,
 )
-from tests_v2.materialized import add_entity, add_event, bind_entity, first_fact_record
+from tests_v2.materialized import add_entity, add_event, bind_entity, fact_records
 
 
 def test_party_inference_keeps_non_party_context_as_negative_signal() -> None:
@@ -67,11 +67,11 @@ def test_party_inference_keeps_non_party_context_as_negative_signal() -> None:
         entity_id=party_id,
     )
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
-    record = first_fact_record(document)
-    assessment = document.fact_assessments[0].assessment
-
-    assert record.kind is FactKind.PARTY_AFFILIATION
-    assert assessment.score < 0.5
-    assert ExplicitNonPartyContextSignal() in assessment.negative_signals
+    assert fact_records(document) == ()
+    assert any(
+        event.kind is FactKind.PARTY_AFFILIATION
+        and ExplicitNonPartyContextSignal() in event.signals
+        for event in document.store.event_candidates.values()
+    )

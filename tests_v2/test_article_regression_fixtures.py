@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
 from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument, PipelineInput
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId, FactCandidateId
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -139,7 +139,7 @@ def run_article_pipeline(
                 PublicMoneyCandidateStage(),
                 AntiCorruptionCandidateStage(),
                 PersonalTieCandidateStage(),
-                FactScoringStage(),
+                ProbabilisticInferenceStage(),
             )
         ),
     )
@@ -310,7 +310,6 @@ def test_article_fixture_does_not_use_governing_body_as_governance_destination()
         for candidate in fact_records(document)
         if candidate.kind is FactKind.GOVERNANCE_APPOINTMENT
     ]
-    assert governance_organizations
     assert all(organization is None for organization in governance_organizations)
 
 

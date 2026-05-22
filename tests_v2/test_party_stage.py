@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import DocumentId
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -44,7 +44,7 @@ def run_party_stage(text: str, entities: tuple[NamedEntitySpan, ...] = ()) -> Ar
         morphology=morphology,
     ).run(document)
     PartyCandidateStage(morphology).run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     return document
 
 
@@ -153,7 +153,7 @@ def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> N
     text = "Kandydatka PSL Anna Nowak wystartowała w wyborach."
     document = run_party_stage(text, (person_span(text, "Anna Nowak"),))
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     record = first_fact_record(document)
 
     assert record.kind is FactKind.POLITICAL_SUPPORT

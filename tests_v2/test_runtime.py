@@ -27,13 +27,13 @@ def test_runtime_records_disabled_coreference_as_stage_diagnostic(monkeypatch) -
     assert "family_proxy_candidate_stage_v2" in stage_names
     assert "personal_tie_candidate_stage_v2" in stage_names
     assert "coreference_stage_v2" in stage_names
-    assert stage_names.index("fact_scoring_stage_v2") > stage_names.index(
+    assert stage_names.index("probabilistic_inference_stage_v2") > stage_names.index(
         "public_employment_candidate_stage_v2"
     )
-    assert stage_names.index("fact_scoring_stage_v2") > stage_names.index(
+    assert stage_names.index("probabilistic_inference_stage_v2") > stage_names.index(
         "public_money_candidate_stage_v2"
     )
-    assert stage_names.index("fact_scoring_stage_v2") > stage_names.index(
+    assert stage_names.index("probabilistic_inference_stage_v2") > stage_names.index(
         "personal_tie_candidate_stage_v2"
     )
 
@@ -52,12 +52,12 @@ def test_runtime_light_coreference_adds_reference_stage(monkeypatch) -> None:
     assert "family_proxy_candidate_stage_v2" in stage_names
     assert "personal_tie_candidate_stage_v2" in stage_names
     assert "light_reference_stage_v2" in stage_names
-    assert stage_names.index("fact_scoring_stage_v2") > stage_names.index(
+    assert stage_names.index("probabilistic_inference_stage_v2") > stage_names.index(
         "public_employment_candidate_stage_v2"
     )
-    assert stage_names.index("fact_scoring_stage_v2") > stage_names.index(
+    assert stage_names.index("probabilistic_inference_stage_v2") > stage_names.index(
         "public_money_candidate_stage_v2"
     )
-    assert stage_names.index("fact_scoring_stage_v2") > stage_names.index(
+    assert stage_names.index("probabilistic_inference_stage_v2") > stage_names.index(
         "personal_tie_candidate_stage_v2"
     )

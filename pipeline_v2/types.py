@@ -207,6 +207,7 @@ class FactResolutionStrategy(StrEnum):
     GOVERNANCE_ROLE_RELAXED = "governance_role_relaxed"
     TIE_CONTEXT_RELAXED = "tie_context_relaxed"
     PROXY_NAMED_TIE = "proxy_named_tie"
+    SEMANTIC_EVIDENCE = "semantic_evidence"
 
 
 class SignalPolarity(StrEnum):
@@ -827,3 +828,8 @@ class SelfTieContradictionSignal(NegativeSignal):
 class DuplicateFactSignal(PositiveSignal):
     strategy: FactResolutionStrategy
     fact_kind: FactKind
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SemanticEvidenceSimilaritySignal(PositiveSignal):
+    score: float

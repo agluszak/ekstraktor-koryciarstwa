@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.fact_scoring import FactScoringStage
 from pipeline_v2.ids import DocumentId
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
@@ -60,7 +60,7 @@ def run_public_money_stage(text: str) -> ArticleDocument:
     ParagraphSentenceSegmenter().run(document)
     MorfeuszMorphologyStage(morphology).run(document)
     PublicMoneyCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     return document
 
 
@@ -84,7 +84,7 @@ def run_public_money_stage_with_entities(
         morphology=morphology,
     ).run(document)
     PublicMoneyCandidateStage().run(document)
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
     return document
 
 
@@ -123,7 +123,7 @@ def test_public_money_stage_does_not_emit_transfer_fact_without_amount() -> None
 def test_public_money_facts_are_scored_from_evidence_signals() -> None:
     document = run_public_money_stage("Fundacja otrzymała 100 tys. zł dotacji.")
 
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     assert len(document.fact_assessments) == 1
     assessment = document.fact_assessments[0].assessment
@@ -243,7 +243,7 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
             ),
         ),
     )
-    FactScoringStage().run(document)
+    ProbabilisticInferenceStage().run(document)
 
     scores_by_funder_hint = {}
     for record in fact_records(document):
