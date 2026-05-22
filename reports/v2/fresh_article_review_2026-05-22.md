@@ -21,37 +21,57 @@ Recent work before this note tightened the probabilistic surface:
 - `PUBLIC_CONTRACT` got a distinctness constraint so contractor and
   counterparty do not collapse to the same resolved entity/surface.
 
-### 2. Shared entity-tag classification
+### 2. Entity-context first-class facts
 
-A new shared classification pass now runs after NER:
+The earlier ad-hoc `store.entity_tags` side dict has been replaced with a
+first-class proposal/variable/claim chain that mirrors how entity, reference,
+and same-event resolution are modeled:
 
-- `EntityTag` introduced in `pipeline_v2/types.py`,
-- `store.entity_tags` introduced in `pipeline_v2/store.py`,
-- `pipeline_v2/entity_classification.py` added with
-  `EntityClassificationStage`,
-- runtime now runs entity classification after NER,
-- `governance.py` now reads `generic_owner` / `governing_body` tags,
-- `public_money.py` now reads `media_outlet` tags,
-- JSON output now exposes entity `tags`.
+- `EntityTag` enum (`pipeline_v2/types.py`) is unchanged in vocabulary
+  (`public_institution`, `media_outlet`, `generic_owner`, `governing_body`).
+- `EntityContextProposal` / `EntityContextClaim` typed records
+  (`pipeline_v2/candidates.py`) carry `evidence_ids`, retrieval `signals`,
+  and a scored `Assessment` — same shape as the other claim families.
+- `LexicalEntityContextStage` (`pipeline_v2/entity_classification.py`)
+  produces proposals from canonical-hint and lemma cues. Each rule emits a
+  dedicated typed signal — `CanonicalHintMatchSignal`, `MinistryLemmaSignal`,
+  `TreasuryLemmaSignal`, `MediaOutletLemmaSignal`,
+  `PublicInstitutionLemmaSignal`, `GoverningBodyLemmaSignal` — carrying the
+  specific trigger lemma/hint.
+- `EntityContextScorer` (`pipeline_v2/scoring.py`) turns proposal signals
+  into a prior `Assessment` (canonical hint → 0.95, 2+ lemma signals → 0.9,
+  single lemma → 0.75).
+- `ResolutionInferenceGraphBuilder._add_entity_context_variables` creates an
+  `EntityContext(entity, tag) ∈ {false, true}` inference variable per
+  proposal, with an `EVIDENCE_PRIOR` factor seeded by the scorer.
+  `_add_entity_context_role_factors` then couples each
+  `EntityContext(entity, tag)=TRUE` state to any `RoleFiller` state that
+  binds that entity via a typed `CONSTRAINT` factor, with potentials taken
+  from `EntityContextRolePolicy` keyed on `(tag, fact_kind, role)`.
+- `ResolutionAssessmentMaterializer` writes an `EntityContextClaim` for
+  every variable whose `TRUE` posterior is ≥ 0.5, with the assessment
+  carrying the posterior, evidence, and trigger signals.
 
-Current tags:
+The legacy `ReportingSourceContextSignal`, `GenericOwnerContextSignal`, and
+`GoverningBodyContextSignal` types are retired. The role-blind −0.85 case
+in `BindingSignalWeightPolicy.contribution` is gone; tag-derived
+suppression now lives in `EntityContextRolePolicy` as a per-(tag, fact_kind,
+role) table that can express role-conditioned beliefs and **positive boosts**
+(`PUBLIC_INSTITUTION` now boosts `public_employment.workplace` instead of
+being dead).
 
-- `public_institution`
-- `media_outlet`
-- `generic_owner`
-- `governing_body`
+`governance.py` and `public_money.py` no longer interpret tags: they read
+`document.entity_context_proposals` directly when a producer-time routing
+choice is needed (e.g. should an organization slot fill `ORGANIZATION` or
+`CONTEXT`), and otherwise let the graph handle suppression.
 
-Design choice:
+JSON output exposes `entity_context_proposals` and `entity_context_claims`
+arrays alongside the existing claim arrays. The flat `tags` field on each
+entity is removed; consumers derive that view from the claims with
+`claim.context_kind` and `claim.assessment.score`.
 
-- tags are **not** direct inference variables,
-- tags are a shared upstream classification layer,
-- producers consume tags and emit the existing typed negative signals
-  (`ReportingSourceContextSignal`, `GenericOwnerContextSignal`,
-  `GoverningBodyContextSignal`),
-- inference continues to score those signals rather than raw tag values.
-
-This keeps the graph typed and inspectable without bloating `EntityCandidate`
-or reopening the inference schema.
+The `InferenceVariableKind.ENTITY_ATTRIBUTE` slot reserved on the inference
+graph spec is finally load-bearing.
 
 ### 3. Funding distinctness follow-up
 

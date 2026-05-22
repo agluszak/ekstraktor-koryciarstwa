@@ -8,6 +8,8 @@ import pytest
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityCandidate,
+    EntityContextProposal,
+    EntityFactArgument,
     EntityFiller,
     EventCandidate,
     ReferenceResolutionProposal,
@@ -49,16 +51,20 @@ from pipeline_v2.producers import SimpleEntityCandidateProducer
 from pipeline_v2.types import (
     CoreferenceProviderLinkSignal,
     EntityKind,
+    EntityTag,
     EventRole,
     FactKind,
     FactResolutionStrategy,
+    FundingLemmaSignal,
     GroundingKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
+    MediaOutletLemmaSignal,
     MentionKind,
     PartyOrganizationSignal,
     PublicContractLemmaSignal,
     PublicEmploymentLemmaSignal,
+    PublicInstitutionLemmaSignal,
     ReferenceKind,
     RelationshipDetail,
     ResolutionRelation,
@@ -1980,3 +1986,262 @@ def test_direct_self_tie_stays_below_primary_materialization_threshold() -> None
 
     assert document.materialized_fact_records == []
     assert document.fact_assessments == []
+
+
+def _setup_funding_event_for_org(
+    document: ArticleDocument,
+    *,
+    event_id: EventCandidateId,
+    org_id: EntityCandidateId,
+    org_hint: str,
+    amount_text: str = "1 mln zł",
+) -> None:
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=org_id,
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(),
+            canonical_hint=org_hint,
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.FUNDING,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+            signals=(
+                FundingLemmaSignal(lemma="przyznać"),
+                LocalOrganizationSignal(),
+            ),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-amount"),
+            event_id=event_id,
+            role=EventRole.AMOUNT,
+            filler=TextFiller(amount_text),
+            evidence_ids=(),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-funder"),
+            event_id=event_id,
+            role=EventRole.FUNDER,
+            filler=EntityFiller(org_id),
+            evidence_ids=(),
+            signals=(LocalOrganizationSignal(),),
+        )
+    )
+
+
+def test_media_outlet_entity_context_suppresses_funder_role() -> None:
+    """Entity tagged as MEDIA_OUTLET should not surface as a high-confidence FUNDER:
+    the EntityContext↔RoleFiller constraint factor suppresses that binding."""
+    org_id = EntityCandidateId("pap-org")
+    event_id = EventCandidateId("event-funding")
+    document = ArticleDocument(
+        document_id=DocumentId("doc-media-funder"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    _setup_funding_event_for_org(document, event_id=event_id, org_id=org_id, org_hint="PAP")
+    document.entity_context_proposals.append(
+        EntityContextProposal(
+            entity_id=org_id,
+            context_kind=EntityTag.MEDIA_OUTLET,
+            evidence_ids=(),
+            retrieval_signals=(MediaOutletLemmaSignal(lemma="pap"),),
+        )
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    # The EntityContext claim should be materialized with high posterior.
+    media_claims = [
+        claim
+        for claim in document.store.entity_context_claims.values()
+        if claim.entity_id == org_id and claim.context_kind is EntityTag.MEDIA_OUTLET
+    ]
+    assert len(media_claims) == 1
+    assert media_claims[0].assessment.score >= 0.5
+
+    # The funding fact should NOT surface PAP as the high-confidence funder.
+    high_confidence_funder_hints = []
+    for record in document.materialized_fact_records:
+        if record.kind is FactKind.FUNDING:
+            assessment = next(
+                (a for a in document.fact_assessments if a.materialized_fact_id == record.id),
+                None,
+            )
+            score = assessment.assessment.score if assessment is not None else 0.0
+            if score >= 0.5:
+                for argument in record.arguments:
+                    match argument:
+                        case EntityFactArgument(role=argument_role, entity_id=entity_id) if (
+                            argument_role.value == "funder"
+                        ):
+                            hint = document.store.entity_candidates[entity_id].canonical_hint
+                            high_confidence_funder_hints.append(hint)
+                        case _:
+                            continue
+    assert "PAP" not in high_confidence_funder_hints
+
+
+def test_public_institution_entity_context_boosts_workplace_posterior() -> None:
+    """The PUBLIC_INSTITUTION tag should boost an organization's posterior in the
+    PUBLIC_EMPLOYMENT.WORKPLACE role compared with an otherwise-equivalent untagged
+    organization."""
+
+    def run(*, attach_public_institution_proposal: bool) -> float:
+        document = ArticleDocument(
+            document_id=DocumentId("doc-boost"),
+            source_url=None,
+            title="Title",
+            publication_date=None,
+            cleaned_text="Text.",
+            paragraphs=("Text.",),
+        )
+        event_id = EventCandidateId("event-emp")
+        person_id = EntityCandidateId("person-emp")
+        org_id = EntityCandidateId("ministry-emp")
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=person_id,
+                kind=EntityKind.PERSON,
+                mention_ids=(),
+                canonical_hint="Jan Kowalski",
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=org_id,
+                kind=EntityKind.ORGANIZATION,
+                mention_ids=(),
+                canonical_hint="Ministerstwo Finansów",
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
+        document.store.add_event_candidate(
+            EventCandidate(
+                id=event_id,
+                kind=FactKind.PUBLIC_EMPLOYMENT,
+                trigger_evidence_id=None,
+                evidence_ids=(),
+                source=ProducerId("test"),
+                signals=(
+                    PublicEmploymentLemmaSignal(lemma="zatrudnić"),
+                    LocalPersonSignal(),
+                    LocalOrganizationSignal(),
+                ),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId("binding-employee"),
+                event_id=event_id,
+                role=EventRole.EMPLOYEE,
+                filler=EntityFiller(person_id),
+                evidence_ids=(),
+                signals=(LocalPersonSignal(),),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId("binding-workplace"),
+                event_id=event_id,
+                role=EventRole.WORKPLACE,
+                filler=EntityFiller(org_id),
+                evidence_ids=(),
+                signals=(LocalOrganizationSignal(),),
+            )
+        )
+        if attach_public_institution_proposal:
+            document.entity_context_proposals.append(
+                EntityContextProposal(
+                    entity_id=org_id,
+                    context_kind=EntityTag.PUBLIC_INSTITUTION,
+                    evidence_ids=(),
+                    retrieval_signals=(PublicInstitutionLemmaSignal(lemma="ministerstwo"),),
+                )
+            )
+
+        ProbabilisticInferenceStage().run(document)
+        record = next(iter(document.materialized_fact_records), None)
+        if record is None:
+            return 0.0
+        assessment = next(
+            (a for a in document.fact_assessments if a.materialized_fact_id == record.id),
+            None,
+        )
+        return assessment.assessment.score if assessment is not None else 0.0
+
+    boosted_score = run(attach_public_institution_proposal=True)
+    baseline_score = run(attach_public_institution_proposal=False)
+
+    assert boosted_score >= baseline_score
+
+
+def test_duplicate_entity_context_proposals_merge_into_one_claim() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc-merged-entity-context"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    org_id = EntityCandidateId("entity-ministry")
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=org_id,
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(),
+            canonical_hint="Ministerstwo Finansów",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.entity_context_proposals.extend(
+        (
+            EntityContextProposal(
+                entity_id=org_id,
+                context_kind=EntityTag.PUBLIC_INSTITUTION,
+                evidence_ids=(EvidenceId("evidence-a"),),
+                retrieval_signals=(PublicInstitutionLemmaSignal(lemma="ministerstwo"),),
+            ),
+            EntityContextProposal(
+                entity_id=org_id,
+                context_kind=EntityTag.PUBLIC_INSTITUTION,
+                evidence_ids=(EvidenceId("evidence-b"),),
+                retrieval_signals=(SemanticEvidenceSimilaritySignal(score=0.91),),
+            ),
+        )
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    matching_claims = [
+        claim
+        for claim in document.store.entity_context_claims.values()
+        if claim.entity_id == org_id and claim.context_kind is EntityTag.PUBLIC_INSTITUTION
+    ]
+
+    assert len(matching_claims) == 1
+    claim = matching_claims[0]
+    assert claim.evidence_ids == (EvidenceId("evidence-a"), EvidenceId("evidence-b"))
+    assert set(claim.assessment.positive_signals) == {
+        PublicInstitutionLemmaSignal(lemma="ministerstwo"),
+        SemanticEvidenceSimilaritySignal(score=0.91),
+    }

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
     EntityCandidateId,
+    EntityContextClaimId,
     EventCandidateId,
     EvidenceId,
     FactCandidateId,
@@ -15,6 +16,7 @@ from pipeline_v2.ids import (
 )
 from pipeline_v2.types import (
     EntityKind,
+    EntityTag,
     EventRole,
     FactArgumentRole,
     FactKind,
@@ -202,6 +204,24 @@ class ReferenceResolutionClaim:
     reference_id: MentionId
     candidate_entity_id: EntityCandidateId
     relation: ResolutionRelation
+    evidence_ids: tuple[EvidenceId, ...]
+    assessment: Assessment
+    source: ProducerId
+
+
+@dataclass(frozen=True, slots=True)
+class EntityContextProposal:
+    entity_id: EntityCandidateId
+    context_kind: EntityTag
+    evidence_ids: tuple[EvidenceId, ...]
+    retrieval_signals: tuple[Signal, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class EntityContextClaim:
+    id: EntityContextClaimId
+    entity_id: EntityCandidateId
+    context_kind: EntityTag
     evidence_ids: tuple[EvidenceId, ...]
     assessment: Assessment
     source: ProducerId

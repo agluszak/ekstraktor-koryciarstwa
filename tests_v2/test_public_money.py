@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.entity_classification import EntityClassificationStage
+from pipeline_v2.entity_classification import LexicalEntityContextStage
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
@@ -60,7 +60,7 @@ def run_public_money_stage(text: str) -> ArticleDocument:
     morphology = Morfeusz2MorphologyAdapter()
     ParagraphSentenceSegmenter().run(document)
     MorfeuszMorphologyStage(morphology).run(document)
-    EntityClassificationStage().run(document)
+    LexicalEntityContextStage().run(document)
     PublicMoneyCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
     return document
@@ -85,7 +85,7 @@ def run_public_money_stage_with_entities(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
     ).run(document)
-    EntityClassificationStage().run(document)
+    LexicalEntityContextStage().run(document)
     PublicMoneyCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
     return document

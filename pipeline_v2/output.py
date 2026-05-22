@@ -52,8 +52,7 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                 evidence_to_json(evidence) for evidence in document.store.evidence.values()
             ],
             "entities": [
-                entity_to_json(document, entity)
-                for entity in document.store.entity_candidates.values()
+                entity_to_json(entity) for entity in document.store.entity_candidates.values()
             ],
             "event_candidates": [
                 {
@@ -139,6 +138,28 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                     "source": str(claim.source),
                 }
                 for claim in document.store.fact_resolution_claims.values()
+            ],
+            "entity_context_proposals": [
+                {
+                    "entity_id": str(proposal.entity_id),
+                    "context_kind": proposal.context_kind.value,
+                    "evidence_ids": [str(evidence_id) for evidence_id in proposal.evidence_ids],
+                    "retrieval_signals": [
+                        signal.to_json() for signal in proposal.retrieval_signals
+                    ],
+                }
+                for proposal in document.entity_context_proposals
+            ],
+            "entity_context_claims": [
+                {
+                    "id": str(claim.id),
+                    "entity_id": str(claim.entity_id),
+                    "context_kind": claim.context_kind.value,
+                    "evidence_ids": [str(evidence_id) for evidence_id in claim.evidence_ids],
+                    "assessment": assessment_to_json(claim.assessment),
+                    "source": str(claim.source),
+                }
+                for claim in document.store.entity_context_claims.values()
             ],
             "materialized_facts": [
                 fact_record_to_json(record) for record in document.materialized_fact_records
@@ -227,14 +248,13 @@ def evidence_to_json(evidence: EvidenceSpan) -> JsonObject:
     }
 
 
-def entity_to_json(document: ArticleDocument, entity: EntityCandidate) -> JsonObject:
+def entity_to_json(entity: EntityCandidate) -> JsonObject:
     return {
         "id": str(entity.id),
         "kind": entity.kind.value,
         "mention_ids": [str(mention_id) for mention_id in entity.mention_ids],
         "reference_ids": [str(reference_id) for reference_id in entity.reference_ids],
         "canonical_hint": entity.canonical_hint,
-        "tags": sorted(tag.value for tag in document.store.entity_tags.get(entity.id, frozenset())),
         "grounding": entity.grounding.value,
         "source": str(entity.source),
     }

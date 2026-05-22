@@ -11,7 +11,7 @@ from pipeline_v2.coreference import (
 )
 from pipeline_v2.document import StageDiagnosticStatus
 from pipeline_v2.embeddings import SentenceTransformerEmbeddingProvider
-from pipeline_v2.entity_classification import EntityClassificationStage
+from pipeline_v2.entity_classification import LexicalEntityContextStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.inference.backend import InferenceBackend
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
@@ -111,7 +111,7 @@ def _ordered_stages(
                     morphology=morphology,
                 ),
             ),
-            OrderedStage(V2StagePhase.ENTITY_CANDIDATES, EntityClassificationStage()),
+            OrderedStage(V2StagePhase.ENTITY_CANDIDATES, LexicalEntityContextStage()),
         )
     )
     plan.extend(

@@ -10,7 +10,6 @@ from pipeline_v2.candidates import (
     TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.entity_classification import entity_has_tag
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
     EntityCandidateId,
@@ -29,7 +28,6 @@ from pipeline_v2.types import (
     ControllerContextSignal,
     DirectPrepositionalAttachmentSignal,
     EntityKind,
-    EntityTag,
     EventRole,
     FactKind,
     FunderSignal,
@@ -43,7 +41,6 @@ from pipeline_v2.types import (
     PartyOrganizationSignal,
     PublicContractLemmaSignal,
     RecipientSignal,
-    ReportingSourceContextSignal,
     Signal,
     WindowOrganizationSignal,
     WindowPersonSignal,
@@ -330,11 +327,6 @@ class PublicMoneyCandidateStage:
                 return lemma
         return None
 
-    def _is_media_reporting_source(
-        self, document: ArticleDocument, entity_id: EntityCandidateId
-    ) -> bool:
-        return entity_has_tag(document.store, entity_id, EntityTag.MEDIA_OUTLET)
-
     def _build_signals_for_role(
         self,
         document: ArticleDocument,
@@ -371,11 +363,9 @@ class PublicMoneyCandidateStage:
         if self._is_party_like_organization(document, entity_id):
             signals.append(PartyOrganizationSignal())
 
-        # Media/reporting source check
-        if self._is_media_reporting_source(document, entity_id):
-            signals.append(
-                ReportingSourceContextSignal(reason="media/reporting source detected in role")
-            )
+        # Media-outlet entities are now suppressed in funding/contract/compensation
+        # roles via the EntityContext↔RoleFiller constraint factor in inference;
+        # the producer no longer emits a per-binding reporting-source signal.
 
         return tuple(signals)
 

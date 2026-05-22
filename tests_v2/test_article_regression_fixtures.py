@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
 from pipeline_v2.candidates import EntityFactArgument
 from pipeline_v2.document import ArticleDocument, PipelineInput
-from pipeline_v2.entity_classification import EntityClassificationStage
+from pipeline_v2.entity_classification import LexicalEntityContextStage, entity_has_context_claim
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId, FactCandidateId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
@@ -23,7 +23,7 @@ from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.stages import V2Pipeline
 from pipeline_v2.ties import PersonalTieCandidateStage
-from pipeline_v2.types import FactKind, GroundingKind, NerLabel, ReportingSourceContextSignal
+from pipeline_v2.types import EntityTag, FactKind, GroundingKind, NerLabel
 from tests_v2.materialized import argument_roles, fact_records, text_argument
 
 
@@ -76,11 +76,13 @@ def entity_hint_for_role(document: ArticleDocument, candidate, role: str) -> str
     return None
 
 
-def has_reporting_source_signal(record) -> bool:
-    for signal in record.signals:
-        match signal:
-            case ReportingSourceContextSignal():
-                return True
+def record_has_media_outlet_entity(document, record) -> bool:
+    """True if any entity bound to this record has a MEDIA_OUTLET context claim."""
+    for argument in record.arguments:
+        match argument:
+            case EntityFactArgument(entity_id=entity_id):
+                if entity_has_context_claim(document.store, entity_id, EntityTag.MEDIA_OUTLET):
+                    return True
             case _:
                 continue
     return False
@@ -131,7 +133,7 @@ def run_article_pipeline(
                     provider=StaticEntityProvider(entities),
                     morphology=morphology,
                 ),
-                EntityClassificationStage(),
+                LexicalEntityContextStage(),
                 PartyCandidateStage(morphology),
                 RoleCandidateStage(morphology),
                 NominalKinshipCandidateStage(),
@@ -682,16 +684,19 @@ def test_regression_wp_warszawa_salaries() -> None:
         "Expected a high-confidence COMPENSATION fact for Wiesław Pancer in WodKan with 30 tys. zł"
     )
 
-    # Ensure Wirtualnej Polski is NOT the funder or recipient
-    # (posterior < 0.5 or gets ReportingSourceContextSignal)
+    # Ensure Wirtualnej Polski is NOT a high-confidence funder or recipient.
+    # The MEDIA_OUTLET entity context claim should suppress it via the
+    # EntityContext↔RoleFiller constraint factor; if for some reason it still
+    # appears, the entity should at least carry a MEDIA_OUTLET claim so the
+    # downstream UI can flag it.
     for record in compensation_records:
         recipient = entity_hint_for_role(document, record, "recipient")
         funder = entity_hint_for_role(document, record, "funder")
         score = get_assessment_score(document, record.id)
         if recipient == "Wirtualnej Polski" or funder == "Wirtualnej Polski":
-            assert score < 0.5 or has_reporting_source_signal(record), (
-                "Expected Wirtualnej Polski to not be high-confidence "
-                "funder/recipient without ReportingSourceContextSignal, "
+            assert score < 0.5 or record_has_media_outlet_entity(document, record), (
+                "Expected Wirtualnej Polski to be either low-confidence as "
+                "funder/recipient, or carry a MEDIA_OUTLET context claim, "
                 f"but got score {score}"
             )
 

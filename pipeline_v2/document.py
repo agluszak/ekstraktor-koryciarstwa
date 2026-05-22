@@ -5,6 +5,8 @@ from enum import StrEnum
 
 from pipeline_v2.candidates import (
     Assessment,
+    EntityContextClaim,
+    EntityContextProposal,
     FactCandidateRecord,
     MaterializedFactAlternative,
     MaterializedRoleAlternative,
@@ -66,6 +68,7 @@ class ArticleDocument:
     store: ExtractionStore = field(default_factory=ExtractionStore)
     evidence_index: EvidenceVectorIndex = field(default_factory=EvidenceVectorIndex)
     reference_resolution_proposals: list[ReferenceResolutionProposal] = field(default_factory=list)
+    entity_context_proposals: list[EntityContextProposal] = field(default_factory=list)
     materialized_fact_records: list[FactCandidateRecord] = field(default_factory=list)
     materialized_role_alternatives: dict[
         FactCandidateId, tuple[MaterializedRoleAlternative, ...]
@@ -90,6 +93,7 @@ class ExtractionResult:
     relevance: RelevanceDecision
     materialized_facts: tuple[FactCandidateRecord, ...]
     materialized_fact_alternatives: dict[FactCandidateId, tuple[MaterializedFactAlternative, ...]]
+    entity_context_claims: tuple[EntityContextClaim, ...]
     execution_times: dict[str, float]
 
 
@@ -102,5 +106,6 @@ def extraction_result_from_document(document: ArticleDocument) -> ExtractionResu
         relevance=document.relevance or RelevanceDecision(is_relevant=False, score=0.0),
         materialized_facts=tuple(document.materialized_fact_records),
         materialized_fact_alternatives=dict(document.materialized_fact_alternatives),
+        entity_context_claims=tuple(document.store.entity_context_claims.values()),
         execution_times=dict(document.execution_times),
     )

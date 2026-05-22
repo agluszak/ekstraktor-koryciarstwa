@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import (
     Assessment,
+    EntityContextProposal,
     EntityResolutionProposal,
     ReferenceResolutionProposal,
 )
 from pipeline_v2.ids import ScorerId
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
+    CanonicalHintMatchSignal,
     ConflictingPartyAffiliationSignal,
     CoreferenceProviderLinkSignal,
     FullNameReuseMatchSignal,
@@ -93,4 +95,40 @@ class ReferenceResolutionScorer:
             negative_signals=tuple(negative),
             scorer_id=self.scorer_id,
             explanation="reference resolution scored from typed provider and context signals",
+        )
+
+
+class EntityContextScorer:
+    """Turn lemma/hint retrieval signals from a `LexicalEntityContextProposal`
+    into a prior `Assessment` for the corresponding `EntityContext` inference
+    variable.  A canonical-hint hit is the strongest cue; multiple lemma hits
+    raise confidence; a single lemma is moderate."""
+
+    scorer_id = ScorerId("lexical_entity_context_scorer_v2")
+
+    def score(self, proposal: EntityContextProposal) -> Assessment:
+        positive = list(proposal.retrieval_signals)
+        has_canonical_hint = any(
+            isinstance(signal, CanonicalHintMatchSignal) for signal in positive
+        )
+        lemma_signal_count = sum(
+            1 for signal in positive if not isinstance(signal, CanonicalHintMatchSignal)
+        )
+        if has_canonical_hint:
+            base = 0.95
+        elif lemma_signal_count >= 2:
+            base = 0.9
+        elif lemma_signal_count == 1:
+            base = 0.75
+        else:
+            base = 0.5
+        score = max(0.0, min(1.0, round(base, 3)))
+        return Assessment(
+            score=score,
+            positive_signals=tuple(positive),
+            negative_signals=(),
+            scorer_id=self.scorer_id,
+            explanation=(
+                "entity context prior scored from canonical-hint and lemma retrieval signals"
+            ),
         )

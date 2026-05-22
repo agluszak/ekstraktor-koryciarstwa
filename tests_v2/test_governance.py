@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import EntityFactArgument, FactCandidateRecord
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    EntityFactArgument,
+    EntityFiller,
+    FactCandidateRecord,
+)
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.entity_classification import EntityClassificationStage
+from pipeline_v2.entity_classification import LexicalEntityContextStage
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId
+from pipeline_v2.ids import DocumentId, EntityCandidateId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
@@ -14,6 +19,7 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
     EntityTag,
+    EventRole,
     FactKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
@@ -62,7 +68,7 @@ def run_governance_stage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
     ).run(document)
-    EntityClassificationStage().run(document)
+    LexicalEntityContextStage().run(document)
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
@@ -333,9 +339,71 @@ def test_governance_stage_treats_inflected_ministry_as_context_not_organization(
 
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
     assert entity_hint_for_role(document, record, "organization") == "Orlenu"
-    assert document.store.entity_tags[ministry_entity.id] == frozenset(
-        {EntityTag.PUBLIC_INSTITUTION, EntityTag.GENERIC_OWNER}
+    proposed_tags = frozenset(
+        proposal.context_kind
+        for proposal in document.entity_context_proposals
+        if proposal.entity_id == ministry_entity.id
     )
+    assert proposed_tags == frozenset({EntityTag.PUBLIC_INSTITUTION, EntityTag.GENERIC_OWNER})
+
+
+def test_governance_stage_keeps_generic_owner_on_org_role_for_inference_competition() -> None:
+    text = (
+        "Jan Kowalski został powołany na prezesa Orlenu decyzją Ministerstwa Aktywów Państwowych."
+    )
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+            NamedEntitySpan(
+                text="Orlenu",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Orlenu"), text.index("Orlenu") + 6),
+            ),
+            NamedEntitySpan(
+                text="Ministerstwa Aktywów Państwowych",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Ministerstwa Aktywów Państwowych"),
+                    text.index("Ministerstwa Aktywów Państwowych") + 33,
+                ),
+            ),
+        ),
+    )
+
+    ministry_entity = next(
+        entity
+        for entity in document.store.entity_candidates.values()
+        if entity.canonical_hint == "Ministerstwa Aktywów Państwowych"
+    )
+    appointment_event = next(
+        event
+        for event in document.store.event_candidates.values()
+        if event.kind is FactKind.GOVERNANCE_APPOINTMENT
+    )
+
+    ministry_roles = {
+        binding.role
+        for binding in document.store.argument_bindings_for_event(appointment_event.id)
+        if _binding_targets_entity(binding, ministry_entity.id)
+    }
+
+    assert ministry_roles == {EventRole.ORGANIZATION, EventRole.CONTEXT}
+
+
+def _binding_targets_entity(
+    binding: ArgumentBindingCandidate,
+    entity_id: EntityCandidateId,
+) -> bool:
+    match binding.filler:
+        case EntityFiller(entity_id=binding_entity_id):
+            return binding_entity_id == entity_id
+        case _:
+            return False
 
 
 def test_governance_stage_prefers_one_window_organization_candidate() -> None:
