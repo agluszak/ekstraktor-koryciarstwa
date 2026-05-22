@@ -33,8 +33,6 @@ from pipeline_v2.types import (
     ControllerContextSignal,
     EventRole,
     FactKind,
-    GenericOwnerContextSignal,
-    GoverningBodyContextSignal,
     GroundingKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
@@ -43,7 +41,6 @@ from pipeline_v2.types import (
     PossessiveKinshipSignal,
     ProxyFamilyEntitySignal,
     ReferenceKind,
-    ReportingSourceContextSignal,
     SelfTieContradictionSignal,
     SemanticEvidenceSimilaritySignal,
     Signal,
@@ -165,9 +162,6 @@ class BindingSignalWeightPolicy:
                 | AppointerContextSignal()
                 | ControllerContextSignal()
                 | PartyOrganizationSignal()
-                | ReportingSourceContextSignal()
-                | GenericOwnerContextSignal()
-                | GoverningBodyContextSignal()
                 | SelfTieContradictionSignal()
             ):
                 return -0.85
@@ -474,9 +468,6 @@ class FactInferenceGraphBuilder:
 
             if is_compatible:
                 has_party_signal = self._has_party_organization_signal(state.signals)
-                has_reporting_signal = self._has_reporting_source_signal(state.signals)
-                has_owner_signal = self._has_owner_context_signal(state.signals)
-
                 if has_party_signal and role_variable.role in {
                     EventRole.WORKPLACE,
                     EventRole.ORGANIZATION,
@@ -486,14 +477,11 @@ class FactInferenceGraphBuilder:
                     EventRole.HIRING_AUTHORITY,
                 }:
                     is_compatible = False
-                elif has_reporting_signal and role_variable.role in {
-                    EventRole.FUNDER,
-                    EventRole.RECIPIENT,
-                    EventRole.COUNTERPARTY,
-                }:
-                    is_compatible = False
-                elif has_owner_signal and role_variable.role == EventRole.ORGANIZATION:
-                    is_compatible = False
+                # Media-outlet/generic-owner/governing-body suppression for
+                # specific (role, fact_kind) combinations is enforced via the
+                # graph-level EntityContext↔RoleFiller constraint factor in
+                # `ResolutionInferenceGraphBuilder._add_entity_context_role_factors`,
+                # not via per-binding signals.
 
             if is_compatible:
                 potentials.append(1.0)
@@ -708,24 +696,6 @@ class FactInferenceGraphBuilder:
         for signal in signals:
             match signal:
                 case PartyOrganizationSignal():
-                    return True
-                case _:
-                    continue
-        return False
-
-    def _has_reporting_source_signal(self, signals: tuple[Signal, ...]) -> bool:
-        for signal in signals:
-            match signal:
-                case ReportingSourceContextSignal():
-                    return True
-                case _:
-                    continue
-        return False
-
-    def _has_owner_context_signal(self, signals: tuple[Signal, ...]) -> bool:
-        for signal in signals:
-            match signal:
-                case GenericOwnerContextSignal() | GoverningBodyContextSignal():
                     return True
                 case _:
                     continue

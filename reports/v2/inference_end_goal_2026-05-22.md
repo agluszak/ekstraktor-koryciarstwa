@@ -83,6 +83,17 @@ not when they are a convenient place to store domain fields. For example, an
 uncertain evidence such as "media outlet", "party organization", or "generic owner".
 It should not become an entity god-object field.
 
+`EntityContext(entity_id, context_kind)` is now realised, replacing the earlier
+`store.entity_tags` ad-hoc dict. The chain is `LexicalEntityContextStage` →
+`EntityContextProposal` → `EntityContext` variable (`ENTITY_ATTRIBUTE` kind) +
+`EVIDENCE_PRIOR` factor → constraint factor coupling the variable to each
+`RoleFiller` that binds the entity (potential from `EntityContextRolePolicy`
+keyed on `(tag, fact_kind, role)`) → `EntityContextClaim` written from the
+posterior by `ResolutionAssessmentMaterializer`. The three legacy
+`*ContextSignal` types (reporting source, generic owner, governing body) are
+retired; tag-derived suppression and boost both flow through the per-role
+policy table rather than a flat per-signal weight.
+
 Role variables are categorical. Competing fillers for one role belong in one
 `RoleFiller` variable, with `unknown` as an explicit state. They should not become a
 Cartesian product of separate flat facts.

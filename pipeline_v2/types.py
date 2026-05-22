@@ -812,21 +812,6 @@ class PseudonymousSourceSignal(NegativeSignal):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ReportingSourceContextSignal(NegativeSignal):
-    reason: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class GenericOwnerContextSignal(NegativeSignal):
-    reason: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class GoverningBodyContextSignal(NegativeSignal):
-    reason: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class SelfTieContradictionSignal(NegativeSignal):
     reason: str
 
@@ -840,3 +825,33 @@ class DuplicateFactSignal(PositiveSignal):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SemanticEvidenceSimilaritySignal(PositiveSignal):
     score: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MinistryLemmaSignal(PositiveSignal):
+    lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TreasuryLemmaSignal(PositiveSignal):
+    lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PublicInstitutionLemmaSignal(PositiveSignal):
+    lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class MediaOutletLemmaSignal(PositiveSignal):
+    lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GoverningBodyLemmaSignal(PositiveSignal):
+    lemma: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CanonicalHintMatchSignal(PositiveSignal):
+    hint: str

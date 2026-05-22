@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pipeline_v2.candidates import (
     Assessment,
     EntityCandidate,
+    EntityContextClaim,
+    EntityContextProposal,
     EntityFiller,
     EntityResolutionClaim,
     EntityResolutionProposal,
@@ -27,6 +29,10 @@ from pipeline_v2.ids import (
     ProducerId,
     ScorerId,
 )
+from pipeline_v2.inference.entity_context_policy import (
+    DEFAULT_ENTITY_CONTEXT_ROLE_POLICY,
+    EntityContextRolePolicy,
+)
 from pipeline_v2.inference.event_schema import schema_for
 from pipeline_v2.inference.factor_builders import (
     FALSE_STATE,
@@ -46,10 +52,15 @@ from pipeline_v2.inference.graph_spec import (
 )
 from pipeline_v2.producers import EvidenceSignalProducer
 from pipeline_v2.retrieval import EntityCandidateRetriever
-from pipeline_v2.scoring import EntityResolutionScorer, ReferenceResolutionScorer
+from pipeline_v2.scoring import (
+    EntityContextScorer,
+    EntityResolutionScorer,
+    ReferenceResolutionScorer,
+)
 from pipeline_v2.types import (
     DuplicateFactSignal,
     EntityKind,
+    EntityTag,
     EventRole,
     FactArgumentRole,
     FactKind,
@@ -79,6 +90,7 @@ class BuiltResolutionInferenceGraph:
         InferenceVariableId, dict[InferenceStateId, ReferenceResolutionProposal]
     ]
     same_event_proposal_by_variable_id: dict[InferenceVariableId, SameEventProposal]
+    entity_context_proposal_by_variable_id: dict[InferenceVariableId, EntityContextProposal]
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +106,15 @@ class ResolutionInferenceGraphBuilder:
     semantic_same_entity_threshold = 0.9
     semantic_same_event_threshold = 0.82
     semantic_reference_threshold = 0.82
+
+    def __init__(
+        self,
+        *,
+        entity_context_role_policy: EntityContextRolePolicy = (DEFAULT_ENTITY_CONTEXT_ROLE_POLICY),
+        entity_context_scorer: EntityContextScorer | None = None,
+    ) -> None:
+        self.entity_context_role_policy = entity_context_role_policy
+        self.entity_context_scorer = entity_context_scorer or EntityContextScorer()
 
     def build(
         self,
@@ -142,6 +163,25 @@ class ResolutionInferenceGraphBuilder:
             same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
         )
 
+        entity_context_proposal_by_variable_id: dict[
+            InferenceVariableId, EntityContextProposal
+        ] = {}
+        entity_context_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityTag], InferenceVariableId
+        ] = {}
+        self._add_entity_context_variables(
+            document=document,
+            variables=variables,
+            factors=factors,
+            entity_context_proposal_by_variable_id=entity_context_proposal_by_variable_id,
+            entity_context_variable_id_by_pair=entity_context_variable_id_by_pair,
+        )
+        self._add_entity_context_role_factors(
+            fact_graph=fact_graph,
+            factors=factors,
+            entity_context_variable_id_by_pair=entity_context_variable_id_by_pair,
+        )
+
         same_event_proposal_by_variable_id: dict[InferenceVariableId, SameEventProposal] = {}
         self._add_same_event_variables(
             document=document,
@@ -157,6 +197,7 @@ class ResolutionInferenceGraphBuilder:
             entity_proposal_by_variable_id=entity_proposal_by_variable_id,
             reference_state_proposals_by_variable_id=reference_state_proposals_by_variable_id,
             same_event_proposal_by_variable_id=same_event_proposal_by_variable_id,
+            entity_context_proposal_by_variable_id=entity_context_proposal_by_variable_id,
         )
 
     def _add_entity_resolution_variables(
@@ -411,6 +452,147 @@ class ResolutionInferenceGraphBuilder:
             ),
             kind=InferenceFactorKind.CONSTRAINT,
             variable_ids=(same_entity_variable_id, subject_variable_id, object_variable_id),
+            potentials=tuple(values),
+        )
+
+    def _add_entity_context_variables(
+        self,
+        *,
+        document: ArticleDocument,
+        variables: list[InferenceVariable],
+        factors: list[InferenceFactor],
+        entity_context_proposal_by_variable_id: dict[InferenceVariableId, EntityContextProposal],
+        entity_context_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityTag], InferenceVariableId
+        ],
+    ) -> None:
+        for proposal in self._merged_entity_context_proposals(document):
+            pair_key = (proposal.entity_id, proposal.context_kind)
+            variable_id = InferenceVariableId(
+                f"entity-context:{proposal.entity_id}:{proposal.context_kind.value}"
+            )
+            variables.append(
+                InferenceVariable(
+                    id=variable_id,
+                    kind=InferenceVariableKind.ENTITY_ATTRIBUTE,
+                    states=(FALSE_STATE, TRUE_STATE),
+                )
+            )
+            prior = self.entity_context_scorer.score(proposal).score
+            factors.append(
+                InferenceFactor(
+                    id=InferenceFactorId(
+                        f"factor:entity-context-prior:{proposal.entity_id}:"
+                        f"{proposal.context_kind.value}"
+                    ),
+                    kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                    variable_ids=(variable_id,),
+                    potentials=(1.0 - prior, prior),
+                    evidence_ids=proposal.evidence_ids,
+                    signals=proposal.retrieval_signals,
+                )
+            )
+            entity_context_proposal_by_variable_id[variable_id] = proposal
+            entity_context_variable_id_by_pair[pair_key] = variable_id
+
+    def _merged_entity_context_proposals(
+        self,
+        document: ArticleDocument,
+    ) -> tuple[EntityContextProposal, ...]:
+        merged: dict[tuple[EntityCandidateId, EntityTag], EntityContextProposal] = {}
+        for proposal in document.entity_context_proposals:
+            pair_key = (proposal.entity_id, proposal.context_kind)
+            current = merged.get(pair_key)
+            if current is None:
+                merged[pair_key] = proposal
+                continue
+            merged[pair_key] = EntityContextProposal(
+                entity_id=proposal.entity_id,
+                context_kind=proposal.context_kind,
+                evidence_ids=tuple(dict.fromkeys([*current.evidence_ids, *proposal.evidence_ids])),
+                retrieval_signals=tuple(
+                    dict.fromkeys([*current.retrieval_signals, *proposal.retrieval_signals])
+                ),
+            )
+        return tuple(
+            merged[key] for key in sorted(merged, key=lambda item: (str(item[0]), item[1].value))
+        )
+
+    def _add_entity_context_role_factors(
+        self,
+        *,
+        fact_graph: BuiltFactInferenceGraph,
+        factors: list[InferenceFactor],
+        entity_context_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityTag], InferenceVariableId
+        ],
+    ) -> None:
+        if not entity_context_variable_id_by_pair:
+            return
+        role_variables = {
+            variable.id: variable
+            for variable in fact_graph.spec.variables
+            if variable.kind is InferenceVariableKind.ROLE_FILLER
+        }
+        for role_variable_id, role_states in fact_graph.index.filler_states_by_variable_id.items():
+            role_variable = role_variables.get(role_variable_id)
+            if role_variable is None:
+                continue
+            fact_kind = role_variable.fact_kind
+            role = role_variable.role
+            if fact_kind is None or role is None:
+                continue
+            for tag in EntityTag:
+                potential = self.entity_context_role_policy.potential(
+                    tag=tag, fact_kind=fact_kind, role=role
+                )
+                if potential == 1.0:
+                    continue
+                for state in role_states:
+                    entity_id = self._entity_id_from_state(state)
+                    if entity_id is None:
+                        continue
+                    context_variable_id = entity_context_variable_id_by_pair.get((entity_id, tag))
+                    if context_variable_id is None:
+                        continue
+                    factors.append(
+                        self._entity_context_role_factor(
+                            context_variable_id=context_variable_id,
+                            role_variable_id=role_variable_id,
+                            role_states=role_states,
+                            target_entity_id=entity_id,
+                            potential=potential,
+                            tag=tag,
+                        )
+                    )
+
+    def _entity_context_role_factor(
+        self,
+        *,
+        context_variable_id: InferenceVariableId,
+        role_variable_id: InferenceVariableId,
+        role_states: tuple[RoleFillerState, ...],
+        target_entity_id: EntityCandidateId,
+        potential: float,
+        tag: EntityTag,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        for context_state in (FALSE_STATE, TRUE_STATE):
+            for role_state in role_states:
+                if context_state.id == FALSE_STATE.id:
+                    values.append(1.0)
+                    continue
+                role_entity_id = self._entity_id_from_state(role_state)
+                if role_entity_id == target_entity_id:
+                    values.append(potential)
+                else:
+                    values.append(1.0)
+        return InferenceFactor(
+            id=InferenceFactorId(
+                f"factor:entity-context-role:{target_entity_id}:{tag.value}:{role_variable_id}"
+            ),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(context_variable_id, role_variable_id),
             potentials=tuple(values),
         )
 
@@ -1135,6 +1317,8 @@ class ResolutionInferenceGraphBuilder:
 class ResolutionAssessmentMaterializer:
     producer_id = ProducerId("probabilistic_inference_stage_v2")
 
+    entity_context_threshold = 0.5
+
     def materialize(
         self,
         *,
@@ -1145,6 +1329,7 @@ class ResolutionAssessmentMaterializer:
         document.store.clear_resolution_claims()
         document.store.clear_reference_resolution_claims()
         document.store.clear_fact_resolution_claims()
+        document.store.clear_entity_context_claims()
         for variable_id, proposal in built_graph.entity_proposal_by_variable_id.items():
             marginal = result.marginal_for(variable_id)
             if marginal is None:
@@ -1224,6 +1409,29 @@ class ResolutionAssessmentMaterializer:
                         negative=proposal.fact_proposal.context_signals,
                         scorer_id=ScorerId("probabilistic_fact_resolution_inference_v2"),
                         explanation="same-event posterior from probabilistic inference",
+                    ),
+                    source=self.producer_id,
+                )
+            )
+        for variable_id, proposal in built_graph.entity_context_proposal_by_variable_id.items():
+            marginal = result.marginal_for(variable_id)
+            if marginal is None:
+                continue
+            probability = marginal.probability_for(TRUE_STATE.id)
+            if probability < self.entity_context_threshold:
+                continue
+            document.store.add_entity_context_claim(
+                EntityContextClaim(
+                    id=document.store.next_entity_context_claim_id(),
+                    entity_id=proposal.entity_id,
+                    context_kind=proposal.context_kind,
+                    evidence_ids=proposal.evidence_ids,
+                    assessment=self._assessment(
+                        score=probability,
+                        positive=proposal.retrieval_signals,
+                        negative=(),
+                        scorer_id=ScorerId("probabilistic_entity_context_inference_v2"),
+                        explanation="entity context posterior from probabilistic inference",
                     ),
                     source=self.producer_id,
                 )

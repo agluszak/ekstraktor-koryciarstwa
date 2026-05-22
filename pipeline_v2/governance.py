@@ -7,7 +7,7 @@ from pipeline_v2.candidates import (
     EventCandidate,
 )
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.entity_classification import entity_has_tag
+from pipeline_v2.entity_classification import entity_has_lexical_context_proposal
 from pipeline_v2.ids import EntityCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
@@ -20,8 +20,6 @@ from pipeline_v2.types import (
     EntityTag,
     EventRole,
     FactKind,
-    GenericOwnerContextSignal,
-    GoverningBodyContextSignal,
     GroundingKind,
     LocalOrganizationSignal,
     LocalPersonSignal,
@@ -204,15 +202,18 @@ class GovernanceCandidateStage:
                         )
                     if organization_id is not None:
                         organization_signals = self._organization_binding_signals(entity_signals)
-                        context_signals = self._context_binding_signals(entity_signals)
-                        if context_signals:
+                        organization_bindings[organization_id] = self._merge_binding_signals(
+                            organization_bindings.get(organization_id, ()),
+                            organization_signals,
+                        )
+                        is_context_org = entity_has_lexical_context_proposal(
+                            document, organization_id, EntityTag.GENERIC_OWNER
+                        ) or entity_has_lexical_context_proposal(
+                            document, organization_id, EntityTag.GOVERNING_BODY
+                        )
+                        if is_context_org:
                             context_bindings[organization_id] = self._merge_binding_signals(
                                 context_bindings.get(organization_id, ()),
-                                context_signals,
-                            )
-                        if not context_signals:
-                            organization_bindings[organization_id] = self._merge_binding_signals(
-                                organization_bindings.get(organization_id, ()),
                                 organization_signals,
                             )
                     if role_id is not None:
@@ -313,17 +314,7 @@ class GovernanceCandidateStage:
                     LocalOrganizationSignal()
                     | WindowOrganizationSignal()
                     | PartyOrganizationSignal()
-                    | GenericOwnerContextSignal()
-                    | GoverningBodyContextSignal()
                 ):
-                    filtered.append(signal)
-        return tuple(filtered)
-
-    def _context_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
-        filtered: list[Signal] = []
-        for signal in signals:
-            match signal:
-                case GenericOwnerContextSignal() | GoverningBodyContextSignal():
                     filtered.append(signal)
         return tuple(filtered)
 
@@ -626,20 +617,11 @@ class GovernanceCandidateStage:
         organizations: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
         trigger_start_char: int | None,
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
-        results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
-        for organization, signals in organizations:
-            extra: list[Signal] = []
-            if self._is_governing_body_organization(document, organization.id):
-                extra.append(
-                    GoverningBodyContextSignal(reason="governing/supervisory body context")
-                )
-            if self._is_generic_owner_organization(document, organization.id):
-                extra.append(GenericOwnerContextSignal(reason="generic state/treasury owner"))
-            results.append((organization, (*signals, *extra)))
-        if not results:
-            return ()
-        _ = (person, role, trigger_start_char)
-        return tuple(results)
+        # Tag-derived suppression now lives in the inference graph as constraint
+        # factors coupling EntityContext variables to RoleFiller variables; the
+        # producer no longer attaches per-tag context signals here.
+        _ = (document, sentence, person, role, trigger_start_char)
+        return organizations
 
     def _select_entities(
         self,
@@ -767,22 +749,6 @@ class GovernanceCandidateStage:
                 ):
                     return True
         return False
-
-    def _is_governing_body_organization(
-        self,
-        document: ArticleDocument,
-        entity_id: EntityCandidateId,
-    ) -> bool:
-        return entity_has_tag(document.store, entity_id, EntityTag.GOVERNING_BODY)
-
-    def _is_generic_owner_organization(
-        self,
-        document: ArticleDocument,
-        entity_id: EntityCandidateId,
-    ) -> bool:
-        """Return True for state/treasury entities that act as a governance authority
-        but should not win the appointed-institution role."""
-        return entity_has_tag(document.store, entity_id, EntityTag.GENERIC_OWNER)
 
     def _synthesize_proxy_person(
         self,

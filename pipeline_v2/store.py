@@ -6,6 +6,7 @@ from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityBlockingKey,
     EntityCandidate,
+    EntityContextClaim,
     EntityResolutionClaim,
     EventCandidate,
     FactResolutionClaim,
@@ -16,6 +17,7 @@ from pipeline_v2.candidates import (
 from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
     EntityCandidateId,
+    EntityContextClaimId,
     EventCandidateId,
     EvidenceId,
     FactCandidateId,
@@ -25,7 +27,7 @@ from pipeline_v2.ids import (
     TokenId,
 )
 from pipeline_v2.nlp import DependencyArc, EvidenceSpan, Mention, ReferenceMention, Sentence, Token
-from pipeline_v2.types import EntityKind, EntityTag
+from pipeline_v2.types import EntityKind
 
 
 class ExtractionStore:
@@ -45,7 +47,6 @@ class ExtractionStore:
         self.mentions: dict[MentionId, Mention] = {}
         self.references: dict[MentionId, ReferenceMention] = {}
         self.entity_candidates: dict[EntityCandidateId, EntityCandidate] = {}
-        self.entity_tags: dict[EntityCandidateId, frozenset[EntityTag]] = {}
         self.event_candidates: dict[EventCandidateId, EventCandidate] = {}
         self.argument_bindings_by_event_id: dict[
             EventCandidateId, list[ArgumentBindingCandidate]
@@ -53,6 +54,7 @@ class ExtractionStore:
         self.resolution_claims: dict[ResolutionClaimId, EntityResolutionClaim] = {}
         self.reference_resolution_claims: dict[ResolutionClaimId, ReferenceResolutionClaim] = {}
         self.fact_resolution_claims: dict[ResolutionClaimId, FactResolutionClaim] = {}
+        self.entity_context_claims: dict[EntityContextClaimId, EntityContextClaim] = {}
 
         self.mention_ids_by_sentence_id: dict[SentenceId, set[MentionId]] = defaultdict(set)
         self.reference_ids_by_sentence_id: dict[SentenceId, set[MentionId]] = defaultdict(set)
@@ -70,6 +72,9 @@ class ExtractionStore:
         self.reference_resolution_ids_by_reference_id: dict[MentionId, set[ResolutionClaimId]] = (
             defaultdict(set)
         )
+        self.entity_context_claim_ids_by_entity_id: dict[
+            EntityCandidateId, set[EntityContextClaimId]
+        ] = defaultdict(set)
         self.fact_resolution_ids_by_fact_id: dict[FactCandidateId, set[ResolutionClaimId]] = (
             defaultdict(set)
         )
@@ -114,13 +119,21 @@ class ExtractionStore:
             self.entity_ids_by_reuse_key[candidate.reuse_key].append(candidate.id)
         return candidate.id
 
-    def add_entity_tags(
+    def add_entity_context_claim(self, claim: EntityContextClaim) -> EntityContextClaimId:
+        self.entity_context_claims[claim.id] = claim
+        self.entity_context_claim_ids_by_entity_id[claim.entity_id].add(claim.id)
+        return claim.id
+
+    def clear_entity_context_claims(self) -> None:
+        self.entity_context_claims = {}
+        self.entity_context_claim_ids_by_entity_id = defaultdict(set)
+
+    def entity_context_claims_for_entity(
         self,
         entity_id: EntityCandidateId,
-        tags: frozenset[EntityTag],
-    ) -> None:
-        existing = self.entity_tags.get(entity_id, frozenset())
-        self.entity_tags[entity_id] = existing | tags
+    ) -> tuple[EntityContextClaim, ...]:
+        claim_ids = self.entity_context_claim_ids_by_entity_id.get(entity_id, set())
+        return tuple(self.entity_context_claims[claim_id] for claim_id in claim_ids)
 
     def add_event_candidate(self, candidate: EventCandidate) -> EventCandidateId:
         self.event_candidates[candidate.id] = candidate
@@ -294,6 +307,9 @@ class ExtractionStore:
 
     def next_fact_resolution_claim_id(self) -> ResolutionClaimId:
         return ResolutionClaimId(f"fact-resolution-{len(self.fact_resolution_claims)}")
+
+    def next_entity_context_claim_id(self) -> EntityContextClaimId:
+        return EntityContextClaimId(f"entity-context-{len(self.entity_context_claims)}")
 
     def candidates_by_kind(self, kind: EntityKind) -> tuple[EntityCandidate, ...]:
         return tuple(

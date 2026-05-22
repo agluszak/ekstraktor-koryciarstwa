@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import cast
 
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.entity_classification import EntityClassificationStage
+from pipeline_v2.entity_classification import LexicalEntityContextStage
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
@@ -41,7 +42,7 @@ def run_entity_classification(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
     ).run(document)
-    EntityClassificationStage().run(document)
+    LexicalEntityContextStage().run(document)
     return document
 
 
@@ -53,7 +54,19 @@ def organization_span(text: str, organization: str) -> NamedEntitySpan:
     )
 
 
-def test_entity_classification_tags_inflected_ministry_and_media_outlet() -> None:
+def _proposals_by_hint(document: ArticleDocument) -> dict[str, frozenset[EntityTag]]:
+    by_entity: dict[str, set[EntityTag]] = defaultdict(set)
+    for entity in document.store.entity_candidates.values():
+        by_entity[entity.canonical_hint or ""] = set()
+    for proposal in document.entity_context_proposals:
+        entity = document.store.entity_candidates.get(proposal.entity_id)
+        if entity is None:
+            continue
+        by_entity[entity.canonical_hint or ""].add(proposal.context_kind)
+    return {hint: frozenset(tags) for hint, tags in by_entity.items()}
+
+
+def test_entity_classification_proposes_inflected_ministry_and_media_outlet() -> None:
     text = "Ministerstwa Aktywów Państwowych i TVN Warszawa komentowały sytuację Orlenu."
     document = run_entity_classification(
         text,
@@ -64,10 +77,7 @@ def test_entity_classification_tags_inflected_ministry_and_media_outlet() -> Non
         ),
     )
 
-    tags_by_hint = {
-        entity.canonical_hint: document.store.entity_tags.get(entity.id, frozenset())
-        for entity in document.store.entity_candidates.values()
-    }
+    tags_by_hint = _proposals_by_hint(document)
 
     assert tags_by_hint["Ministerstwa Aktywów Państwowych"] == frozenset(
         {EntityTag.PUBLIC_INSTITUTION, EntityTag.GENERIC_OWNER}
@@ -75,12 +85,20 @@ def test_entity_classification_tags_inflected_ministry_and_media_outlet() -> Non
     assert tags_by_hint["TVN Warszawa"] == frozenset({EntityTag.MEDIA_OUTLET})
     assert tags_by_hint["Orlenu"] == frozenset()
 
+    # Each proposal carries at least one trigger evidence id and one retrieval signal
+    for proposal in document.entity_context_proposals:
+        assert len(proposal.evidence_ids) >= 1
+        assert len(proposal.retrieval_signals) >= 1
+
+    # JSON output exposes the proposals with `context_kind`
     json_document = document_to_json(document)
-    json_entities = {
-        cast(str, entity["canonical_hint"]): entity
-        for entity in cast(list[dict[str, object]], json_document["entities"])
-    }
-    assert json_entities["TVN Warszawa"]["tags"] == ["media_outlet"]
+    json_proposals = cast(list[dict[str, object]], json_document["entity_context_proposals"])
+    media_proposals = [
+        proposal
+        for proposal in json_proposals
+        if proposal["context_kind"] == EntityTag.MEDIA_OUTLET.value
+    ]
+    assert len(media_proposals) == 1
 
 
 def test_entity_classification_does_not_use_wp_substring_as_media_match() -> None:
@@ -91,4 +109,9 @@ def test_entity_classification_does_not_use_wp_substring_as_media_match() -> Non
     )
 
     candidate = next(iter(document.store.entity_candidates.values()))
-    assert document.store.entity_tags.get(candidate.id, frozenset()) == frozenset()
+    proposals_for_candidate = [
+        proposal
+        for proposal in document.entity_context_proposals
+        if proposal.entity_id == candidate.id
+    ]
+    assert proposals_for_candidate == []

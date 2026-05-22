@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.entity_classification import EntityClassificationStage
+from pipeline_v2.entity_classification import LexicalEntityContextStage
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
@@ -65,7 +65,7 @@ def run_public_employment_stage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
     ).run(document)
-    EntityClassificationStage().run(document)
+    LexicalEntityContextStage().run(document)
     RoleCandidateStage(morphology).run(document)
     if include_nominal_kinship:
         NominalKinshipCandidateStage().run(document)
