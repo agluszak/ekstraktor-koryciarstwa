@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
+
+import pytest
 
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
@@ -25,6 +28,7 @@ from pipeline_v2.ids import (
 )
 from pipeline_v2.inference.backend import InferenceBackend
 from pipeline_v2.inference.backends.pgmpy_backend import PgmpyInferenceBackend
+from pipeline_v2.inference.components import InferenceComponentBuilder
 from pipeline_v2.inference.factor_builders import TRUE_STATE, FactInferenceGraphBuilder
 from pipeline_v2.inference.graph_spec import (
     InferenceFactor,
@@ -136,6 +140,83 @@ def test_pgmpy_backend_returns_uniform_marginal_for_factorless_variable() -> Non
     assert marginal.probability_for(InferenceStateId("true")) == 0.5
 
 
+def test_component_builder_groups_connected_variables_and_preserves_factorless_variable() -> None:
+    event_variable = InferenceVariable(
+        id=InferenceVariableId("event-variable"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("event-false"), "false"),
+            InferenceState(InferenceStateId("event-true"), "true"),
+        ),
+    )
+    role_variable = InferenceVariable(
+        id=InferenceVariableId("role-variable"),
+        kind=InferenceVariableKind.ROLE_FILLER,
+        states=(
+            InferenceState(InferenceStateId("role-unknown"), "unknown"),
+            InferenceState(InferenceStateId("role-person"), "person"),
+        ),
+        role=EventRole.EMPLOYEE,
+    )
+    independent_variable = InferenceVariable(
+        id=InferenceVariableId("independent-variable"),
+        kind=InferenceVariableKind.SAME_ENTITY,
+        states=(
+            InferenceState(InferenceStateId("same-false"), "false"),
+            InferenceState(InferenceStateId("same-true"), "true"),
+        ),
+    )
+    connecting_factor = InferenceFactor(
+        id=InferenceFactorId("connecting-factor"),
+        kind=InferenceFactorKind.CONSTRAINT,
+        variable_ids=(event_variable.id, role_variable.id),
+        potentials=(1.0, 0.2, 0.2, 1.0),
+    )
+    spec = InferenceGraphSpec(
+        variables=(event_variable, role_variable, independent_variable),
+        factors=(connecting_factor,),
+    )
+
+    built = InferenceComponentBuilder().build(spec)
+
+    component_variable_sets = {frozenset(component.variable_ids) for component in built.components}
+    component_factor_sets = {frozenset(component.factor_ids) for component in built.components}
+    rebuilt_variable_ids = {variable.id for variable in built.spec.variables}
+    rebuilt_factor_ids = {factor.id for factor in built.spec.factors}
+    assert component_variable_sets == {
+        frozenset((event_variable.id, role_variable.id)),
+        frozenset((independent_variable.id,)),
+    }
+    assert component_factor_sets == {frozenset((connecting_factor.id,)), frozenset()}
+    assert rebuilt_variable_ids == {event_variable.id, role_variable.id, independent_variable.id}
+    assert rebuilt_factor_ids == {connecting_factor.id}
+
+
+def test_component_builder_rejects_factor_referencing_unknown_variable() -> None:
+    variable = InferenceVariable(
+        id=InferenceVariableId("known-variable"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("false"), "false"),
+            InferenceState(InferenceStateId("true"), "true"),
+        ),
+    )
+    spec = InferenceGraphSpec(
+        variables=(variable,),
+        factors=(
+            InferenceFactor(
+                id=InferenceFactorId("dangling-factor"),
+                kind=InferenceFactorKind.CONSTRAINT,
+                variable_ids=(variable.id, InferenceVariableId("missing-variable")),
+                potentials=(1.0, 1.0, 1.0, 1.0),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="unknown variables"):
+        InferenceComponentBuilder().build(spec)
+
+
 def test_pgmpy_backend_sanitizes_zero_potential_factor() -> None:
     variable = InferenceVariable(
         id=InferenceVariableId("zero-potential-variable"),
@@ -163,6 +244,151 @@ def test_pgmpy_backend_sanitizes_zero_potential_factor() -> None:
     assert marginal is not None
     assert marginal.probability_for(InferenceStateId("false")) == 0.5
     assert marginal.probability_for(InferenceStateId("true")) == 0.5
+
+
+def test_pgmpy_backend_sanitizes_non_finite_and_negative_potentials() -> None:
+    variable = InferenceVariable(
+        id=InferenceVariableId("near-zero-variable"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("false"), "false"),
+            InferenceState(InferenceStateId("true"), "true"),
+        ),
+    )
+    spec = InferenceGraphSpec(
+        variables=(variable,),
+        factors=(
+            InferenceFactor(
+                id=InferenceFactorId("near-zero-factor"),
+                kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                variable_ids=(variable.id,),
+                potentials=(float("nan"), -3.0),
+            ),
+        ),
+    )
+
+    result = PgmpyInferenceBackend().run(spec)
+
+    marginal = result.marginal_for(variable.id)
+    assert marginal is not None
+    assert marginal.probability_for(InferenceStateId("false")) == 0.5
+    assert marginal.probability_for(InferenceStateId("true")) == 0.5
+
+
+def test_pgmpy_backend_infers_connected_role_variable_from_event_support() -> None:
+    event_variable = InferenceVariable(
+        id=InferenceVariableId("event-variable"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("event-false"), "false"),
+            InferenceState(InferenceStateId("event-true"), "true"),
+        ),
+    )
+    role_variable = InferenceVariable(
+        id=InferenceVariableId("role-variable"),
+        kind=InferenceVariableKind.ROLE_FILLER,
+        states=(
+            InferenceState(InferenceStateId("role-unknown"), "unknown"),
+            InferenceState(InferenceStateId("role-person"), "person"),
+            InferenceState(InferenceStateId("role-other"), "other"),
+        ),
+        fact_kind=FactKind.PUBLIC_EMPLOYMENT,
+        role=EventRole.EMPLOYEE,
+    )
+    spec = InferenceGraphSpec(
+        variables=(event_variable, role_variable),
+        factors=(
+            InferenceFactor(
+                id=InferenceFactorId("event-prior"),
+                kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                variable_ids=(event_variable.id,),
+                potentials=(0.2, 0.8),
+            ),
+            InferenceFactor(
+                id=InferenceFactorId("role-prior"),
+                kind=InferenceFactorKind.ROLE_PRIOR,
+                variable_ids=(role_variable.id,),
+                potentials=(1.0, 1.0, 1.0),
+            ),
+            InferenceFactor(
+                id=InferenceFactorId("event-role-support"),
+                kind=InferenceFactorKind.CONSTRAINT,
+                variable_ids=(event_variable.id, role_variable.id),
+                potentials=(
+                    1.0,
+                    0.1,
+                    0.1,
+                    0.1,
+                    5.0,
+                    0.1,
+                ),
+            ),
+        ),
+    )
+
+    result = PgmpyInferenceBackend().run(spec)
+
+    role_marginal = result.marginal_for(role_variable.id)
+    event_marginal = result.marginal_for(event_variable.id)
+    assert role_marginal is not None
+    assert event_marginal is not None
+    assert role_marginal.probability_for(InferenceStateId("role-person")) > (
+        role_marginal.probability_for(InferenceStateId("role-unknown"))
+    )
+    assert event_marginal.probability_for(InferenceStateId("event-true")) > 0.8
+
+
+def test_pgmpy_backend_rejects_factor_potential_count_mismatch() -> None:
+    variable = InferenceVariable(
+        id=InferenceVariableId("shape-variable"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("false"), "false"),
+            InferenceState(InferenceStateId("true"), "true"),
+        ),
+    )
+    spec = InferenceGraphSpec(
+        variables=(variable,),
+        factors=(
+            InferenceFactor(
+                id=InferenceFactorId("shape-factor"),
+                kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                variable_ids=(variable.id,),
+                potentials=(1.0,),
+            ),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="expected 2"):
+        PgmpyInferenceBackend().run(spec)
+
+
+def test_pgmpy_backend_suppresses_pgmpy_structure_score_deprecation_warning() -> None:
+    variable = InferenceVariable(
+        id=InferenceVariableId("warning-variable"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("false"), "false"),
+            InferenceState(InferenceStateId("true"), "true"),
+        ),
+    )
+    spec = InferenceGraphSpec(
+        variables=(variable,),
+        factors=(
+            InferenceFactor(
+                id=InferenceFactorId("warning-factor"),
+                kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                variable_ids=(variable.id,),
+                potentials=(0.2, 0.8),
+            ),
+        ),
+    )
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        PgmpyInferenceBackend().run(spec)
+
+    assert not any("StructureScore" in str(warning.message) for warning in captured)
 
 
 @dataclass(slots=True)
