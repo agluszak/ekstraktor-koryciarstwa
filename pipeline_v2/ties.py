@@ -130,7 +130,7 @@ class PersonalTieCandidateStage:
                 )
             complaint_lemma = self._patronage_complaint_detail(lemmas)
             if complaint_lemma is not None:
-                actor, actor_signals, target, target_signals = self._select_complaint_participants(
+                participants = self._complaint_participant_candidates(
                     document=document,
                     sentence=sentence,
                     retriever=retriever,
@@ -138,10 +138,7 @@ class PersonalTieCandidateStage:
                 self._add_patronage_complaint(
                     document=document,
                     sentence=sentence,
-                    actor=actor,
-                    actor_signals=actor_signals,
-                    target=target,
-                    target_signals=target_signals,
+                    participants=participants,
                     context_entities=tuple(
                         entity for entity in entities if entity.kind != EntityKind.PERSON
                     ),
@@ -231,10 +228,7 @@ class PersonalTieCandidateStage:
         *,
         document: ArticleDocument,
         sentence,
-        actor: SentenceEntity | None,
-        actor_signals: tuple[Signal, ...],
-        target: SentenceEntity | None,
-        target_signals: tuple[Signal, ...],
+        participants: tuple[tuple[SentenceEntity, int], ...],
         context_entities: tuple[SentenceEntity, ...],
         complaint_lemma: str,
     ) -> None:
@@ -247,19 +241,16 @@ class PersonalTieCandidateStage:
             source=self.producer_id,
         )
         document.store.add_evidence(sentence_evidence)
-        participant_evidence_ids = self._participant_evidence_ids_for_sentence(
+        participant_evidence_ids = self._participant_evidence_ids_for_complaint(
             document=document,
-            sentence_id=sentence.id,
-            actor=actor,
-            target=target,
+            sentence=sentence,
+            participants=participants,
         )
         evidence_ids = tuple(dict.fromkeys((sentence_evidence.id, *participant_evidence_ids)))
         institution_entities = tuple(
             entity for entity in context_entities if entity.kind == EntityKind.ORGANIZATION
         )
         shared_signals: list[Signal] = [ExplicitPatronageLemmaSignal(lemma=complaint_lemma)]
-        shared_signals.extend(actor_signals)
-        shared_signals.extend(target_signals)
         if institution_entities:
             shared_signals.append(LocalInstitutionSignal())
 
@@ -269,12 +260,9 @@ class PersonalTieCandidateStage:
             sentence_evidence_id=sentence_evidence.id,
             evidence_ids=evidence_ids,
             shared_signals=tuple(shared_signals),
-            primary_left=actor,
+            participants=participants,
             primary_left_role=EventRole.COMPLAINANT,
-            primary_left_signals=actor_signals,
-            primary_right=target,
             primary_right_role=EventRole.TARGET,
-            primary_right_signals=target_signals,
             context_entities=context_entities,
             institution_entities=institution_entities,
             complaint_lemma=complaint_lemma,
@@ -285,12 +273,9 @@ class PersonalTieCandidateStage:
             sentence_evidence_id=sentence_evidence.id,
             evidence_ids=evidence_ids,
             shared_signals=tuple(shared_signals),
-            primary_left=actor,
+            participants=participants,
             primary_left_role=EventRole.SUBJECT,
-            primary_left_signals=actor_signals,
-            primary_right=target,
             primary_right_role=EventRole.OBJECT,
-            primary_right_signals=target_signals,
             context_entities=context_entities,
             institution_entities=institution_entities,
             complaint_lemma=complaint_lemma,
@@ -304,12 +289,9 @@ class PersonalTieCandidateStage:
         sentence_evidence_id,
         evidence_ids: tuple,
         shared_signals: tuple[Signal, ...],
-        primary_left: SentenceEntity | None,
+        participants: tuple[tuple[SentenceEntity, int], ...],
         primary_left_role: EventRole,
-        primary_left_signals: tuple[Signal, ...],
-        primary_right: SentenceEntity | None,
         primary_right_role: EventRole,
-        primary_right_signals: tuple[Signal, ...],
         context_entities: tuple[SentenceEntity, ...],
         institution_entities: tuple[SentenceEntity, ...],
         complaint_lemma: str,
@@ -323,28 +305,37 @@ class PersonalTieCandidateStage:
             signals=shared_signals,
         )
         document.store.add_event_candidate(event)
-        if primary_left is not None:
+        for participant, distance in participants:
+            left_signals = self._complaint_role_signals(
+                role=primary_left_role,
+                sentence_distance=distance,
+            )
             document.store.add_argument_binding(
                 ArgumentBindingCandidate(
                     id=document.store.next_argument_binding_candidate_id(),
                     event_id=event.id,
                     role=primary_left_role,
-                    filler=EntityFiller(primary_left.id),
+                    filler=EntityFiller(participant.id),
                     evidence_ids=evidence_ids,
-                    signals=primary_left_signals,
+                    signals=left_signals,
                 )
             )
-        if primary_right is not None:
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
+        if len(participants) >= 2:
+            for participant, distance in participants:
+                right_signals = self._complaint_role_signals(
                     role=primary_right_role,
-                    filler=EntityFiller(primary_right.id),
-                    evidence_ids=evidence_ids,
-                    signals=primary_right_signals,
+                    sentence_distance=distance,
                 )
-            )
+                document.store.add_argument_binding(
+                    ArgumentBindingCandidate(
+                        id=document.store.next_argument_binding_candidate_id(),
+                        event_id=event.id,
+                        role=primary_right_role,
+                        filler=EntityFiller(participant.id),
+                        evidence_ids=evidence_ids,
+                        signals=right_signals,
+                    )
+                )
         for institution in institution_entities:
             document.store.add_argument_binding(
                 ArgumentBindingCandidate(
@@ -407,84 +398,68 @@ class PersonalTieCandidateStage:
     def _candidate_people(self, entities: tuple[SentenceEntity, ...]) -> tuple[SentenceEntity, ...]:
         return tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
 
-    def _participant_evidence_ids_for_sentence(
+    def _participant_evidence_ids_for_complaint(
         self,
         *,
         document: ArticleDocument,
-        sentence_id,
-        actor: SentenceEntity | None,
-        target: SentenceEntity | None,
+        sentence,
+        participants: tuple[tuple[SentenceEntity, int], ...],
     ) -> tuple:
         evidence_ids: list = []
-        for participant in tuple(entity for entity in (actor, target) if entity is not None):
+        for participant, _distance in participants:
             evidence_ids.extend(
                 evidence.id
                 for evidence in document.store.evidence_for_entity(participant.id)
-                if evidence.sentence_id == sentence_id
+                if evidence.sentence_id is not None
+                and abs(
+                    document.store.sentences[evidence.sentence_id].sentence_index
+                    - sentence.sentence_index
+                )
+                <= 1
+                and document.store.sentences[evidence.sentence_id].paragraph_index
+                == sentence.paragraph_index
             )
         return tuple(dict.fromkeys(evidence_ids))
 
-    def _select_complaint_participants(
+    def _complaint_participant_candidates(
         self,
         *,
         document: ArticleDocument,
         sentence,
         retriever: SentenceEntityRetriever,
-    ) -> tuple[
-        SentenceEntity | None,
-        tuple[Signal, ...],
-        SentenceEntity | None,
-        tuple[Signal, ...],
-    ]:
+    ) -> tuple[tuple[SentenceEntity, int], ...]:
         sentence_people = self._candidate_people(retriever.entities_for_sentence(sentence))
-        if len(sentence_people) >= 2:
-            return (
-                sentence_people[0],
-                (LocalActorSignal(),),
-                sentence_people[1],
-                (LocalTargetSignal(),),
-            )
-
-        window_people = self._window_people_for_complaint(
+        merged: dict = {entity.id: (entity, 0) for entity in sentence_people}
+        for entity, distance in self._window_people_for_complaint(
             document=document,
             sentence=sentence,
             retriever=retriever,
+        ):
+            current = merged.get(entity.id)
+            if current is None or distance < current[1]:
+                merged[entity.id] = (entity, distance)
+        return tuple(
+            sorted(
+                merged.values(),
+                key=lambda item: (
+                    item[1],
+                    abs(item[0].start_char - sentence.span.start_char),
+                    item[0].start_char,
+                ),
+            )
         )
-        if len(sentence_people) == 1:
-            local_actor = sentence_people[0]
-            fallback_target = next(
-                (entity for entity, _distance in window_people if entity.id != local_actor.id),
-                None,
-            )
-            if fallback_target is None:
-                return local_actor, (LocalActorSignal(),), None, ()
-            fallback_distance = self._minimum_sentence_distance(
-                document=document,
-                sentence=sentence,
-                entity=fallback_target,
-            )
-            if fallback_distance is None:
-                return local_actor, (LocalActorSignal(),), fallback_target, ()
-            return (
-                local_actor,
-                (LocalActorSignal(),),
-                fallback_target,
-                (WindowFallbackSignal(distance=fallback_distance),),
-            )
 
-        if len(window_people) >= 2:
-            actor, actor_distance = window_people[0]
-            target, target_distance = window_people[1]
-            return (
-                actor,
-                (WindowFallbackSignal(distance=actor_distance),),
-                target,
-                (WindowFallbackSignal(distance=target_distance),),
-            )
-        if len(window_people) == 1:
-            actor, actor_distance = window_people[0]
-            return actor, (WindowFallbackSignal(distance=actor_distance),), None, ()
-        return None, (), None, ()
+    def _complaint_role_signals(
+        self,
+        *,
+        role: EventRole,
+        sentence_distance: int,
+    ) -> tuple[Signal, ...]:
+        if sentence_distance <= 0:
+            if role in {EventRole.SUBJECT, EventRole.COMPLAINANT}:
+                return (LocalActorSignal(),)
+            return (LocalTargetSignal(),)
+        return (WindowFallbackSignal(distance=sentence_distance),)
 
     def _window_people_for_complaint(
         self,

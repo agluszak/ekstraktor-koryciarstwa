@@ -117,12 +117,14 @@ class EntityContextScorer:
 
     def score(self, proposal: EntityContextProposal) -> Assessment:
         positive = list(proposal.retrieval_signals)
-        has_canonical_hint = any(
-            isinstance(signal, CanonicalHintMatchSignal) for signal in positive
-        )
-        lemma_signal_count = sum(
-            1 for signal in positive if not isinstance(signal, CanonicalHintMatchSignal)
-        )
+        has_canonical_hint = False
+        lemma_signal_count = 0
+        for signal in positive:
+            match signal:
+                case CanonicalHintMatchSignal():
+                    has_canonical_hint = True
+                case _:
+                    lemma_signal_count += 1
         if has_canonical_hint:
             base = 0.95
         elif lemma_signal_count >= 2:

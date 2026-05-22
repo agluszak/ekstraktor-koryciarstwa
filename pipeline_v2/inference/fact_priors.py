@@ -157,7 +157,7 @@ class BaseFactPriorPolicy:
     def negative_delta(self, signal: Signal, kind: FactKind) -> float:
         match signal:
             case ExplicitNonPartyContextSignal():
-                return -0.35
+                return -1.0
             case MicroAmountSignal():
                 if kind == FactKind.COMPENSATION:
                     return -0.6

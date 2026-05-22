@@ -34,9 +34,11 @@ from pipeline_v2.types import (
     EventRole,
     FactKind,
     GroundingKind,
+    LocalActorSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
+    LocalTargetSignal,
     PartyOrganizationSignal,
     PossessiveKinshipSignal,
     ProxyFamilyEntitySignal,
@@ -46,6 +48,7 @@ from pipeline_v2.types import (
     Signal,
     SignalPolarity,
     WeakSyntacticBindingSignal,
+    WindowFallbackSignal,
     WindowOrganizationSignal,
     WindowPersonSignal,
     WindowRoleSignal,
@@ -153,8 +156,12 @@ class BindingSignalWeightPolicy:
         match signal:
             case LocalPersonSignal() | LocalOrganizationSignal() | LocalRoleSignal():
                 return 0.35
+            case LocalActorSignal() | LocalTargetSignal():
+                return 0.32
             case WindowPersonSignal() | WindowOrganizationSignal() | WindowRoleSignal():
                 return 0.15
+            case WindowFallbackSignal():
+                return 0.12
             case ProxyFamilyEntitySignal() | PossessiveKinshipSignal():
                 return 0.35
             case (
@@ -290,6 +297,18 @@ class FactInferenceGraphBuilder:
                             document=document,
                         )
                     )
+                    if event.kind is FactKind.PATRONAGE_NETWORK_TIE:
+                        factors.append(
+                            self._role_distinctness_factor(
+                                factor_name="subject-object-distinct",
+                                event_id=event.id,
+                                left_variable=subject_var,
+                                left_states=role_states_map[EventRole.SUBJECT],
+                                right_variable=object_var,
+                                right_states=role_states_map[EventRole.OBJECT],
+                                document=document,
+                            )
+                        )
             if event.kind == FactKind.PUBLIC_CONTRACT:
                 counterparty_var = role_vars.get(EventRole.COUNTERPARTY)
                 contractor_var = role_vars.get(EventRole.CONTRACTOR)
@@ -489,29 +508,29 @@ class FactInferenceGraphBuilder:
         self,
         bindings: tuple[ArgumentBindingCandidate, ...] | list[ArgumentBindingCandidate],
     ) -> tuple[RoleFillerState, ...]:
-        merged: dict[str, RoleFillerState] = {
-            UNKNOWN_STATE.label: RoleFillerState(state=UNKNOWN_STATE, filler=None)
+        merged: dict[InferenceStateId, RoleFillerState] = {
+            UNKNOWN_STATE.id: RoleFillerState(state=UNKNOWN_STATE, filler=None)
         }
         for binding in bindings:
             filler = binding.filler
             state_id = self._state_id_for_filler(filler)
-            existing = merged.get(str(state_id))
+            existing = merged.get(state_id)
             if existing is None:
-                merged[str(state_id)] = RoleFillerState(
+                merged[state_id] = RoleFillerState(
                     state=InferenceState(state_id, self._state_label_for_filler(filler)),
                     filler=filler,
                     evidence_ids=binding.evidence_ids,
                     signals=binding.signals,
                 )
                 continue
-            merged[str(state_id)] = RoleFillerState(
+            merged[state_id] = RoleFillerState(
                 state=existing.state,
                 filler=existing.filler,
                 evidence_ids=tuple(dict.fromkeys([*existing.evidence_ids, *binding.evidence_ids])),
                 signals=tuple(dict.fromkeys([*existing.signals, *binding.signals])),
             )
-        states = [merged[UNKNOWN_STATE.label]]
-        states.extend(merged[key] for key in sorted(merged) if key != UNKNOWN_STATE.label)
+        states = [merged[UNKNOWN_STATE.id]]
+        states.extend(state for state_id, state in merged.items() if state_id != UNKNOWN_STATE.id)
         return tuple(states)
 
     def _role_variable(
