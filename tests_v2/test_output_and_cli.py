@@ -238,7 +238,7 @@ def test_v2_cli_writes_one_json_file_per_html_input(tmp_path: Path, monkeypatch)
 
     assert exit_code == 0
     written = json.loads((output_dir / "doc.json").read_text(encoding="utf-8"))
-    assert written["document_id"] == "doc"
+    assert written["title"] == "Title"
 
 
 def test_document_output_serializes_materialized_fact_alternatives() -> None:

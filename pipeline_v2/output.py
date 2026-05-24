@@ -8,8 +8,10 @@ from pipeline_v2.candidates import (
     ArgumentFiller,
     Assessment,
     EntityCandidate,
+    EntityFactArgument,
     EntityFiller,
     FactCandidateRecord,
+    TextFactArgument,
     TextFiller,
     UnknownFiller,
 )
@@ -23,12 +25,10 @@ type JsonObject = dict[str, JsonValue]
 
 
 class JsonOutputWriter:
-    def write(self, document: ArticleDocument, path: Path) -> None:
+    def write(self, document: ArticleDocument, path: Path, *, debug: bool = False) -> None:
+        payload = document_to_json(document) if debug else document_to_slim_json(document)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(document_to_json(document), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def document_to_json(document: ArticleDocument) -> JsonObject:
@@ -190,6 +190,45 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
                 for diagnostic in document.stage_diagnostics
             ],
             "execution_times": dict(document.execution_times),
+        },
+    )
+
+
+def document_to_slim_json(document: ArticleDocument) -> JsonObject:
+    entity_name: dict[str, str] = {
+        str(e.id): e.canonical_hint or str(e.id) for e in document.store.entity_candidates.values()
+    }
+    fact_score: dict[str, float] = {
+        str(fa.materialized_fact_id): fa.assessment.score for fa in document.fact_assessments
+    }
+
+    slim_facts: list[JsonValue] = []
+    for record in document.materialized_fact_records:
+        roles: dict[str, JsonValue] = {}
+        for arg in record.arguments:
+            match arg:
+                case EntityFactArgument(role=role, entity_id=eid):
+                    name = entity_name.get(str(eid))
+                    if name:
+                        roles[role.value] = name
+                case TextFactArgument(role=role, value=value):
+                    roles[role.value] = value
+        score = fact_score.get(str(record.id))
+        entry: JsonObject = {"kind": record.kind.value}
+        if score is not None:
+            entry["confidence"] = round(score, 3)
+        entry.update(cast(JsonObject, roles))
+        slim_facts.append(entry)
+
+    relevance = document.relevance
+    return cast(
+        JsonObject,
+        {
+            "title": document.title,
+            "url": document.source_url,
+            "relevant": relevance.is_relevant if relevance is not None else False,
+            "relevance_score": round(relevance.score, 3) if relevance is not None else 0.0,
+            "facts": slim_facts,
         },
     )
 

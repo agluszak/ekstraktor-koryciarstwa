@@ -15,6 +15,7 @@ from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
     AppointerContextSignal,
     AppointmentLemmaSignal,
+    DependencyRelation,
     DismissalLemmaSignal,
     EntityKind,
     EntityTag,
@@ -97,17 +98,32 @@ class GovernanceCandidateStage:
         }
     )
     _generic_appointment_lemmas = frozenset({"zostać", "wejść", "nominacja", "zająć"})
+    # Lemmas that only trigger appointment when used as temporal phrases (Bug 2).
+    _objac_appointment_lemmas = frozenset({"objąć", "objęcie"})
+    # Prepositions that mark a temporal use of "objąć/objęcie" ("od objęcia stanowiska").
+    _temporal_prepositions = frozenset({"od", "po", "przed", "za", "do"})
+    # Successor-pattern lemmas — "następcą zostanie X" (Bug 3).
+    _successor_noun_lemmas = frozenset({"następca"})
+    # Current-role descriptor adjectives for dash-apposition detection (Bug 4).
+    _current_descriptor_lemmas = frozenset({"obecny", "aktualny"})
+    # Dash characters used in appositive constructions (Bug 4).
+    _dash_chars = frozenset({"—", "–", "-"})
     _dismissal_lemmas = frozenset(
         {
             "odwołać",
+            "odwoływać",  # imperfective of odwołać
             "zwolnić",
+            "zwalniać",  # imperfective of zwolnić
             "usunąć",
+            "usuwać",  # imperfective of usunąć
             "zdymisjonować",
             "stracić",
             # Resignation/exit patterns
             "rezygnacja",
             "zrezygnować",
+            "rezygnować",  # imperfective of zrezygnować
             "odejść",
+            "odchodzić",  # imperfective of odejść
             # Nouns
             "odwołanie",
             "dymisja",
@@ -181,8 +197,37 @@ class GovernanceCandidateStage:
                         kind == FactKind.GOVERNANCE_APPOINTMENT
                         and self._is_generic_appointment_lemma(signals)
                         and not self._has_governance_role(document, role_id)
+                        # Successor pattern ("następcą zostanie X") makes 'zostać'
+                        # non-generic even without an explicit governance role entity (Bug 3).
+                        and not self._sentence_has_successor_pattern(document, sentence)
                     )
                 ]
+                # Successor pattern: "Jej następcą zostanie Agnieszka Paradyż" — the
+                # appointee is the person appearing AFTER the 'zostać' trigger, not a
+                # window entity from the previous dismissal sentence (Bug 3).
+                if kind == FactKind.GOVERNANCE_APPOINTMENT and self._sentence_has_successor_pattern(
+                    document, sentence
+                ):
+                    zostac_start = next(
+                        (
+                            document.store.tokens[tid].span.start_char
+                            for tid in sentence.token_ids
+                            if "zostać"
+                            in {analysis.lemma for analysis in document.store.tokens[tid].morph}
+                        ),
+                        None,
+                    )
+                    if zostac_start is not None:
+                        viable_combinations = [
+                            (p, o, r, s)
+                            for p, o, r, s in viable_combinations
+                            if self._person_appears_after_trigger_in_sentence(
+                                document=document,
+                                sentence=sentence,
+                                person_id=p,
+                                trigger_start_char=zostac_start,
+                            )
+                        ]
                 if not viable_combinations:
                     continue
                 person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
@@ -361,14 +406,37 @@ class GovernanceCandidateStage:
         lemmas = self._sentence_lemmas(document, sentence)
         candidates: list[tuple[FactKind, tuple[Signal, ...]]] = []
         if lemmas & self._appointment_lemmas:
+            matched_appointment = lemmas & self._appointment_lemmas
+            # Suppress appointment when only objąć/objęcie matched and all such tokens
+            # are governed by temporal prepositions — e.g. "od objęcia stanowiska" is
+            # a temporal clause, not a new appointment event (Bug 2).
+            is_temporal_objac = (
+                matched_appointment <= self._objac_appointment_lemmas
+                and self._objac_tokens_are_temporal(document, sentence)
+            )
+            if not is_temporal_objac:
+                candidates.append(
+                    (
+                        FactKind.GOVERNANCE_APPOINTMENT,
+                        (
+                            AppointmentLemmaSignal(
+                                lemma=self._matched_detail(lemmas, self._appointment_lemmas),
+                            ),
+                        ),
+                    )
+                )
+        # Dash-apposition pattern: "PERSON — (obecny|aktualny) ROLE [ORG]" implies an
+        # implicit current appointment context (Bug 4).
+        if (
+            not (lemmas & self._appointment_lemmas)
+            and lemmas & self._governance_role_lemmas
+            and lemmas & self._current_descriptor_lemmas
+            and self._sentence_has_dash_apposition_with_current_role(document, sentence)
+        ):
             candidates.append(
                 (
                     FactKind.GOVERNANCE_APPOINTMENT,
-                    (
-                        AppointmentLemmaSignal(
-                            lemma=self._matched_detail(lemmas, self._appointment_lemmas),
-                        ),
-                    ),
+                    (AppointmentLemmaSignal(lemma="obecny"),),
                 )
             )
         # Dismissal lemmas minus `zasiadać` (which is only a dismissal when negated)
@@ -455,6 +523,78 @@ class GovernanceCandidateStage:
             if evidence.sentence_id == sentence.id
         ]
         return bool(person_starts) and min(person_starts) > min(dismissal_starts)
+
+    def _objac_tokens_are_temporal(self, document: ArticleDocument, sentence: Sentence) -> bool:
+        """True when all tokens with objąć/objęcie lemma are governed by temporal prepositions.
+
+        Checks all morph lemmas of the CASE child rather than the preferred lemma alone,
+        because Morfeusz can return multiple lemma candidates (e.g. "od"/"oda") for the
+        same surface form.
+        """
+        syntax = SyntaxView(document.store)
+        objac_token_ids = [
+            token_id
+            for token_id in sentence.token_ids
+            if {analysis.lemma for analysis in document.store.tokens[token_id].morph}
+            & self._objac_appointment_lemmas
+        ]
+        if not objac_token_ids:
+            return False
+
+        def has_temporal_case(token_id) -> bool:
+            for arc in syntax.token_children(
+                sentence, token_id, relations=frozenset({DependencyRelation.CASE})
+            ):
+                case_lemmas = {
+                    analysis.lemma
+                    for analysis in document.store.tokens[arc.dependent_token_id].morph
+                }
+                if case_lemmas & self._temporal_prepositions:
+                    return True
+            return False
+
+        return all(has_temporal_case(tid) for tid in objac_token_ids)
+
+    def _sentence_has_successor_pattern(
+        self, document: ArticleDocument, sentence: Sentence
+    ) -> bool:
+        """True when 'następca' (successor noun) and 'zostać' both appear in the sentence."""
+        lemmas = self._sentence_lemmas(document, sentence)
+        return bool(lemmas & self._successor_noun_lemmas) and "zostać" in lemmas
+
+    def _person_appears_after_trigger_in_sentence(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+        trigger_start_char: int,
+    ) -> bool:
+        """True when the person has at least one evidence span starting after trigger_start_char."""
+        return any(
+            evidence.span.start_char > trigger_start_char
+            for evidence in document.store.evidence_for_entity(person_id)
+            if evidence.sentence_id == sentence.id
+        )
+
+    def _sentence_has_dash_apposition_with_current_role(
+        self, document: ArticleDocument, sentence: Sentence
+    ) -> bool:
+        """True when a dash token is followed by current-descriptor + governance-role lemmas."""
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        for i, token in enumerate(tokens):
+            if token.text not in self._dash_chars:
+                continue
+            subsequent_lemmas: set[str] = set()
+            for subsequent_token in tokens[i + 1 :]:
+                for analysis in subsequent_token.morph:
+                    subsequent_lemmas.add(analysis.lemma)
+            if (
+                subsequent_lemmas & self._current_descriptor_lemmas
+                and subsequent_lemmas & self._governance_role_lemmas
+            ):
+                return True
+        return False
 
     def _person_is_adjacent_before_trigger(
         self,
