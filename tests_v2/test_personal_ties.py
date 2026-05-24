@@ -14,7 +14,6 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import FactKind, NerLabel, ReferenceKind, RelationshipDetail
 from tests_v2.materialized import (
-    argument_roles,
     entity_hint_for_role,
     fact_records,
     first_fact_record,
@@ -223,20 +222,13 @@ def test_patronage_complaint_uses_adjacent_sentence_people_and_keeps_evidence() 
     ]
     assert complaint_records
 
-    def _has_grounded_person(record) -> bool:
-        roles = argument_roles(record)
-        relevant = {"Dorota Połedniok", "Jacka Guzego"}
-
-        def _role_matches(role_name: str) -> bool:
-            if role_name not in roles:
-                return False
-            return entity_hint_for_role(document, record, role_name) in relevant
-
-        return (
-            _role_matches("complainant")
-            or _role_matches("target")
-            or _role_matches("subject")
-            or _role_matches("object")
-        )
-
-    assert any(_has_grounded_person(record) for record in complaint_records)
+    allegation = next(
+        record for record in complaint_records if record.kind is FactKind.PATRONAGE_ALLEGATION
+    )
+    network = next(
+        record for record in complaint_records if record.kind is FactKind.PATRONAGE_NETWORK_TIE
+    )
+    assert entity_hint_for_role(document, allegation, "complainant") == "Dorota Połedniok"
+    assert entity_hint_for_role(document, allegation, "target") == "Jacka Guzego"
+    assert entity_hint_for_role(document, network, "subject") == "Dorota Połedniok"
+    assert entity_hint_for_role(document, network, "object") == "Jacka Guzego"

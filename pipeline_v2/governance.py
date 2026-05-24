@@ -93,9 +93,10 @@ class GovernanceCandidateStage:
             "nominacja",
             "powołanie",
             "wejść",  # "wejść do zarządu"
+            "zająć",  # "zajął stanowisko/funkcję prezesa"
         }
     )
-    _generic_appointment_lemmas = frozenset({"zostać", "wejść", "nominacja"})
+    _generic_appointment_lemmas = frozenset({"zostać", "wejść", "nominacja", "zająć"})
     _dismissal_lemmas = frozenset(
         {
             "odwołać",
@@ -190,6 +191,16 @@ class GovernanceCandidateStage:
                 context_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                 role_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                 for person_id, organization_id, role_id, entity_signals in viable_combinations:
+                    if (
+                        kind == FactKind.GOVERNANCE_APPOINTMENT
+                        and self._is_generic_appointment_lemma(signals)
+                        and self._person_starts_after_dismissal_cue(
+                            document=document,
+                            sentence=sentence,
+                            person_id=person_id,
+                        )
+                    ):
+                        continue
                     if self._signals_include_active_subject_context(entity_signals):
                         actor_bindings[person_id] = self._merge_binding_signals(
                             actor_bindings.get(person_id, ()),
@@ -381,7 +392,84 @@ class GovernanceCandidateStage:
                     ),
                 )
             )
+            # Passive dismissal constructions ("został odwołany") contain generic
+            # appointment lemmas ("zostać") but are not new appointment events.
+            # Keep valid mixed-clause sentences such as "X został prezesem po tym,
+            # jak odwołano Y" by only suppressing tight generic+dismissal clusters.
+            candidates = [
+                (kind, sigs)
+                for kind, sigs in candidates
+                if not (
+                    kind == FactKind.GOVERNANCE_APPOINTMENT
+                    and (lemmas & self._appointment_lemmas) <= self._generic_appointment_lemmas
+                    and self._has_tight_generic_dismissal_cluster(
+                        document=document,
+                        sentence=sentence,
+                        dismissal_lemmas=plain_dismissal_lemmas,
+                    )
+                )
+            ]
         return tuple(candidates)
+
+    def _has_tight_generic_dismissal_cluster(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        dismissal_lemmas: frozenset[str],
+    ) -> bool:
+        generic_indexes: list[int] = []
+        dismissal_indexes: list[int] = []
+        for index, token_id in enumerate(sentence.token_ids):
+            token = document.store.tokens[token_id]
+            lemmas = {analysis.lemma for analysis in token.morph}
+            if lemmas & self._generic_appointment_lemmas:
+                generic_indexes.append(index)
+            if lemmas & dismissal_lemmas:
+                dismissal_indexes.append(index)
+        if not generic_indexes or not dismissal_indexes:
+            return False
+        return all(
+            any(abs(generic_index - dismissal_index) <= 2 for dismissal_index in dismissal_indexes)
+            for generic_index in generic_indexes
+        )
+
+    def _person_starts_after_dismissal_cue(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+    ) -> bool:
+        dismissal_starts = [
+            document.store.tokens[token_id].span.start_char
+            for token_id in sentence.token_ids
+            if {analysis.lemma for analysis in document.store.tokens[token_id].morph}
+            & (self._dismissal_lemmas - {"zasiadać"})
+        ]
+        if not dismissal_starts:
+            return False
+        person_starts = [
+            evidence.span.start_char
+            for evidence in document.store.evidence_for_entity(person_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        return bool(person_starts) and min(person_starts) > min(dismissal_starts)
+
+    def _person_is_adjacent_before_trigger(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+        trigger_start_char: int,
+    ) -> bool:
+        spans = [
+            evidence.span
+            for evidence in document.store.evidence_for_entity(person_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        return any(0 <= trigger_start_char - span.end_char <= 2 for span in spans)
 
     def _candidate_combinations(
         self,
@@ -489,11 +577,31 @@ class GovernanceCandidateStage:
                     entity_id=person.id,
                 )
                 if relation is not None and syntax.is_subject_relation(relation):
-                    if not syntax.is_passive_sentence(sentence, trigger_token.id):
+                    trigger_lemmas = {analysis.lemma for analysis in trigger_token.morph}
+                    if not syntax.is_passive_sentence(sentence, trigger_token.id) and not (
+                        trigger_lemmas & self._generic_appointment_lemmas
+                    ):
                         person_negative_signals.append(
                             WeakSyntacticBindingSignal(reason="person is active subject of cue")
                         )
-                if self._is_background_local_person(
+                trigger_lemmas = (
+                    {analysis.lemma for analysis in trigger_token.morph}
+                    if trigger_token is not None
+                    else set()
+                )
+                generic_trigger_subject = bool(
+                    trigger_lemmas & self._generic_appointment_lemmas
+                ) and (
+                    relation is not None
+                    and syntax.is_subject_relation(relation)
+                    or self._person_is_adjacent_before_trigger(
+                        document=document,
+                        sentence=sentence,
+                        person_id=person.id,
+                        trigger_start_char=trigger_token.span.start_char,
+                    )
+                )
+                if not generic_trigger_subject and self._is_background_local_person(
                     document,
                     sentence,
                     person,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
@@ -138,6 +139,11 @@ class ResolutionInferenceGraphBuilder:
             entity_proposal_by_variable_id=entity_proposal_by_variable_id,
             same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
         )
+        self._add_surname_assignment_exclusion_factors(
+            document=document,
+            factors=factors,
+            same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+        )
         self._add_same_entity_role_factors(
             document=document,
             fact_graph=fact_graph,
@@ -157,6 +163,13 @@ class ResolutionInferenceGraphBuilder:
             reference_variable_id_by_reference_id=reference_variable_id_by_reference_id,
         )
         self._add_reference_role_factors(
+            document=document,
+            fact_graph=fact_graph,
+            factors=factors,
+            reference_variable_id_by_reference_id=reference_variable_id_by_reference_id,
+            reference_state_proposals_by_variable_id=reference_state_proposals_by_variable_id,
+        )
+        self._add_self_tie_reference_factors(
             document=document,
             fact_graph=fact_graph,
             factors=factors,
@@ -352,6 +365,90 @@ class ResolutionInferenceGraphBuilder:
                 same_entity_variable_id_by_pair[
                     self._entity_pair(enriched.left_entity_id, enriched.right_entity_id)
                 ] = variable_id
+
+    def _add_surname_assignment_exclusion_factors(
+        self,
+        *,
+        document: ArticleDocument,
+        factors: list[InferenceFactor],
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> None:
+        """Add pairwise exclusion factors for surname-only entities that are proposed
+        as potentially the same as multiple full-name entities with different given names.
+
+        Without this, a bare "Jurek" mention can simultaneously merge with both
+        "Dariusz Jurek" and "Monika Jurek", making them transitively identical and
+        producing self-ties in personal-tie events.
+        """
+        surname_only_to_full: dict[EntityCandidateId, list[EntityCandidateId]] = defaultdict(list)
+        for pair in same_entity_variable_id_by_pair:
+            left, right = pair
+            left_cand = document.store.entity_candidates.get(left)
+            right_cand = document.store.entity_candidates.get(right)
+            if left_cand is None or right_cand is None:
+                continue
+            if self._is_surname_only_candidate(document, left_cand) and self._is_full_name_person(
+                right_cand
+            ):
+                surname_only_to_full[left].append(right)
+            elif self._is_surname_only_candidate(
+                document, right_cand
+            ) and self._is_full_name_person(left_cand):
+                surname_only_to_full[right].append(left)
+
+        # For each surname-only entity, create exclusion factors between full-name
+        # candidates that have different given names.
+        for surname_only_id, full_name_ids in surname_only_to_full.items():
+            if len(full_name_ids) < 2:
+                continue
+            for i, left_full in enumerate(full_name_ids):
+                for right_full in full_name_ids[i + 1 :]:
+                    left_cand = document.store.entity_candidates[left_full]
+                    right_cand = document.store.entity_candidates[right_full]
+                    if left_cand.reuse_key is None or right_cand.reuse_key is None:
+                        continue
+                    if (
+                        left_cand.reuse_key.given_name_lemma
+                        == right_cand.reuse_key.given_name_lemma
+                    ):
+                        continue  # same given name — disambiguation not needed
+                    var_left = same_entity_variable_id_by_pair.get(
+                        self._entity_pair(surname_only_id, left_full)
+                    )
+                    var_right = same_entity_variable_id_by_pair.get(
+                        self._entity_pair(surname_only_id, right_full)
+                    )
+                    if var_left is None or var_right is None:
+                        continue
+                    # Potential 0.000001 when both are TRUE (mutual exclusion).
+                    factors.append(
+                        InferenceFactor(
+                            id=InferenceFactorId(
+                                f"factor:surname-exclusion:{surname_only_id}:{left_full}:{right_full}"
+                            ),
+                            kind=InferenceFactorKind.CONSTRAINT,
+                            variable_ids=(var_left, var_right),
+                            potentials=(1.0, 1.0, 1.0, 0.000001),
+                        )
+                    )
+
+    def _is_surname_only_candidate(
+        self,
+        document: ArticleDocument,
+        candidate: EntityCandidate,
+    ) -> bool:
+        if candidate.kind is not EntityKind.PERSON:
+            return False
+        return any(
+            document.store.mentions[mention_id].kind is MentionKind.SURNAME_ONLY
+            for mention_id in candidate.mention_ids
+            if mention_id in document.store.mentions
+        )
+
+    def _is_full_name_person(self, candidate: EntityCandidate) -> bool:
+        return candidate.kind is EntityKind.PERSON and candidate.reuse_key is not None
 
     def _add_same_entity_role_factors(
         self,
@@ -815,6 +912,164 @@ class ResolutionInferenceGraphBuilder:
                         document=document,
                     )
                 )
+
+    def _add_self_tie_reference_factors(
+        self,
+        *,
+        document: ArticleDocument,
+        fact_graph: BuiltFactInferenceGraph,
+        factors: list[InferenceFactor],
+        reference_variable_id_by_reference_id: dict[MentionId, InferenceVariableId],
+        reference_state_proposals_by_variable_id: dict[
+            InferenceVariableId, dict[InferenceStateId, ReferenceResolutionProposal]
+        ],
+    ) -> None:
+        for event in document.store.event_candidates.values():
+            if not self._has_distinct_subject_object_constraint(event.kind):
+                continue
+            subject_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                (event.id, EventRole.SUBJECT)
+            )
+            object_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                (event.id, EventRole.OBJECT)
+            )
+            if subject_var_id is None or object_var_id is None:
+                continue
+            subject_states = fact_graph.index.filler_states_by_variable_id.get(subject_var_id, ())
+            object_states = fact_graph.index.filler_states_by_variable_id.get(object_var_id, ())
+            for (
+                reference_id,
+                reference_variable_id,
+            ) in reference_variable_id_by_reference_id.items():
+                state_proposals = reference_state_proposals_by_variable_id.get(
+                    reference_variable_id,
+                    {},
+                )
+                candidate_state_ids = tuple(state_proposals)
+                if not candidate_state_ids:
+                    continue
+                if not self._reference_can_create_self_tie(
+                    document=document,
+                    reference_id=reference_id,
+                    reference_state_ids=frozenset(candidate_state_ids),
+                    subject_states=subject_states,
+                    object_states=object_states,
+                ):
+                    continue
+                factors.append(
+                    self._self_tie_reference_factor(
+                        document=document,
+                        reference_id=reference_id,
+                        reference_variable_id=reference_variable_id,
+                        reference_state_ids=(UNKNOWN_STATE.id, *candidate_state_ids),
+                        subject_variable_id=subject_var_id,
+                        object_variable_id=object_var_id,
+                        subject_states=subject_states,
+                        object_states=object_states,
+                        event_id=event.id,
+                    )
+                )
+
+    def _reference_can_create_self_tie(
+        self,
+        *,
+        document: ArticleDocument,
+        reference_id: MentionId,
+        reference_state_ids: frozenset[InferenceStateId],
+        subject_states: tuple[RoleFillerState, ...],
+        object_states: tuple[RoleFillerState, ...],
+    ) -> bool:
+        for subject_state in subject_states:
+            for object_state in object_states:
+                if self._states_can_self_tie_via_reference(
+                    document=document,
+                    reference_id=reference_id,
+                    reference_state_ids=reference_state_ids,
+                    dependent_state=subject_state,
+                    other_state=object_state,
+                ) or self._states_can_self_tie_via_reference(
+                    document=document,
+                    reference_id=reference_id,
+                    reference_state_ids=reference_state_ids,
+                    dependent_state=object_state,
+                    other_state=subject_state,
+                ):
+                    return True
+        return False
+
+    def _states_can_self_tie_via_reference(
+        self,
+        *,
+        document: ArticleDocument,
+        reference_id: MentionId,
+        reference_state_ids: frozenset[InferenceStateId],
+        dependent_state: RoleFillerState,
+        other_state: RoleFillerState,
+    ) -> bool:
+        if not self._state_depends_on_reference(document, dependent_state, reference_id):
+            return False
+        other_entity_id = self._entity_id_from_state(other_state)
+        if other_entity_id is None:
+            return False
+        return self._reference_state_id_for_entity(other_entity_id) in reference_state_ids
+
+    def _self_tie_reference_factor(
+        self,
+        *,
+        document: ArticleDocument,
+        reference_id: MentionId,
+        reference_variable_id: InferenceVariableId,
+        reference_state_ids: tuple[InferenceStateId, ...],
+        subject_variable_id: InferenceVariableId,
+        object_variable_id: InferenceVariableId,
+        subject_states: tuple[RoleFillerState, ...],
+        object_states: tuple[RoleFillerState, ...],
+        event_id: EventCandidateId,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        for reference_state_id in reference_state_ids:
+            for subject_state in subject_states:
+                for object_state in object_states:
+                    if reference_state_id == UNKNOWN_STATE.id:
+                        values.append(1.0)
+                        continue
+                    subject_penalty = self._reference_state_makes_self_tie(
+                        document=document,
+                        reference_id=reference_id,
+                        reference_state_id=reference_state_id,
+                        dependent_state=subject_state,
+                        other_state=object_state,
+                    )
+                    object_penalty = self._reference_state_makes_self_tie(
+                        document=document,
+                        reference_id=reference_id,
+                        reference_state_id=reference_state_id,
+                        dependent_state=object_state,
+                        other_state=subject_state,
+                    )
+                    values.append(0.000001 if subject_penalty or object_penalty else 1.0)
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:self-tie-reference:{event_id}:{reference_id}"),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(reference_variable_id, subject_variable_id, object_variable_id),
+            potentials=tuple(values),
+        )
+
+    def _reference_state_makes_self_tie(
+        self,
+        *,
+        document: ArticleDocument,
+        reference_id: MentionId,
+        reference_state_id: InferenceStateId,
+        dependent_state: RoleFillerState,
+        other_state: RoleFillerState,
+    ) -> bool:
+        if not self._state_depends_on_reference(document, dependent_state, reference_id):
+            return False
+        other_entity_id = self._entity_id_from_state(other_state)
+        if other_entity_id is None:
+            return False
+        return reference_state_id == self._reference_state_id_for_entity(other_entity_id)
 
     def _add_same_event_variables(
         self,

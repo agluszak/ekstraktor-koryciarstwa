@@ -116,7 +116,7 @@ def resolve_entity_id(store, entity_id: EntityCandidateId) -> EntityCandidateId:
 class RoleFillerState:
     state: InferenceState
     filler: ArgumentFiller | None
-    evidence_ids: tuple = ()
+    evidence_ids: tuple[EvidenceId, ...] = ()
     signals: tuple[Signal, ...] = ()
 
 

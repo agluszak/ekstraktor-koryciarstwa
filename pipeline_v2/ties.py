@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityFiller,
@@ -7,7 +9,7 @@ from pipeline_v2.candidates import (
     TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import ProducerId
+from pipeline_v2.ids import EntityCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
@@ -27,6 +29,13 @@ from pipeline_v2.types import (
     Signal,
     WindowFallbackSignal,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ComplaintParticipant:
+    entity: SentenceEntity
+    sentence_distance: int
+    preferred_side: EventRole | None = None
 
 
 class PersonalTieCandidateStage:
@@ -228,7 +237,7 @@ class PersonalTieCandidateStage:
         *,
         document: ArticleDocument,
         sentence,
-        participants: tuple[tuple[SentenceEntity, int], ...],
+        participants: tuple[_ComplaintParticipant, ...],
         context_entities: tuple[SentenceEntity, ...],
         complaint_lemma: str,
     ) -> None:
@@ -289,7 +298,7 @@ class PersonalTieCandidateStage:
         sentence_evidence_id,
         evidence_ids: tuple,
         shared_signals: tuple[Signal, ...],
-        participants: tuple[tuple[SentenceEntity, int], ...],
+        participants: tuple[_ComplaintParticipant, ...],
         primary_left_role: EventRole,
         primary_right_role: EventRole,
         context_entities: tuple[SentenceEntity, ...],
@@ -305,33 +314,33 @@ class PersonalTieCandidateStage:
             signals=shared_signals,
         )
         document.store.add_event_candidate(event)
-        for participant, distance in participants:
+        for participant in participants:
             left_signals = self._complaint_role_signals(
                 role=primary_left_role,
-                sentence_distance=distance,
+                participant=participant,
             )
             document.store.add_argument_binding(
                 ArgumentBindingCandidate(
                     id=document.store.next_argument_binding_candidate_id(),
                     event_id=event.id,
                     role=primary_left_role,
-                    filler=EntityFiller(participant.id),
+                    filler=EntityFiller(participant.entity.id),
                     evidence_ids=evidence_ids,
                     signals=left_signals,
                 )
             )
         if len(participants) >= 2:
-            for participant, distance in participants:
+            for participant in participants:
                 right_signals = self._complaint_role_signals(
                     role=primary_right_role,
-                    sentence_distance=distance,
+                    participant=participant,
                 )
                 document.store.add_argument_binding(
                     ArgumentBindingCandidate(
                         id=document.store.next_argument_binding_candidate_id(),
                         event_id=event.id,
                         role=primary_right_role,
-                        filler=EntityFiller(participant.id),
+                        filler=EntityFiller(participant.entity.id),
                         evidence_ids=evidence_ids,
                         signals=right_signals,
                     )
@@ -403,13 +412,13 @@ class PersonalTieCandidateStage:
         *,
         document: ArticleDocument,
         sentence,
-        participants: tuple[tuple[SentenceEntity, int], ...],
+        participants: tuple[_ComplaintParticipant, ...],
     ) -> tuple:
         evidence_ids: list = []
-        for participant, _distance in participants:
+        for participant in participants:
             evidence_ids.extend(
                 evidence.id
-                for evidence in document.store.evidence_for_entity(participant.id)
+                for evidence in document.store.evidence_for_entity(participant.entity.id)
                 if evidence.sentence_id is not None
                 and abs(
                     document.store.sentences[evidence.sentence_id].sentence_index
@@ -427,24 +436,34 @@ class PersonalTieCandidateStage:
         document: ArticleDocument,
         sentence,
         retriever: SentenceEntityRetriever,
-    ) -> tuple[tuple[SentenceEntity, int], ...]:
+    ) -> tuple[_ComplaintParticipant, ...]:
         sentence_people = self._candidate_people(retriever.entities_for_sentence(sentence))
-        merged: dict = {entity.id: (entity, 0) for entity in sentence_people}
+        merged: dict[EntityCandidateId, _ComplaintParticipant] = {
+            entity.id: _ComplaintParticipant(
+                entity=entity,
+                sentence_distance=0,
+                preferred_side=self._preferred_complaint_side(document, sentence, entity),
+            )
+            for entity in sentence_people
+        }
         for entity, distance in self._window_people_for_complaint(
             document=document,
             sentence=sentence,
             retriever=retriever,
         ):
             current = merged.get(entity.id)
-            if current is None or distance < current[1]:
-                merged[entity.id] = (entity, distance)
+            if current is None or distance < current.sentence_distance:
+                merged[entity.id] = _ComplaintParticipant(
+                    entity=entity,
+                    sentence_distance=distance,
+                )
         return tuple(
             sorted(
                 merged.values(),
                 key=lambda item: (
-                    item[1],
-                    abs(item[0].start_char - sentence.span.start_char),
-                    item[0].start_char,
+                    item.sentence_distance,
+                    abs(item.entity.start_char - sentence.span.start_char),
+                    item.entity.start_char,
                 ),
             )
         )
@@ -453,13 +472,40 @@ class PersonalTieCandidateStage:
         self,
         *,
         role: EventRole,
-        sentence_distance: int,
+        participant: _ComplaintParticipant,
     ) -> tuple[Signal, ...]:
-        if sentence_distance <= 0:
-            if role in {EventRole.SUBJECT, EventRole.COMPLAINANT}:
-                return (LocalActorSignal(),)
-            return (LocalTargetSignal(),)
-        return (WindowFallbackSignal(distance=sentence_distance),)
+        left_roles = {EventRole.SUBJECT, EventRole.COMPLAINANT}
+        role_side = EventRole.SUBJECT if role in left_roles else EventRole.OBJECT
+        if participant.sentence_distance <= 0:
+            if participant.preferred_side is None or participant.preferred_side is role_side:
+                if role_side is EventRole.SUBJECT:
+                    return (LocalActorSignal(),)
+                return (LocalTargetSignal(),)
+            return (WindowFallbackSignal(distance=1),)
+        return (WindowFallbackSignal(distance=participant.sentence_distance),)
+
+    def _preferred_complaint_side(
+        self,
+        document: ArticleDocument,
+        sentence,
+        entity: SentenceEntity,
+    ) -> EventRole | None:
+        cue_spans = [
+            token.span
+            for token_id in sentence.token_ids
+            for token in [document.store.tokens[token_id]]
+            if any(
+                analysis.lemma in {"oskarżyć", "zarzucić", "zarzucać"} for analysis in token.morph
+            )
+        ]
+        if not cue_spans:
+            return None
+        cue_start = min(span.start_char for span in cue_spans)
+        if entity.end_char <= cue_start:
+            return EventRole.SUBJECT
+        if entity.start_char >= cue_start:
+            return EventRole.OBJECT
+        return None
 
     def _window_people_for_complaint(
         self,
@@ -471,7 +517,7 @@ class PersonalTieCandidateStage:
         window_entities = self._candidate_people(
             retriever.entities_for_sentence_window(sentence, before=1, after=1)
         )
-        by_entity: dict = {}
+        by_entity: dict[EntityCandidateId, tuple[SentenceEntity, int]] = {}
         for entity in window_entities:
             distance = self._minimum_sentence_distance(
                 document=document,

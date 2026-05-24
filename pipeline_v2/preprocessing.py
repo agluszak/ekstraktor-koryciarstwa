@@ -49,7 +49,13 @@ class HtmlArticlePreprocessor:
             desc = cls._description(soup)
             if desc:
                 candidates = [desc]
-        return cls._clean_paragraphs(candidates, title)
+        body = cls._clean_paragraphs(candidates, title)
+        # Prepend the title as the first paragraph so NER, morphology, and
+        # governance extraction see it as processable text.  Body paragraphs
+        # that duplicate the title are already stripped by _clean_paragraphs.
+        if title:
+            return (title,) + body
+        return body
 
     @staticmethod
     def _clean_paragraphs(candidates: list[str], title: str) -> tuple[str, ...]:

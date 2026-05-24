@@ -55,10 +55,13 @@ from pipeline_v2.types import (
     EntityKind,
     EntityTag,
     EventRole,
+    ExplicitPatronageLemmaSignal,
+    FactArgumentRole,
     FactKind,
     FactResolutionStrategy,
     FundingLemmaSignal,
     GroundingKind,
+    LocalInstitutionSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
@@ -2295,6 +2298,118 @@ def test_direct_self_tie_stays_below_primary_materialization_threshold() -> None
     assert document.fact_assessments == []
 
 
+def test_reference_self_tie_constraint_depends_on_reference_variable() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Jego żona to Anna Nowak.",
+        paragraphs=("Jego żona to Anna Nowak.",),
+    )
+    sentence_id = SentenceId("sentence-1")
+    evidence_id = EvidenceId("evidence-1")
+    reference_id = MentionId("reference-1")
+    proxy_id = EntityCandidateId("proxy-spouse")
+    named_id = EntityCandidateId("anna-nowak")
+    event_id = EventCandidateId("event-1")
+    document.store.add_sentence(
+        Sentence(
+            id=sentence_id,
+            sentence_index=0,
+            paragraph_index=0,
+            text=document.cleaned_text,
+            span=Span(0, len(document.cleaned_text)),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=evidence_id,
+            text=document.cleaned_text,
+            span=Span(0, len(document.cleaned_text)),
+            sentence_id=sentence_id,
+        )
+    )
+    document.store.add_reference(
+        ReferenceMention(
+            id=reference_id,
+            text="Jego żona",
+            kind=ReferenceKind.PROXY_FAMILY_PHRASE,
+            evidence_id=evidence_id,
+            sentence_id=sentence_id,
+            relationship_detail=RelationshipDetail.SPOUSE,
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=proxy_id,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="spouse proxy",
+            grounding=GroundingKind.PROXY,
+            source=ProducerId("test"),
+            reference_ids=(reference_id,),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=named_id,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Anna Nowak",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.reference_resolution_proposals.append(
+        ReferenceResolutionProposal(
+            reference_id=reference_id,
+            candidate_entity_id=named_id,
+            evidence_ids=(evidence_id,),
+            retrieval_signals=(CoreferenceProviderLinkSignal(),),
+        )
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            trigger_evidence_id=evidence_id,
+            evidence_ids=(evidence_id,),
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            filler=EntityFiller(proxy_id),
+            evidence_ids=(evidence_id,),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            filler=EntityFiller(named_id),
+            evidence_ids=(evidence_id,),
+        )
+    )
+
+    fact_graph = FactInferenceGraphBuilder().build(document)
+    resolution_graph = ResolutionInferenceGraphBuilder().build(
+        document=document,
+        fact_graph=fact_graph,
+    )
+
+    assert any(
+        factor.id == InferenceFactorId(f"factor:self-tie-reference:{event_id}:{reference_id}")
+        and len(factor.variable_ids) == 3
+        for factor in resolution_graph.spec.factors
+    )
+
+
 def _setup_funding_event_for_org(
     document: ArticleDocument,
     *,
@@ -2401,6 +2516,95 @@ def test_media_outlet_entity_context_suppresses_funder_role() -> None:
                         case _:
                             continue
     assert "PAP" not in high_confidence_funder_hints
+
+
+def test_media_outlet_entity_context_suppresses_patronage_institution_role() -> None:
+    def run(*, attach_media_proposal: bool) -> float:
+        org_id = EntityCandidateId("media-org")
+        event_id = EventCandidateId("event-patronage")
+        document = ArticleDocument(
+            document_id=DocumentId("doc-media-patronage"),
+            source_url=None,
+            title="Title",
+            publication_date=None,
+            cleaned_text="Text.",
+            paragraphs=("Text.",),
+        )
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=org_id,
+                kind=EntityKind.ORGANIZATION,
+                mention_ids=(),
+                canonical_hint="Wirtualna Polska",
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
+        document.store.add_event_candidate(
+            EventCandidate(
+                id=event_id,
+                kind=FactKind.PATRONAGE_ALLEGATION,
+                trigger_evidence_id=None,
+                evidence_ids=(),
+                source=ProducerId("test"),
+                signals=(
+                    ExplicitPatronageLemmaSignal(lemma="kolesiostwo"),
+                    LocalInstitutionSignal(),
+                ),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId("binding-institution"),
+                event_id=event_id,
+                role=EventRole.INSTITUTION,
+                filler=EntityFiller(org_id),
+                evidence_ids=(),
+                signals=(LocalInstitutionSignal(),),
+            )
+        )
+        if attach_media_proposal:
+            document.entity_context_proposals.append(
+                EntityContextProposal(
+                    entity_id=org_id,
+                    context_kind=EntityTag.MEDIA_OUTLET,
+                    evidence_ids=(),
+                    retrieval_signals=(MediaOutletLemmaSignal(lemma="wp"),),
+                )
+            )
+
+        ProbabilisticInferenceStage().run(document)
+
+        def binds_media_as_institution(argument: object) -> bool:
+            match argument:
+                case EntityFactArgument(
+                    role=FactArgumentRole.INSTITUTION,
+                    entity_id=entity_id,
+                ):
+                    return entity_id == org_id
+                case _:
+                    return False
+
+        institution_scores = []
+        for record in document.materialized_fact_records:
+            if record.kind is not FactKind.PATRONAGE_ALLEGATION:
+                continue
+            if not any(binds_media_as_institution(argument) for argument in record.arguments):
+                continue
+            assessment = next(
+                (a for a in document.fact_assessments if a.materialized_fact_id == record.id),
+                None,
+            )
+            institution_scores.append(
+                assessment.assessment.score if assessment is not None else 0.0
+            )
+        return max(institution_scores, default=0.0)
+
+    baseline_score = run(attach_media_proposal=False)
+    media_score = run(attach_media_proposal=True)
+
+    assert media_score < baseline_score
+    assert media_score < 0.5
 
 
 def test_public_institution_entity_context_boosts_workplace_posterior() -> None:
