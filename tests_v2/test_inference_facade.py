@@ -12,6 +12,7 @@ from pipeline_v2.candidates import (
     EntityFactArgument,
     EntityFiller,
     EventCandidate,
+    FullPersonNameKey,
     ReferenceResolutionProposal,
     TextFiller,
 )
@@ -62,11 +63,14 @@ from pipeline_v2.types import (
     FundingLemmaSignal,
     GroundingKind,
     LocalInstitutionSignal,
+    LocalObjectSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
+    LocalSubjectSignal,
     MediaOutletLemmaSignal,
     MentionKind,
+    NamedKinshipLemmaSignal,
     PartyOrganizationSignal,
     PublicContractLemmaSignal,
     PublicEmploymentLemmaSignal,
@@ -2298,7 +2302,11 @@ def test_direct_self_tie_stays_below_primary_materialization_threshold() -> None
     assert document.fact_assessments == []
 
 
-def test_reference_self_tie_constraint_depends_on_reference_variable() -> None:
+def test_proxy_self_tie_does_not_materialize_when_reference_resolves_to_opposing_role() -> None:
+    """A proxy entity (SUBJECT) whose reference resolves to the named entity (OBJECT) forms
+    a potential self-tie.  The distinct-role-reference factor should penalise that combination
+    so strongly that the tie falls below the materialization threshold.
+    """
     document = ArticleDocument(
         document_id=DocumentId("doc"),
         source_url=None,
@@ -2397,17 +2405,182 @@ def test_reference_self_tie_constraint_depends_on_reference_variable() -> None:
         )
     )
 
-    fact_graph = FactInferenceGraphBuilder().build(document)
-    resolution_graph = ResolutionInferenceGraphBuilder().build(
-        document=document,
-        fact_graph=fact_graph,
+    ProbabilisticInferenceStage().run(document)
+
+    assert document.materialized_fact_records == []
+
+
+def test_same_entity_resolution_identifies_matching_candidates() -> None:
+    """Two person candidates that share the same FullPersonNameKey (full-name reuse match)
+    appear in opposing SUBJECT/OBJECT roles of a personal tie.  Entity resolution should
+    produce a same-entity claim for the pair, and the distinct-role same-entity factor
+    should make it visible via that claim being emitted after inference.
+    """
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    kowalski_a = EntityCandidateId("kowalski-a")
+    kowalski_b = EntityCandidateId("kowalski-b")
+    event_id = EventCandidateId("event-tie")
+    kowalski_key = FullPersonNameKey(given_name_lemma="Jan", surname_base="Kowalsk")
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=kowalski_a,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski (A)",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+            reuse_key=kowalski_key,
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=kowalski_b,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski (B)",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+            reuse_key=kowalski_key,
+        )
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            filler=EntityFiller(kowalski_a),
+            evidence_ids=(),
+            signals=(LocalPersonSignal(),),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            filler=EntityFiller(kowalski_b),
+            evidence_ids=(),
+            signals=(LocalPersonSignal(),),
+        )
     )
 
+    ProbabilisticInferenceStage().run(document)
+
+    # Inference should have identified both candidates as the same entity (score > 0.5)
+    # and emitted a resolution claim — the first signal that the tie is a self-tie.
+    resolution_claims = list(document.store.resolution_claims.values())
+    same_pair = {kowalski_a, kowalski_b}
     assert any(
-        factor.id == InferenceFactorId(f"factor:self-tie-reference:{event_id}:{reference_id}")
-        and len(factor.variable_ids) == 3
-        for factor in resolution_graph.spec.factors
+        {claim.left_entity_id, claim.right_entity_id} == same_pair for claim in resolution_claims
+    ), "same-entity claim expected for two Jan Kowalski candidates in opposing roles"
+
+
+def test_distinct_personal_tie_materializes() -> None:
+    """Two genuinely distinct persons (different reuse_keys) in SUBJECT and OBJECT with
+    strong kinship signals should produce a materialized personal tie.  This is a
+    regression guard against the self-tie suppression over-firing.
+    """
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
     )
+    jan_id = EntityCandidateId("jan-kowalski")
+    anna_id = EntityCandidateId("anna-nowak")
+    event_id = EventCandidateId("event-tie")
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=jan_id,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+            reuse_key=FullPersonNameKey(given_name_lemma="Jan", surname_base="Kowalsk"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=anna_id,
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Anna Nowak",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+            reuse_key=FullPersonNameKey(given_name_lemma="Anna", surname_base="Nowak"),
+        )
+    )
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+            signals=(
+                NamedKinshipLemmaSignal(lemma="siostra"),
+                LocalSubjectSignal(),
+                LocalObjectSignal(),
+            ),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            filler=EntityFiller(jan_id),
+            evidence_ids=(),
+            signals=(LocalPersonSignal(),),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            filler=EntityFiller(anna_id),
+            evidence_ids=(),
+            signals=(LocalPersonSignal(),),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("binding-detail"),
+            event_id=event_id,
+            role=EventRole.RELATIONSHIP_DETAIL,
+            filler=TextFiller(RelationshipDetail.FAMILY.value),
+            evidence_ids=(),
+        )
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    tie_records = [
+        r
+        for r in document.materialized_fact_records
+        if r.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert len(tie_records) == 1
 
 
 def _setup_funding_event_for_org(
