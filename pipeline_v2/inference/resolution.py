@@ -34,7 +34,7 @@ from pipeline_v2.inference.entity_context_policy import (
     DEFAULT_ENTITY_CONTEXT_ROLE_POLICY,
     EntityContextRolePolicy,
 )
-from pipeline_v2.inference.event_schema import schema_for
+from pipeline_v2.inference.event_schema import DistinctRoleConstraint, schema_for
 from pipeline_v2.inference.factor_builders import (
     FALSE_STATE,
     TRUE_STATE,
@@ -62,7 +62,6 @@ from pipeline_v2.types import (
     DuplicateFactSignal,
     EntityKind,
     EntityTag,
-    EventRole,
     FactArgumentRole,
     FactKind,
     FactResolutionStrategy,
@@ -626,94 +625,87 @@ class ResolutionInferenceGraphBuilder:
         ],
     ) -> None:
         for event in document.store.event_candidates.values():
-            if not self._has_distinct_subject_object_constraint(event.kind):
-                continue
-            subject_var_id = fact_graph.index.role_variable_id_by_event_role.get(
-                (event.id, EventRole.SUBJECT)
-            )
-            object_var_id = fact_graph.index.role_variable_id_by_event_role.get(
-                (event.id, EventRole.OBJECT)
-            )
-            if subject_var_id is None or object_var_id is None:
-                continue
-            subject_states = fact_graph.index.filler_states_by_variable_id.get(subject_var_id, ())
-            object_states = fact_graph.index.filler_states_by_variable_id.get(object_var_id, ())
-            seen_pairs: set[tuple[EntityCandidateId, EntityCandidateId]] = set()
-            for s_state in subject_states:
-                for o_state in object_states:
-                    s_eid = None
-                    o_eid = None
-                    match s_state.filler:
-                        case EntityFiller(entity_id=eid):
-                            s_eid = eid
-                    match o_state.filler:
-                        case EntityFiller(entity_id=eid):
-                            o_eid = eid
-                    if s_eid is None or o_eid is None or s_eid == o_eid:
-                        continue
-                    pair = self._entity_pair(s_eid, o_eid)
-                    same_entity_var_id = same_entity_variable_id_by_pair.get(pair)
-                    if same_entity_var_id is None or pair in seen_pairs:
-                        continue
-                    seen_pairs.add(pair)
-                    factors.append(
-                        self._self_tie_entity_factor(
-                            same_entity_variable_id=same_entity_var_id,
-                            subject_variable_id=subject_var_id,
-                            object_variable_id=object_var_id,
-                            subject_states=subject_states,
-                            object_states=object_states,
-                            left_entity_id=pair[0],
-                            right_entity_id=pair[1],
-                            event_id=event.id,
+            schema = schema_for(event.kind)
+            for constraint in schema.distinct_role_constraints:
+                left_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                    (event.id, constraint.left_role)
+                )
+                right_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                    (event.id, constraint.right_role)
+                )
+                if left_var_id is None or right_var_id is None:
+                    continue
+                left_states = fact_graph.index.filler_states_by_variable_id.get(left_var_id, ())
+                right_states = fact_graph.index.filler_states_by_variable_id.get(right_var_id, ())
+                seen_pairs: set[tuple[EntityCandidateId, EntityCandidateId]] = set()
+                for left_state in left_states:
+                    for right_state in right_states:
+                        left_entity_id = self._entity_id_from_state(left_state)
+                        right_entity_id = self._entity_id_from_state(right_state)
+                        if (
+                            left_entity_id is None
+                            or right_entity_id is None
+                            or left_entity_id == right_entity_id
+                        ):
+                            continue
+                        pair = self._entity_pair(left_entity_id, right_entity_id)
+                        same_entity_var_id = same_entity_variable_id_by_pair.get(pair)
+                        if same_entity_var_id is None or pair in seen_pairs:
+                            continue
+                        seen_pairs.add(pair)
+                        factors.append(
+                            self._distinct_role_same_entity_factor(
+                                same_entity_variable_id=same_entity_var_id,
+                                left_variable_id=left_var_id,
+                                right_variable_id=right_var_id,
+                                left_states=left_states,
+                                right_states=right_states,
+                                left_entity_id=pair[0],
+                                right_entity_id=pair[1],
+                                event_id=event.id,
+                                constraint=constraint,
+                            )
                         )
-                    )
 
-    def _has_distinct_subject_object_constraint(self, fact_kind: FactKind) -> bool:
-        schema = schema_for(fact_kind)
-        role_set = {role_spec.role for role_spec in schema.roles}
-        return EventRole.SUBJECT in role_set and EventRole.OBJECT in role_set
-
-    def _self_tie_entity_factor(
+    def _distinct_role_same_entity_factor(
         self,
         *,
         same_entity_variable_id: InferenceVariableId,
-        subject_variable_id: InferenceVariableId,
-        object_variable_id: InferenceVariableId,
-        subject_states: tuple[RoleFillerState, ...],
-        object_states: tuple[RoleFillerState, ...],
+        left_variable_id: InferenceVariableId,
+        right_variable_id: InferenceVariableId,
+        left_states: tuple[RoleFillerState, ...],
+        right_states: tuple[RoleFillerState, ...],
         left_entity_id: EntityCandidateId,
         right_entity_id: EntityCandidateId,
         event_id: EventCandidateId,
+        constraint: DistinctRoleConstraint,
     ) -> InferenceFactor:
         values: list[float] = []
         for same_entity_state in (FALSE_STATE, TRUE_STATE):
-            for s_state in subject_states:
-                for o_state in object_states:
+            for left_state in left_states:
+                for right_state in right_states:
                     if same_entity_state.id == FALSE_STATE.id:
                         values.append(1.0)
                         continue
-                    s_eid = None
-                    o_eid = None
-                    match s_state.filler:
-                        case EntityFiller(entity_id=eid):
-                            s_eid = eid
-                    match o_state.filler:
-                        case EntityFiller(entity_id=eid):
-                            o_eid = eid
-                    if (s_eid, o_eid) in (
+                    current_pair = (
+                        self._entity_id_from_state(left_state),
+                        self._entity_id_from_state(right_state),
+                    )
+                    if current_pair in (
                         (left_entity_id, right_entity_id),
                         (right_entity_id, left_entity_id),
                     ):
-                        values.append(0.000001)
+                        values.append(constraint.resolution_penalty)
                     else:
                         values.append(1.0)
         return InferenceFactor(
             id=InferenceFactorId(
-                f"factor:self-tie-entity:{event_id}:{left_entity_id}:{right_entity_id}"
+                "factor:distinct-role-same-entity:"
+                f"{event_id}:{constraint.left_role.value}:{constraint.right_role.value}:"
+                f"{left_entity_id}:{right_entity_id}"
             ),
             kind=InferenceFactorKind.CONSTRAINT,
-            variable_ids=(same_entity_variable_id, subject_variable_id, object_variable_id),
+            variable_ids=(same_entity_variable_id, left_variable_id, right_variable_id),
             potentials=tuple(values),
         )
 
@@ -925,79 +917,80 @@ class ResolutionInferenceGraphBuilder:
         ],
     ) -> None:
         for event in document.store.event_candidates.values():
-            if not self._has_distinct_subject_object_constraint(event.kind):
-                continue
-            subject_var_id = fact_graph.index.role_variable_id_by_event_role.get(
-                (event.id, EventRole.SUBJECT)
-            )
-            object_var_id = fact_graph.index.role_variable_id_by_event_role.get(
-                (event.id, EventRole.OBJECT)
-            )
-            if subject_var_id is None or object_var_id is None:
-                continue
-            subject_states = fact_graph.index.filler_states_by_variable_id.get(subject_var_id, ())
-            object_states = fact_graph.index.filler_states_by_variable_id.get(object_var_id, ())
-            for (
-                reference_id,
-                reference_variable_id,
-            ) in reference_variable_id_by_reference_id.items():
-                state_proposals = reference_state_proposals_by_variable_id.get(
-                    reference_variable_id,
-                    {},
+            schema = schema_for(event.kind)
+            for constraint in schema.distinct_role_constraints:
+                left_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                    (event.id, constraint.left_role)
                 )
-                candidate_state_ids = tuple(state_proposals)
-                if not candidate_state_ids:
+                right_var_id = fact_graph.index.role_variable_id_by_event_role.get(
+                    (event.id, constraint.right_role)
+                )
+                if left_var_id is None or right_var_id is None:
                     continue
-                if not self._reference_can_create_self_tie(
-                    document=document,
-                    reference_id=reference_id,
-                    reference_state_ids=frozenset(candidate_state_ids),
-                    subject_states=subject_states,
-                    object_states=object_states,
-                ):
-                    continue
-                factors.append(
-                    self._self_tie_reference_factor(
+                left_states = fact_graph.index.filler_states_by_variable_id.get(left_var_id, ())
+                right_states = fact_graph.index.filler_states_by_variable_id.get(right_var_id, ())
+                for (
+                    reference_id,
+                    reference_variable_id,
+                ) in reference_variable_id_by_reference_id.items():
+                    state_proposals = reference_state_proposals_by_variable_id.get(
+                        reference_variable_id,
+                        {},
+                    )
+                    candidate_state_ids = tuple(state_proposals)
+                    if not candidate_state_ids:
+                        continue
+                    if not self._reference_can_collapse_distinct_roles(
                         document=document,
                         reference_id=reference_id,
-                        reference_variable_id=reference_variable_id,
-                        reference_state_ids=(UNKNOWN_STATE.id, *candidate_state_ids),
-                        subject_variable_id=subject_var_id,
-                        object_variable_id=object_var_id,
-                        subject_states=subject_states,
-                        object_states=object_states,
-                        event_id=event.id,
+                        reference_state_ids=frozenset(candidate_state_ids),
+                        left_states=left_states,
+                        right_states=right_states,
+                    ):
+                        continue
+                    factors.append(
+                        self._distinct_role_reference_factor(
+                            document=document,
+                            reference_id=reference_id,
+                            reference_variable_id=reference_variable_id,
+                            reference_state_ids=(UNKNOWN_STATE.id, *candidate_state_ids),
+                            left_variable_id=left_var_id,
+                            right_variable_id=right_var_id,
+                            left_states=left_states,
+                            right_states=right_states,
+                            event_id=event.id,
+                            constraint=constraint,
+                        )
                     )
-                )
 
-    def _reference_can_create_self_tie(
+    def _reference_can_collapse_distinct_roles(
         self,
         *,
         document: ArticleDocument,
         reference_id: MentionId,
         reference_state_ids: frozenset[InferenceStateId],
-        subject_states: tuple[RoleFillerState, ...],
-        object_states: tuple[RoleFillerState, ...],
+        left_states: tuple[RoleFillerState, ...],
+        right_states: tuple[RoleFillerState, ...],
     ) -> bool:
-        for subject_state in subject_states:
-            for object_state in object_states:
-                if self._states_can_self_tie_via_reference(
+        for left_state in left_states:
+            for right_state in right_states:
+                if self._states_can_collapse_distinct_roles_via_reference(
                     document=document,
                     reference_id=reference_id,
                     reference_state_ids=reference_state_ids,
-                    dependent_state=subject_state,
-                    other_state=object_state,
-                ) or self._states_can_self_tie_via_reference(
+                    dependent_state=left_state,
+                    other_state=right_state,
+                ) or self._states_can_collapse_distinct_roles_via_reference(
                     document=document,
                     reference_id=reference_id,
                     reference_state_ids=reference_state_ids,
-                    dependent_state=object_state,
-                    other_state=subject_state,
+                    dependent_state=right_state,
+                    other_state=left_state,
                 ):
                     return True
         return False
 
-    def _states_can_self_tie_via_reference(
+    def _states_can_collapse_distinct_roles_via_reference(
         self,
         *,
         document: ArticleDocument,
@@ -1013,49 +1006,56 @@ class ResolutionInferenceGraphBuilder:
             return False
         return self._reference_state_id_for_entity(other_entity_id) in reference_state_ids
 
-    def _self_tie_reference_factor(
+    def _distinct_role_reference_factor(
         self,
         *,
         document: ArticleDocument,
         reference_id: MentionId,
         reference_variable_id: InferenceVariableId,
         reference_state_ids: tuple[InferenceStateId, ...],
-        subject_variable_id: InferenceVariableId,
-        object_variable_id: InferenceVariableId,
-        subject_states: tuple[RoleFillerState, ...],
-        object_states: tuple[RoleFillerState, ...],
+        left_variable_id: InferenceVariableId,
+        right_variable_id: InferenceVariableId,
+        left_states: tuple[RoleFillerState, ...],
+        right_states: tuple[RoleFillerState, ...],
         event_id: EventCandidateId,
+        constraint: DistinctRoleConstraint,
     ) -> InferenceFactor:
         values: list[float] = []
         for reference_state_id in reference_state_ids:
-            for subject_state in subject_states:
-                for object_state in object_states:
+            for left_state in left_states:
+                for right_state in right_states:
                     if reference_state_id == UNKNOWN_STATE.id:
                         values.append(1.0)
                         continue
-                    subject_penalty = self._reference_state_makes_self_tie(
+                    left_penalty = self._reference_state_collapses_distinct_roles(
                         document=document,
                         reference_id=reference_id,
                         reference_state_id=reference_state_id,
-                        dependent_state=subject_state,
-                        other_state=object_state,
+                        dependent_state=left_state,
+                        other_state=right_state,
                     )
-                    object_penalty = self._reference_state_makes_self_tie(
+                    right_penalty = self._reference_state_collapses_distinct_roles(
                         document=document,
                         reference_id=reference_id,
                         reference_state_id=reference_state_id,
-                        dependent_state=object_state,
-                        other_state=subject_state,
+                        dependent_state=right_state,
+                        other_state=left_state,
                     )
-                    values.append(0.000001 if subject_penalty or object_penalty else 1.0)
+                    values.append(
+                        constraint.resolution_penalty if left_penalty or right_penalty else 1.0
+                    )
         return InferenceFactor(
-            id=InferenceFactorId(f"factor:self-tie-reference:{event_id}:{reference_id}"),
+            id=InferenceFactorId(
+                "factor:distinct-role-reference:"
+                f"{event_id}:{constraint.left_role.value}:{constraint.right_role.value}:"
+                f"{reference_id}"
+            ),
             kind=InferenceFactorKind.CONSTRAINT,
-            variable_ids=(reference_variable_id, subject_variable_id, object_variable_id),
+            variable_ids=(reference_variable_id, left_variable_id, right_variable_id),
             potentials=tuple(values),
         )
 
-    def _reference_state_makes_self_tie(
+    def _reference_state_collapses_distinct_roles(
         self,
         *,
         document: ArticleDocument,

@@ -18,7 +18,7 @@ from pipeline_v2.ids import (
     InferenceStateId,
     InferenceVariableId,
 )
-from pipeline_v2.inference.event_schema import schema_for
+from pipeline_v2.inference.event_schema import DistinctRoleConstraint, schema_for
 from pipeline_v2.inference.fact_priors import FactPrior, FactPriorPolicyRegistry
 from pipeline_v2.inference.graph_spec import (
     InferenceFactor,
@@ -283,91 +283,29 @@ class FactInferenceGraphBuilder:
                         factors.append(semantic_factor)
                 role_variable_id_by_event_role[(event.id, role)] = role_variable.id
                 filler_states_by_variable_id[role_variable.id] = states
-            if event.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.PATRONAGE_NETWORK_TIE}:
-                subject_var = role_vars.get(EventRole.SUBJECT)
-                object_var = role_vars.get(EventRole.OBJECT)
-                if subject_var is not None and object_var is not None:
-                    factors.append(
-                        self._self_tie_constraint_factor(
-                            event_id=event.id,
-                            subject_variable=subject_var,
-                            subject_states=role_states_map[EventRole.SUBJECT],
-                            object_variable=object_var,
-                            object_states=role_states_map[EventRole.OBJECT],
-                            document=document,
-                        )
+            for constraint in schema.distinct_role_constraints:
+                left_variable = role_vars.get(constraint.left_role)
+                right_variable = role_vars.get(constraint.right_role)
+                left_states = role_states_map.get(constraint.left_role)
+                right_states = role_states_map.get(constraint.right_role)
+                if (
+                    left_variable is None
+                    or right_variable is None
+                    or left_states is None
+                    or right_states is None
+                ):
+                    continue
+                factors.append(
+                    self._distinct_role_constraint_factor(
+                        event_id=event.id,
+                        constraint=constraint,
+                        left_variable=left_variable,
+                        left_states=left_states,
+                        right_variable=right_variable,
+                        right_states=right_states,
+                        document=document,
                     )
-                    if event.kind is FactKind.PATRONAGE_NETWORK_TIE:
-                        factors.append(
-                            self._role_distinctness_factor(
-                                factor_name="subject-object-distinct",
-                                event_id=event.id,
-                                left_variable=subject_var,
-                                left_states=role_states_map[EventRole.SUBJECT],
-                                right_variable=object_var,
-                                right_states=role_states_map[EventRole.OBJECT],
-                                document=document,
-                            )
-                        )
-            if event.kind == FactKind.PUBLIC_CONTRACT:
-                counterparty_var = role_vars.get(EventRole.COUNTERPARTY)
-                contractor_var = role_vars.get(EventRole.CONTRACTOR)
-                if counterparty_var is not None and contractor_var is not None:
-                    factors.append(
-                        self._contract_counterparty_distinctness_factor(
-                            event_id=event.id,
-                            counterparty_variable=counterparty_var,
-                            counterparty_states=role_states_map[EventRole.COUNTERPARTY],
-                            contractor_variable=contractor_var,
-                            contractor_states=role_states_map[EventRole.CONTRACTOR],
-                            document=document,
-                        )
-                    )
-            if event.kind == FactKind.FUNDING:
-                funder_var = role_vars.get(EventRole.FUNDER)
-                recipient_var = role_vars.get(EventRole.RECIPIENT)
-                if funder_var is not None and recipient_var is not None:
-                    factors.append(
-                        self._role_distinctness_factor(
-                            factor_name="funding-distinct",
-                            event_id=event.id,
-                            left_variable=funder_var,
-                            left_states=role_states_map[EventRole.FUNDER],
-                            right_variable=recipient_var,
-                            right_states=role_states_map[EventRole.RECIPIENT],
-                            document=document,
-                        )
-                    )
-            if event.kind == FactKind.PUBLIC_PROCUREMENT_ABUSE:
-                actor_var = role_vars.get(EventRole.ACTOR)
-                target_var = role_vars.get(EventRole.TARGET)
-                if actor_var is not None and target_var is not None:
-                    factors.append(
-                        self._role_distinctness_factor(
-                            factor_name="patronage-actor-target-distinct",
-                            event_id=event.id,
-                            left_variable=actor_var,
-                            left_states=role_states_map[EventRole.ACTOR],
-                            right_variable=target_var,
-                            right_states=role_states_map[EventRole.TARGET],
-                            document=document,
-                        )
-                    )
-            if event.kind == FactKind.PATRONAGE_ALLEGATION:
-                complainant_var = role_vars.get(EventRole.COMPLAINANT)
-                target_var = role_vars.get(EventRole.TARGET)
-                if complainant_var is not None and target_var is not None:
-                    factors.append(
-                        self._role_distinctness_factor(
-                            factor_name="patronage-complainant-target-distinct",
-                            event_id=event.id,
-                            left_variable=complainant_var,
-                            left_states=role_states_map[EventRole.COMPLAINANT],
-                            right_variable=target_var,
-                            right_states=role_states_map[EventRole.TARGET],
-                            document=document,
-                        )
-                    )
+                )
 
         factors.extend(
             self._patronage_cross_layer_factors(
@@ -641,72 +579,11 @@ class FactInferenceGraphBuilder:
             potentials=tuple(potentials),
         )
 
-    def _self_tie_constraint_factor(
+    def _distinct_role_constraint_factor(
         self,
         *,
         event_id: EventCandidateId,
-        subject_variable: InferenceVariable,
-        subject_states: tuple[RoleFillerState, ...],
-        object_variable: InferenceVariable,
-        object_states: tuple[RoleFillerState, ...],
-        document: ArticleDocument,
-    ) -> InferenceFactor:
-        values: list[float] = []
-        for s_state in subject_states:
-            for o_state in object_states:
-                s_entity_id = None
-                o_entity_id = None
-                match s_state.filler:
-                    case EntityFiller(entity_id=entity_id):
-                        s_entity_id = resolve_entity_id(document.store, entity_id)
-                    case _:
-                        pass
-                match o_state.filler:
-                    case EntityFiller(entity_id=entity_id):
-                        o_entity_id = resolve_entity_id(document.store, entity_id)
-                    case _:
-                        pass
-
-                if (
-                    s_entity_id is not None
-                    and o_entity_id is not None
-                    and s_entity_id == o_entity_id
-                ):
-                    values.append(0.000001)
-                else:
-                    values.append(1.0)
-        return InferenceFactor(
-            id=InferenceFactorId(f"factor:self-tie:{event_id}"),
-            kind=InferenceFactorKind.CONSTRAINT,
-            variable_ids=(subject_variable.id, object_variable.id),
-            potentials=tuple(values),
-        )
-
-    def _contract_counterparty_distinctness_factor(
-        self,
-        *,
-        event_id: EventCandidateId,
-        counterparty_variable: InferenceVariable,
-        counterparty_states: tuple[RoleFillerState, ...],
-        contractor_variable: InferenceVariable,
-        contractor_states: tuple[RoleFillerState, ...],
-        document: ArticleDocument,
-    ) -> InferenceFactor:
-        return self._role_distinctness_factor(
-            factor_name="contract-distinct",
-            event_id=event_id,
-            left_variable=counterparty_variable,
-            left_states=counterparty_states,
-            right_variable=contractor_variable,
-            right_states=contractor_states,
-            document=document,
-        )
-
-    def _role_distinctness_factor(
-        self,
-        *,
-        factor_name: str,
-        event_id: EventCandidateId,
+        constraint: DistinctRoleConstraint,
         left_variable: InferenceVariable,
         left_states: tuple[RoleFillerState, ...],
         right_variable: InferenceVariable,
@@ -717,43 +594,48 @@ class FactInferenceGraphBuilder:
         for left_state in left_states:
             for right_state in right_states:
                 values.append(
-                    0.02
-                    if self._entity_roles_overlap(
+                    self._direct_overlap_penalty(
+                        constraint=constraint,
                         document=document,
                         left_state=left_state,
                         right_state=right_state,
                     )
-                    else 1.0
                 )
         return InferenceFactor(
-            id=InferenceFactorId(f"factor:{factor_name}:{event_id}"),
+            id=InferenceFactorId(
+                "factor:distinct-role:"
+                f"{event_id}:{constraint.left_role.value}:{constraint.right_role.value}"
+            ),
             kind=InferenceFactorKind.CONSTRAINT,
             variable_ids=(left_variable.id, right_variable.id),
             potentials=tuple(values),
         )
 
-    def _entity_roles_overlap(
+    def _direct_overlap_penalty(
         self,
         *,
+        constraint: DistinctRoleConstraint,
         document: ArticleDocument,
         left_state: RoleFillerState,
         right_state: RoleFillerState,
-    ) -> bool:
+    ) -> float:
         match (left_state.filler, right_state.filler):
             case (EntityFiller(entity_id=left_entity_id), EntityFiller(entity_id=right_entity_id)):
-                left_resolved = resolve_entity_id(document.store, left_entity_id)
-                right_resolved = resolve_entity_id(document.store, right_entity_id)
+                if left_entity_id == right_entity_id:
+                    return constraint.same_candidate_penalty
             case _:
-                return False
-        if left_resolved == right_resolved:
-            return True
+                return 1.0
+        if constraint.same_canonical_hint_penalty is None:
+            return 1.0
         left = document.store.entity_candidates.get(left_entity_id)
         right = document.store.entity_candidates.get(right_entity_id)
         if left is None or right is None:
-            return False
+            return 1.0
         left_hint = (left.canonical_hint or "").casefold()
         right_hint = (right.canonical_hint or "").casefold()
-        return bool(left_hint) and left_hint == right_hint
+        if left_hint and left_hint == right_hint:
+            return constraint.same_canonical_hint_penalty
+        return 1.0
 
     def _semantic_role_support_factor(
         self,

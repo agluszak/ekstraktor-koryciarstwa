@@ -14,9 +14,19 @@ class RoleSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class DistinctRoleConstraint:
+    left_role: EventRole
+    right_role: EventRole
+    same_candidate_penalty: float
+    resolution_penalty: float
+    same_canonical_hint_penalty: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class EventSchema:
     fact_kind: FactKind
     roles: tuple[RoleSpec, ...]
+    distinct_role_constraints: tuple[DistinctRoleConstraint, ...] = ()
 
     def role_for_argument(self, argument_role: FactArgumentRole) -> EventRole:
         if self.fact_kind is FactKind.PUBLIC_EMPLOYMENT:
@@ -38,15 +48,29 @@ class EventSchema:
                 return role_spec
         return None
 
+    def distinct_role_constraint_for(
+        self,
+        left_role: EventRole,
+        right_role: EventRole,
+    ) -> DistinctRoleConstraint | None:
+        for constraint in self.distinct_role_constraints:
+            if (constraint.left_role is left_role and constraint.right_role is right_role) or (
+                constraint.left_role is right_role and constraint.right_role is left_role
+            ):
+                return constraint
+        return None
+
 
 _ANY_ENTITY = frozenset(EntityKind)
 _PERSON = frozenset({EntityKind.PERSON})
 _ORG = frozenset({EntityKind.ORGANIZATION})
 _PARTY = frozenset({EntityKind.POLITICAL_PARTY})
-_ORG_OR_PARTY = frozenset({EntityKind.ORGANIZATION, EntityKind.POLITICAL_PARTY})
 _ORG_OR_PERSON = frozenset({EntityKind.ORGANIZATION, EntityKind.PERSON})
 _ROLE = frozenset({EntityKind.ROLE})
 _MONEY = frozenset({EntityKind.MONEY})
+_SELF_TIE_DIRECT = 0.000001
+_SELF_TIE_RESOLUTION = 0.000001
+_SOFT_DISTINCT = 0.02
 
 
 EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
@@ -84,6 +108,15 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.RECIPIENT, FactArgumentRole.RECIPIENT, _ORG),
             RoleSpec(EventRole.AMOUNT, FactArgumentRole.AMOUNT, _MONEY, required=True),
         ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.FUNDER,
+                right_role=EventRole.RECIPIENT,
+                same_candidate_penalty=_SOFT_DISTINCT,
+                resolution_penalty=_SOFT_DISTINCT,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.PUBLIC_CONTRACT: EventSchema(
         fact_kind=FactKind.PUBLIC_CONTRACT,
@@ -91,6 +124,15 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.COUNTERPARTY, FactArgumentRole.COUNTERPARTY, _ORG),
             RoleSpec(EventRole.CONTRACTOR, FactArgumentRole.CONTRACTOR, _ORG_OR_PERSON),
             RoleSpec(EventRole.AMOUNT, FactArgumentRole.AMOUNT, _MONEY, required=True),
+        ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.COUNTERPARTY,
+                right_role=EventRole.CONTRACTOR,
+                same_candidate_penalty=_SOFT_DISTINCT,
+                resolution_penalty=_SOFT_DISTINCT,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
         ),
     ),
     FactKind.COMPENSATION: EventSchema(
@@ -123,6 +165,15 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.INSTITUTION, FactArgumentRole.INSTITUTION, _ORG),
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
         ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.COMPLAINANT,
+                right_role=EventRole.TARGET,
+                same_candidate_penalty=_SOFT_DISTINCT,
+                resolution_penalty=_SOFT_DISTINCT,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.ANTI_CORRUPTION_INVESTIGATION: EventSchema(
         fact_kind=FactKind.ANTI_CORRUPTION_INVESTIGATION,
@@ -140,6 +191,15 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.INSTITUTION, FactArgumentRole.INSTITUTION, _ORG),
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
         ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.ACTOR,
+                right_role=EventRole.TARGET,
+                same_candidate_penalty=_SOFT_DISTINCT,
+                resolution_penalty=_SOFT_DISTINCT,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.PATRONAGE_ALLEGATION: EventSchema(
         fact_kind=FactKind.PATRONAGE_ALLEGATION,
@@ -149,6 +209,15 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.INSTITUTION, FactArgumentRole.INSTITUTION, _ORG),
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
         ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.COMPLAINANT,
+                right_role=EventRole.TARGET,
+                same_candidate_penalty=_SOFT_DISTINCT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.PATRONAGE_NETWORK_TIE: EventSchema(
         fact_kind=FactKind.PATRONAGE_NETWORK_TIE,
@@ -157,6 +226,15 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PERSON),
             RoleSpec(EventRole.INSTITUTION, FactArgumentRole.INSTITUTION, _ORG),
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.SUBJECT,
+                right_role=EventRole.OBJECT,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
         ),
     ),
     FactKind.PERSONAL_OR_POLITICAL_TIE: EventSchema(
@@ -170,6 +248,14 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
                 _ANY_ENTITY,
             ),
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.SUBJECT,
+                right_role=EventRole.OBJECT,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+            ),
         ),
     ),
 }
