@@ -20,6 +20,7 @@ class DistinctRoleConstraint:
     same_candidate_penalty: float
     resolution_penalty: float
     same_canonical_hint_penalty: float | None = None
+    blocks_materialization_on_same_resolved_entity: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +235,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
                 same_candidate_penalty=_SELF_TIE_DIRECT,
                 resolution_penalty=_SELF_TIE_RESOLUTION,
                 same_canonical_hint_penalty=_SOFT_DISTINCT,
+                blocks_materialization_on_same_resolved_entity=True,
             ),
         ),
     ),
@@ -255,6 +257,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
                 right_role=EventRole.OBJECT,
                 same_candidate_penalty=_SELF_TIE_DIRECT,
                 resolution_penalty=_SELF_TIE_RESOLUTION,
+                blocks_materialization_on_same_resolved_entity=True,
             ),
         ),
     ),

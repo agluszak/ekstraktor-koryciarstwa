@@ -257,6 +257,28 @@ class FactAssessmentMaterializer:
                     )
 
         selections = tuple(selected_by_role.values())
+        # Suppress facts where the schema says distinct roles cannot resolve to
+        # the same entity. This covers self-ties when there are no alternatives:
+        # inference cannot prefer another filler, but materialization should
+        # still reject the selected fact.
+        event_to_output = {role_spec.role: role_spec.output_role for role_spec in schema.roles}
+        for constraint in schema.distinct_role_constraints:
+            if not constraint.blocks_materialization_on_same_resolved_entity:
+                continue
+            left_output = event_to_output.get(constraint.left_role)
+            right_output = event_to_output.get(constraint.right_role)
+            if left_output is None or right_output is None:
+                continue
+            left_sel = selected_by_role.get(left_output)
+            right_sel = selected_by_role.get(right_output)
+            if left_sel is None or right_sel is None:
+                continue
+            match (left_sel.state.filler, right_sel.state.filler):
+                case (EntityFiller(entity_id=left_id), EntityFiller(entity_id=right_id)):
+                    if resolve_entity_id(document.store, left_id) == resolve_entity_id(
+                        document.store, right_id
+                    ):
+                        return None
         base_record = self._record_from_selection(
             store=document.store,
             event=event,

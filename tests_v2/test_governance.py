@@ -28,6 +28,7 @@ from pipeline_v2.syntax import DependencyParseStage
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
     DependencyRelation,
+    EntityKind,
     EntityTag,
     EventRole,
     FactKind,
@@ -784,3 +785,143 @@ def test_governance_stage_produces_appointment_from_dash_apposition_current_role
     appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
     assert appointments, "expected GOVERNANCE_APPOINTMENT from dash-apposition pattern"
     assert any(entity_hint_for_role(document, r, "person") == "Jan Kowalski" for r in appointments)
+
+
+def test_governance_stage_does_not_dismiss_person_in_exception_clause() -> None:
+    text = "Odwołano wszystkich dyrektorów z wyjątkiem Jana Kowalskiego."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jana Kowalskiego",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jana Kowalskiego"), text.index("Jana Kowalskiego") + 16),
+            ),
+        ),
+    )
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    dismissed_people = {entity_hint_for_role(document, r, "person") for r in dismissals}
+    assert "Jana Kowalskiego" not in dismissed_people, (
+        "person in exception clause should not be marked as dismissed"
+    )
+
+
+def test_governance_stage_dismisses_person_not_in_exception_clause() -> None:
+    text = "Piotr Wiśniewski został odwołany z wyjątkiem Jana Kowalskiego."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Piotr Wiśniewski",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Piotr Wiśniewski"),
+                    text.index("Piotr Wiśniewski") + len("Piotr Wiśniewski"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Jana Kowalskiego",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jana Kowalskiego"), text.index("Jana Kowalskiego") + 16),
+            ),
+        ),
+    )
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    dismissed_people = {entity_hint_for_role(document, r, "person") for r in dismissals}
+    assert "Jana Kowalskiego" not in dismissed_people, (
+        "person in exception clause should not be dismissed"
+    )
+    assert "Piotr Wiśniewski" in dismissed_people, (
+        "person before exception clause should still be dismissed"
+    )
+
+
+def test_governance_stage_dismisses_person_after_closed_exception_clause() -> None:
+    text = "Z wyjątkiem Jana Kowalskiego, odwołano Piotra Wiśniewskiego."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jana Kowalskiego",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jana Kowalskiego"), text.index("Jana Kowalskiego") + 16),
+            ),
+            NamedEntitySpan(
+                text="Piotra Wiśniewskiego",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Piotra Wiśniewskiego"),
+                    text.index("Piotra Wiśniewskiego") + len("Piotra Wiśniewskiego"),
+                ),
+            ),
+        ),
+    )
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    dismissed_people = {entity_hint_for_role(document, r, "person") for r in dismissals}
+    assert "Jana Kowalskiego" not in dismissed_people
+    assert "Piotra Wiśniewskiego" in dismissed_people
+
+
+def test_governance_stage_does_not_bind_role_title_person_ner_span_as_governance_person() -> None:
+    text = "Prezes podpisał umowę z firmą Wodkan."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Prezes",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Prezes"), text.index("Prezes") + 6),
+            ),
+            NamedEntitySpan(
+                text="Wodkan",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+            ),
+        ),
+    )
+
+    person_entities = {
+        e.canonical_hint
+        for e in document.store.entity_candidates.values()
+        if e.kind == EntityKind.PERSON
+    }
+    governance_people = {
+        entity_hint_for_role(document, record, "person")
+        for record in fact_records(document)
+        if record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
+    }
+
+    assert "Prezes" in person_entities
+    assert "Prezes" not in governance_people
+
+
+def test_governance_stage_still_binds_named_person_with_role_title() -> None:
+    text = "Prezes Jan Kowalski został powołany do zarządu spółki Wodkan."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Prezes Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Prezes Jan Kowalski"),
+                    text.index("Prezes Jan Kowalski") + len("Prezes Jan Kowalski"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Wodkan",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+            ),
+        ),
+    )
+
+    governance_people = [
+        entity_hint_for_role(document, record, "person")
+        for record in fact_records(document)
+        if record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    ]
+    assert "Prezes Jan Kowalski" in governance_people

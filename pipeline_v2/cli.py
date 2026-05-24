@@ -77,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         and args.output_dir is None
     ):
         parser.error("--output-dir is required unless --stdout is set")
+    if args.input_dir is not None and args.document_id is not None:
+        parser.error("--document-id cannot be used with --input-dir")
 
     coreference_mode = CoreferenceMode(args.coreference_mode)
     provider = None
@@ -103,21 +105,23 @@ def main(argv: list[str] | None = None) -> int:
         return document_to_json(document) if debug else document_to_slim_json(document)
 
     if args.input_dir is not None:
+        stdout_documents: list[object] = []
         for input_path in sorted(args.input_dir.glob(args.glob)):
             document = pipeline.run_document(
                 PipelineInput(
                     raw_html=input_path.read_text(encoding="utf-8"),
                     source_url=args.source_url,
                     publication_date=args.publication_date,
-                    document_id=args.document_id,
                 )
             )
             if args.stdout:
-                emit_json(serialize(document), indent=2)
+                stdout_documents.append(serialize(document))
             else:
                 assert args.output_dir is not None
                 out_path = args.output_dir / f"{document.document_id}.json"
                 writer.write(document, out_path, debug=debug)
+        if args.stdout:
+            emit_json(stdout_documents, indent=2)
         return 0
 
     if args.url is not None:

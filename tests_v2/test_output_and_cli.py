@@ -4,6 +4,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from pipeline_v2.candidates import Assessment, FactCandidateRecord, MaterializedFactAlternative
 from pipeline_v2.cli import main
 from pipeline_v2.document import (
@@ -209,6 +211,20 @@ class FakePipeline:
         return self.document
 
 
+@dataclass(slots=True)
+class FakeBatchPipeline:
+    def run_document(self, data: PipelineInput) -> ArticleDocument:
+        document_id = DocumentId("first" if "First" in data.raw_html else "second")
+        return ArticleDocument(
+            document_id=document_id,
+            source_url=data.source_url,
+            title=str(document_id),
+            publication_date=data.publication_date,
+            cleaned_text="Text.",
+            paragraphs=("Text.",),
+        )
+
+
 def test_v2_cli_writes_one_json_file_per_html_input(tmp_path: Path, monkeypatch) -> None:
     input_dir = tmp_path / "inputs"
     output_dir = tmp_path / "outputs"
@@ -239,6 +255,40 @@ def test_v2_cli_writes_one_json_file_per_html_input(tmp_path: Path, monkeypatch)
     assert exit_code == 0
     written = json.loads((output_dir / "doc.json").read_text(encoding="utf-8"))
     assert written["title"] == "Title"
+
+
+def test_v2_cli_rejects_document_id_override_in_batch_mode(tmp_path: Path) -> None:
+    input_dir = tmp_path / "inputs"
+    input_dir.mkdir()
+    (input_dir / "article.html").write_text("<html><p>Text.</p></html>", encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "--input-dir",
+                str(input_dir),
+                "--document-id",
+                "same-id-for-every-file",
+                "--stdout",
+            ]
+        )
+
+
+def test_v2_cli_batch_stdout_is_single_json_array(tmp_path: Path, monkeypatch, capsys) -> None:
+    input_dir = tmp_path / "inputs"
+    input_dir.mkdir()
+    (input_dir / "a.html").write_text("<html><p>First.</p></html>", encoding="utf-8")
+    (input_dir / "b.html").write_text("<html><p>Second.</p></html>", encoding="utf-8")
+    monkeypatch.setattr(
+        "pipeline_v2.cli.build_v2_pipeline",
+        lambda _config: FakeBatchPipeline(),
+    )
+
+    exit_code = main(["--input-dir", str(input_dir), "--stdout"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [item["title"] for item in payload] == ["first", "second"]
 
 
 def test_document_output_serializes_materialized_fact_alternatives() -> None:
