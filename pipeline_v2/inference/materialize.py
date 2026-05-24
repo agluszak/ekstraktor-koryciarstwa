@@ -325,6 +325,14 @@ class FactAssessmentMaterializer:
             match selection.state.filler:
                 case EntityFiller(entity_id=entity_id):
                     resolved_entity_id = resolve_entity_id(store, entity_id)
+                    resolved_entity = store.entity_candidates.get(resolved_entity_id)
+                    if (
+                        resolved_entity is not None
+                        and resolved_entity.kind not in selection.role_spec.allowed_entity_kinds
+                    ):
+                        if selection.role_spec.required:
+                            return None
+                        continue
                     arguments.append(
                         EntityFactArgument(selection.role_spec.output_role, resolved_entity_id)
                     )
@@ -370,6 +378,20 @@ class FactAssessmentMaterializer:
         match record.kind:
             case FactKind.COMPENSATION:
                 return bool(non_amount_roles)
+            case FactKind.PATRONAGE_ALLEGATION:
+                return any(
+                    argument.role not in {FactArgumentRole.CONTEXT, FactArgumentRole.INSTITUTION}
+                    for argument in record.arguments
+                )
+            case FactKind.PATRONAGE_NETWORK_TIE:
+                return any(
+                    argument.role in {FactArgumentRole.SUBJECT, FactArgumentRole.OBJECT}
+                    for argument in record.arguments
+                )
+            case FactKind.CORPORATE_OWNERSHIP:
+                return any(
+                    argument.role is FactArgumentRole.AMOUNT for argument in record.arguments
+                )
             case _:
                 return True
 

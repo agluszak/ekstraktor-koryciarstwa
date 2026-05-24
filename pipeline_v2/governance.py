@@ -8,8 +8,9 @@ from pipeline_v2.candidates import (
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.entity_classification import entity_has_lexical_context_proposal
+from pipeline_v2.event_frames import EventFrame, EventFrameBuilder, FrameArgumentRole
 from pipeline_v2.ids import EntityCandidateId, ProducerId
-from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
+from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
@@ -147,6 +148,24 @@ class GovernanceCandidateStage:
             "szef",
         }
     )
+    _political_role_lemmas = frozenset(
+        {
+            "poseł",
+            "posłanka",
+            "radny",
+            "radna",
+            "senator",
+            "minister",
+            "prezydent",
+            "wojewoda",
+            "wójt",
+            "wojt",
+            "burmistrz",
+            "starosta",
+            "sekretarz",
+            "marszałek",
+        }
+    )
     _role_title_only_person_lemmas = frozenset(
         {
             "dyrektor",
@@ -179,6 +198,7 @@ class GovernanceCandidateStage:
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         for sentence in document.store.sentences.values():
+            self._add_political_office_candidates(document, sentence)
             kinds = self._candidate_kinds(document, sentence)
             if not kinds:
                 continue
@@ -502,6 +522,120 @@ class GovernanceCandidateStage:
                 )
             ]
         return tuple(candidates)
+
+    def _add_political_office_candidates(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> None:
+        if not (self._sentence_lemmas(document, sentence) & self._political_role_lemmas):
+            return
+        frame_builder = EventFrameBuilder(document.store)
+        entities = SentenceEntityRetriever(document.store).entities_for_sentence(sentence)
+        people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
+        roles = tuple(entity for entity in entities if entity.kind == EntityKind.ROLE)
+        if not people or not roles:
+            return
+
+        bindings: list[tuple[SentenceEntity, SentenceEntity]] = []
+        for role in roles:
+            if not self._is_political_role(document, role.id):
+                continue
+            role_frame = frame_builder.frame_for_trigger(
+                sentence,
+                self._first_token_for_entity(document, sentence, role),
+            )
+            person = self._office_person_for_role(document, role_frame, role, people)
+            if person is not None:
+                bindings.append((person, role))
+
+        if not bindings:
+            return
+
+        evidence = EvidenceSpan(
+            id=document.store.next_evidence_id(),
+            text=sentence.text,
+            span=sentence.span,
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=self.producer_id,
+        )
+        document.store.add_evidence(evidence)
+        event = EventCandidate(
+            id=document.store.next_event_candidate_id(),
+            kind=FactKind.POLITICAL_OFFICE,
+            trigger_evidence_id=evidence.id,
+            evidence_ids=(evidence.id,),
+            source=self.producer_id,
+            signals=(),
+        )
+        document.store.add_event_candidate(event)
+        for person, role in bindings:
+            self._add_governance_bindings(
+                document=document,
+                event=event,
+                role=EventRole.PERSON,
+                bindings={person.id: (LocalPersonSignal(),)},
+                evidence_id=evidence.id,
+            )
+            self._add_governance_bindings(
+                document=document,
+                event=event,
+                role=EventRole.ROLE,
+                bindings={role.id: (LocalRoleSignal(),)},
+                evidence_id=evidence.id,
+            )
+
+    def _office_person_for_role(
+        self,
+        document: ArticleDocument,
+        role_frame: EventFrame,
+        role: SentenceEntity,
+        people: tuple[SentenceEntity, ...],
+    ) -> SentenceEntity | None:
+        attached = tuple(
+            argument.entity
+            for argument in role_frame.entities(
+                EntityKind.PERSON,
+                roles=frozenset({FrameArgumentRole.APPOSITION, FrameArgumentRole.MODIFIER}),
+            )
+        )
+        if attached:
+            return min(attached, key=lambda person: abs(person.start_char - role.start_char))
+        adjacent = tuple(
+            person
+            for person in people
+            if abs(person.start_char - role.end_char) <= 2
+            or abs(role.start_char - person.end_char) <= 3
+        )
+        if adjacent:
+            return min(adjacent, key=lambda person: abs(person.start_char - role.start_char))
+        copular_lemmas = self._sentence_lemmas(document, role_frame.sentence)
+        if not (copular_lemmas & {"być", "zostać"}):
+            return None
+        copular = tuple(
+            argument.entity
+            for argument in role_frame.entities(
+                EntityKind.PERSON,
+                roles=frozenset({FrameArgumentRole.SUBJECT, FrameArgumentRole.OTHER}),
+            )
+            if argument.distance <= 4
+        )
+        if copular:
+            return min(copular, key=lambda person: abs(person.start_char - role.start_char))
+        return None
+
+    def _first_token_for_entity(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        entity: SentenceEntity,
+    ) -> Token:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if entity.start_char <= token.span.start_char < entity.end_char:
+                return token
+        return document.store.tokens[sentence.token_ids[0]]
 
     def _has_tight_generic_dismissal_cluster(
         self,
@@ -1294,3 +1428,17 @@ class GovernanceCandidateStage:
                         continue
                     return True
         return False
+
+    def _is_political_role(self, document: ArticleDocument, role_id: EntityCandidateId) -> bool:
+        role_candidate = document.store.entity_candidates[role_id]
+        text = (role_candidate.canonical_hint or "").lower()
+        lemmas = set()
+        for mention_id in role_candidate.mention_ids:
+            mention = document.store.mentions[mention_id]
+            for token_id in mention.token_ids:
+                token = document.store.tokens[token_id]
+                for analysis in token.morph:
+                    lemmas.add(analysis.lemma.lower())
+        return bool(self._political_role_lemmas & lemmas) or any(
+            lemma_word in text for lemma_word in self._political_role_lemmas
+        )

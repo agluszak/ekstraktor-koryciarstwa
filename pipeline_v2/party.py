@@ -10,6 +10,7 @@ from pipeline_v2.candidates import (
     EventCandidate,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.event_frames import EventFrameBuilder, FrameArgumentRole
 from pipeline_v2.ids import (
     EntityCandidateId,
     ProducerId,
@@ -113,6 +114,7 @@ class PartyCandidateStage:
             for match in self._party_matches(document, sentence):
                 party_id = self._add_party_candidate(document, sentence, match)
                 self._add_relation_candidates(document, sentence, party_id, match)
+            self._add_candidacy_candidates(document, sentence)
         return document
 
     def _party_matches(
@@ -199,9 +201,19 @@ class PartyCandidateStage:
         person = self._direct_affiliation_person(document, sentence, entities, match)
         if person is not None:
             document.store.add_evidence(evidence)
+            kind = (
+                FactKind.FORMER_PARTY_MEMBERSHIP
+                if self._has_former_context(
+                    document=document,
+                    sentence=sentence,
+                    person=person,
+                    match=match,
+                )
+                else FactKind.PARTY_AFFILIATION
+            )
             event = EventCandidate(
                 id=document.store.next_event_candidate_id(),
-                kind=FactKind.PARTY_AFFILIATION,
+                kind=kind,
                 trigger_evidence_id=evidence.id,
                 evidence_ids=(evidence.id,),
                 source=self.producer_id,
@@ -276,7 +288,9 @@ class PartyCandidateStage:
     ) -> SentenceEntity | None:
         people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
         if self._has_profile_context(document, sentence, match):
-            return self._attached_profile_person(document, sentence, people, match)
+            p = self._attached_profile_person(document, sentence, people, match)
+            if p is not None:
+                return p
         previous_person = self._nearest_previous_person(people, match.span.start_char)
         if previous_person is None:
             return None
@@ -536,6 +550,125 @@ class PartyCandidateStage:
         if analyses:
             return getattr(analyses[0], "lemma", None)
         return None
+
+    def _has_former_context(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person: SentenceEntity,
+        match: "PartyAliasMatch",
+    ) -> bool:
+        former_lemmas = frozenset({"były", "dawny", "wcześniej", "niegdyś", "ex-"})
+        token_ids = self._token_ids_in_span(
+            document=document,
+            sentence=sentence,
+            start_char=max(sentence.span.start_char, person.start_char - 30),
+            end_char=match.span.end_char,
+        )
+        if self._tokens_contain_lemmas(document, token_ids, former_lemmas):
+            return True
+        for token_id in token_ids:
+            token = document.store.tokens[token_id]
+            token_text_lower = token.text.lower()
+            if token_text_lower in {"był", "była", "było", "byli", "były"}:
+                return True
+            for analysis in token.morph:
+                if analysis.lemma == "być" and analysis.tag and "praet" in analysis.tag:
+                    return True
+        return False
+
+    def _token_ids_in_span(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        start_char: int,
+        end_char: int,
+    ) -> tuple[TokenId, ...]:
+        return tuple(
+            token_id
+            for token_id in sentence.token_ids
+            if start_char <= document.store.tokens[token_id].span.start_char < end_char
+        )
+
+    def _add_candidacy_candidates(self, document: ArticleDocument, sentence: Sentence) -> None:
+        trigger_lemmas = frozenset({"kandydat", "kandydatka", "kandydować", "startować"})
+        frame = EventFrameBuilder(document.store).first_frame_for_lemmas(sentence, trigger_lemmas)
+        if frame is None:
+            return
+
+        person = frame.nearest(
+            EntityKind.PERSON,
+            roles=frozenset(
+                {
+                    FrameArgumentRole.SUBJECT,
+                    FrameArgumentRole.APPOSITION,
+                    FrameArgumentRole.OTHER,
+                }
+            ),
+        )
+        if person is None:
+            return
+
+        evidence = EvidenceSpan(
+            id=document.store.next_evidence_id(),
+            text=sentence.text,
+            span=sentence.span,
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=self.producer_id,
+        )
+        document.store.add_evidence(evidence)
+
+        event = EventCandidate(
+            id=document.store.next_event_candidate_id(),
+            kind=FactKind.ELECTION_CANDIDACY,
+            trigger_evidence_id=evidence.id,
+            evidence_ids=(evidence.id,),
+            source=self.producer_id,
+            signals=(CandidacyContextSignal(),),
+        )
+        document.store.add_event_candidate(event)
+
+        person_signal = PartyProfileLemmaSignal(
+            lemma=frame.trigger.preferred_lemma() or frame.trigger.text
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.PERSON,
+                filler=EntityFiller(person.entity.id),
+                evidence_ids=(evidence.id,),
+                signals=(person_signal,),
+            )
+        )
+        for role in frame.entities(EntityKind.ROLE):
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.ROLE,
+                    filler=EntityFiller(role.entity.id),
+                    evidence_ids=(evidence.id,),
+                )
+            )
+        for organization in frame.entities(
+            frozenset({EntityKind.ORGANIZATION, EntityKind.POLITICAL_PARTY}),
+            before_trigger=False,
+            prepositions=frozenset({"z", "do", "w", "na"}),
+        ):
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.ORGANIZATION,
+                    filler=EntityFiller(organization.entity.id),
+                    evidence_ids=(evidence.id,),
+                    signals=(DirectPrepositionalAttachmentSignal(),),
+                )
+            )
 
 
 @dataclass(frozen=True, slots=True)

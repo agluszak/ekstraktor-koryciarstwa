@@ -133,7 +133,7 @@ class NominalKinshipCandidateStage:
 
         event = EventCandidate(
             id=document.store.next_event_candidate_id(),
-            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+            kind=FactKind.EXTENDED_KINSHIP,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
             source=self.producer_id,

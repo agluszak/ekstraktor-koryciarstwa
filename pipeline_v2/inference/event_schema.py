@@ -261,6 +261,87 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             ),
         ),
     ),
+    FactKind.FORMER_PARTY_MEMBERSHIP: EventSchema(
+        fact_kind=FactKind.FORMER_PARTY_MEMBERSHIP,
+        roles=(
+            RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON, required=True),
+            RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PARTY, required=True),
+        ),
+    ),
+    FactKind.ELECTION_CANDIDACY: EventSchema(
+        fact_kind=FactKind.ELECTION_CANDIDACY,
+        roles=(
+            RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
+            RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
+            RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+    ),
+    FactKind.POLITICAL_OFFICE: EventSchema(
+        fact_kind=FactKind.POLITICAL_OFFICE,
+        roles=(
+            RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
+            RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE, required=True),
+            RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
+        ),
+    ),
+    FactKind.CORPORATE_OWNERSHIP: EventSchema(
+        fact_kind=FactKind.CORPORATE_OWNERSHIP,
+        roles=(
+            RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _ORG_OR_PERSON, required=True),
+            RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _ORG, required=True),
+            RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
+            RoleSpec(EventRole.AMOUNT, FactArgumentRole.AMOUNT, _MONEY),
+        ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.SUBJECT,
+                right_role=EventRole.OBJECT,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+                blocks_materialization_on_same_resolved_entity=True,
+            ),
+        ),
+    ),
+    FactKind.PARTY_DONATION: EventSchema(
+        fact_kind=FactKind.PARTY_DONATION,
+        roles=(
+            RoleSpec(EventRole.FUNDER, FactArgumentRole.FUNDER, _PERSON, required=True),
+            RoleSpec(EventRole.RECIPIENT, FactArgumentRole.RECIPIENT, _PARTY, required=True),
+            RoleSpec(EventRole.AMOUNT, FactArgumentRole.AMOUNT, _MONEY, required=True),
+        ),
+    ),
+    FactKind.ASSET_DECLARATION: EventSchema(
+        fact_kind=FactKind.ASSET_DECLARATION,
+        roles=(
+            RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
+            RoleSpec(EventRole.AMOUNT, FactArgumentRole.AMOUNT, _MONEY, required=True),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+    ),
+    FactKind.EXTENDED_KINSHIP: EventSchema(
+        fact_kind=FactKind.EXTENDED_KINSHIP,
+        roles=(
+            RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON, required=True),
+            RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PERSON, required=True),
+            RoleSpec(
+                EventRole.RELATIONSHIP_DETAIL,
+                FactArgumentRole.RELATIONSHIP_DETAIL,
+                _ANY_ENTITY,
+            ),
+            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+        ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.SUBJECT,
+                right_role=EventRole.OBJECT,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                blocks_materialization_on_same_resolved_entity=True,
+            ),
+        ),
+    ),
 }
 
 _FACT_ARGUMENT_ROLE_BY_EVENT_ROLE = {

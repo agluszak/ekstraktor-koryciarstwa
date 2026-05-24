@@ -68,3 +68,54 @@ def test_html_preprocessor_generates_stable_document_id() -> None:
     )
 
     assert first.document_id == second.document_id
+
+
+def test_html_preprocessor_filters_boilerplate_and_comments() -> None:
+    raw_html = """
+    <html>
+      <head>
+        <meta property="og:title" content="Tytuł artykułu">
+      </head>
+      <body>
+        <p>Tytuł artykułu</p>
+        <p>Pierwszy prawdziwy akapit o ważnych sprawach publicznych.</p>
+        <p>komentarze</p>
+        <p>Jan Kowalski - niezalogowany</p>
+        <p>2026-05-14 12:34:56</p>
+        <p>Krótka</p>
+        <p>Reklama</p>
+        <p>Twoje zdanie jest ważne</p>
+        <p>Drugi akapit o wartości 123 tys. zł brutto.</p>
+      </body>
+    </html>
+    """
+
+    document = HtmlArticlePreprocessor().run(PipelineInput(raw_html=raw_html))
+
+    assert document.paragraphs == (
+        "Tytuł artykułu",
+        "Pierwszy prawdziwy akapit o ważnych sprawach publicznych.",
+        "Drugi akapit o wartości 123 tys. zł brutto.",
+    )
+
+
+def test_html_preprocessor_survives_important_short_paragraphs() -> None:
+    raw_html = """
+    <html>
+      <body>
+        <p>50 mln zł</p>
+        <p>12 mln PLN</p>
+        <p>300 tys. USD</p>
+        <p>Wójt gminy</p>
+        <p>Prezes zarządu</p>
+        <p>Dnia 2026-05-14 podjęto decyzję.</p>
+      </body>
+    </html>
+    """
+    document = HtmlArticlePreprocessor().run(PipelineInput(raw_html=raw_html))
+    assert "50 mln zł" in document.paragraphs
+    assert "12 mln PLN" in document.paragraphs
+    assert "300 tys. USD" in document.paragraphs
+    assert "Wójt gminy" in document.paragraphs
+    assert "Prezes zarządu" in document.paragraphs
+    assert "Dnia 2026-05-14 podjęto decyzję." in document.paragraphs

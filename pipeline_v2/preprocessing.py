@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from html import unescape
 
 import trafilatura
@@ -69,6 +70,14 @@ class HtmlArticlePreprocessor:
             lowered = paragraph.casefold()
             if lowered == normalized_title:
                 continue
+            if is_boilerplate_paragraph(paragraph):
+                continue
+            if _looks_like_comment(paragraph):
+                continue
+            if len(paragraph) < 20 and not (
+                AMOUNT_RE.search(paragraph) or ROLE_SHORT_RE.search(paragraph)
+            ):
+                continue
             if lowered in seen:
                 continue
             seen.add(lowered)
@@ -128,3 +137,108 @@ class HtmlArticlePreprocessor:
 
 def compact_text(text: str) -> str:
     return " ".join(unescape(text).replace("\xa0", " ").split())
+
+
+GENERIC_JUNK_PATTERNS = (
+    re.compile(r"^::addons", re.IGNORECASE),
+    re.compile(r"^płatny dostęp do treści$", re.IGNORECASE),
+    re.compile(r"^ten artykuł przeczytasz", re.IGNORECASE),
+    re.compile(r"^komentarze$", re.IGNORECASE),
+    re.compile(r"^reklama$", re.IGNORECASE),
+    re.compile(r"^twoje zdanie jest ważne", re.IGNORECASE),
+    re.compile(r"^skorzystaj z subskrypcji", re.IGNORECASE),
+    re.compile(r"^wiadomości pogodowe$", re.IGNORECASE),
+    re.compile(r"^popularne osoby$", re.IGNORECASE),
+    re.compile(r"^organizacje$", re.IGNORECASE),
+    re.compile(r"^inne tematy$", re.IGNORECASE),
+    re.compile(r"^pogoda$", re.IGNORECASE),
+    re.compile(r"^z tego artykułu dowiesz się:?$", re.IGNORECASE),
+)
+
+UI_SUBSTRING_MARKERS = frozenset(
+    {
+        "strona główna",
+        "zobacz wszystkie",
+        "więcej informacji znajdziesz",
+        "serwisy partnerskie",
+        "powiązane artykuły",
+        "zobacz również",
+        "następny artykuł",
+        "poprzedni artykuł",
+        "kup subskrypcję",
+        "płatny dostęp do treści",
+        "skorzystaj z subskrypcji",
+    }
+)
+
+UI_EXACT_MARKERS = frozenset(
+    {
+        "premium",
+        "pogoda",
+        "organizacje",
+        "komentarze",
+        "reklama",
+        "popularne osoby",
+        "inne tematy",
+        "wiadomości pogodowe",
+        "logowanie",
+        "zaloguj",
+        "program tv",
+        "subskrypcja",
+        "subskrypcje",
+        "subskrypcji",
+        "subskrybuj",
+    }
+)
+
+UI_PREFIX_MARKERS = frozenset(
+    {
+        "czytaj także",
+        "przeczytaj także",
+    }
+)
+
+AMOUNT_RE = re.compile(
+    r"\b\d+(?:[ .,]\d+)*(?:\s*(?:tys\.?|mln|miliard\w*))?\s*(?:zł|złotych|pln|usd|eur|€|\$)\b",
+    re.IGNORECASE,
+)
+
+ROLE_SHORT_RE = re.compile(
+    r"\b(?:wójt|burmistrz|prezydent|starost|marszał|wojewod|radn|pos[eł]|posłan|senator|prezes|minist|dyrektor|człon)\w*\b",
+    re.IGNORECASE,
+)
+
+
+def is_boilerplate_paragraph(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.casefold()
+    if any(pattern.search(normalized) for pattern in GENERIC_JUNK_PATTERNS):
+        return True
+
+    substring_hits = sum(marker in lowered for marker in UI_SUBSTRING_MARKERS)
+    exact_hits = sum(lowered == marker for marker in UI_EXACT_MARKERS)
+    prefix_hits = sum(lowered.startswith(marker) for marker in UI_PREFIX_MARKERS)
+    total_hits = substring_hits + exact_hits + prefix_hits
+
+    short_ui_block = len(normalized) <= 120 and total_hits > 0
+    dense_ui_block = total_hits >= 2
+    title_like_menu = (
+        normalized == normalized.title()
+        and len(normalized.split()) <= 4
+        and lowered in UI_EXACT_MARKERS
+    )
+
+    return short_ui_block or dense_ui_block or title_like_menu
+
+
+def _looks_like_comment(paragraph: str) -> bool:
+    lowered = paragraph.lower()
+    if re.match(r"^[A-ZŁŚŻŹĆŃÓ][\wąćęłńóśźż-]{1,20}\s*-\s*niezalogowany", paragraph):
+        return True
+    if "niezalogowany" in lowered:
+        return True
+    if re.match(r"^\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}(?::\d{2})?)?$", paragraph.strip()):
+        return True
+    if lowered.startswith("ja - "):
+        return True
+    return False

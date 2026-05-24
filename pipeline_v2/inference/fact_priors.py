@@ -179,7 +179,15 @@ class BaseFactPriorPolicy:
 
 
 class PublicMoneyPriorPolicy(BaseFactPriorPolicy):
-    kinds = frozenset({FactKind.FUNDING, FactKind.PUBLIC_CONTRACT, FactKind.COMPENSATION})
+    kinds = frozenset(
+        {
+            FactKind.FUNDING,
+            FactKind.PUBLIC_CONTRACT,
+            FactKind.COMPENSATION,
+            FactKind.CORPORATE_OWNERSHIP,
+            FactKind.ASSET_DECLARATION,
+        }
+    )
     kind_bonus = 0.15
 
 
@@ -189,7 +197,16 @@ class GovernancePriorPolicy(BaseFactPriorPolicy):
 
 
 class PoliticalContextPriorPolicy(BaseFactPriorPolicy):
-    kinds = frozenset({FactKind.PARTY_AFFILIATION, FactKind.POLITICAL_SUPPORT})
+    kinds = frozenset(
+        {
+            FactKind.PARTY_AFFILIATION,
+            FactKind.POLITICAL_SUPPORT,
+            FactKind.FORMER_PARTY_MEMBERSHIP,
+            FactKind.ELECTION_CANDIDACY,
+            FactKind.POLITICAL_OFFICE,
+            FactKind.PARTY_DONATION,
+        }
+    )
     kind_bonus = 0.15
 
 
@@ -204,7 +221,7 @@ class PublicEmploymentPriorPolicy(BaseFactPriorPolicy):
 
 
 class PersonalTiePriorPolicy(BaseFactPriorPolicy):
-    kinds = frozenset({FactKind.PERSONAL_OR_POLITICAL_TIE})
+    kinds = frozenset({FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.EXTENDED_KINSHIP})
     kind_bonus = 0.15
 
 
