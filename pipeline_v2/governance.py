@@ -108,6 +108,8 @@ class GovernanceCandidateStage:
     _current_descriptor_lemmas = frozenset({"obecny", "aktualny"})
     # Dash characters used in appositive constructions (Bug 4).
     _dash_chars = frozenset({"—", "–", "-"})
+    # Exception-clause lemma: "z wyjątkiem X" means X is NOT dismissed.
+    _exception_clause_lemmas = frozenset({"wyjątek"})
     _dismissal_lemmas = frozenset(
         {
             "odwołać",
@@ -143,6 +145,20 @@ class GovernanceCandidateStage:
             "wiceprezes",
             "kierownik",
             "szef",
+        }
+    )
+    _role_title_only_person_lemmas = frozenset(
+        {
+            "dyrektor",
+            "kierownik",
+            "naczelnik",
+            "prezes",
+            "sekretarz",
+            "skarbnik",
+            "szef",
+            "wicedyrektor",
+            "wiceprezes",
+            "zastępca",
         }
     )
     # Subset of governance roles that unambiguously refer to a single person;
@@ -243,6 +259,14 @@ class GovernanceCandidateStage:
                             document=document,
                             sentence=sentence,
                             person_id=person_id,
+                        )
+                    ):
+                        continue
+                    # "Z wyjątkiem X" — X is the exception to the dismissal, not a dismissee.
+                    if (
+                        kind == FactKind.GOVERNANCE_DISMISSAL
+                        and self._person_is_in_exception_clause(
+                            document=document, sentence=sentence, person_id=person_id
                         )
                     ):
                         continue
@@ -595,6 +619,50 @@ class GovernanceCandidateStage:
             ):
                 return True
         return False
+
+    def _person_is_in_exception_clause(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+    ) -> bool:
+        """True when the person follows a 'z wyjątkiem' phrase in the same sentence.
+
+        "Z wyjątkiem X" means X is excluded from whatever the main clause describes
+        (e.g. dismissal), so X should not be treated as a dismissee.
+        """
+        exception_ranges = self._exception_clause_ranges(document, sentence)
+        if not exception_ranges:
+            return False
+        person_starts = [
+            evidence.span.start_char
+            for evidence in document.store.evidence_for_entity(person_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        return any(
+            start <= person_start < end
+            for person_start in person_starts
+            for start, end in exception_ranges
+        )
+
+    def _exception_clause_ranges(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> tuple[tuple[int, int], ...]:
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        ranges: list[tuple[int, int]] = []
+        for index, token in enumerate(tokens):
+            if not ({analysis.lemma for analysis in token.morph} & self._exception_clause_lemmas):
+                continue
+            end = sentence.span.end_char
+            for subsequent in tokens[index + 1 :]:
+                if subsequent.text in {",", ";", ":", "—", "–"}:
+                    end = subsequent.span.start_char
+                    break
+            ranges.append((token.span.start_char, end))
+        return tuple(ranges)
 
     def _person_is_adjacent_before_trigger(
         self,
@@ -1162,6 +1230,12 @@ class GovernanceCandidateStage:
         hint_tokens = frozenset(canonical_hint.replace(".", " ").split())
         if hint_tokens & self._org_like_person_hint_tokens:
             return True
+        if (
+            candidate.grounding is GroundingKind.OBSERVED
+            and hint_tokens
+            and self._person_candidate_is_role_title_only(document, entity_id)
+        ):
+            return True
         if any(
             token.isupper() and len(token) >= 2
             for token in (candidate.canonical_hint or "").split()[1:]
@@ -1178,6 +1252,17 @@ class GovernanceCandidateStage:
             if all(any(analysis.number == "pl" for analysis in token.morph) for token in tokens):
                 return True
         return False
+
+    def _person_candidate_is_role_title_only(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        lemmas: set[str] = set()
+        for mention in document.store.candidate_mentions(entity_id):
+            for token in document.store.tokens_for_mention(mention.id):
+                lemmas.update(analysis.lemma for analysis in token.morph)
+        return bool(lemmas) and lemmas <= self._role_title_only_person_lemmas
 
     def _is_party_like_organization(
         self,
