@@ -34,7 +34,26 @@ uv run ruff check pipeline_v2 tests_v2
 uv run ty check
 uv run pytest -c pytest-v2.ini -q
 uv run extractor-v2 --input-dir inputs --glob "*.html" --output-dir output
+uv run extractor-v2 --html-path inputs/article.html --stdout
+uv run extractor-v2 --url https://example.com/article --stdout
 ```
+
+## CLI Output Modes
+
+`extractor-v2` has two output modes:
+
+**Slim (default)** — human-readable summary written to `<output-dir>/<doc-id>.json` or
+stdout with `--stdout`. Contains only:
+- `title`, `url`, `relevant`, `relevance_score`
+- `facts`: list of materialized facts with resolved entity names and `confidence`
+
+**Debug (`--debug`)** — full graph JSON with sentences, tokens, morphology, evidence
+spans, inference marginals, resolution claims, proposals, and all internal IDs. Use
+this when debugging extraction or inference behaviour. The debug format is what the
+test suite and benchmark scripts read when they need internal graph state.
+
+Both modes are available for all input sources (`--html-path`, `--url`, `--input-dir`).
+`--stdout` and `--output-dir` can be combined with either mode.
 
 For small changes, run the narrowest relevant subset first, then broaden if behavior
 or shared contracts changed.

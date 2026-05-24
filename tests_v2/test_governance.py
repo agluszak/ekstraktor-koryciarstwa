@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityFactArgument,
@@ -13,11 +15,19 @@ from pipeline_v2.ids import DocumentId, EntityCandidateId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
-from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.nlp import (
+    Morfeusz2MorphologyAdapter,
+    NamedEntitySpan,
+    ParsedDependencySentence,
+    ParsedDependencyToken,
+    Span,
+)
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
+from pipeline_v2.syntax import DependencyParseStage
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
+    DependencyRelation,
     EntityTag,
     EventRole,
     FactKind,
@@ -36,6 +46,15 @@ from tests_v2.materialized import (
     fact_records,
     first_fact_record,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class StaticDependencyProvider:
+    parsed: tuple[ParsedDependencySentence, ...]
+
+    def parse(self, text: str) -> tuple[ParsedDependencySentence, ...]:
+        _ = text
+        return self.parsed
 
 
 class StaticEntityProvider:
@@ -566,3 +585,202 @@ def _has_entity_hint(
             case _:
                 continue
     return False
+
+
+# --- Bug 1: imperfective dismissal lemmas ---
+
+
+def test_governance_stage_emits_dismissal_for_imperfective_odchodzic() -> None:
+    """'odchodzi ze stanowiska' should produce GOVERNANCE_DISMISSAL (Bug 1)."""
+    text = "Katarzyna Zapał odchodzi ze stanowiska prezesa spółki Komunalnik."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Katarzyna Zapał",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Katarzyna Zapał"), text.index("Katarzyna Zapał") + 15),
+            ),
+            NamedEntitySpan(
+                text="Komunalnik",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 10),
+            ),
+        ),
+    )
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    assert dismissals, "expected at least one GOVERNANCE_DISMISSAL"
+    assert any(entity_hint_for_role(document, r, "person") == "Katarzyna Zapał" for r in dismissals)
+
+
+def test_governance_stage_emits_dismissal_for_imperfective_rezygnowac() -> None:
+    """'rezygnuje ze stanowiska' should produce GOVERNANCE_DISMISSAL (Bug 1)."""
+    text = "Anna Nowak rezygnuje ze stanowiska dyrektora spółki Wodkan."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Anna Nowak",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Anna Nowak"), text.index("Anna Nowak") + 10),
+            ),
+            NamedEntitySpan(
+                text="Wodkan",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+            ),
+        ),
+    )
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    assert dismissals, "expected at least one GOVERNANCE_DISMISSAL"
+
+
+# --- Bug 2: temporal objąć/objęcie suppression ---
+
+
+def test_governance_stage_does_not_produce_appointment_from_temporal_objecia() -> None:
+    """'od objęcia stanowiska' is a temporal clause, not an appointment event (Bug 2)."""
+    text = "Katarzyna Zapał od objęcia stanowiska w spółce Komunalnik pełni obowiązki."
+    morphology = Morfeusz2MorphologyAdapter()
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=(text,),
+    )
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(
+            (
+                NamedEntitySpan(
+                    text="Katarzyna Zapał",
+                    label=NerLabel.PERSON,
+                    span=Span(
+                        text.index("Katarzyna Zapał"),
+                        text.index("Katarzyna Zapał") + 15,
+                    ),
+                ),
+                NamedEntitySpan(
+                    text="Komunalnik",
+                    label=NerLabel.ORGANIZATION,
+                    span=Span(
+                        text.index("Komunalnik"),
+                        text.index("Komunalnik") + 10,
+                    ),
+                ),
+            )
+        ),
+        morphology=morphology,
+    ).run(document)
+    LexicalEntityContextStage().run(document)
+    RoleCandidateStage(morphology).run(document)
+
+    # Identify 1-based token positions for "od" and the objąć/objęcie token.
+    sentence = next(iter(document.store.sentences.values()))
+    tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+    od_index = next(i + 1 for i, t in enumerate(tokens) if t.text.lower() == "od")
+    objecia_index = next(
+        i + 1
+        for i, t in enumerate(tokens)
+        if {"objąć", "objęcie"} & {analysis.lemma for analysis in t.morph}
+    )
+
+    # "od" is a CASE marker governing "objęcia" — supply just this arc.
+    DependencyParseStage(
+        StaticDependencyProvider(
+            (
+                ParsedDependencySentence(
+                    sentence_index=0,
+                    tokens=(
+                        ParsedDependencyToken(
+                            token_index=od_index,
+                            text="od",
+                            lemma="od",
+                            upos="ADP",
+                            head_index=objecia_index,
+                            relation=DependencyRelation.CASE,
+                        ),
+                    ),
+                ),
+            )
+        )
+    ).run(document)
+
+    GovernanceCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
+    assert not appointments, "spurious GOVERNANCE_APPOINTMENT from temporal 'od objęcia'"
+
+
+# --- Bug 3: successor pattern ---
+
+
+def test_governance_stage_assigns_successor_not_predecessor_in_nastepca_pattern() -> None:
+    """'Jej następcą zostanie Agnieszka Paradyż' — appointee is Paradyż, not Zapał (Bug 3)."""
+    first = "Katarzyna Zapał odchodzi ze stanowiska prezesa spółki Komunalnik."
+    second = "Jej następcą zostanie Agnieszka Paradyż."
+    text = f"{first} {second}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Katarzyna Zapał",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Katarzyna Zapał"), text.index("Katarzyna Zapał") + 15),
+            ),
+            NamedEntitySpan(
+                text="Komunalnik",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 10),
+            ),
+            NamedEntitySpan(
+                text="Agnieszka Paradyż",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Agnieszka Paradyż"),
+                    text.index("Agnieszka Paradyż") + len("Agnieszka Paradyż"),
+                ),
+            ),
+        ),
+    )
+
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
+    assert appointments, "expected at least one GOVERNANCE_APPOINTMENT"
+    appointment_people = {entity_hint_for_role(document, r, "person") for r in appointments}
+    assert "Agnieszka Paradyż" in appointment_people, "successor should be appointed"
+    assert "Katarzyna Zapał" not in appointment_people, (
+        "predecessor should not appear in appointment person slot"
+    )
+
+
+# --- Bug 4: dash-apposition current-role pattern ---
+
+
+def test_governance_stage_produces_appointment_from_dash_apposition_current_role() -> None:
+    """'Jan Kowalski — obecny prezes Spółki ABC' implies a governance appointment (Bug 4)."""
+    text = "Jan Kowalski — obecny prezes Spółki ABC wygrał konkurs."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+            NamedEntitySpan(
+                text="Spółki ABC",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Spółki ABC"), text.index("Spółki ABC") + 10),
+            ),
+        ),
+    )
+
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
+    assert appointments, "expected GOVERNANCE_APPOINTMENT from dash-apposition pattern"
+    assert any(entity_hint_for_role(document, r, "person") == "Jan Kowalski" for r in appointments)
