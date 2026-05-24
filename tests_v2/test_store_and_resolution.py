@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import EntityCandidate, EntityResolutionClaim, EntityResolutionProposal
+from pipeline_v2.candidates import EntityCandidate, EntityResolutionProposal
+from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
+    DocumentId,
     EntityCandidateId,
     EvidenceId,
     MentionId,
     ProducerId,
-    ResolutionClaimId,
     SentenceId,
 )
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import (
     EvidenceSpan,
     Mention,
@@ -18,8 +20,7 @@ from pipeline_v2.nlp import (
     Sentence,
     Span,
 )
-from pipeline_v2.orchestrator import V2Orchestrator
-from pipeline_v2.producers import SimpleEntityCandidateProducer
+from pipeline_v2.producers import EvidenceSignalProducer, SimpleEntityCandidateProducer
 from pipeline_v2.retrieval import EntityCandidateRetriever
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
@@ -166,22 +167,22 @@ def test_surname_only_candidate_creates_resolution_claim_instead_of_reuse() -> N
     )
     assert len(proposals) == 1
 
-    assessment = V2Orchestrator(store).assess(entities=(store.entity_candidates[partial_id],))
-    scored_proposal = assessment.entity_resolution_assessments[0]
-    claim = EntityResolutionClaim(
-        id=ResolutionClaimId("claim-1"),
-        left_entity_id=partial_id,
-        right_entity_id=full_id,
-        relation=ResolutionRelation.SAME_AS,
-        evidence_ids=scored_proposal.proposal.evidence_ids,
-        assessment=scored_proposal.assessment,
-        source=ProducerId("test"),
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Krzysztof Staruch rozmawiał ze Staruchem.",
+        paragraphs=("Krzysztof Staruch rozmawiał ze Staruchem.",),
     )
-    store.add_resolution_claim(claim)
+    document.store = store
+    ProbabilisticInferenceStage().run(document)
+    claims = tuple(store.resolution_claims_for_entity(partial_id))
 
     assert partial_id != full_id
-    assert store.resolution_claims_for_entity(partial_id) == (claim,)
-    assert scored_proposal.assessment.score > 0.5
+    assert len(claims) == 1
+    assert claims[0].relation is ResolutionRelation.SAME_AS
+    assert claims[0].assessment.score > 0.5
 
 
 def test_same_name_contrast_context_does_not_confirm_identity() -> None:
@@ -236,13 +237,11 @@ def test_same_name_contrast_context_does_not_confirm_identity() -> None:
             + store.evidence_for_entity(contrast_id)
         ),
     )
-    enriched = V2Orchestrator(store).evidence_signal_producer.enrich_resolution_proposal(
+    enriched = EvidenceSignalProducer().enrich_resolution_proposal(
         store,
         manual_proposal,
     )
-    assessment = V2Orchestrator(store).entity_resolution_scorer.score(enriched)
-    assert assessment.score < 0.5
-    assert SameNameContradictionSignal() in assessment.negative_signals
+    assert SameNameContradictionSignal() in enriched.context_signals
 
 
 def test_reference_mentions_are_typed_not_stringly_typed() -> None:

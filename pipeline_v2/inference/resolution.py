@@ -53,26 +53,131 @@ from pipeline_v2.inference.graph_spec import (
 )
 from pipeline_v2.producers import EvidenceSignalProducer
 from pipeline_v2.retrieval import EntityCandidateRetriever
-from pipeline_v2.scoring import (
-    EntityContextScorer,
-    EntityResolutionScorer,
-    ReferenceResolutionScorer,
-)
 from pipeline_v2.types import (
+    CanonicalHintMatchSignal,
+    ConflictingPartyAffiliationSignal,
+    CoreferenceProviderLinkSignal,
+    DescriptorPersonCandidateSignal,
     DuplicateFactSignal,
     EntityKind,
     EntityTag,
     FactArgumentRole,
     FactKind,
     FactResolutionStrategy,
+    FullNameReuseMatchSignal,
     GroundingKind,
+    LemmaMatchSignal,
     MentionKind,
+    NearbyPersonCandidateSignal,
     RelationshipDetail,
     ResolutionRelation,
+    SameNameContradictionSignal,
     SemanticEvidenceSimilaritySignal,
     Signal,
     SignalPolarity,
+    SurnameBaseMatchSignal,
+    ThirdPersonPronounSignal,
 )
+
+
+class _EntityResolutionPriorPolicy:
+    scorer_id = ScorerId("entity_resolution_inference_prior_v2")
+
+    def score(self, proposal: EntityResolutionProposal) -> Assessment:
+        positive = list(proposal.retrieval_signals)
+        negative = [
+            signal
+            for signal in proposal.context_signals
+            if signal.polarity == SignalPolarity.NEGATIVE
+        ]
+        score = 0.35
+        for signal in proposal.retrieval_signals:
+            match signal:
+                case FullNameReuseMatchSignal():
+                    score += 0.55
+                case SurnameBaseMatchSignal(distance=d):
+                    score += 0.2 + max(0.0, 0.15 - 0.05 * d)
+                case LemmaMatchSignal():
+                    score += 0.4
+                case DescriptorPersonCandidateSignal(sentence_distance=d):
+                    score += 0.24 + max(0.0, 0.12 - 0.06 * d)
+                case NearbyPersonCandidateSignal():
+                    score += 0.12
+        for signal in negative:
+            match signal:
+                case SameNameContradictionSignal():
+                    score -= 0.45
+                case ConflictingPartyAffiliationSignal():
+                    score -= 0.5
+        return Assessment(
+            score=max(0.0, min(1.0, round(score, 3))),
+            positive_signals=tuple(positive),
+            negative_signals=tuple(negative),
+            scorer_id=self.scorer_id,
+            explanation="same-entity prior from typed retrieval and contradiction factors",
+        )
+
+
+class _ReferenceResolutionPriorPolicy:
+    scorer_id = ScorerId("reference_resolution_inference_prior_v2")
+
+    def score(self, proposal: ReferenceResolutionProposal) -> Assessment:
+        positive = [
+            signal
+            for signal in proposal.retrieval_signals
+            if signal.polarity == SignalPolarity.POSITIVE
+        ]
+        negative = [
+            signal
+            for signal in proposal.context_signals
+            if signal.polarity == SignalPolarity.NEGATIVE
+        ]
+        score = 0.25
+        for signal in positive:
+            match signal:
+                case CoreferenceProviderLinkSignal():
+                    score += 0.5
+                case ThirdPersonPronounSignal():
+                    score += 0.1
+                case NearbyPersonCandidateSignal():
+                    score += 0.2
+        for signal in negative:
+            match signal:
+                case SameNameContradictionSignal():
+                    score -= 0.35
+        return Assessment(
+            score=max(0.0, min(1.0, round(score, 3))),
+            positive_signals=tuple(positive),
+            negative_signals=tuple(negative),
+            scorer_id=self.scorer_id,
+            explanation="reference-target prior from typed provider and context factors",
+        )
+
+
+class _EntityContextPriorPolicy:
+    scorer_id = ScorerId("entity_context_inference_prior_v2")
+
+    def score(self, proposal: EntityContextProposal) -> Assessment:
+        positive = list(proposal.retrieval_signals)
+        has_canonical_hint = any(type(signal) is CanonicalHintMatchSignal for signal in positive)
+        lemma_signal_count = sum(
+            1 for signal in positive if type(signal) is not CanonicalHintMatchSignal
+        )
+        if has_canonical_hint:
+            base = 0.95
+        elif lemma_signal_count >= 2:
+            base = 0.9
+        elif lemma_signal_count == 1:
+            base = 0.75
+        else:
+            base = 0.5
+        return Assessment(
+            score=max(0.0, min(1.0, round(base, 3))),
+            positive_signals=tuple(positive),
+            negative_signals=(),
+            scorer_id=self.scorer_id,
+            explanation="entity-context prior from typed lexical factors",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,10 +218,10 @@ class ResolutionInferenceGraphBuilder:
         self,
         *,
         entity_context_role_policy: EntityContextRolePolicy = (DEFAULT_ENTITY_CONTEXT_ROLE_POLICY),
-        entity_context_scorer: EntityContextScorer | None = None,
+        entity_context_scorer: _EntityContextPriorPolicy | None = None,
     ) -> None:
         self.entity_context_role_policy = entity_context_role_policy
-        self.entity_context_scorer = entity_context_scorer or EntityContextScorer()
+        self.entity_context_scorer = entity_context_scorer or _EntityContextPriorPolicy()
 
     def build(
         self,
@@ -240,7 +345,7 @@ class ResolutionInferenceGraphBuilder:
         tie_event_ids: list[EventCandidateId] = [
             event_id
             for event_id, view in event_views.items()
-            if view.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+            if view.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.EXTENDED_KINSHIP}
             and RelationshipDetail.CHILD.value
             in view.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
         ]
@@ -309,7 +414,7 @@ class ResolutionInferenceGraphBuilder:
     ) -> None:
         retriever = EntityCandidateRetriever(document.store)
         signal_producer = EvidenceSignalProducer()
-        scorer = EntityResolutionScorer(document.store)
+        scorer = _EntityResolutionPriorPolicy()
         entity_ids_by_evidence_id = self._entity_ids_by_evidence_id(document)
         seen_pairs: set[tuple[EntityCandidateId, EntityCandidateId]] = set()
         for entity in document.store.entity_candidates.values():
@@ -537,7 +642,7 @@ class ResolutionInferenceGraphBuilder:
         reference_variable_id_by_reference_id: dict[MentionId, InferenceVariableId],
     ) -> None:
         signal_producer = EvidenceSignalProducer()
-        scorer = ReferenceResolutionScorer(document.store)
+        scorer = _ReferenceResolutionPriorPolicy()
         grouped: dict[MentionId, dict[EntityCandidateId, ReferenceResolutionProposal]] = {}
         for proposal in document.reference_resolution_proposals:
             enriched = signal_producer.enrich_reference_resolution_proposal(
@@ -1477,7 +1582,7 @@ class ResolutionInferenceGraphBuilder:
             FactKind.GOVERNANCE_DISMISSAL,
         } and self._without_roles(left) == self._without_roles(right):
             return FactResolutionStrategy.GOVERNANCE_ROLE_RELAXED
-        if left.kind is FactKind.PERSONAL_OR_POLITICAL_TIE:
+        if left.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.EXTENDED_KINSHIP}:
             left_object = left.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
             right_object = right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
             left_detail = left.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())

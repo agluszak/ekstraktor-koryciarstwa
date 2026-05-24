@@ -62,6 +62,7 @@ from pipeline_v2.types import (
     FactResolutionStrategy,
     FundingLemmaSignal,
     GroundingKind,
+    LocalActorSignal,
     LocalInstitutionSignal,
     LocalObjectSignal,
     LocalOrganizationSignal,
@@ -2694,6 +2695,7 @@ def test_media_outlet_entity_context_suppresses_funder_role() -> None:
 def test_media_outlet_entity_context_suppresses_patronage_institution_role() -> None:
     def run(*, attach_media_proposal: bool) -> float:
         org_id = EntityCandidateId("media-org")
+        person_id = EntityCandidateId("complainant-person")
         event_id = EventCandidateId("event-patronage")
         document = ArticleDocument(
             document_id=DocumentId("doc-media-patronage"),
@@ -2713,6 +2715,16 @@ def test_media_outlet_entity_context_suppresses_patronage_institution_role() -> 
                 source=ProducerId("test"),
             )
         )
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=person_id,
+                kind=EntityKind.PERSON,
+                mention_ids=(),
+                canonical_hint="Jan Kowalski",
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
         document.store.add_event_candidate(
             EventCandidate(
                 id=event_id,
@@ -2724,6 +2736,16 @@ def test_media_outlet_entity_context_suppresses_patronage_institution_role() -> 
                     ExplicitPatronageLemmaSignal(lemma="kolesiostwo"),
                     LocalInstitutionSignal(),
                 ),
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=ArgumentBindingCandidateId("binding-complainant"),
+                event_id=event_id,
+                role=EventRole.COMPLAINANT,
+                filler=EntityFiller(person_id),
+                evidence_ids=(),
+                signals=(LocalActorSignal(),),
             )
         )
         document.store.add_argument_binding(

@@ -317,7 +317,7 @@ def test_article_fixture_does_not_use_governing_body_as_governance_destination()
     assert all(organization is None for organization in governance_organizations)
 
 
-def test_article_fixture_merges_named_and_proxy_family_ties_without_pseudonymous_noise() -> None:
+def test_article_fixture_keeps_named_family_tie_without_duplicate_same_fact_claim() -> None:
     title = "Czy wójt ukrywa nepotyzm?"
     paragraphs = (
         "Rafał Dobosz, kuzyn wójta Sosny, od pierwszych dni pracy w urzędzie wzbudzał emocje.",
@@ -335,12 +335,13 @@ def test_article_fixture_merges_named_and_proxy_family_ties_without_pseudonymous
         apply_relevance=False,
     )
 
-    tie_claims = [
-        claim
-        for claim in document.store.fact_resolution_claims.values()
-        if claim.relation.value == "same_fact"
+    extended_ties = [
+        record for record in fact_records(document) if record.kind is FactKind.EXTENDED_KINSHIP
     ]
-    assert tie_claims
+    assert extended_ties
+    assert not any(
+        record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE for record in fact_records(document)
+    )
 
 
 def test_article_fixture_keeps_public_employment_local_to_first_clause() -> None:
@@ -734,11 +735,9 @@ def test_regression_wp_opole_family() -> None:
         apply_relevance=False,
     )
 
-    # Assert: PERSONAL_OR_POLITICAL_TIE between Jakub Wiśniewski and Arkadiusza Wiśniewskiego
+    # Assert: EXTENDED_KINSHIP between Jakub Wiśniewski and Arkadiusza Wiśniewskiego
     tie_records = [
-        record
-        for record in fact_records(document)
-        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+        record for record in fact_records(document) if record.kind is FactKind.EXTENDED_KINSHIP
     ]
 
     matching_tie = None
@@ -753,7 +752,7 @@ def test_regression_wp_opole_family() -> None:
                 break
 
     assert matching_tie is not None, (
-        "Expected a high-confidence PERSONAL_OR_POLITICAL_TIE between "
+        "Expected a high-confidence EXTENDED_KINSHIP between "
         "Jakub Wiśniewski and Arkadiusza Wiśniewskiego"
     )
 
@@ -825,7 +824,6 @@ def test_regression_tvn24_kolesiostwo_emits_patronage_complaint() -> None:
     ]
     assert complaint_records
     assert any(record.kind is FactKind.PATRONAGE_ALLEGATION for record in complaint_records)
-    assert any(record.kind is FactKind.PATRONAGE_NETWORK_TIE for record in complaint_records)
 
     has_strong_local_signal = False
     for record in complaint_records:

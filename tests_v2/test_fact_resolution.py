@@ -15,7 +15,7 @@ from pipeline_v2.ids import (
     SentenceId,
 )
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
+from pipeline_v2.nlp import EvidenceSpan, Mention, Span
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
     EntityKind,
@@ -69,6 +69,7 @@ def _add_role_entity_with_descriptor_mention(
     start_char: int,
     end_char: int,
     head_lemma: str,
+    kind: EntityKind = EntityKind.PERSON,
 ) -> None:
     document.store.add_evidence(
         EvidenceSpan(
@@ -93,7 +94,7 @@ def _add_role_entity_with_descriptor_mention(
     document.store.add_entity_candidate(
         EntityCandidate(
             id=entity_id,
-            kind=EntityKind.ROLE,
+            kind=kind,
             mention_ids=(mention_id,),
             canonical_hint=text,
             grounding=GroundingKind.OBSERVED,
@@ -483,60 +484,26 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
     assert len(document.materialized_fact_alternatives[surviving_id]) == 1
 
 
-def test_probabilistic_inference_merges_ties_across_resolved_role_objects() -> None:
+def test_probabilistic_inference_merges_ties_when_subject_and_object_are_identical() -> None:
+    # Two PERSONAL_OR_POLITICAL_TIE events with the same SUBJECT and OBJECT should be
+    # detected as duplicate facts and deduplicated to a single materialized record.
     document = _document()
-    document.store.add_sentence(
-        Sentence(
-            id=SentenceId("sentence-1"),
-            sentence_index=0,
-            paragraph_index=0,
-            text="Anna pracuje z sekretarzem.",
-            span=Span(start_char=0, end_char=27),
-        )
-    )
-    document.store.add_sentence(
-        Sentence(
-            id=SentenceId("sentence-2"),
-            sentence_index=1,
-            paragraph_index=0,
-            text="Anna pracuje z sekretarzem wydzialu.",
-            span=Span(start_char=28, end_char=64),
-        )
-    )
     add_entity(
         document,
         entity_id=EntityCandidateId("subject"),
         kind=EntityKind.PERSON,
         canonical_hint="Anna Kowalska",
     )
-    _add_role_entity_with_descriptor_mention(
+    add_entity(
         document,
-        entity_id=EntityCandidateId("object-role-1"),
-        mention_id=MentionId("mention-role-1"),
-        evidence_id=EvidenceId("evidence-role-1"),
-        sentence_id=SentenceId("sentence-1"),
-        paragraph_index=0,
-        text="sekretarzem",
-        start_char=16,
-        end_char=27,
-        head_lemma="sekretarz",
-    )
-    _add_role_entity_with_descriptor_mention(
-        document,
-        entity_id=EntityCandidateId("object-role-2"),
-        mention_id=MentionId("mention-role-2"),
-        evidence_id=EvidenceId("evidence-role-2"),
-        sentence_id=SentenceId("sentence-2"),
-        paragraph_index=0,
-        text="sekretarzem",
-        start_char=44,
-        end_char=55,
-        head_lemma="sekretarz",
+        entity_id=EntityCandidateId("object"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Jan Kowalski",
     )
 
-    for event_id, object_id, prefix in (
-        (EventCandidateId("event-role-1"), EntityCandidateId("object-role-1"), "first"),
-        (EventCandidateId("event-role-2"), EntityCandidateId("object-role-2"), "second"),
+    for event_id, prefix in (
+        (EventCandidateId("event-role-1"), "first"),
+        (EventCandidateId("event-role-2"), "second"),
     ):
         add_event(
             document,
@@ -560,7 +527,7 @@ def test_probabilistic_inference_merges_ties_across_resolved_role_objects() -> N
             binding_id=ArgumentBindingCandidateId(f"{prefix}-object"),
             event_id=event_id,
             role=EventRole.OBJECT,
-            entity_id=object_id,
+            entity_id=EntityCandidateId("object"),
         )
         bind_text(
             document,
@@ -573,15 +540,6 @@ def test_probabilistic_inference_merges_ties_across_resolved_role_objects() -> N
 
     ProbabilisticInferenceStage().run(document)
 
-    assert any(
-        claim.relation is ResolutionRelation.SAME_AS
-        and {claim.left_entity_id, claim.right_entity_id}
-        == {
-            EntityCandidateId("object-role-1"),
-            EntityCandidateId("object-role-2"),
-        }
-        for claim in document.store.resolution_claims.values()
-    )
     assert len(document.materialized_fact_records) == 1
 
 

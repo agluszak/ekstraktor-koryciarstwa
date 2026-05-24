@@ -108,7 +108,7 @@ def test_personal_tie_stage_emits_proxy_family_tie_from_family_reference() -> No
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
-    assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    assert record.kind is FactKind.EXTENDED_KINSHIP
     assert entity_hint_for_role(document, record, "subject") == "spouse of Jan Kowalski"
     assert entity_hint_for_role(document, record, "object") == "Jan Kowalski"
     assert text_argument(record, "relationship_detail") == "spouse"
@@ -128,9 +128,12 @@ def test_personal_tie_stage_emits_named_kinship_tie_from_two_people_and_family_l
     PersonalTieCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
 
-    record = first_fact_record(document)
+    records = fact_records(document)
+    kinship_records = [r for r in records if r.kind == FactKind.EXTENDED_KINSHIP]
+    assert len(kinship_records) >= 1
+    record = kinship_records[0]
 
-    assert record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    assert record.kind is FactKind.EXTENDED_KINSHIP
     assert entity_hint_for_role(document, record, "subject") == "Marek Kowalski"
     assert entity_hint_for_role(document, record, "object") == "Jana Kowalskiego"
     assert text_argument(record, "relationship_detail") == "child"

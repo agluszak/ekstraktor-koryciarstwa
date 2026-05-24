@@ -7,10 +7,10 @@ from pipeline_v2.coreference import CoreferenceReferenceStage, LightReferenceSta
 from pipeline_v2.coreference_provider import StanzaCoreferenceProvider
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import DocumentId
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import CoreferenceSpanLink, Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
-from pipeline_v2.orchestrator import V2Orchestrator
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import NerLabel, ReferenceKind
 
@@ -75,9 +75,7 @@ def test_coreference_stage_proposes_reference_resolution_without_merging_entitie
         ),
         morphology=morphology,
     ).run(document)
-    result = V2Orchestrator(document.store).assess(
-        reference_resolutions=tuple(document.reference_resolution_proposals)
-    )
+    ProbabilisticInferenceStage().run(document)
 
     assert tuple(
         candidate.canonical_hint for candidate in document.store.entity_candidates.values()
@@ -85,8 +83,9 @@ def test_coreference_stage_proposes_reference_resolution_without_merging_entitie
     assert tuple(reference.kind for reference in document.store.references.values()) == (
         ReferenceKind.POSSESSIVE_PRONOUN,
     )
-    assert len(result.reference_resolution_assessments) == 1
-    assert result.reference_resolution_assessments[0].assessment.score >= 0.7
+    claims = tuple(document.store.reference_resolution_claims.values())
+    assert len(claims) == 1
+    assert claims[0].assessment.score >= 0.7
 
 
 def test_light_reference_stage_emits_pronoun_reference_candidates_without_merging() -> None:
@@ -117,16 +116,15 @@ def test_light_reference_stage_emits_pronoun_reference_candidates_without_mergin
     ).run(document)
 
     LightReferenceStage().run(document)
-    result = V2Orchestrator(document.store).assess(
-        reference_resolutions=tuple(document.reference_resolution_proposals)
-    )
+    ProbabilisticInferenceStage().run(document)
 
     assert tuple(reference.text for reference in document.store.references.values()) == ("Jego",)
     assert tuple(
         candidate.canonical_hint for candidate in document.store.entity_candidates.values()
     ) == ("Jan Kowalski",)
-    assert len(result.reference_resolution_assessments) == 1
-    assert result.reference_resolution_assessments[0].assessment.score >= 0.5
+    claims = tuple(document.store.reference_resolution_claims.values())
+    assert len(claims) == 1
+    assert claims[0].assessment.score >= 0.5
 
 
 class MockWord:

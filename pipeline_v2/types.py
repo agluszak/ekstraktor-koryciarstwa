@@ -37,6 +37,13 @@ class FactKind(StrEnum):
     PATRONAGE_ALLEGATION = "patronage_allegation"
     PATRONAGE_NETWORK_TIE = "patronage_network_tie"
     PERSONAL_OR_POLITICAL_TIE = "personal_or_political_tie"
+    FORMER_PARTY_MEMBERSHIP = "former_party_membership"
+    ELECTION_CANDIDACY = "election_candidacy"
+    POLITICAL_OFFICE = "political_office"
+    CORPORATE_OWNERSHIP = "corporate_ownership"
+    PARTY_DONATION = "party_donation"
+    ASSET_DECLARATION = "asset_declaration"
+    EXTENDED_KINSHIP = "extended_kinship"
 
 
 class FactArgumentRole(StrEnum):

@@ -115,7 +115,7 @@ class PersonalTieCandidateStage:
             lemmas = self._sentence_lemmas(document, sentence)
             family_detail = self._family_detail(lemmas)
             if family_detail is not None and len(observed_people) >= 2:
-                self._add_explicit_tie(
+                self._add_extended_kinship(
                     document,
                     subject=observed_people[0],
                     object_entity=observed_people[1],
@@ -603,3 +603,65 @@ class PersonalTieCandidateStage:
         if not matched:
             return None
         return matched[0]
+
+    def _add_extended_kinship(
+        self,
+        document: ArticleDocument,
+        *,
+        subject: SentenceEntity,
+        object_entity: SentenceEntity,
+        sentence,
+        sentence_id,
+        relationship_detail: RelationshipDetail,
+        signal: Signal,
+    ) -> None:
+        signals: list[Signal] = [
+            signal,
+            LocalSubjectSignal(),
+            LocalObjectSignal(),
+        ]
+        evidence_ids = tuple(
+            evidence.id
+            for evidence in document.store.evidence_for_entity(subject.id)
+            if evidence.sentence_id == sentence_id
+        ) or tuple(
+            evidence.id
+            for evidence in document.store.evidence_for_entity(object_entity.id)
+            if evidence.sentence_id == sentence_id
+        )
+        event = EventCandidate(
+            id=document.store.next_event_candidate_id(),
+            kind=FactKind.EXTENDED_KINSHIP,
+            trigger_evidence_id=evidence_ids[0] if evidence_ids else None,
+            evidence_ids=evidence_ids,
+            source=self.producer_id,
+            signals=tuple(signals),
+        )
+        document.store.add_event_candidate(event)
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.SUBJECT,
+                filler=EntityFiller(subject.id),
+                evidence_ids=evidence_ids,
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.OBJECT,
+                filler=EntityFiller(object_entity.id),
+                evidence_ids=evidence_ids,
+            )
+        )
+        document.store.add_argument_binding(
+            ArgumentBindingCandidate(
+                id=document.store.next_argument_binding_candidate_id(),
+                event_id=event.id,
+                role=EventRole.RELATIONSHIP_DETAIL,
+                filler=TextFiller(relationship_detail.value),
+                evidence_ids=evidence_ids,
+            )
+        )
