@@ -141,6 +141,41 @@ def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
     assert dismissal_assessment.score >= 0.6
 
 
+def test_governance_stage_keeps_generic_appointment_in_separate_dismissal_clause() -> None:
+    text = "Jan Kowalski został prezesem spółki Wodkan po tym, jak odwołano Annę Nowak."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+            NamedEntitySpan(
+                text="Wodkan",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+            ),
+            NamedEntitySpan(
+                text="Annę Nowak",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Annę Nowak"), text.index("Annę Nowak") + 10),
+            ),
+        ),
+    )
+
+    appointments = [
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    ]
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Jan Kowalski"
+        and entity_hint_for_role(document, record, "organization") == "Wodkan"
+        for record in appointments
+    )
+
+
 def test_governance_stage_does_not_emit_candidate_without_person_entity() -> None:
     text = "Zarząd spółki Wodkan został powołany w maju."
     document = run_governance_stage(

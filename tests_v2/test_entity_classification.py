@@ -115,3 +115,46 @@ def test_entity_classification_does_not_use_wp_substring_as_media_match() -> Non
         if proposal.entity_id == candidate.id
     ]
     assert proposals_for_candidate == []
+
+
+def test_entity_classification_recognizes_shared_media_outlet_aliases() -> None:
+    text = "Onet, WP, Wirtualna Polska, Gazeta Wyborcza, TVP i Niezależna opisały sprawę."
+    document = run_entity_classification(
+        text,
+        (
+            organization_span(text, "Onet"),
+            organization_span(text, "WP"),
+            organization_span(text, "Wirtualna Polska"),
+            organization_span(text, "Gazeta Wyborcza"),
+            organization_span(text, "TVP"),
+            organization_span(text, "Niezależna"),
+        ),
+    )
+
+    tags_by_hint = _proposals_by_hint(document)
+
+    for outlet in (
+        "Onet",
+        "WP",
+        "Wirtualna Polska",
+        "Gazeta Wyborcza",
+        "TVP",
+        "Niezależna",
+    ):
+        assert tags_by_hint[outlet] == frozenset({EntityTag.MEDIA_OUTLET})
+
+
+def test_entity_classification_keeps_case_sensitive_media_aliases_from_generic_words() -> None:
+    text = "Niezależna opisała sprawę. niezależna organizacja złożyła wniosek."
+    document = run_entity_classification(
+        text,
+        (
+            organization_span(text, "Niezależna"),
+            organization_span(text, "niezależna organizacja"),
+        ),
+    )
+
+    tags_by_hint = _proposals_by_hint(document)
+
+    assert tags_by_hint["Niezależna"] == frozenset({EntityTag.MEDIA_OUTLET})
+    assert tags_by_hint["niezależna organizacja"] == frozenset()

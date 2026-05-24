@@ -117,7 +117,7 @@ class FactAssessmentMaterializer:
                 )
                 continue
             score = scores[fact_id]
-            if score < self._primary_fact_threshold_for(record.kind):
+            if score < self._primary_fact_threshold:
                 continue
             alts = alternatives_map[fact_id]
             document.materialized_fact_records.append(record)
@@ -339,19 +339,6 @@ class FactAssessmentMaterializer:
             case None:
                 return None
 
-    def _is_self_tie(self, arguments: list[FactArgument]) -> bool:
-        subject_id = None
-        object_id = None
-        for argument in arguments:
-            match argument:
-                case EntityFactArgument(role=FactArgumentRole.SUBJECT, entity_id=entity_id):
-                    subject_id = entity_id
-                case EntityFactArgument(role=FactArgumentRole.OBJECT, entity_id=entity_id):
-                    object_id = entity_id
-                case _:
-                    continue
-        return subject_id is not None and subject_id == object_id
-
     def _meets_materialization_requirements(self, record: FactCandidateRecord) -> bool:
         non_amount_roles = {
             argument.role
@@ -372,11 +359,6 @@ class FactAssessmentMaterializer:
     ) -> float:
         _ = fact_kind, role_spec
         return self._optional_role_selection_threshold
-
-    def _primary_fact_threshold_for(self, fact_kind: FactKind) -> float:
-        if fact_kind in {FactKind.PARTY_AFFILIATION, FactKind.POLITICAL_SUPPORT}:
-            return 0.05
-        return self._primary_fact_threshold
 
     def _ranked_states(
         self,

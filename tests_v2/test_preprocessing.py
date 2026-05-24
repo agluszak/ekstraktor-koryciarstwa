@@ -29,8 +29,12 @@ def test_html_preprocessor_builds_document_from_article_html() -> None:
     assert document.title == "Tytuł artykułu"
     assert document.source_url == "https://example.test/article"
     assert document.publication_date == "2026-05-14"
-    assert document.paragraphs == ("Pierwszy akapit tekstu.", "Drugi akapit z kwotą.")
-    assert document.cleaned_text == "Pierwszy akapit tekstu.\nDrugi akapit z kwotą."
+    assert document.paragraphs == (
+        "Tytuł artykułu",
+        "Pierwszy akapit tekstu.",
+        "Drugi akapit z kwotą.",
+    )
+    assert document.cleaned_text == "Tytuł artykułu\nPierwszy akapit tekstu.\nDrugi akapit z kwotą."
 
 
 def test_html_preprocessor_respects_explicit_input_metadata() -> None:

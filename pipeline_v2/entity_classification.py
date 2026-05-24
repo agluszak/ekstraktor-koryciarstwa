@@ -3,6 +3,7 @@ from __future__ import annotations
 from pipeline_v2.candidates import EntityCandidate, EntityContextProposal
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, MentionId
+from pipeline_v2.media import is_media_outlet_name, media_outlet_lemmas
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
     CanonicalHintMatchSignal,
@@ -28,20 +29,6 @@ _GENERIC_OWNER_HINTS = frozenset(
         "skarb państwa rp",
     }
 )
-_MEDIA_HINTS = frozenset(
-    {
-        "dziennik",
-        "onet",
-        "pap",
-        "polsat",
-        "radio zet",
-        "tvn",
-        "tvn24",
-        "tvn warszawa",
-        "wirtualna polska",
-        "wp",
-    }
-)
 _GOVERNING_BODY_HINTS = frozenset({"rn", "rada nadzorcza", "zarząd"})
 _PUBLIC_INSTITUTION_LEMMAS = frozenset(
     {
@@ -52,22 +39,6 @@ _PUBLIC_INSTITUTION_LEMMAS = frozenset(
         "nik",
         "prokuratura",
         "urząd",
-    }
-)
-_MEDIA_LEMMAS = frozenset(
-    {
-        "dziennik",
-        "gazeta",
-        "onet",
-        "pap",
-        "polsat",
-        "portal",
-        "radio",
-        "telewizja",
-        "tvn",
-        "tvn24",
-        "tygodnik",
-        "wp",
     }
 )
 
@@ -107,7 +78,7 @@ def entity_context_proposals_for(
             triggers_by_tag.setdefault(EntityTag.GENERIC_OWNER, []).append(
                 (first_evidence_id, hint_signal)
             )
-        if normalized_hint in _MEDIA_HINTS:
+        if is_media_outlet_name(candidate.canonical_hint):
             triggers_by_tag.setdefault(EntityTag.MEDIA_OUTLET, []).append(
                 (first_evidence_id, hint_signal)
             )
@@ -132,7 +103,7 @@ def entity_context_proposals_for(
             triggers_by_tag.setdefault(EntityTag.PUBLIC_INSTITUTION, []).append(
                 (evidence_id, PublicInstitutionLemmaSignal(lemma=lemma))
             )
-        for lemma in sorted(mention_lemmas & _MEDIA_LEMMAS):
+        for lemma in sorted(mention_lemmas & media_outlet_lemmas()):
             triggers_by_tag.setdefault(EntityTag.MEDIA_OUTLET, []).append(
                 (evidence_id, MediaOutletLemmaSignal(lemma=lemma))
             )

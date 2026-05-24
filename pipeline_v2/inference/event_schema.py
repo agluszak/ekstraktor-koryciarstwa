@@ -111,7 +111,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
     FactKind.POLITICAL_SUPPORT: EventSchema(
         fact_kind=FactKind.POLITICAL_SUPPORT,
         roles=(
-            RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON, required=True),
+            RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PARTY, required=True),
             RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PERSON, required=True),
         ),
     ),

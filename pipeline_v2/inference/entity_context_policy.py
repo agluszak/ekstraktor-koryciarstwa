@@ -44,6 +44,22 @@ _DEFAULT_TABLE: Mapping[tuple[EntityTag, FactKind, EventRole], float] = {
     (EntityTag.MEDIA_OUTLET, FactKind.PUBLIC_CONTRACT, EventRole.COUNTERPARTY): _MILD_SUPPRESS,
     (EntityTag.MEDIA_OUTLET, FactKind.PUBLIC_CONTRACT, EventRole.CONTRACTOR): _MILD_SUPPRESS,
     (EntityTag.MEDIA_OUTLET, FactKind.COMPENSATION, EventRole.FUNDER): _STRONG_SUPPRESS,
+    # News outlets should not win employment or governance organization roles.
+    (EntityTag.MEDIA_OUTLET, FactKind.PUBLIC_EMPLOYMENT, EventRole.WORKPLACE): _STRONG_SUPPRESS,
+    (EntityTag.MEDIA_OUTLET, FactKind.GOVERNANCE_APPOINTMENT, EventRole.ORGANIZATION): (
+        _STRONG_SUPPRESS
+    ),
+    (EntityTag.MEDIA_OUTLET, FactKind.GOVERNANCE_DISMISSAL, EventRole.ORGANIZATION): (
+        _STRONG_SUPPRESS
+    ),
+    # In patronage reports, media outlets often occur as the reporting source,
+    # not as the institution where the alleged patronage happened.
+    (EntityTag.MEDIA_OUTLET, FactKind.PATRONAGE_ALLEGATION, EventRole.INSTITUTION): (
+        _STRONG_SUPPRESS
+    ),
+    (EntityTag.MEDIA_OUTLET, FactKind.PATRONAGE_NETWORK_TIE, EventRole.INSTITUTION): (
+        _STRONG_SUPPRESS
+    ),
     # Generic-owner organizations (Skarb Państwa, MAP, MF) almost never *are*
     # the appointing/dismissing org; they're the surrounding ownership context.
     # They can still be a workplace for public employment, so we don't suppress
