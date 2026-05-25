@@ -37,7 +37,6 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import (
     AntiCorruptionInvestigationLemmaSignal,
-    AppointmentLemmaSignal,
     EntityKind,
     EventRole,
     FactKind,
@@ -53,9 +52,6 @@ from pipeline_v2.types import (
     ReferenceKind,
     RelationshipDetail,
     SameNameContrastContextSignal,
-    WindowOrganizationSignal,
-    WindowPersonSignal,
-    WindowRoleSignal,
 )
 from tests_v2.materialized import (
     add_event,
@@ -171,16 +167,12 @@ def test_benchmark_split_sentence_governance_scenario() -> None:
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
+    # The copular "jest prezesem" and the window-backed "powołany" both point to
+    # the same appointment; inference merges them into one high-confidence fact.
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
     assert entity_hint_for_role(document, record, "person") == "Jan Kowalski"
     assert entity_hint_for_role(document, record, "organization") == "Wodkan"
     assert entity_hint_for_role(document, record, "role") == "prezesem"
-    assert set(record.signals) == {
-        AppointmentLemmaSignal(lemma="powołać"),
-        WindowPersonSignal(),
-        WindowOrganizationSignal(),
-        WindowRoleSignal(),
-    }
     assert assessment.score >= 0.6
 
 

@@ -137,9 +137,11 @@ class GovernanceCandidateStage:
     _governance_role_lemmas = frozenset(
         {
             "członek",
+            "naczelnik",
             "nadzorczy",
             "prezes",
             "rada",
+            "sekretarz",
             "zarząd",
             "dyrektor",
             "wicedyrektor",
@@ -543,6 +545,18 @@ class GovernanceCandidateStage:
                     )
                 )
             ]
+        # Copular role-holder pattern: "X jest [governance role] [org]" — a predicative
+        # construction stating that X currently holds the role.  Only fires when no
+        # explicit appointment trigger is present and a ROLE entity with governance/
+        # political lemmas appears in the sentence.
+        if (
+            not (lemmas & self._appointment_lemmas)
+            and "być" in lemmas
+            and self._sentence_has_governance_role_entity(document, sentence)
+        ):
+            candidates.append(
+                (FactKind.GOVERNANCE_APPOINTMENT, (AppointmentLemmaSignal(lemma="być"),))
+            )
         return tuple(candidates)
 
     def _add_political_office_candidates(
@@ -1076,6 +1090,10 @@ class GovernanceCandidateStage:
                 role.id not in local_role_ids
                 and (role_sentence_people := role_source_sentence_person_ids(role))
                 and person.id not in role_sentence_people
+                # Succession pattern: if the role's source sentence has departure
+                # language ("pożegnała się ze stanowiskiem", "odszedł" etc.) the
+                # position is vacated and the current sentence's person may claim it.
+                and not self._role_sentence_has_departure_context(document, role)
             ):
                 continue
             compatible_roles.append((role, role_signals))
@@ -1225,6 +1243,47 @@ class GovernanceCandidateStage:
             child = document.store.tokens[arc.dependent_token_id]
             if child.text.lower() == "się":
                 return True
+        return False
+
+    def _role_sentence_has_departure_context(
+        self,
+        document: ArticleDocument,
+        role: SentenceEntity,
+    ) -> bool:
+        """True when the role's source sentence contains departure/dismissal language.
+
+        Used in successor-pattern detection: if the role came from a sentence where
+        someone was leaving ("pożegnała się ze stanowiskiem", "odszedł z urzędu"),
+        the position is considered vacant and can be claimed by a new person.
+        """
+        role_sentence_id = document.store.sentence_id_for_offset(role.start_char)
+        if role_sentence_id is None:
+            return False
+        role_sentence = document.store.sentences.get(role_sentence_id)
+        if role_sentence is None:
+            return False
+        departure_lemmas = self._dismissal_lemmas | {"pożegnać"}
+        return bool(self._sentence_lemmas(document, role_sentence) & departure_lemmas)
+
+    def _sentence_has_governance_role_entity(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> bool:
+        """True when the sentence has a ROLE entity with governance or political role lemmas."""
+        retriever = SentenceEntityRetriever(document.store)
+        entities = retriever.entities_for_sentence(sentence)
+        for entity in entities:
+            if entity.kind != EntityKind.ROLE:
+                continue
+            if self._has_governance_role(document, entity.id):
+                return True
+            for mention in document.store.candidate_mentions(entity.id):
+                for token in document.store.tokens_for_mention(mention.id):
+                    if any(
+                        analysis.lemma in self._political_role_lemmas for analysis in token.morph
+                    ):
+                        return True
         return False
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence: Sentence) -> frozenset[str]:
