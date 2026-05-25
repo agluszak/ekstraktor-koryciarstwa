@@ -8,6 +8,7 @@ from pipeline_v2.candidates import (
 )
 from pipeline_v2.ids import EntityCandidateId
 from pipeline_v2.nlp import Sentence
+from pipeline_v2.scope import ScopeCompatibilityPolicy
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
     DescriptorPersonCandidateSignal,
@@ -95,12 +96,17 @@ class SentenceEntityRetriever:
                 continue
             evidence_sentence = self.store.sentences[evidence.sentence_id]
             idx_dist = abs(evidence_sentence.sentence_index - anchor_sentence.sentence_index)
-            is_same_para = evidence_sentence.paragraph_index == anchor_sentence.paragraph_index
-            # Allow adjacent sentences (distance ≤ 1) to cross paragraph boundaries —
-            # news articles often break paragraphs mid-thought, so the subject may
-            # appear at end of paragraph N-1 and the fact in paragraph N.
-            if not (is_same_para or idx_dist <= 1):
-                continue
+            # Use ScopeCompatibilityPolicy to strictly gate paragraph and list boundaries
+            if anchor_sentence.scope and evidence_sentence.scope:
+                policy = ScopeCompatibilityPolicy()
+                if not policy.scope_allows_window(anchor_sentence.scope, evidence_sentence.scope):
+                    continue
+            else:
+                # Fallback to older permissive logic if scopes are missing
+                is_same_para = evidence_sentence.paragraph_index == anchor_sentence.paragraph_index
+                if not (is_same_para or idx_dist <= 1):
+                    continue
+
             if min_index <= evidence_sentence.sentence_index <= max_index:
                 spans.append((evidence.span.start_char, evidence.span.end_char))
         if not spans:

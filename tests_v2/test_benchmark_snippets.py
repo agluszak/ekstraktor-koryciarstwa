@@ -167,9 +167,10 @@ def test_benchmark_split_sentence_governance_scenario() -> None:
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
-    # The copular "jest prezesem" and the window-backed "powołany" both point to
-    # the same appointment; inference merges them into one high-confidence fact.
-    assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    # The copular "jest prezesem" states current role holding; the later
+    # "powołany" sentence may corroborate the same role but should not turn the
+    # holding statement into an appointment.
+    assert record.kind is FactKind.PUBLIC_ROLE_HOLDING
     assert entity_hint_for_role(document, record, "person") == "Jan Kowalski"
     assert entity_hint_for_role(document, record, "organization") == "Wodkan"
     assert entity_hint_for_role(document, record, "role") == "prezesem"
@@ -292,7 +293,7 @@ def test_benchmark_proxy_family_tie_scenario() -> None:
     record = first_fact_record(document)
     assessment = document.fact_assessments[0].assessment
 
-    assert record.kind is FactKind.EXTENDED_KINSHIP
+    assert record.kind is FactKind.KINSHIP_TIE
     assert entity_hint_for_role(document, record, "subject") == "spouse of Jan Kowalski"
     assert entity_hint_for_role(document, record, "object") == "Jan Kowalski"
     assert text_argument(record, "relationship_detail") == "spouse"
@@ -354,7 +355,7 @@ def test_benchmark_family_name_overlap_tie_scenario() -> None:
     ProbabilisticInferenceStage().run(document)
 
     records = fact_records(document)
-    kinship_records = [r for r in records if r.kind == FactKind.EXTENDED_KINSHIP]
+    kinship_records = [r for r in records if r.kind == FactKind.KINSHIP_TIE]
     assert len(kinship_records) >= 1
     record = kinship_records[0]
     assessment_record = next(
@@ -362,7 +363,7 @@ def test_benchmark_family_name_overlap_tie_scenario() -> None:
     )
     assessment = assessment_record.assessment
 
-    assert record.kind is FactKind.EXTENDED_KINSHIP
+    assert record.kind is FactKind.KINSHIP_TIE
     assert entity_hint_for_role(document, record, "subject") == "Marek Kowalski"
     assert entity_hint_for_role(document, record, "object") == "Jana Kowalskiego"
     assert text_argument(record, "relationship_detail") == "child"
@@ -505,7 +506,7 @@ def test_benchmark_multiparagraph_same_name_party_contrast() -> None:
     add_event(
         document,
         event_id=EventCandidateId("event-po"),
-        kind=FactKind.PARTY_AFFILIATION,
+        kind=FactKind.PARTY_MEMBERSHIP,
     )
     bind_entity(
         document,
@@ -524,7 +525,7 @@ def test_benchmark_multiparagraph_same_name_party_contrast() -> None:
     add_event(
         document,
         event_id=EventCandidateId("event-pis"),
-        kind=FactKind.PARTY_AFFILIATION,
+        kind=FactKind.PARTY_MEMBERSHIP,
     )
     bind_entity(
         document,

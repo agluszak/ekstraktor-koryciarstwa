@@ -5,11 +5,12 @@ from pipeline_v2.candidates import (
     EntityCandidate,
     EntityFiller,
     EventCandidate,
+    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.entity_classification import entity_has_lexical_context_proposal
 from pipeline_v2.event_frames import EventFrame, EventFrameBuilder, FrameArgumentRole
-from pipeline_v2.ids import EntityCandidateId, ProducerId, TokenId
+from pipeline_v2.ids import EntityCandidateId, ProducerId, SentenceId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.syntax_view import SyntaxView
@@ -28,6 +29,8 @@ from pipeline_v2.types import (
     LocalRoleSignal,
     MentionKind,
     PartyOrganizationSignal,
+    PublicRoleDomain,
+    PublicRoleDomainSignal,
     Signal,
     WeakSyntacticBindingSignal,
     WindowOrganizationSignal,
@@ -106,7 +109,7 @@ class GovernanceCandidateStage:
     # Successor-pattern lemmas — "następcą zostanie X" (Bug 3).
     _successor_noun_lemmas = frozenset({"następca"})
     # Current-role descriptor adjectives for dash-apposition detection (Bug 4).
-    _current_descriptor_lemmas = frozenset({"obecny", "aktualny"})
+    _current_descriptor_lemmas = frozenset({"obecny", "aktualny", "dotychczasowy"})
     # Dash characters used in appositive constructions (Bug 4).
     _dash_chars = frozenset({"—", "–", "-"})
     # Exception-clause lemma: "z wyjątkiem X" means X is NOT dismissed.
@@ -127,6 +130,7 @@ class GovernanceCandidateStage:
             "rezygnować",  # imperfective of zrezygnować
             "odejść",
             "odchodzić",  # imperfective of odejść
+            "pożegnać",
             # Nouns
             "odwołanie",
             "dymisja",
@@ -164,7 +168,6 @@ class GovernanceCandidateStage:
             "wojt",
             "burmistrz",
             "starosta",
-            "sekretarz",
             "marszałek",
         }
     )
@@ -200,7 +203,7 @@ class GovernanceCandidateStage:
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         for sentence in document.store.sentences.values():
-            self._add_political_office_candidates(document, sentence)
+            self._add_public_role_holding_candidates(document, sentence)
             kinds = self._candidate_kinds(document, sentence)
             if not kinds:
                 continue
@@ -222,17 +225,17 @@ class GovernanceCandidateStage:
                     (person_id, organization_id, role_id, entity_signals)
                     for person_id, organization_id, role_id, entity_signals in combinations
                     if not (
-                        kind == FactKind.GOVERNANCE_APPOINTMENT
+                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
                         and organization_id is None
                         and role_id is None
                     )
                     and not (
-                        kind == FactKind.GOVERNANCE_APPOINTMENT
+                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
                         and self._is_employment_overlap(signals)
                         and not self._has_governance_role(document, role_id)
                     )
                     and not (
-                        kind == FactKind.GOVERNANCE_APPOINTMENT
+                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
                         and self._is_generic_appointment_lemma(signals)
                         and not self._has_governance_role(document, role_id)
                         # Successor pattern ("następcą zostanie X") makes 'zostać'
@@ -243,8 +246,9 @@ class GovernanceCandidateStage:
                 # Successor pattern: "Jej następcą zostanie Agnieszka Paradyż" — the
                 # appointee is the person appearing AFTER the 'zostać' trigger, not a
                 # window entity from the previous dismissal sentence (Bug 3).
-                if kind == FactKind.GOVERNANCE_APPOINTMENT and self._sentence_has_successor_pattern(
-                    document, sentence
+                if (
+                    kind == FactKind.PUBLIC_ROLE_APPOINTMENT
+                    and self._sentence_has_successor_pattern(document, sentence)
                 ):
                     zostac_start = next(
                         (
@@ -271,7 +275,7 @@ class GovernanceCandidateStage:
                 combos_by_person: dict[EntityCandidateId, list] = {}
                 for person_id, organization_id, role_id, entity_signals in viable_combinations:
                     if (
-                        kind == FactKind.GOVERNANCE_APPOINTMENT
+                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
                         and self._is_generic_appointment_lemma(signals)
                         and self._person_starts_after_dismissal_cue(
                             document=document,
@@ -280,11 +284,8 @@ class GovernanceCandidateStage:
                         )
                     ):
                         continue
-                    if (
-                        kind == FactKind.GOVERNANCE_DISMISSAL
-                        and self._person_is_in_exception_clause(
-                            document=document, sentence=sentence, person_id=person_id
-                        )
+                    if kind == FactKind.PUBLIC_ROLE_END and self._person_is_in_exception_clause(
+                        document=document, sentence=sentence, person_id=person_id
                     ):
                         continue
                     combos_by_person.setdefault(person_id, []).append(
@@ -373,6 +374,12 @@ class GovernanceCandidateStage:
                         bindings=role_bindings,
                         evidence_id=evidence.id,
                     )
+                    self._add_role_domain_bindings(
+                        document=document,
+                        event=event,
+                        role_bindings=role_bindings,
+                        evidence_id=evidence.id,
+                    )
                     self._add_governance_bindings(
                         document=document,
                         event=event,
@@ -400,6 +407,30 @@ class GovernanceCandidateStage:
                     filler=EntityFiller(entity_id),
                     evidence_ids=(evidence_id,),
                     signals=signals,
+                )
+            )
+
+    def _add_role_domain_bindings(
+        self,
+        *,
+        document: ArticleDocument,
+        event: EventCandidate,
+        role_bindings: dict[EntityCandidateId, tuple[Signal, ...]],
+        evidence_id,
+    ) -> None:
+        domains = {
+            self._public_role_domain_for_role(document, role_id) for role_id in role_bindings
+        }
+        domains.discard(None)
+        for domain in sorted(domains, key=lambda value: value.value):
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.ROLE_DOMAIN,
+                    filler=TextFiller(domain.value),
+                    evidence_ids=(evidence_id,),
+                    signals=(PublicRoleDomainSignal(domain=domain),),
                 )
             )
 
@@ -474,7 +505,7 @@ class GovernanceCandidateStage:
             if not is_temporal_objac:
                 candidates.append(
                     (
-                        FactKind.GOVERNANCE_APPOINTMENT,
+                        FactKind.PUBLIC_ROLE_APPOINTMENT,
                         (
                             AppointmentLemmaSignal(
                                 lemma=self._matched_detail(lemmas, self._appointment_lemmas),
@@ -492,7 +523,7 @@ class GovernanceCandidateStage:
         ):
             candidates.append(
                 (
-                    FactKind.GOVERNANCE_APPOINTMENT,
+                    FactKind.PUBLIC_ROLE_HOLDING,
                     (AppointmentLemmaSignal(lemma="obecny"),),
                 )
             )
@@ -520,7 +551,7 @@ class GovernanceCandidateStage:
             )
             candidates.append(
                 (
-                    FactKind.GOVERNANCE_DISMISSAL,
+                    FactKind.PUBLIC_ROLE_END,
                     (
                         DismissalLemmaSignal(
                             lemma=matched_lemma,
@@ -536,7 +567,7 @@ class GovernanceCandidateStage:
                 (kind, sigs)
                 for kind, sigs in candidates
                 if not (
-                    kind == FactKind.GOVERNANCE_APPOINTMENT
+                    kind == FactKind.PUBLIC_ROLE_APPOINTMENT
                     and (lemmas & self._appointment_lemmas) <= self._generic_appointment_lemmas
                     and self._has_tight_generic_dismissal_cluster(
                         document=document,
@@ -555,11 +586,11 @@ class GovernanceCandidateStage:
             and self._sentence_has_governance_role_entity(document, sentence)
         ):
             candidates.append(
-                (FactKind.GOVERNANCE_APPOINTMENT, (AppointmentLemmaSignal(lemma="być"),))
+                (FactKind.PUBLIC_ROLE_HOLDING, (AppointmentLemmaSignal(lemma="być"),))
             )
         return tuple(candidates)
 
-    def _add_political_office_candidates(
+    def _add_public_role_holding_candidates(
         self,
         document: ArticleDocument,
         sentence: Sentence,
@@ -599,7 +630,7 @@ class GovernanceCandidateStage:
         document.store.add_evidence(evidence)
         event = EventCandidate(
             id=document.store.next_event_candidate_id(),
-            kind=FactKind.POLITICAL_OFFICE,
+            kind=FactKind.PUBLIC_ROLE_HOLDING,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
             source=self.producer_id,
@@ -619,6 +650,12 @@ class GovernanceCandidateStage:
                 event=event,
                 role=EventRole.ROLE,
                 bindings={role.id: (LocalRoleSignal(),)},
+                evidence_id=evidence.id,
+            )
+            self._add_role_domain_bindings(
+                document=document,
+                event=event,
+                role_bindings={role.id: (LocalRoleSignal(),)},
                 evidence_id=evidence.id,
             )
 
@@ -1084,6 +1121,12 @@ class GovernanceCandidateStage:
         compatible_roles: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         for role, role_signals in roles:
             person_is_window_only = person.id not in local_people_ids
+            if (
+                self._sentence_has_successor_pattern(document, sentence)
+                and role.id in local_role_ids
+                and self._role_has_current_descriptor(document, sentence, role)
+            ):
+                continue
             if person_is_window_only and local_people_ids and role.id in local_role_ids:
                 continue
             if (
@@ -1102,6 +1145,26 @@ class GovernanceCandidateStage:
         _ = trigger_start_char
         return tuple(compatible_roles)
 
+    def _role_has_current_descriptor(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        role: SentenceEntity,
+    ) -> bool:
+        role_token_indexes = [
+            index
+            for index, token_id in enumerate(sentence.token_ids)
+            if role.start_char <= document.store.tokens[token_id].span.start_char < role.end_char
+        ]
+        if not role_token_indexes:
+            return False
+        first_role_index = min(role_token_indexes)
+        for token_id in sentence.token_ids[max(0, first_role_index - 3) : first_role_index]:
+            token = document.store.tokens[token_id]
+            if {analysis.lemma for analysis in token.morph} & self._current_descriptor_lemmas:
+                return True
+        return False
+
     def _organization_candidates_for_person(
         self,
         *,
@@ -1115,8 +1178,37 @@ class GovernanceCandidateStage:
         # Tag-derived suppression now lives in the inference graph as constraint
         # factors coupling EntityContext variables to RoleFiller variables; the
         # producer no longer attaches per-tag context signals here.
-        _ = (document, sentence, person, role, trigger_start_char)
+        _ = (person, trigger_start_char)
+        role_sentence_id = (
+            self._entity_source_sentence_id(document, role.id) if role is not None else None
+        )
+        if self._sentence_has_successor_pattern(
+            document, sentence
+        ) and self._sentence_has_current_descriptor(document, sentence):
+            return ()
+        if (
+            role is not None
+            and role_sentence_id != sentence.id
+            and self._sentence_has_successor_pattern(document, sentence)
+        ):
+            return tuple(
+                (organization, signals)
+                for organization, signals in organizations
+                if self._entity_source_sentence_id(document, organization.id) == role_sentence_id
+            )
         return organizations
+
+    def _sentence_has_current_descriptor(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> bool:
+        if self._sentence_lemmas(document, sentence) & self._current_descriptor_lemmas:
+            return True
+        return any(
+            document.store.tokens[token_id].text.casefold().startswith("dotychczas")
+            for token_id in sentence.token_ids
+        )
 
     def _expand_conjunct_people(
         self,
@@ -1264,6 +1356,16 @@ class GovernanceCandidateStage:
             return False
         departure_lemmas = self._dismissal_lemmas | {"pożegnać"}
         return bool(self._sentence_lemmas(document, role_sentence) & departure_lemmas)
+
+    def _entity_source_sentence_id(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> SentenceId | None:
+        for evidence in document.store.evidence_for_entity(entity_id):
+            if evidence.sentence_id is not None:
+                return evidence.sentence_id
+        return None
 
     def _sentence_has_governance_role_entity(
         self,
@@ -1573,6 +1675,16 @@ class GovernanceCandidateStage:
         return False
 
     def _is_political_role(self, document: ArticleDocument, role_id: EntityCandidateId) -> bool:
+        return (
+            self._public_role_domain_for_role(document, role_id)
+            is PublicRoleDomain.POLITICAL_OFFICE
+        )
+
+    def _public_role_domain_for_role(
+        self,
+        document: ArticleDocument,
+        role_id: EntityCandidateId,
+    ) -> PublicRoleDomain:
         role_candidate = document.store.entity_candidates[role_id]
         text = (role_candidate.canonical_hint or "").lower()
         lemmas = set()
@@ -1582,6 +1694,18 @@ class GovernanceCandidateStage:
                 token = document.store.tokens[token_id]
                 for analysis in token.morph:
                     lemmas.add(analysis.lemma.lower())
-        return bool(self._political_role_lemmas & lemmas) or any(
+        if "sekretarz stanu" in text:
+            return PublicRoleDomain.POLITICAL_OFFICE
+        if bool(self._political_role_lemmas & lemmas) or any(
             lemma_word in text for lemma_word in self._political_role_lemmas
-        )
+        ):
+            return PublicRoleDomain.POLITICAL_OFFICE
+        if "rada nadzorcza" in text or {"rada", "nadzorczy"} <= lemmas:
+            return PublicRoleDomain.SUPERVISORY_BOARD
+        if {"prezes", "wiceprezes", "zarząd"} & lemmas:
+            return PublicRoleDomain.PUBLIC_COMPANY_MANAGEMENT
+        if {"dyrektor", "wicedyrektor", "kierownik", "szef"} & lemmas:
+            return PublicRoleDomain.INSTITUTION_MANAGEMENT
+        if {"sekretarz", "naczelnik", "skarbnik"} & lemmas:
+            return PublicRoleDomain.ADMINISTRATIVE_OFFICE
+        return PublicRoleDomain.OTHER_PUBLIC_ROLE

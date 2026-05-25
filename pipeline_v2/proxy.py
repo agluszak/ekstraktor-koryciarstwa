@@ -48,7 +48,7 @@ class FamilyProxyCandidateStage:
             )
             event = EventCandidate(
                 id=document.store.next_event_candidate_id(),
-                kind=FactKind.EXTENDED_KINSHIP,
+                kind=FactKind.KINSHIP_TIE,
                 trigger_evidence_id=reference.evidence_id,
                 evidence_ids=(reference.evidence_id,),
                 source=self.producer_id,

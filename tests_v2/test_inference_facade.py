@@ -49,6 +49,7 @@ from pipeline_v2.inference.resolution import ResolutionInferenceGraphBuilder
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import EvidenceSpan, Mention, ReferenceMention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
     CoreferenceProviderLinkSignal,
@@ -975,6 +976,7 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
             paragraph_index=0,
             text="Jan Kowalski. Kowalski.",
             span=Span(0, len(document.cleaned_text)),
+            scope=EvidenceScope(paragraph_index=0),
         )
     )
     full_evidence_id = EvidenceId("evidence-full")
@@ -1027,11 +1029,13 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
         surname_base="kowalski",
         canonical_hint="Jan Kowalski",
     )
-    surname_person_id = producer.add_surname_only_person(
+    second_person_id = producer.add_full_person(
         document.store,
-        candidate_id=EntityCandidateId("person-surname"),
-        mention_ids=(surname_mention,),
-        canonical_hint="Kowalski",
+        candidate_id=EntityCandidateId("person-second"),
+        mention_ids=(full_mention,),
+        given_name_lemma="jan",
+        surname_base="kowalski",
+        canonical_hint="Jan Kowalski",
     )
     document.store.add_entity_candidate(
         EntityCandidate(
@@ -1045,7 +1049,7 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
     )
     for event_id, employee_id in (
         (EventCandidateId("full-name-event"), full_person_id),
-        (EventCandidateId("surname-event"), surname_person_id),
+        (EventCandidateId("second-event"), second_person_id),
     ):
         document.store.add_event_candidate(
             EventCandidate(
@@ -1062,7 +1066,7 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
                 event_id=event_id,
                 role=EventRole.EMPLOYEE,
                 filler=EntityFiller(employee_id),
-                evidence_ids=(),
+                evidence_ids=(full_evidence_id,),
             )
         )
         document.store.add_argument_binding(
@@ -1071,7 +1075,7 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
                 event_id=event_id,
                 role=EventRole.WORKPLACE,
                 filler=EntityFiller(EntityCandidateId("org")),
-                evidence_ids=(),
+                evidence_ids=(full_evidence_id,),
             )
         )
 
@@ -1080,7 +1084,7 @@ def test_resolution_graph_uses_entity_alignment_strategy_for_same_event_candidat
 
     proposal = next(iter(built.same_event_proposal_by_variable_id.values()))
     assert proposal.strategy.value == "entity_alignment_relaxed"
-    assert proposal.linked_entity_pairs == ((full_person_id, surname_person_id),)
+    assert proposal.linked_entity_pairs == ((full_person_id, second_person_id),)
 
 
 def test_semantic_evidence_proposes_same_event_candidate_for_similar_contract_events() -> None:
@@ -1525,8 +1529,18 @@ def test_probabilistic_inference_keeps_unresolved_descriptor_person_visible() ->
         source_url=None,
         title="Title",
         publication_date=None,
-        cleaned_text="",
-        paragraphs=(),
+        cleaned_text="Jan Kowalski. Prezes.",
+        paragraphs=("Jan Kowalski. Prezes.",),
+    )
+    document.store.add_sentence(
+        Sentence(
+            id=SentenceId("sentence-1"),
+            sentence_index=0,
+            paragraph_index=0,
+            text="Jan Kowalski. Prezes.",
+            span=Span(0, len(document.cleaned_text)),
+            scope=EvidenceScope(paragraph_index=0),
+        )
     )
     add_entity(
         document,
@@ -1591,8 +1605,18 @@ def test_probabilistic_inference_projects_named_person_for_resolved_descriptor_d
         source_url=None,
         title="Title",
         publication_date=None,
-        cleaned_text="",
-        paragraphs=(),
+        cleaned_text="Jan Kowalski. Prezes.",
+        paragraphs=("Jan Kowalski. Prezes.",),
+    )
+    document.store.add_sentence(
+        Sentence(
+            id=SentenceId("sentence-1"),
+            sentence_index=0,
+            paragraph_index=0,
+            text="Jan Kowalski. Prezes.",
+            span=Span(0, len(document.cleaned_text)),
+            scope=EvidenceScope(paragraph_index=0),
+        )
     )
     named_evidence_id = EvidenceId("named-person")
     descriptor_evidence_id = EvidenceId("descriptor-person")
@@ -1696,6 +1720,11 @@ def test_probabilistic_inference_projects_named_person_for_resolved_descriptor_d
             role=EventRole.PERSON,
             entity_id=person_id,
             signals=(signal,),
+            evidence_ids=(
+                named_evidence_id
+                if person_id == EntityCandidateId("named-person")
+                else descriptor_evidence_id,
+            ),
         )
         bind_entity(
             document,
@@ -1704,6 +1733,7 @@ def test_probabilistic_inference_projects_named_person_for_resolved_descriptor_d
             role=EventRole.ORGANIZATION,
             entity_id=EntityCandidateId("org"),
             signals=(LocalOrganizationSignal(),),
+            evidence_ids=(named_evidence_id,),
         )
         bind_entity(
             document,
@@ -1712,6 +1742,7 @@ def test_probabilistic_inference_projects_named_person_for_resolved_descriptor_d
             role=EventRole.ROLE,
             entity_id=EntityCandidateId("role"),
             signals=(LocalRoleSignal(),),
+            evidence_ids=(named_evidence_id,),
         )
 
     ProbabilisticInferenceStage().run(document)
@@ -2109,6 +2140,26 @@ def _make_duplicate_employment_document(
         cleaned_text="Text.",
         paragraphs=("Text.",),
     )
+    document.store.add_sentence(
+        Sentence(
+            id=SentenceId("sentence-1"),
+            sentence_index=0,
+            paragraph_index=0,
+            text="Text.",
+            span=Span(0, 5),
+            scope=EvidenceScope(paragraph_index=0),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=EvidenceId("evidence-1"),
+            text="Text.",
+            span=Span(0, 5),
+            sentence_id=SentenceId("sentence-1"),
+            paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
+        )
+    )
     person_id = EntityCandidateId("person-1")
     org_id = EntityCandidateId("org-1")
     document.store.add_entity_candidate(
@@ -2166,7 +2217,7 @@ def _make_duplicate_employment_document(
                 event_id=EventCandidateId(event_suffix),
                 role=EventRole.EMPLOYEE,
                 filler=EntityFiller(employee_id),
-                evidence_ids=(),
+                evidence_ids=(EvidenceId("evidence-1"),),
             )
         )
         document.store.add_argument_binding(
@@ -2175,7 +2226,7 @@ def _make_duplicate_employment_document(
                 event_id=EventCandidateId(event_suffix),
                 role=EventRole.WORKPLACE,
                 filler=EntityFiller(org_id),
-                evidence_ids=(),
+                evidence_ids=(EvidenceId("evidence-1"),),
             )
         )
     return document

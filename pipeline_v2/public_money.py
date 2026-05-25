@@ -31,6 +31,7 @@ from pipeline_v2.types import (
     EntityKind,
     EventRole,
     FactKind,
+    FinancialTransactionShapeSignal,
     FunderSignal,
     FundingLemmaSignal,
     GroundingKind,
@@ -132,10 +133,18 @@ class PublicMoneyCandidateStage:
                             sentence,
                             kind,
                         )
+
+                        has_full_shape = any(
+                            src is not None and tgt is not None for src, _, tgt, _ in party_options
+                        )
+
                         event_signals: list[Signal] = [
                             MoneyAmountSignal(amount=amount_texts[0]),
                             *signals,
                         ]
+                        if has_full_shape:
+                            event_signals.append(FinancialTransactionShapeSignal())
+
                         if kind == FactKind.COMPENSATION:
                             micro = self._micro_amount_signal(amount_texts[0])
                             if micro is not None:

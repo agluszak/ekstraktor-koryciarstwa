@@ -22,7 +22,9 @@ from pipeline_v2.types import (
     ExplicitNonPartyContextSignal,
     ExplicitPatronageLemmaSignal,
     FactKind,
+    FinancialTransactionShapeSignal,
     FundingLemmaSignal,
+    KinshipFirstTokenCaseSignal,
     LocalActorSignal,
     LocalInstitutionSignal,
     LocalObjectSignal,
@@ -48,6 +50,7 @@ from pipeline_v2.types import (
     RelationshipDetailSignal,
     Signal,
     SignalPolarity,
+    SyntaxPossessorSignal,
     WeakSyntacticBindingSignal,
     WindowFallbackSignal,
     WindowOrganizationSignal,
@@ -152,10 +155,16 @@ class BaseFactPriorPolicy:
                 return 0.15
             case WindowFallbackSignal(distance=distance):
                 return max(0.0, 0.08 - 0.02 * distance)
+            case SyntaxPossessorSignal():
+                return 0.35
+            case FinancialTransactionShapeSignal():
+                return 0.45
         return 0.0
 
     def negative_delta(self, signal: Signal, kind: FactKind) -> float:
         match signal:
+            case KinshipFirstTokenCaseSignal():
+                return -0.8
             case ExplicitNonPartyContextSignal():
                 return -1.0
             case MicroAmountSignal():
@@ -192,18 +201,22 @@ class PublicMoneyPriorPolicy(BaseFactPriorPolicy):
 
 
 class GovernancePriorPolicy(BaseFactPriorPolicy):
-    kinds = frozenset({FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL})
+    kinds = frozenset(
+        {
+            FactKind.PUBLIC_ROLE_APPOINTMENT,
+            FactKind.PUBLIC_ROLE_HOLDING,
+            FactKind.PUBLIC_ROLE_END,
+        }
+    )
     kind_bonus = 0.15
 
 
 class PoliticalContextPriorPolicy(BaseFactPriorPolicy):
     kinds = frozenset(
         {
-            FactKind.PARTY_AFFILIATION,
+            FactKind.PARTY_MEMBERSHIP,
             FactKind.POLITICAL_SUPPORT,
-            FactKind.FORMER_PARTY_MEMBERSHIP,
             FactKind.ELECTION_CANDIDACY,
-            FactKind.POLITICAL_OFFICE,
             FactKind.PARTY_DONATION,
         }
     )
@@ -221,7 +234,7 @@ class PublicEmploymentPriorPolicy(BaseFactPriorPolicy):
 
 
 class PersonalTiePriorPolicy(BaseFactPriorPolicy):
-    kinds = frozenset({FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.EXTENDED_KINSHIP})
+    kinds = frozenset({FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.KINSHIP_TIE})
     kind_bonus = 0.15
 
 

@@ -91,7 +91,7 @@ def test_family_reference_materializes_proxy_person_linked_to_anchor() -> None:
         proxy_candidates[0].reference_ids[0]
     ) == frozenset({proxy_candidates[0].id})
     tie_record = first_fact_record(document)
-    assert tie_record.kind is FactKind.EXTENDED_KINSHIP
+    assert tie_record.kind is FactKind.KINSHIP_TIE
     assert entity_hint_for_role(document, tie_record, "subject") == "spouse of Jan Kowalski"
     assert entity_hint_for_role(document, tie_record, "object") == "Jan Kowalski"
     assert text_argument(tie_record, "relationship_detail") == "spouse"

@@ -6,6 +6,7 @@ from typing import Protocol
 import morfeusz2
 
 from pipeline_v2.ids import EvidenceId, MentionId, ProducerId, SentenceId, TokenId
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.types import (
     DependencyRelation,
     MentionKind,
@@ -93,6 +94,7 @@ class Sentence:
     text: str
     span: Span
     token_ids: tuple[TokenId, ...] = ()
+    scope: EvidenceScope | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +105,7 @@ class EvidenceSpan:
     sentence_id: SentenceId | None = None
     paragraph_index: int | None = None
     source: ProducerId | None = None
+    scope: EvidenceScope | None = None
 
 
 @dataclass(frozen=True, slots=True)

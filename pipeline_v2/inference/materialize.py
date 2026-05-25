@@ -146,9 +146,7 @@ class FactAssessmentMaterializer:
                     ),
                 )
             )
-        _symmetric_kinds = frozenset(
-            {FactKind.EXTENDED_KINSHIP, FactKind.PERSONAL_OR_POLITICAL_TIE}
-        )
+        _symmetric_kinds = frozenset({FactKind.KINSHIP_TIE, FactKind.PERSONAL_OR_POLITICAL_TIE})
         seen_pairs: set[tuple[FactKind, frozenset]] = set()
         assessment_by_id = {a.materialized_fact_id: a for a in document.fact_assessments}
         deduped_records: list[FactCandidateRecord] = []
@@ -426,7 +424,12 @@ class FactAssessmentMaterializer:
                 return any(
                     argument.role is FactArgumentRole.AMOUNT for argument in record.arguments
                 )
-            case FactKind.POLITICAL_OFFICE | FactKind.ELECTION_CANDIDACY:
+            case (
+                FactKind.PUBLIC_ROLE_APPOINTMENT
+                | FactKind.PUBLIC_ROLE_HOLDING
+                | FactKind.PUBLIC_ROLE_END
+                | FactKind.ELECTION_CANDIDACY
+            ):
                 return any(
                     argument.role is FactArgumentRole.PERSON for argument in record.arguments
                 )

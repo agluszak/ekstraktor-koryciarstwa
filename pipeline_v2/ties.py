@@ -117,7 +117,7 @@ class PersonalTieCandidateStage:
             lemmas = self._sentence_lemmas(document, sentence)
             family_detail = self._family_detail(lemmas)
             if family_detail is not None and len(observed_people) >= 2:
-                self._add_extended_kinship(
+                self._add_kinship_tie(
                     document,
                     subject=observed_people[0],
                     object_entity=observed_people[1],
@@ -606,7 +606,7 @@ class PersonalTieCandidateStage:
             return None
         return matched[0]
 
-    def _add_extended_kinship(
+    def _add_kinship_tie(
         self,
         document: ArticleDocument,
         *,
@@ -633,7 +633,7 @@ class PersonalTieCandidateStage:
         )
         event = EventCandidate(
             id=document.store.next_event_candidate_id(),
-            kind=FactKind.EXTENDED_KINSHIP,
+            kind=FactKind.KINSHIP_TIE,
             trigger_evidence_id=evidence_ids[0] if evidence_ids else None,
             evidence_ids=evidence_ids,
             source=self.producer_id,

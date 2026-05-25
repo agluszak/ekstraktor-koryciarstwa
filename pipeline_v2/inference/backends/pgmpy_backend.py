@@ -25,7 +25,7 @@ class PgmpyInferenceBackend(InferenceBackend):
 
     show_progress: bool = False
     minimum_potential: float = 1e-6
-    max_exact_state_space: int = 1_000_000
+    max_exact_state_space: int = 100_000
 
     def run(self, spec: InferenceGraphSpec) -> InferenceResult:
         if not spec.variables:
@@ -33,13 +33,46 @@ class PgmpyInferenceBackend(InferenceBackend):
 
         marginals: list[VariableMarginal] = []
         diagnostics: list[InferenceDiagnostic] = []
+        total_components = 0
+        exact_components = 0
+        fallback_components = 0
+        largest_variables = 0
+        largest_state_space = 0
+
         for component in self._components(spec):
+            total_components += 1
+            variables = component.variables
+            largest_variables = max(largest_variables, len(variables))
+            state_space = self._state_space_size(variables)
+            largest_state_space = max(largest_state_space, state_space)
+
+            if state_space > self.max_exact_state_space or len(variables) > 16:
+                fallback_components += 1
+            elif len(variables) > 0:
+                exact_components += 1
+
             component_result = self._run_component(
-                variables=component.variables,
+                variables=variables,
                 factors=component.factors,
             )
             marginals.extend(component_result.marginals)
             diagnostics.extend(component_result.diagnostics)
+
+        diagnostics.append(
+            InferenceDiagnostic(message=f"total component count: {total_components}")
+        )
+        diagnostics.append(
+            InferenceDiagnostic(message=f"exact component count: {exact_components}")
+        )
+        diagnostics.append(
+            InferenceDiagnostic(message=f"fallback component count: {fallback_components}")
+        )
+        diagnostics.append(
+            InferenceDiagnostic(message=f"largest variable count: {largest_variables}")
+        )
+        diagnostics.append(
+            InferenceDiagnostic(message=f"largest estimated state space: {largest_state_space}")
+        )
         diagnostics.append(InferenceDiagnostic(message="pgmpy inference completed"))
         return InferenceResult(
             marginals=tuple(marginals),
@@ -57,7 +90,7 @@ class PgmpyInferenceBackend(InferenceBackend):
                 marginals=tuple(self._uniform_marginal(variable) for variable in variables)
             )
         state_space = self._state_space_size(variables)
-        if state_space > self.max_exact_state_space:
+        if state_space > self.max_exact_state_space or len(variables) > 16:
             return self._run_local_marginal_approximation(
                 variables=variables,
                 factors=factors,

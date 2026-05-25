@@ -4,6 +4,7 @@ import re
 
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.nlp import Sentence, Span
+from pipeline_v2.scope import EvidenceScope, ListBlockId
 
 UPPERCASE_LETTERS = "A-ZĄĆĘŁŃÓŚŻŹ"
 SENTENCE_SPLIT_RE = re.compile(
@@ -78,17 +79,47 @@ class ParagraphSentenceSegmenter:
         return "paragraph_sentence_segmenter_v2"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
+        _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*•–—▪◦]|[0-9]+[.)]|[a-zA-Z][.)])")
         running_offset = 0
+        current_list_block_id: ListBlockId | None = None
+        current_list_item_index: int | None = None
+        next_list_block_number = 0
         for paragraph_index, paragraph in enumerate(document.paragraphs):
             local_offset = document.cleaned_text.find(paragraph, running_offset)
             if local_offset < 0:
                 local_offset = running_offset
             cursor = local_offset
-            for sentence_text in split_sentences(paragraph):
+
+            is_list_item = bool(_LIST_ITEM_RE.search(paragraph))
+            list_block_id = None
+            list_item_index = None
+            if is_list_item:
+                if current_list_block_id is None:
+                    current_list_block_id = ListBlockId(f"list_block_{next_list_block_number}")
+                    next_list_block_number += 1
+                    current_list_item_index = 0
+                else:
+                    current_list_item_index = (
+                        0 if current_list_item_index is None else current_list_item_index + 1
+                    )
+                list_block_id = current_list_block_id
+                list_item_index = current_list_item_index
+            else:
+                current_list_block_id = None
+                current_list_item_index = None
+
+            for sentence_idx_in_para, sentence_text in enumerate(split_sentences(paragraph)):
                 start_char = document.cleaned_text.find(sentence_text, cursor)
                 if start_char < 0:
                     start_char = cursor
                 end_char = start_char + len(sentence_text)
+
+                scope = EvidenceScope(
+                    paragraph_index=paragraph_index,
+                    list_block_id=list_block_id,
+                    list_item_index=list_item_index if list_item_index is not None else None,
+                )
+
                 document.store.add_sentence(
                     Sentence(
                         id=document.store.next_sentence_id(),
@@ -96,6 +127,7 @@ class ParagraphSentenceSegmenter:
                         paragraph_index=paragraph_index,
                         text=sentence_text,
                         span=Span(start_char=start_char, end_char=end_char),
+                        scope=scope,
                     )
                 )
                 cursor = end_char

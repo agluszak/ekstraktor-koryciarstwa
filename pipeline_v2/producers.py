@@ -101,7 +101,7 @@ class EvidenceSignalProducer:
     ) -> set[str]:
         parties: set[str] = set()
         for event in store.event_candidates.values():
-            if event.kind is not FactKind.PARTY_AFFILIATION:
+            if event.kind is not FactKind.PARTY_MEMBERSHIP:
                 continue
             subject_id: EntityCandidateId | None = None
             party_id: EntityCandidateId | None = None

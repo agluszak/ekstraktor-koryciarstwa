@@ -169,7 +169,7 @@ def test_public_employment_stage_does_not_emit_for_governance_role_hire_overlap(
 
     records = fact_records(document)
 
-    assert tuple(record.kind for record in records) == (FactKind.GOVERNANCE_APPOINTMENT,)
+    assert tuple(record.kind for record in records) == (FactKind.PUBLIC_ROLE_APPOINTMENT,)
     assert entity_hint_for_role(document, records[0], "person") == "Jana Kowalskiego"
     assert entity_hint_for_role(document, records[0], "organization") == "Spółka"
     assert entity_hint_for_role(document, records[0], "role") == "prezesa"

@@ -74,24 +74,27 @@ _SELF_TIE_RESOLUTION = 0.000001
 _SOFT_DISTINCT = 0.02
 
 
+_PUBLIC_ROLE_SPECS = (
+    RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
+    RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
+    RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
+    RoleSpec(EventRole.ROLE_DOMAIN, FactArgumentRole.ROLE_DOMAIN, _ANY_ENTITY),
+    RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
+)
+
+
 EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
-    FactKind.GOVERNANCE_APPOINTMENT: EventSchema(
-        fact_kind=FactKind.GOVERNANCE_APPOINTMENT,
-        roles=(
-            RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
-            RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
-            RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
-            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
-        ),
+    FactKind.PUBLIC_ROLE_APPOINTMENT: EventSchema(
+        fact_kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
+        roles=_PUBLIC_ROLE_SPECS,
     ),
-    FactKind.GOVERNANCE_DISMISSAL: EventSchema(
-        fact_kind=FactKind.GOVERNANCE_DISMISSAL,
-        roles=(
-            RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
-            RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
-            RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
-            RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
-        ),
+    FactKind.PUBLIC_ROLE_HOLDING: EventSchema(
+        fact_kind=FactKind.PUBLIC_ROLE_HOLDING,
+        roles=_PUBLIC_ROLE_SPECS,
+    ),
+    FactKind.PUBLIC_ROLE_END: EventSchema(
+        fact_kind=FactKind.PUBLIC_ROLE_END,
+        roles=_PUBLIC_ROLE_SPECS,
     ),
     FactKind.PUBLIC_EMPLOYMENT: EventSchema(
         fact_kind=FactKind.PUBLIC_EMPLOYMENT,
@@ -144,11 +147,12 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.AMOUNT, FactArgumentRole.AMOUNT, _MONEY, required=True),
         ),
     ),
-    FactKind.PARTY_AFFILIATION: EventSchema(
-        fact_kind=FactKind.PARTY_AFFILIATION,
+    FactKind.PARTY_MEMBERSHIP: EventSchema(
+        fact_kind=FactKind.PARTY_MEMBERSHIP,
         roles=(
             RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON, required=True),
             RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PARTY, required=True),
+            RoleSpec(EventRole.STATUS, FactArgumentRole.STATUS, _ANY_ENTITY),
         ),
     ),
     FactKind.POLITICAL_SUPPORT: EventSchema(
@@ -261,13 +265,6 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             ),
         ),
     ),
-    FactKind.FORMER_PARTY_MEMBERSHIP: EventSchema(
-        fact_kind=FactKind.FORMER_PARTY_MEMBERSHIP,
-        roles=(
-            RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON, required=True),
-            RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PARTY, required=True),
-        ),
-    ),
     FactKind.ELECTION_CANDIDACY: EventSchema(
         fact_kind=FactKind.ELECTION_CANDIDACY,
         roles=(
@@ -275,14 +272,6 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
             RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
-        ),
-    ),
-    FactKind.POLITICAL_OFFICE: EventSchema(
-        fact_kind=FactKind.POLITICAL_OFFICE,
-        roles=(
-            RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
-            RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE, required=True),
-            RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
         ),
     ),
     FactKind.CORPORATE_OWNERSHIP: EventSchema(
@@ -320,8 +309,8 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.CONTEXT, FactArgumentRole.CONTEXT, _ANY_ENTITY),
         ),
     ),
-    FactKind.EXTENDED_KINSHIP: EventSchema(
-        fact_kind=FactKind.EXTENDED_KINSHIP,
+    FactKind.KINSHIP_TIE: EventSchema(
+        fact_kind=FactKind.KINSHIP_TIE,
         roles=(
             RoleSpec(EventRole.SUBJECT, FactArgumentRole.SUBJECT, _PERSON, required=True),
             RoleSpec(EventRole.OBJECT, FactArgumentRole.OBJECT, _PERSON, required=True),
@@ -364,6 +353,8 @@ _FACT_ARGUMENT_ROLE_BY_EVENT_ROLE = {
     EventRole.EMPLOYEE: FactArgumentRole.PERSON,
     EventRole.WORKPLACE: FactArgumentRole.ORGANIZATION,
     EventRole.HIRING_AUTHORITY: FactArgumentRole.ACTOR,
+    EventRole.ROLE_DOMAIN: FactArgumentRole.ROLE_DOMAIN,
+    EventRole.STATUS: FactArgumentRole.STATUS,
 }
 
 

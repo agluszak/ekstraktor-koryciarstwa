@@ -15,6 +15,7 @@ from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
     EntityCandidateId,
     EventCandidateId,
+    EvidenceId,
     FactCandidateId,
     ProducerId,
 )
@@ -158,6 +159,7 @@ def bind_entity(
     entity_id: EntityCandidateId,
     source: ProducerId = ProducerId("test"),
     signals: tuple[Signal, ...] = (),
+    evidence_ids: tuple[EvidenceId, ...] = (),
 ) -> None:
     _ = source
     document.store.add_argument_binding(
@@ -166,7 +168,7 @@ def bind_entity(
             event_id=event_id,
             role=role,
             filler=EntityFiller(entity_id),
-            evidence_ids=(),
+            evidence_ids=evidence_ids,
             signals=signals,
         )
     )
@@ -181,6 +183,7 @@ def bind_text(
     value: str,
     source: ProducerId = ProducerId("test"),
     signals: tuple[Signal, ...] = (),
+    evidence_ids: tuple[EvidenceId, ...] = (),
 ) -> None:
     _ = source
     document.store.add_argument_binding(
@@ -189,7 +192,7 @@ def bind_text(
             event_id=event_id,
             role=role,
             filler=TextFiller(value),
-            evidence_ids=(),
+            evidence_ids=evidence_ids,
             signals=signals,
         )
     )

@@ -74,18 +74,22 @@ def run_pipeline(text: str, entities: tuple[NamedEntitySpan, ...] = ()) -> Artic
     return document
 
 
-def test_former_party_membership() -> None:
+def test_party_membership() -> None:
     text = "Jan Kowalski był posłem z PO."
     document = run_pipeline(text, (entity_span(text, "Jan Kowalski", NerLabel.PERSON),))
     records = fact_records(document)
-    former_records = [r for r in records if r.kind == FactKind.FORMER_PARTY_MEMBERSHIP]
+    former_records = [
+        r
+        for r in records
+        if r.kind == FactKind.PARTY_MEMBERSHIP and text_argument(r, "status") == "former"
+    ]
     assert len(former_records) >= 1
     rec = former_records[0]
     assert entity_hint_for_role(document, rec, "subject") == "Jan Kowalski"
     assert entity_hint_for_role(document, rec, "object") == "Platforma Obywatelska"
 
 
-def test_former_party_membership_context_does_not_leak_to_unrelated_party() -> None:
+def test_party_membership_context_does_not_leak_to_unrelated_party() -> None:
     text = "Były minister Jan Kowalski z PO poparł Annę Nowak z PiS."
     document = run_pipeline(
         text,
@@ -101,7 +105,7 @@ def test_former_party_membership_context_does_not_leak_to_unrelated_party() -> N
             entity_hint_for_role(document, record, "object"),
         )
         for record in records
-        if record.kind == FactKind.FORMER_PARTY_MEMBERSHIP
+        if record.kind == FactKind.PARTY_MEMBERSHIP and text_argument(record, "status") == "former"
     }
     current_pairs = {
         (
@@ -109,7 +113,8 @@ def test_former_party_membership_context_does_not_leak_to_unrelated_party() -> N
             entity_hint_for_role(document, record, "object"),
         )
         for record in records
-        if record.kind == FactKind.PARTY_AFFILIATION
+        if record.kind == FactKind.PARTY_MEMBERSHIP
+        and text_argument(record, "status") in {"current", "unknown"}
     }
 
     assert ("Jan Kowalski", "Platforma Obywatelska") in former_pairs
@@ -134,22 +139,33 @@ def test_election_context_word_alone_does_not_create_candidacy() -> None:
     assert not [r for r in fact_records(document) if r.kind == FactKind.ELECTION_CANDIDACY]
 
 
-def test_political_office() -> None:
+def test_public_role_holding() -> None:
     text = "Radny Jan Kowalski zabrał głos."
     document = run_pipeline(text, (entity_span(text, "Jan Kowalski", NerLabel.PERSON),))
     records = fact_records(document)
-    office_records = [r for r in records if r.kind == FactKind.POLITICAL_OFFICE]
+    office_records = [r for r in records if r.kind == FactKind.PUBLIC_ROLE_HOLDING]
     assert len(office_records) >= 1
     rec = office_records[0]
     assert entity_hint_for_role(document, rec, "person") == "Jan Kowalski"
     assert entity_hint_for_role(document, rec, "role") == "Radny"
+    assert text_argument(rec, "role_domain") == "political_office"
+
+
+def test_secretary_of_city_is_administrative_public_role_not_political_office() -> None:
+    text = "Anna Nowak jest sekretarzem miasta."
+    document = run_pipeline(text, (entity_span(text, "Anna Nowak", NerLabel.PERSON),))
+
+    records = [r for r in fact_records(document) if r.kind == FactKind.PUBLIC_ROLE_HOLDING]
+    assert records
+    assert entity_hint_for_role(document, records[0], "person") == "Anna Nowak"
+    assert text_argument(records[0], "role_domain") == "administrative_office"
 
 
 def test_political_role_mention_does_not_attach_to_unrelated_person() -> None:
     text = "Minister skrytykował Jana Kowalskiego."
     document = run_pipeline(text, (entity_span(text, "Jana Kowalskiego", NerLabel.PERSON),))
 
-    assert not [r for r in fact_records(document) if r.kind == FactKind.POLITICAL_OFFICE]
+    assert not [r for r in fact_records(document) if r.kind == FactKind.PUBLIC_ROLE_HOLDING]
 
 
 def test_corporate_ownership() -> None:
@@ -192,7 +208,7 @@ def test_asset_declaration() -> None:
     assert text_argument(rec, "amount") == "100 tys. zł"
 
 
-def test_extended_kinship() -> None:
+def test_kinship_tie() -> None:
     text = "Jan Kowalski to brat Adama Kowalskiego."
     document = run_pipeline(
         text,
@@ -202,7 +218,7 @@ def test_extended_kinship() -> None:
         ),
     )
     records = fact_records(document)
-    kinship_records = [r for r in records if r.kind == FactKind.EXTENDED_KINSHIP]
+    kinship_records = [r for r in records if r.kind == FactKind.KINSHIP_TIE]
     assert len(kinship_records) >= 1
     rec = kinship_records[0]
     assert entity_hint_for_role(document, rec, "subject") == "Jan Kowalski"
@@ -342,14 +358,18 @@ def test_corporate_ownership_constraint_demotes_posterior() -> None:
     assert len(invalid_ownership) == 0
 
 
-def test_former_party_membership_person_after_party() -> None:
+def test_party_membership_person_after_party() -> None:
     text = "Do Platformy Obywatelskiej należał były poseł Jan Kowalski."
     document = run_pipeline(
         text,
         (entity_span(text, "Jan Kowalski", NerLabel.PERSON),),
     )
     records = fact_records(document)
-    former_records = [r for r in records if r.kind == FactKind.FORMER_PARTY_MEMBERSHIP]
+    former_records = [
+        r
+        for r in records
+        if r.kind == FactKind.PARTY_MEMBERSHIP and text_argument(r, "status") == "former"
+    ]
     assert len(former_records) >= 1
     rec = former_records[0]
     assert entity_hint_for_role(document, rec, "subject") == "Jan Kowalski"

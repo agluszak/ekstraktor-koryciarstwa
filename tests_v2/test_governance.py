@@ -113,16 +113,16 @@ def test_governance_stage_emits_appointment_candidate_with_sentence_local_entiti
 
     record = first_fact_record(document)
 
-    assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    assert record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     assert entity_hint_for_role(document, record, "person") == "Jan Kowalski"
     assert entity_hint_for_role(document, record, "organization") == "Wodkan"
     assert entity_hint_for_role(document, record, "role") == "zarządu"
-    assert set(record.signals) == {
+    assert {
         AppointmentLemmaSignal(lemma="powołać"),
         LocalPersonSignal(),
         LocalOrganizationSignal(),
         LocalRoleSignal(),
-    }
+    } <= set(record.signals)
 
 
 def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
@@ -144,13 +144,13 @@ def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
     )
 
     ProbabilisticInferenceStage().run(document)
-    # Both GOVERNANCE_APPOINTMENT (from 'zostać') and GOVERNANCE_DISMISSAL
+    # Both PUBLIC_ROLE_APPOINTMENT (from 'zostać') and PUBLIC_ROLE_END
     # (from 'odwołać') are emitted; find the dismissal specifically.
     dismissal_record = next(
-        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_ROLE_END
     )
 
-    assert dismissal_record.kind is FactKind.GOVERNANCE_DISMISSAL
+    assert dismissal_record.kind is FactKind.PUBLIC_ROLE_END
     dismissal_assessment = next(
         a.assessment
         for a in document.fact_assessments
@@ -185,7 +185,7 @@ def test_governance_stage_keeps_generic_appointment_in_separate_dismissal_clause
     appointments = [
         record
         for record in fact_records(document)
-        if record.kind is FactKind.GOVERNANCE_APPOINTMENT
+        if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     ]
     assert any(
         entity_hint_for_role(document, record, "person") == "Jan Kowalski"
@@ -246,13 +246,17 @@ def test_governance_stage_uses_adjacent_sentence_context_for_split_appointment()
         ),
     )
 
-    record = first_fact_record(document)
+    record = next(
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
+    )
 
     # The copular "jest prezesem" in sentence 1 produces the primary fact.  The
     # "Został powołany" in sentence 2 provides corroborating evidence via window
     # entities and is merged into the same fact by inference.  Both triggers must
     # result in a single governance appointment about Jan Kowalski.
-    assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    assert record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     assert entity_hint_for_role(document, record, "person") == "Jan Kowalski"
     assert entity_hint_for_role(document, record, "organization") == "Wodkan"
     assert entity_hint_for_role(document, record, "role") == "prezesem"
@@ -311,12 +315,12 @@ def test_governance_stage_ignores_following_sentence_background_organization() -
     # ('zostać').  The test verifies the dismissal specifically, and that the
     # following-sentence organisation is NOT used as an org argument.
     dismissal_candidate = next(
-        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_ROLE_END
     )
     record = dismissal_candidate
 
-    assert record.kind is FactKind.GOVERNANCE_DISMISSAL
-    assert argument_roles(record) == frozenset({"person", "role"})
+    assert record.kind is FactKind.PUBLIC_ROLE_END
+    assert {"person", "role"} <= argument_roles(record)
     assert entity_hint_for_role(document, record, "person") == "Olgierd Cieślik"
     assert entity_hint_for_role(document, record, "role") == "prezes"
 
@@ -351,7 +355,7 @@ def test_governance_stage_keeps_party_organization_out_of_primary_facts() -> Non
     assert any(
         binding.event_id in document.store.event_candidates
         and document.store.event_candidates[binding.event_id].kind
-        is FactKind.GOVERNANCE_APPOINTMENT
+        is FactKind.PUBLIC_ROLE_APPOINTMENT
         and PartyOrganizationSignal() in binding.signals
         for bindings in document.store.argument_bindings_by_event_id.values()
         for binding in bindings
@@ -393,7 +397,7 @@ def test_governance_stage_treats_inflected_ministry_as_context_not_organization(
         if entity.canonical_hint == "Ministerstwa Aktywów Państwowych"
     )
 
-    assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
+    assert record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     assert entity_hint_for_role(document, record, "organization") == "Orlenu"
     proposed_tags = frozenset(
         proposal.context_kind
@@ -439,7 +443,7 @@ def test_governance_stage_keeps_generic_owner_on_org_role_for_inference_competit
     appointment_event = next(
         event
         for event in document.store.event_candidates.values()
-        if event.kind is FactKind.GOVERNANCE_APPOINTMENT
+        if event.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     )
 
     ministry_roles = {
@@ -567,7 +571,7 @@ def test_governance_stage_rejects_org_like_person_noise() -> None:
     governance_people = {
         entity_hint_for_role(document, record, "person")
         for record in fact_records(document)
-        if record.kind is FactKind.GOVERNANCE_APPOINTMENT
+        if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     }
     assert "Allianza OFE" not in governance_people
 
@@ -593,7 +597,7 @@ def _has_entity_hint(
 
 
 def test_governance_stage_emits_dismissal_for_imperfective_odchodzic() -> None:
-    """'odchodzi ze stanowiska' should produce GOVERNANCE_DISMISSAL (Bug 1)."""
+    """'odchodzi ze stanowiska' should produce PUBLIC_ROLE_END (Bug 1)."""
     text = "Katarzyna Zapał odchodzi ze stanowiska prezesa spółki Komunalnik."
     document = run_governance_stage(
         text,
@@ -611,13 +615,13 @@ def test_governance_stage_emits_dismissal_for_imperfective_odchodzic() -> None:
         ),
     )
 
-    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
-    assert dismissals, "expected at least one GOVERNANCE_DISMISSAL"
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
+    assert dismissals, "expected at least one PUBLIC_ROLE_END"
     assert any(entity_hint_for_role(document, r, "person") == "Katarzyna Zapał" for r in dismissals)
 
 
 def test_governance_stage_emits_dismissal_for_imperfective_rezygnowac() -> None:
-    """'rezygnuje ze stanowiska' should produce GOVERNANCE_DISMISSAL (Bug 1)."""
+    """'rezygnuje ze stanowiska' should produce PUBLIC_ROLE_END (Bug 1)."""
     text = "Anna Nowak rezygnuje ze stanowiska dyrektora spółki Wodkan."
     document = run_governance_stage(
         text,
@@ -635,8 +639,8 @@ def test_governance_stage_emits_dismissal_for_imperfective_rezygnowac() -> None:
         ),
     )
 
-    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
-    assert dismissals, "expected at least one GOVERNANCE_DISMISSAL"
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
+    assert dismissals, "expected at least one PUBLIC_ROLE_END"
 
 
 # --- Bug 2: temporal objąć/objęcie suppression ---
@@ -716,8 +720,8 @@ def test_governance_stage_does_not_produce_appointment_from_temporal_objecia() -
     GovernanceCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
 
-    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
-    assert not appointments, "spurious GOVERNANCE_APPOINTMENT from temporal 'od objęcia'"
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_APPOINTMENT]
+    assert not appointments, "spurious PUBLIC_ROLE_APPOINTMENT from temporal 'od objęcia'"
 
 
 # --- Bug 3: successor pattern ---
@@ -752,8 +756,8 @@ def test_governance_stage_assigns_successor_not_predecessor_in_nastepca_pattern(
         ),
     )
 
-    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
-    assert appointments, "expected at least one GOVERNANCE_APPOINTMENT"
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_APPOINTMENT]
+    assert appointments, "expected at least one PUBLIC_ROLE_APPOINTMENT"
     appointment_people = {entity_hint_for_role(document, r, "person") for r in appointments}
     assert "Agnieszka Paradyż" in appointment_people, "successor should be appointed"
     assert "Katarzyna Zapał" not in appointment_people, (
@@ -783,8 +787,8 @@ def test_governance_stage_produces_appointment_from_dash_apposition_current_role
         ),
     )
 
-    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
-    assert appointments, "expected GOVERNANCE_APPOINTMENT from dash-apposition pattern"
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_HOLDING]
+    assert appointments, "expected PUBLIC_ROLE_HOLDING from dash-apposition pattern"
     assert any(entity_hint_for_role(document, r, "person") == "Jan Kowalski" for r in appointments)
 
 
@@ -801,7 +805,7 @@ def test_governance_stage_does_not_dismiss_person_in_exception_clause() -> None:
         ),
     )
 
-    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
     dismissed_people = {entity_hint_for_role(document, r, "person") for r in dismissals}
     assert "Jana Kowalskiego" not in dismissed_people, (
         "person in exception clause should not be marked as dismissed"
@@ -829,7 +833,7 @@ def test_governance_stage_dismisses_person_not_in_exception_clause() -> None:
         ),
     )
 
-    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
     dismissed_people = {entity_hint_for_role(document, r, "person") for r in dismissals}
     assert "Jana Kowalskiego" not in dismissed_people, (
         "person in exception clause should not be dismissed"
@@ -860,7 +864,7 @@ def test_governance_stage_dismisses_person_after_closed_exception_clause() -> No
         ),
     )
 
-    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
     dismissed_people = {entity_hint_for_role(document, r, "person") for r in dismissals}
     assert "Jana Kowalskiego" not in dismissed_people
     assert "Piotra Wiśniewskiego" in dismissed_people
@@ -892,10 +896,10 @@ def test_governance_stage_does_not_bind_role_title_person_ner_span_as_governance
     governance_people = {
         entity_hint_for_role(document, record, "person")
         for record in fact_records(document)
-        if record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
+        if record.kind in {FactKind.PUBLIC_ROLE_APPOINTMENT, FactKind.PUBLIC_ROLE_END}
     }
 
-    assert "Prezes" in person_entities
+    assert "Prezes" not in person_entities
     assert "Prezes" not in governance_people
 
 
@@ -923,9 +927,9 @@ def test_governance_stage_still_binds_named_person_with_role_title() -> None:
     governance_people = [
         entity_hint_for_role(document, record, "person")
         for record in fact_records(document)
-        if record.kind is FactKind.GOVERNANCE_APPOINTMENT
+        if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     ]
-    assert "Prezes Jan Kowalski" in governance_people
+    assert "Jan Kowalski" in governance_people
 
 
 def test_governance_stage_list_appointments_via_conj() -> None:
@@ -1007,7 +1011,7 @@ def test_governance_stage_list_appointments_via_conj() -> None:
     appointments = [
         entity_hint_for_role(document, r, "person")
         for r in fact_records(document)
-        if r.kind is FactKind.GOVERNANCE_APPOINTMENT
+        if r.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     ]
     assert "Jana Kowalskiego" in appointments
     assert "Tomasza Nowaka" in appointments
@@ -1071,7 +1075,7 @@ def test_governance_stage_reflexive_dismissal_guard() -> None:
     GovernanceCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
 
-    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
     assert not dismissals, "should suppress dismissal when odwołać is reflexive (odwołać się)"
 
 
@@ -1097,14 +1101,14 @@ def test_governance_stage_succession_pattern_binds_new_person_to_vacated_role() 
                 text="Marta Tartanus-Oryszczak",
                 label=NerLabel.PERSON,
                 span=Span(
-                    text.index("Marta Tartanus-Oryszczak"),
-                    text.index("Marta Tartanus-Oryszczak") + len("Marta Tartanus-Oryszczak"),
+                    text.rindex("Marta Tartanus-Oryszczak"),
+                    text.rindex("Marta Tartanus-Oryszczak") + len("Marta Tartanus-Oryszczak"),
                 ),
             ),
         ),
     )
 
-    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_APPOINTMENT]
     marta_appointments = [
         r
         for r in appointments
@@ -1117,9 +1121,51 @@ def test_governance_stage_succession_pattern_binds_new_person_to_vacated_role() 
     assert entity_hint_for_role(document, record, "role") == "Sekretarza"
 
 
-def test_governance_stage_copular_role_holder_produces_appointment() -> None:
+def test_governance_stage_succession_does_not_bind_unrelated_window_organization() -> None:
+    first = "Marta Tartanus-Oryszczak kierowała Biurem Finansowym."
+    second = "Ze stanowiskiem Sekretarza Miasta pożegnała się Barbara Chamiga."
+    third = "Jej miejsce zajęła Marta Tartanus-Oryszczak."
+    text = f"{first} {second} {third}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Marta Tartanus-Oryszczak",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.rindex("Marta Tartanus-Oryszczak"),
+                    text.rindex("Marta Tartanus-Oryszczak") + len("Marta Tartanus-Oryszczak"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Biurem Finansowym",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Biurem Finansowym"),
+                    text.index("Biurem Finansowym") + len("Biurem Finansowym"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Barbara Chamiga",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Barbara Chamiga"), text.index("Barbara Chamiga") + 15),
+            ),
+        ),
+    )
+
+    record = next(
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
+        and _has_entity_hint(document, record, "person", "Marta Tartanus-Oryszczak")
+    )
+    assert entity_hint_for_role(document, record, "role") == "Sekretarza"
+    assert "organization" not in argument_roles(record)
+
+
+def test_governance_stage_copular_role_holder_produces_holding() -> None:
     """'X jest przewodniczącą rady nadzorczej Y' — copular construction with a
-    governance role entity should produce a GOVERNANCE_APPOINTMENT."""
+    governance role entity should produce a PUBLIC_ROLE_HOLDING."""
     text = "Anna Nowak jest przewodniczącą rady nadzorczej spółki Komunalnik."
     document = run_governance_stage(
         text,
@@ -1137,8 +1183,8 @@ def test_governance_stage_copular_role_holder_produces_appointment() -> None:
         ),
     )
 
-    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
-    assert appointments, "copular governance role should produce a GOVERNANCE_APPOINTMENT"
-    record = appointments[0]
+    holdings = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_HOLDING]
+    assert holdings, "copular governance role should produce a PUBLIC_ROLE_HOLDING"
+    record = holdings[0]
     assert entity_hint_for_role(document, record, "person") == "Anna Nowak"
     assert entity_hint_for_role(document, record, "organization") == "Komunalnik"

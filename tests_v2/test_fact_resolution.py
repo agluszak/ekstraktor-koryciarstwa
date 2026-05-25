@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from pipeline_v2.candidates import Assessment, EntityCandidate, EntityResolutionClaim
+from pipeline_v2.candidates import (
+    ArgumentBindingCandidate,
+    Assessment,
+    EntityCandidate,
+    EntityFiller,
+    EntityResolutionClaim,
+    TextFiller,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
     ArgumentBindingCandidateId,
@@ -15,7 +22,8 @@ from pipeline_v2.ids import (
     SentenceId,
 )
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.nlp import EvidenceSpan, Mention, Span
+from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.types import (
     AppointmentLemmaSignal,
     EntityKind,
@@ -103,8 +111,94 @@ def _add_role_entity_with_descriptor_mention(
     )
 
 
+def _add_sentence_evidence(
+    document: ArticleDocument,
+    *,
+    sentence_id: SentenceId,
+    evidence_id: EvidenceId,
+    sentence_index: int,
+    paragraph_index: int,
+    text: str,
+    start_char: int,
+) -> None:
+    scope = EvidenceScope(paragraph_index=paragraph_index)
+    document.store.add_sentence(
+        Sentence(
+            id=sentence_id,
+            sentence_index=sentence_index,
+            paragraph_index=paragraph_index,
+            text=text,
+            span=Span(start_char=start_char, end_char=start_char + len(text)),
+            scope=scope,
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=evidence_id,
+            text=text,
+            span=Span(start_char=start_char, end_char=start_char + len(text)),
+            sentence_id=sentence_id,
+            paragraph_index=paragraph_index,
+            source=ProducerId("test"),
+            scope=scope,
+        )
+    )
+
+
+def _bind_entity_with_evidence(
+    document: ArticleDocument,
+    *,
+    binding_id: ArgumentBindingCandidateId,
+    event_id: EventCandidateId,
+    role: EventRole,
+    entity_id: EntityCandidateId,
+    evidence_id: EvidenceId,
+) -> None:
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=binding_id,
+            event_id=event_id,
+            role=role,
+            filler=EntityFiller(entity_id),
+            evidence_ids=(evidence_id,),
+            signals=(),
+        )
+    )
+
+
+def _bind_text_with_evidence(
+    document: ArticleDocument,
+    *,
+    binding_id: ArgumentBindingCandidateId,
+    event_id: EventCandidateId,
+    role: EventRole,
+    value: str,
+    evidence_id: EvidenceId,
+    signals: tuple[RelationshipDetailSignal, ...] = (),
+) -> None:
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=binding_id,
+            event_id=event_id,
+            role=role,
+            filler=TextFiller(value),
+            evidence_ids=(evidence_id,),
+            signals=signals,
+        )
+    )
+
+
 def test_probabilistic_inference_emits_same_fact_claim_and_suppresses_duplicate() -> None:
     document = _document()
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-1"),
+        evidence_id=EvidenceId("evidence-1"),
+        sentence_index=0,
+        paragraph_index=0,
+        text="Person został powołany do roli w Org.",
+        start_char=0,
+    )
     add_entity(
         document,
         entity_id=EntityCandidateId("person"),
@@ -129,7 +223,7 @@ def test_probabilistic_inference_emits_same_fact_claim_and_suppresses_duplicate(
     add_event(
         document,
         event_id=first_event_id,
-        kind=FactKind.GOVERNANCE_APPOINTMENT,
+        kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
             LocalPersonSignal(),
@@ -140,7 +234,7 @@ def test_probabilistic_inference_emits_same_fact_claim_and_suppresses_duplicate(
     add_event(
         document,
         event_id=second_event_id,
-        kind=FactKind.GOVERNANCE_APPOINTMENT,
+        kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
             LocalPersonSignal(),
@@ -149,26 +243,29 @@ def test_probabilistic_inference_emits_same_fact_claim_and_suppresses_duplicate(
         ),
     )
     for event_id, prefix in ((first_event_id, "first"), (second_event_id, "second")):
-        bind_entity(
+        _bind_entity_with_evidence(
             document,
             binding_id=ArgumentBindingCandidateId(f"{prefix}-person"),
             event_id=event_id,
             role=EventRole.PERSON,
             entity_id=EntityCandidateId("person"),
+            evidence_id=EvidenceId("evidence-1"),
         )
-        bind_entity(
+        _bind_entity_with_evidence(
             document,
             binding_id=ArgumentBindingCandidateId(f"{prefix}-org"),
             event_id=event_id,
             role=EventRole.ORGANIZATION,
             entity_id=EntityCandidateId("org"),
+            evidence_id=EvidenceId("evidence-1"),
         )
-        bind_entity(
+        _bind_entity_with_evidence(
             document,
             binding_id=ArgumentBindingCandidateId(f"{prefix}-role"),
             event_id=event_id,
             role=EventRole.ROLE,
             entity_id=EntityCandidateId("role"),
+            evidence_id=EvidenceId("evidence-1"),
         )
 
     ProbabilisticInferenceStage().run(document)
@@ -191,6 +288,15 @@ def test_probabilistic_inference_emits_same_fact_claim_and_suppresses_duplicate(
 
 def test_probabilistic_inference_merges_governance_duplicates_with_matching_org() -> None:
     document = _document()
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-1"),
+        evidence_id=EvidenceId("evidence-1"),
+        sentence_index=0,
+        paragraph_index=0,
+        text="Person objął role w Org.",
+        start_char=0,
+    )
     add_entity(
         document,
         entity_id=EntityCandidateId("person"),
@@ -221,7 +327,7 @@ def test_probabilistic_inference_merges_governance_duplicates_with_matching_org(
     add_event(
         document,
         event_id=first_event_id,
-        kind=FactKind.GOVERNANCE_APPOINTMENT,
+        kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
             LocalPersonSignal(),
@@ -232,7 +338,7 @@ def test_probabilistic_inference_merges_governance_duplicates_with_matching_org(
     add_event(
         document,
         event_id=second_event_id,
-        kind=FactKind.GOVERNANCE_APPOINTMENT,
+        kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
         signals=(
             AppointmentLemmaSignal(lemma="powołać"),
             LocalPersonSignal(),
@@ -240,47 +346,53 @@ def test_probabilistic_inference_merges_governance_duplicates_with_matching_org(
             LocalRoleSignal(),
         ),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("first-person"),
         event_id=first_event_id,
         role=EventRole.PERSON,
         entity_id=EntityCandidateId("person"),
+        evidence_id=EvidenceId("evidence-1"),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("first-org"),
         event_id=first_event_id,
         role=EventRole.ORGANIZATION,
         entity_id=EntityCandidateId("org"),
+        evidence_id=EvidenceId("evidence-1"),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("first-role"),
         event_id=first_event_id,
         role=EventRole.ROLE,
         entity_id=EntityCandidateId("role-1"),
+        evidence_id=EvidenceId("evidence-1"),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("second-person"),
         event_id=second_event_id,
         role=EventRole.PERSON,
         entity_id=EntityCandidateId("person"),
+        evidence_id=EvidenceId("evidence-1"),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("second-org"),
         event_id=second_event_id,
         role=EventRole.ORGANIZATION,
         entity_id=EntityCandidateId("org"),
+        evidence_id=EvidenceId("evidence-1"),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("second-role"),
         event_id=second_event_id,
         role=EventRole.ROLE,
         entity_id=EntityCandidateId("role-2"),
+        evidence_id=EvidenceId("evidence-1"),
     )
 
     ProbabilisticInferenceStage().run(document)
@@ -321,13 +433,13 @@ def test_probabilistic_inference_keeps_governance_facts_separate_without_shared_
     add_event(
         document,
         event_id=first_event_id,
-        kind=FactKind.GOVERNANCE_DISMISSAL,
+        kind=FactKind.PUBLIC_ROLE_END,
         signals=(LocalPersonSignal(), LocalRoleSignal()),
     )
     add_event(
         document,
         event_id=second_event_id,
-        kind=FactKind.GOVERNANCE_DISMISSAL,
+        kind=FactKind.PUBLIC_ROLE_END,
         signals=(LocalPersonSignal(), LocalRoleSignal()),
     )
     bind_entity(
@@ -366,6 +478,24 @@ def test_probabilistic_inference_keeps_governance_facts_separate_without_shared_
 
 def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resolution() -> None:
     document = _document()
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-1"),
+        evidence_id=EvidenceId("proxy-evidence"),
+        sentence_index=0,
+        paragraph_index=0,
+        text="Opisano kuzyna target.",
+        start_char=0,
+    )
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-2"),
+        evidence_id=EvidenceId("named-evidence"),
+        sentence_index=1,
+        paragraph_index=0,
+        text="Rafal Dobosz to kuzyn target.",
+        start_char=30,
+    )
     add_entity(
         document,
         entity_id=EntityCandidateId("proxy-subject"),
@@ -409,56 +539,63 @@ def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resol
             LocalObjectSignal(),
         ),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("proxy-subject"),
         event_id=proxy_event_id,
         role=EventRole.SUBJECT,
         entity_id=EntityCandidateId("proxy-subject"),
+        evidence_id=EvidenceId("proxy-evidence"),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("proxy-object"),
         event_id=proxy_event_id,
         role=EventRole.OBJECT,
         entity_id=EntityCandidateId("target"),
+        evidence_id=EvidenceId("proxy-evidence"),
     )
-    bind_text(
+    _bind_text_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("proxy-detail"),
         event_id=proxy_event_id,
         role=EventRole.RELATIONSHIP_DETAIL,
         value="family",
+        evidence_id=EvidenceId("proxy-evidence"),
         signals=(RelationshipDetailSignal(detail=RelationshipDetail.FAMILY),),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("named-subject"),
         event_id=named_event_id,
         role=EventRole.SUBJECT,
         entity_id=EntityCandidateId("named-subject"),
+        evidence_id=EvidenceId("named-evidence"),
     )
-    bind_entity(
+    _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("named-object"),
         event_id=named_event_id,
         role=EventRole.OBJECT,
         entity_id=EntityCandidateId("target"),
+        evidence_id=EvidenceId("named-evidence"),
     )
-    bind_text(
+    _bind_text_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("named-detail"),
         event_id=named_event_id,
         role=EventRole.RELATIONSHIP_DETAIL,
         value="family",
+        evidence_id=EvidenceId("named-evidence"),
         signals=(RelationshipDetailSignal(detail=RelationshipDetail.FAMILY),),
     )
-    bind_text(
+    _bind_text_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("named-context"),
         event_id=named_event_id,
         role=EventRole.CONTEXT,
         value="kuzyn Rafal Dobosz",
+        evidence_id=EvidenceId("named-evidence"),
     )
     document.store.add_resolution_claim(
         EntityResolutionClaim(

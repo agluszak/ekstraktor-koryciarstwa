@@ -45,7 +45,7 @@ def test_party_inference_keeps_non_party_context_as_negative_signal() -> None:
     add_event(
         document,
         event_id=EventCandidateId("event-1"),
-        kind=FactKind.PARTY_AFFILIATION,
+        kind=FactKind.PARTY_MEMBERSHIP,
         signals=(
             PartyAliasMatchSignal(),
             DirectPrepositionalAttachmentSignal(),
@@ -71,7 +71,6 @@ def test_party_inference_keeps_non_party_context_as_negative_signal() -> None:
 
     assert fact_records(document) == ()
     assert any(
-        event.kind is FactKind.PARTY_AFFILIATION
-        and ExplicitNonPartyContextSignal() in event.signals
+        event.kind is FactKind.PARTY_MEMBERSHIP and ExplicitNonPartyContextSignal() in event.signals
         for event in document.store.event_candidates.values()
     )

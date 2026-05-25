@@ -74,6 +74,8 @@ class HtmlArticlePreprocessor:
                 continue
             if _looks_like_comment(paragraph):
                 continue
+            if _looks_like_photo_credit_paragraph(paragraph):
+                continue
             if len(paragraph) < 20 and not (
                 AMOUNT_RE.search(paragraph) or ROLE_SHORT_RE.search(paragraph)
             ):
@@ -198,6 +200,12 @@ UI_PREFIX_MARKERS = frozenset(
     }
 )
 
+PHOTO_CREDIT_RE = re.compile(
+    r"/\s*(?:agencja wyborcza\.pl|pap|east news|forum|reuters|afp|"
+    r"getty images|shutterstock|epa|ap photo)\b",
+    re.IGNORECASE,
+)
+
 AMOUNT_RE = re.compile(
     r"\b\d+(?:[ .,]\d+)*(?:\s*(?:tys\.?|mln|miliard\w*))?\s*(?:zł|złotych|pln|usd|eur|€|\$)\b",
     re.IGNORECASE,
@@ -242,3 +250,9 @@ def _looks_like_comment(paragraph: str) -> bool:
     if lowered.startswith("ja - "):
         return True
     return False
+
+
+def _looks_like_photo_credit_paragraph(text: str) -> bool:
+    if not PHOTO_CREDIT_RE.search(text):
+        return False
+    return text.count(". ") <= 1

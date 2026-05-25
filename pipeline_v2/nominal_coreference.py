@@ -12,13 +12,17 @@ from pipeline_v2.ids import EntityCandidateId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, ReferenceMention, Sentence, Token
 from pipeline_v2.retrieval import SentenceEntityRetriever
 from pipeline_v2.types import (
+    DependencyRelation,
     EntityKind,
     EventRole,
     FactKind,
     GroundingKind,
+    KinshipFirstTokenCaseSignal,
     NominalKinshipSignal,
     ReferenceKind,
     RelationshipDetail,
+    Signal,
+    SyntaxPossessorSignal,
 )
 
 
@@ -77,7 +81,19 @@ class NominalKinshipCandidateStage:
     ) -> None:
         token = document.store.tokens[token_id]
 
-        possessor_id = self._find_possessor_via_pronoun(document, sentence, token_id, retriever)
+        token_index = sentence.token_ids.index(token_id)
+        signals: list[Signal] = [NominalKinshipSignal(lemma=lemma)]
+
+        if token_index == 0 and token.text and token.text[0].isupper():
+            signals.append(KinshipFirstTokenCaseSignal())
+
+        possessor_id = self._find_possessor_via_syntax(document, sentence, token_id, retriever)
+        if possessor_id is not None:
+            signals.append(SyntaxPossessorSignal())
+
+        if possessor_id is None:
+            possessor_id = self._find_possessor_via_pronoun(document, sentence, token_id, retriever)
+
         if possessor_id is None:
             possessor_id = self._find_possessor_via_adjacent_entity(
                 document, sentence, token, retriever
@@ -87,6 +103,14 @@ class NominalKinshipCandidateStage:
             return
 
         referent_id = self._find_referent(document, sentence, token, possessor_id, retriever)
+        if referent_id is None:
+            referent_id = self._find_discourse_referent(
+                document,
+                sentence,
+                token,
+                possessor_id,
+                retriever,
+            )
 
         relationship_detail = self._family_details_by_lemma[lemma]
 
@@ -135,11 +159,11 @@ class NominalKinshipCandidateStage:
 
         event = EventCandidate(
             id=document.store.next_event_candidate_id(),
-            kind=FactKind.EXTENDED_KINSHIP,
+            kind=FactKind.KINSHIP_TIE,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
             source=self.producer_id,
-            signals=(NominalKinshipSignal(lemma=lemma),),
+            signals=tuple(signals),
         )
         document.store.add_event_candidate(event)
         document.store.add_argument_binding(
@@ -178,6 +202,33 @@ class NominalKinshipCandidateStage:
                 evidence_ids=(evidence.id,),
             )
         )
+
+    def _find_possessor_via_syntax(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        kinship_token_id: TokenId,
+        retriever: SentenceEntityRetriever,
+    ) -> EntityCandidateId | None:
+        arcs = document.store.dependency_arcs_by_sentence_id.get(sentence.id, [])
+        for arc in arcs:
+            if arc.head_token_id == kinship_token_id and arc.relation == DependencyRelation.NMOD:
+                dependent_token = document.store.tokens.get(arc.dependent_token_id)
+                if not dependent_token:
+                    continue
+                people = tuple(
+                    e
+                    for e in retriever.entities_for_sentence(sentence)
+                    if e.kind == EntityKind.PERSON
+                    and document.store.entity_candidates[e.id].grounding == GroundingKind.OBSERVED
+                )
+                for p in people:
+                    if (
+                        p.start_char <= dependent_token.span.start_char
+                        and p.end_char >= dependent_token.span.end_char
+                    ):
+                        return p.id
+        return None
 
     def _find_possessor_via_pronoun(
         self,
@@ -262,3 +313,31 @@ class NominalKinshipCandidateStage:
             return None
 
         return min(valid_people, key=lambda item: item[1])[0].id
+
+    def _find_discourse_referent(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        kinship_token: Token,
+        possessor_id: EntityCandidateId,
+        retriever: SentenceEntityRetriever,
+    ) -> EntityCandidateId | None:
+        # "Prywatnie jest żoną X" usually predicates the kinship noun of the
+        # current discourse subject introduced in the immediately preceding text.
+        if "być" not in {
+            analysis.lemma
+            for token_id in sentence.token_ids
+            for analysis in document.store.tokens[token_id].morph
+        }:
+            return None
+        people = tuple(
+            e
+            for e in retriever.entities_for_sentence_window(sentence, before=3, after=0)
+            if e.kind == EntityKind.PERSON
+            and e.id != possessor_id
+            and document.store.entity_candidates[e.id].grounding == GroundingKind.OBSERVED
+        )
+        preceding = [p for p in people if p.end_char <= kinship_token.span.start_char]
+        if not preceding:
+            return None
+        return max(preceding, key=lambda person: person.end_char).id

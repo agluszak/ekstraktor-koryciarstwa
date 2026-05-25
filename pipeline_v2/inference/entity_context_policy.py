@@ -46,12 +46,13 @@ _DEFAULT_TABLE: Mapping[tuple[EntityTag, FactKind, EventRole], float] = {
     (EntityTag.MEDIA_OUTLET, FactKind.COMPENSATION, EventRole.FUNDER): _STRONG_SUPPRESS,
     # News outlets should not win employment or governance organization roles.
     (EntityTag.MEDIA_OUTLET, FactKind.PUBLIC_EMPLOYMENT, EventRole.WORKPLACE): _STRONG_SUPPRESS,
-    (EntityTag.MEDIA_OUTLET, FactKind.GOVERNANCE_APPOINTMENT, EventRole.ORGANIZATION): (
+    (EntityTag.MEDIA_OUTLET, FactKind.PUBLIC_ROLE_APPOINTMENT, EventRole.ORGANIZATION): (
         _STRONG_SUPPRESS
     ),
-    (EntityTag.MEDIA_OUTLET, FactKind.GOVERNANCE_DISMISSAL, EventRole.ORGANIZATION): (
+    (EntityTag.MEDIA_OUTLET, FactKind.PUBLIC_ROLE_HOLDING, EventRole.ORGANIZATION): (
         _STRONG_SUPPRESS
     ),
+    (EntityTag.MEDIA_OUTLET, FactKind.PUBLIC_ROLE_END, EventRole.ORGANIZATION): (_STRONG_SUPPRESS),
     # In patronage reports, media outlets often occur as the reporting source,
     # not as the institution where the alleged patronage happened.
     (EntityTag.MEDIA_OUTLET, FactKind.PATRONAGE_ALLEGATION, EventRole.INSTITUTION): (
@@ -60,23 +61,35 @@ _DEFAULT_TABLE: Mapping[tuple[EntityTag, FactKind, EventRole], float] = {
     (EntityTag.MEDIA_OUTLET, FactKind.PATRONAGE_NETWORK_TIE, EventRole.INSTITUTION): (
         _STRONG_SUPPRESS
     ),
+    (EntityTag.MEDIA_OUTLET, FactKind.ANTI_CORRUPTION_REFERRAL, EventRole.COMPLAINANT): (
+        _STRONG_SUPPRESS
+    ),
+    (EntityTag.MEDIA_OUTLET, FactKind.ANTI_CORRUPTION_REFERRAL, EventRole.TARGET): (
+        _STRONG_SUPPRESS
+    ),
+    (EntityTag.MEDIA_OUTLET, FactKind.POLITICAL_SUPPORT, EventRole.SUBJECT): (_STRONG_SUPPRESS),
+    (EntityTag.MEDIA_OUTLET, FactKind.POLITICAL_SUPPORT, EventRole.OBJECT): (_STRONG_SUPPRESS),
     # Generic-owner organizations (Skarb Państwa, MAP, MF) almost never *are*
     # the appointing/dismissing org; they're the surrounding ownership context.
     # They can still be a workplace for public employment, so we don't suppress
     # that role.
-    (EntityTag.GENERIC_OWNER, FactKind.GOVERNANCE_APPOINTMENT, EventRole.ORGANIZATION): (
+    (EntityTag.GENERIC_OWNER, FactKind.PUBLIC_ROLE_APPOINTMENT, EventRole.ORGANIZATION): (
         _STRONG_SUPPRESS
     ),
-    (EntityTag.GENERIC_OWNER, FactKind.GOVERNANCE_DISMISSAL, EventRole.ORGANIZATION): (
+    (EntityTag.GENERIC_OWNER, FactKind.PUBLIC_ROLE_HOLDING, EventRole.ORGANIZATION): (
         _STRONG_SUPPRESS
     ),
+    (EntityTag.GENERIC_OWNER, FactKind.PUBLIC_ROLE_END, EventRole.ORGANIZATION): (_STRONG_SUPPRESS),
     # Governing-body organizations (rada nadzorcza, zarząd) are the *body that
     # appoints*, not the organization being appointed into.  Suppress them as
     # the appointed-org role.
-    (EntityTag.GOVERNING_BODY, FactKind.GOVERNANCE_APPOINTMENT, EventRole.ORGANIZATION): (
+    (EntityTag.GOVERNING_BODY, FactKind.PUBLIC_ROLE_APPOINTMENT, EventRole.ORGANIZATION): (
         _STRONG_SUPPRESS
     ),
-    (EntityTag.GOVERNING_BODY, FactKind.GOVERNANCE_DISMISSAL, EventRole.ORGANIZATION): (
+    (EntityTag.GOVERNING_BODY, FactKind.PUBLIC_ROLE_HOLDING, EventRole.ORGANIZATION): (
+        _STRONG_SUPPRESS
+    ),
+    (EntityTag.GOVERNING_BODY, FactKind.PUBLIC_ROLE_END, EventRole.ORGANIZATION): (
         _STRONG_SUPPRESS
     ),
     # Public institutions ARE the typical workplace for `public_employment`
@@ -84,12 +97,13 @@ _DEFAULT_TABLE: Mapping[tuple[EntityTag, FactKind, EventRole], float] = {
     (EntityTag.PUBLIC_INSTITUTION, FactKind.PUBLIC_EMPLOYMENT, EventRole.WORKPLACE): (
         _STRONG_BOOST
     ),
-    (EntityTag.PUBLIC_INSTITUTION, FactKind.GOVERNANCE_APPOINTMENT, EventRole.ORGANIZATION): (
+    (EntityTag.PUBLIC_INSTITUTION, FactKind.PUBLIC_ROLE_APPOINTMENT, EventRole.ORGANIZATION): (
         _MILD_BOOST
     ),
-    (EntityTag.PUBLIC_INSTITUTION, FactKind.GOVERNANCE_DISMISSAL, EventRole.ORGANIZATION): (
+    (EntityTag.PUBLIC_INSTITUTION, FactKind.PUBLIC_ROLE_HOLDING, EventRole.ORGANIZATION): (
         _MILD_BOOST
     ),
+    (EntityTag.PUBLIC_INSTITUTION, FactKind.PUBLIC_ROLE_END, EventRole.ORGANIZATION): (_MILD_BOOST),
 }
 
 

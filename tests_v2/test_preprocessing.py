@@ -119,3 +119,24 @@ def test_html_preprocessor_survives_important_short_paragraphs() -> None:
     assert "Wójt gminy" in document.paragraphs
     assert "Prezes zarządu" in document.paragraphs
     assert "Dnia 2026-05-14 podjęto decyzję." in document.paragraphs
+
+
+def test_html_preprocessor_filters_photo_credit_paragraphs() -> None:
+    raw_html = """
+    <html>
+      <head>
+        <meta property="og:title" content="Tytuł artykułu">
+      </head>
+      <body>
+        <p>Lotnisko Ławica w PoznaniuPiotr Skórnicki / Agencja Wyborcza.pl</p>
+        <p>Prezes Ławicy odpowiada na zarzuty pracowników.</p>
+      </body>
+    </html>
+    """
+
+    document = HtmlArticlePreprocessor().run(PipelineInput(raw_html=raw_html))
+
+    assert document.paragraphs == (
+        "Tytuł artykułu",
+        "Prezes Ławicy odpowiada na zarzuty pracowników.",
+    )

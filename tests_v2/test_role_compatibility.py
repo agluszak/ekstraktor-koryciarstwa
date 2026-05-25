@@ -66,12 +66,12 @@ def test_role_compatibility_factor_penalizes_party_in_organization_slot() -> Non
         )
     )
 
-    # 4. Add GOVERNANCE_APPOINTMENT event candidate
+    # 4. Add PUBLIC_ROLE_APPOINTMENT event candidate
     event_id = EventCandidateId("event-1")
     document.store.add_event_candidate(
         EventCandidate(
             id=event_id,
-            kind=FactKind.GOVERNANCE_APPOINTMENT,
+            kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),

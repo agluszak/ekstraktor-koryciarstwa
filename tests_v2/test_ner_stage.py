@@ -9,7 +9,7 @@ from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.retrieval import EntityCandidateRetriever
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
-from pipeline_v2.types import NerLabel
+from pipeline_v2.types import EntityKind, NerLabel
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,3 +99,52 @@ def test_named_entity_stage_records_organization_evidence_in_sentence_context() 
     assert entity.canonical_hint == "Fundacja"
     assert evidence.text == "Fundacja"
     assert evidence.paragraph_index == 0
+
+
+def test_named_entity_stage_strips_role_title_from_person_candidate() -> None:
+    cleaned_text = "Minister Jan Kowalski zabrał głos."
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=cleaned_text,
+        paragraphs=(cleaned_text,),
+    )
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage().run(document)
+    start = cleaned_text.index("Minister Jan Kowalski")
+
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(
+            (
+                NamedEntitySpan(
+                    text="Minister Jan Kowalski",
+                    label=NerLabel.PERSON,
+                    span=Span(start, start + len("Minister Jan Kowalski")),
+                ),
+            )
+        ),
+        morphology=Morfeusz2MorphologyAdapter(),
+    ).run(document)
+
+    person_candidates = [
+        candidate
+        for candidate in document.store.entity_candidates.values()
+        if candidate.kind is EntityKind.PERSON
+    ]
+    role_candidates = [
+        candidate
+        for candidate in document.store.entity_candidates.values()
+        if candidate.kind is EntityKind.ROLE
+    ]
+
+    assert len(person_candidates) == 1
+    assert len(role_candidates) >= 1
+    assert person_candidates[0].canonical_hint == "Jan Kowalski"
+    role_mention_texts = {
+        document.store.mentions[mention_id].text
+        for candidate in role_candidates
+        for mention_id in candidate.mention_ids
+    }
+    assert "Minister" in role_mention_texts

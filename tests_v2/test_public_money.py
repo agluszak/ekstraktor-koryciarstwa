@@ -16,6 +16,7 @@ from pipeline_v2.types import (
     DirectPrepositionalAttachmentSignal,
     FactArgumentRole,
     FactKind,
+    FinancialTransactionShapeSignal,
     FundingLemmaSignal,
     LocalPhraseRecipientSignal,
     MoneyAmountSignal,
@@ -171,6 +172,7 @@ def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_argumen
         # Urząd Miasta is subject (no prep) → counterparty boost;
         # Alfa follows "z" → contractor boost.
         DirectPrepositionalAttachmentSignal(),
+        FinancialTransactionShapeSignal(),
     }
 
 

@@ -138,7 +138,7 @@ def test_reference_target_probability_propagation() -> None:
     document.store.add_event_candidate(
         EventCandidate(
             id=event_id,
-            kind=FactKind.GOVERNANCE_DISMISSAL,
+            kind=FactKind.PUBLIC_ROLE_END,
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
@@ -168,7 +168,7 @@ def test_reference_target_probability_propagation() -> None:
     # governance dismissal for 'Jan Kowalski'.
     facts = document.materialized_fact_records
     assert len(facts) >= 1
-    governance_facts = [f for f in facts if f.kind is FactKind.GOVERNANCE_DISMISSAL]
+    governance_facts = [f for f in facts if f.kind is FactKind.PUBLIC_ROLE_END]
     assert len(governance_facts) >= 1
 
     assert any(

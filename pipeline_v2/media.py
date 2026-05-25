@@ -28,6 +28,14 @@ MEDIA_OUTLET_ALIASES = frozenset(
         MediaOutletAlias("TVP"),
         MediaOutletAlias("Wirtualna Polska"),
         MediaOutletAlias("WP"),
+        MediaOutletAlias("Business Insider"),
+        MediaOutletAlias("naTemat"),
+        MediaOutletAlias("Gazeta Krakowska"),
+        MediaOutletAlias("Polsat Interwencja"),
+        MediaOutletAlias("Wprost"),
+        MediaOutletAlias("Rzeczpospolita"),
+        MediaOutletAlias("Super Express"),
+        MediaOutletAlias("Fakt"),
     }
 )
 

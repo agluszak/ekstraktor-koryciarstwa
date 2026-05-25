@@ -23,10 +23,11 @@ class EntityTag(StrEnum):
 
 
 class FactKind(StrEnum):
-    PARTY_AFFILIATION = "party_affiliation"
+    PARTY_MEMBERSHIP = "party_membership"
     POLITICAL_SUPPORT = "political_support"
-    GOVERNANCE_APPOINTMENT = "governance_appointment"
-    GOVERNANCE_DISMISSAL = "governance_dismissal"
+    PUBLIC_ROLE_APPOINTMENT = "public_role_appointment"
+    PUBLIC_ROLE_HOLDING = "public_role_holding"
+    PUBLIC_ROLE_END = "public_role_end"
     PUBLIC_EMPLOYMENT = "public_employment"
     FUNDING = "funding"
     PUBLIC_CONTRACT = "public_contract"
@@ -37,13 +38,26 @@ class FactKind(StrEnum):
     PATRONAGE_ALLEGATION = "patronage_allegation"
     PATRONAGE_NETWORK_TIE = "patronage_network_tie"
     PERSONAL_OR_POLITICAL_TIE = "personal_or_political_tie"
-    FORMER_PARTY_MEMBERSHIP = "former_party_membership"
     ELECTION_CANDIDACY = "election_candidacy"
-    POLITICAL_OFFICE = "political_office"
     CORPORATE_OWNERSHIP = "corporate_ownership"
     PARTY_DONATION = "party_donation"
     ASSET_DECLARATION = "asset_declaration"
-    EXTENDED_KINSHIP = "extended_kinship"
+    KINSHIP_TIE = "kinship_tie"
+
+
+class PublicRoleDomain(StrEnum):
+    POLITICAL_OFFICE = "political_office"
+    ADMINISTRATIVE_OFFICE = "administrative_office"
+    INSTITUTION_MANAGEMENT = "institution_management"
+    SUPERVISORY_BOARD = "supervisory_board"
+    PUBLIC_COMPANY_MANAGEMENT = "public_company_management"
+    OTHER_PUBLIC_ROLE = "other_public_role"
+
+
+class PartyMembershipStatus(StrEnum):
+    CURRENT = "current"
+    FORMER = "former"
+    UNKNOWN = "unknown"
 
 
 class FactArgumentRole(StrEnum):
@@ -63,6 +77,8 @@ class FactArgumentRole(StrEnum):
     ACTOR = "actor"
     CONTEXT = "context"
     RELATIONSHIP_DETAIL = "relationship_detail"
+    ROLE_DOMAIN = "role_domain"
+    STATUS = "status"
 
 
 class EventRole(StrEnum):
@@ -85,6 +101,8 @@ class EventRole(StrEnum):
     EMPLOYEE = "employee"
     WORKPLACE = "workplace"
     HIRING_AUTHORITY = "hiring_authority"
+    ROLE_DOMAIN = "role_domain"
+    STATUS = "status"
 
     @classmethod
     def from_fact_argument_role(cls, role: FactArgumentRole) -> "EventRole":
@@ -108,6 +126,8 @@ _EVENT_ROLE_BY_FACT_ARGUMENT_ROLE = {
     FactArgumentRole.ACTOR: EventRole.ACTOR,
     FactArgumentRole.CONTEXT: EventRole.CONTEXT,
     FactArgumentRole.RELATIONSHIP_DETAIL: EventRole.RELATIONSHIP_DETAIL,
+    FactArgumentRole.ROLE_DOMAIN: EventRole.ROLE_DOMAIN,
+    FactArgumentRole.STATUS: EventRole.STATUS,
 }
 
 
@@ -361,6 +381,16 @@ class DismissalLemmaSignal(PositiveSignal):
 
 
 @dataclass(frozen=True, slots=True)
+class PublicRoleDomainSignal(PositiveSignal):
+    domain: PublicRoleDomain
+
+
+@dataclass(frozen=True, slots=True)
+class PartyMembershipStatusSignal(PositiveSignal):
+    status: PartyMembershipStatus
+
+
+@dataclass(frozen=True, slots=True)
 class CompensationLemmaSignal(PositiveSignal):
     lemma: str
 
@@ -439,7 +469,7 @@ class ConflictingPartyAffiliationSignal(NegativeSignal):
 
     @property
     def name(self) -> str:
-        return "conflicting_party_affiliation"
+        return "conflicting_party_membership"
 
 
 @dataclass(frozen=True, slots=True)
@@ -871,3 +901,18 @@ class GoverningBodyLemmaSignal(PositiveSignal):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CanonicalHintMatchSignal(PositiveSignal):
     hint: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SyntaxPossessorSignal(PositiveSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FinancialTransactionShapeSignal(PositiveSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class KinshipFirstTokenCaseSignal(NegativeSignal):
+    pass

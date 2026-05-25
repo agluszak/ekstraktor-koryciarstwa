@@ -113,7 +113,7 @@ def test_anti_corruption_stage_emits_referral_with_party_actor_context() -> None
     governance_records = tuple(
         record
         for record in records
-        if record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
+        if record.kind in {FactKind.PUBLIC_ROLE_APPOINTMENT, FactKind.PUBLIC_ROLE_END}
     )
     party_hint = party_entity.canonical_hint
     assert all(

@@ -8,6 +8,7 @@ from pipeline_v2.candidates import (
     EntityCandidate,
     EntityFiller,
     EventCandidate,
+    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.event_frames import EventFrameBuilder, FrameArgumentRole
@@ -28,6 +29,8 @@ from pipeline_v2.types import (
     GroundingKind,
     MentionKind,
     PartyAliasMatchSignal,
+    PartyMembershipStatus,
+    PartyMembershipStatusSignal,
     PartyProfileLemmaSignal,
     Signal,
 )
@@ -211,23 +214,26 @@ class PartyCandidateStage:
         person = self._direct_affiliation_person(document, sentence, entities, match)
         if person is not None:
             document.store.add_evidence(evidence)
-            kind = (
-                FactKind.FORMER_PARTY_MEMBERSHIP
+            status = (
+                PartyMembershipStatus.FORMER
                 if self._has_former_context(
                     document=document,
                     sentence=sentence,
                     person=person,
                     match=match,
                 )
-                else FactKind.PARTY_AFFILIATION
+                else PartyMembershipStatus.UNKNOWN
             )
             event = EventCandidate(
                 id=document.store.next_event_candidate_id(),
-                kind=kind,
+                kind=FactKind.PARTY_MEMBERSHIP,
                 trigger_evidence_id=evidence.id,
                 evidence_ids=(evidence.id,),
                 source=self.producer_id,
-                signals=self._party_affiliation_signals(document, sentence, match),
+                signals=(
+                    *self._party_membership_signals(document, sentence, match),
+                    PartyMembershipStatusSignal(status=status),
+                ),
             )
             document.store.add_event_candidate(event)
             document.store.add_argument_binding(
@@ -246,6 +252,16 @@ class PartyCandidateStage:
                     role=EventRole.OBJECT,
                     filler=EntityFiller(party_id),
                     evidence_ids=(evidence.id,),
+                )
+            )
+            document.store.add_argument_binding(
+                ArgumentBindingCandidate(
+                    id=document.store.next_argument_binding_candidate_id(),
+                    event_id=event.id,
+                    role=EventRole.STATUS,
+                    filler=TextFiller(status.value),
+                    evidence_ids=(evidence.id,),
+                    signals=(PartyMembershipStatusSignal(status=status),),
                 )
             )
             return
@@ -352,7 +368,7 @@ class PartyCandidateStage:
             return previous_person
         return None
 
-    def _party_affiliation_signals(
+    def _party_membership_signals(
         self,
         document: ArticleDocument,
         sentence: Sentence,

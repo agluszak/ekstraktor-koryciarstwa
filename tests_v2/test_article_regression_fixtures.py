@@ -260,7 +260,7 @@ def test_article_fixture_keeps_governance_control_article_relevant() -> None:
     assert document.relevance is not None
     assert document.relevance.is_relevant is True
     assert any(
-        candidate.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}
+        candidate.kind in {FactKind.PUBLIC_ROLE_APPOINTMENT, FactKind.PUBLIC_ROLE_END}
         for candidate in fact_records(document)
     )
 
@@ -286,7 +286,7 @@ def test_article_fixture_does_not_promote_background_political_person_to_appoint
     governance_people = {
         entity_hint_for_role(document, candidate, "person")
         for candidate in fact_records(document)
-        if candidate.kind is FactKind.GOVERNANCE_APPOINTMENT
+        if candidate.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     }
     assert "Łukasz Bałajewicz" in governance_people
     assert "Donalda Tuska" not in governance_people
@@ -312,7 +312,7 @@ def test_article_fixture_does_not_use_governing_body_as_governance_destination()
     governance_organizations = [
         entity_hint_for_role(document, candidate, "organization")
         for candidate in fact_records(document)
-        if candidate.kind is FactKind.GOVERNANCE_APPOINTMENT
+        if candidate.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     ]
     assert all(organization is None for organization in governance_organizations)
 
@@ -336,7 +336,7 @@ def test_article_fixture_keeps_named_family_tie_without_duplicate_same_fact_clai
     )
 
     extended_ties = [
-        record for record in fact_records(document) if record.kind is FactKind.EXTENDED_KINSHIP
+        record for record in fact_records(document) if record.kind is FactKind.KINSHIP_TIE
     ]
     assert extended_ties
     assert not any(
@@ -347,7 +347,7 @@ def test_article_fixture_keeps_named_family_tie_without_duplicate_same_fact_clai
 def test_article_fixture_keeps_public_employment_local_to_first_clause() -> None:
     title = "Charsznica"
     paragraphs = (
-        "Wójt zatrudnił swojego przyszłego teścia w urzędzie gminy na stanowisko "
+        "Wójt Jan Kowalski zatrudnił swojego przyszłego teścia w urzędzie gminy na stanowisko "
         "pracownika gospodarczego, "
         "a szwagierce dał zatrudnienie w Urzędzie Stanu Cywilnego.",
     )
@@ -356,7 +356,7 @@ def test_article_fixture_keeps_public_employment_local_to_first_clause() -> None
         title=title,
         paragraphs=paragraphs,
         entities=(
-            person_span(text, "Wójt"),
+            person_span(text, "Jan Kowalski"),
             organization_span(text, "Urzędzie Stanu Cywilnego"),
         ),
         apply_relevance=False,
@@ -558,7 +558,7 @@ def test_regression_onet_wfosigw_lublin() -> None:
     # PSL (party-like organization) target stays low-confidence (< 0.5).
     found_wfosigw = False
     for record in fact_records(document):
-        if record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}:
+        if record.kind in {FactKind.PUBLIC_ROLE_APPOINTMENT, FactKind.PUBLIC_ROLE_END}:
             org = entity_hint_for_role(document, record, "organization")
             score = get_assessment_score(document, record.id)
             if org == "WFOŚiGW w Lublinie":
@@ -588,7 +588,7 @@ def test_regression_businessinsider_map_stays_context_not_target() -> None:
     )
 
     dismissals = [
-        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_ROLE_END
     ]
     assert dismissals
 
@@ -625,9 +625,9 @@ def test_regression_pleszew_stadnina() -> None:
     # Assert: Skarb Państwa is mapped to context/EventRole.CONTEXT,
     # not organization/target of dismissal.
     dismissal_records = [
-        record for record in fact_records(document) if record.kind is FactKind.GOVERNANCE_DISMISSAL
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_ROLE_END
     ]
-    assert dismissal_records, "Expected at least one GOVERNANCE_DISMISSAL record"
+    assert dismissal_records, "Expected at least one PUBLIC_ROLE_END record"
     found_stadnina_organization = False
     for record in dismissal_records:
         roles = argument_roles(record)
@@ -735,9 +735,9 @@ def test_regression_wp_opole_family() -> None:
         apply_relevance=False,
     )
 
-    # Assert: EXTENDED_KINSHIP between Jakub Wiśniewski and Arkadiusza Wiśniewskiego
+    # Assert: KINSHIP_TIE between Jakub Wiśniewski and Arkadiusza Wiśniewskiego
     tie_records = [
-        record for record in fact_records(document) if record.kind is FactKind.EXTENDED_KINSHIP
+        record for record in fact_records(document) if record.kind is FactKind.KINSHIP_TIE
     ]
 
     matching_tie = None
@@ -752,7 +752,7 @@ def test_regression_wp_opole_family() -> None:
                 break
 
     assert matching_tie is not None, (
-        "Expected a high-confidence EXTENDED_KINSHIP between "
+        "Expected a high-confidence KINSHIP_TIE between "
         "Jakub Wiśniewski and Arkadiusza Wiśniewskiego"
     )
 
@@ -786,7 +786,7 @@ def test_regression_wp_opole_family() -> None:
                 assert score < 0.5, (
                     f"Expected Koalicja Obywatelska to not be a workplace, but got score {score}"
                 )
-        elif record.kind in {FactKind.GOVERNANCE_APPOINTMENT, FactKind.GOVERNANCE_DISMISSAL}:
+        elif record.kind in {FactKind.PUBLIC_ROLE_APPOINTMENT, FactKind.PUBLIC_ROLE_END}:
             org = entity_hint_for_role(document, record, "organization")
             score = get_assessment_score(document, record.id)
             if org == "Koalicję Obywatelską":

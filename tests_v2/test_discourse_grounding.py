@@ -38,7 +38,7 @@ def test_governance_stage_does_not_use_distant_cross_paragraph_fallback_organiza
     )
 
     records = list(fact_records(document))
-    dismissals = [r for r in records if r.kind == FactKind.GOVERNANCE_DISMISSAL]
+    dismissals = [r for r in records if r.kind == FactKind.PUBLIC_ROLE_END]
 
     assert len(dismissals) >= 1
     record = dismissals[0]
@@ -84,7 +84,7 @@ def test_governance_stage_does_not_use_paragraph_lead_for_cross_paragraph_fallba
     )
 
     records = list(fact_records(document))
-    dismissals = [r for r in records if r.kind == FactKind.GOVERNANCE_DISMISSAL]
+    dismissals = [r for r in records if r.kind == FactKind.PUBLIC_ROLE_END]
 
     assert len(dismissals) >= 1
     record = dismissals[0]

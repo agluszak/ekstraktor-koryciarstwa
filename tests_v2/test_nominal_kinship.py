@@ -73,7 +73,7 @@ def test_nominal_kinship_within_40_chars_links_named_referent() -> None:
     records = fact_records(document)
     assert len(records) == 1
     record = records[0]
-    assert record.kind is FactKind.EXTENDED_KINSHIP
+    assert record.kind is FactKind.KINSHIP_TIE
     assert entity_hint_for_role(document, record, "subject") == "Annę Nowak"
     assert entity_hint_for_role(document, record, "object") == "Marek Kowalski"
     assert text_argument(record, "relationship_detail") == "spouse"
@@ -96,7 +96,7 @@ def test_nominal_kinship_beyond_40_chars_creates_proxy_instead() -> None:
     records = fact_records(document)
     assert len(records) == 1
     record = records[0]
-    assert record.kind is FactKind.EXTENDED_KINSHIP
+    assert record.kind is FactKind.KINSHIP_TIE
 
     # Subject should be the spouse proxy entity (grounding = PROXY)
     subject_id = entity_argument_id(record, "subject")
@@ -104,6 +104,25 @@ def test_nominal_kinship_beyond_40_chars_creates_proxy_instead() -> None:
     subject_entity = document.store.entity_candidates[subject_id]
     assert subject_entity.grounding == GroundingKind.PROXY
     assert subject_entity.canonical_hint == "żona of Marek Kowalski"
+
+
+def test_nominal_kinship_copular_clause_uses_discourse_subject() -> None:
+    first = "Marta Tartanus-Oryszczak została sekretarzem miasta."
+    second = "Prywatnie jest żoną Łukasza Oryszczaka."
+    text = f"{first} {second}"
+    document = run_nominal_kinship_stage(
+        text,
+        (
+            person_span(text, "Marta Tartanus-Oryszczak"),
+            person_span(text, "Łukasza Oryszczaka"),
+        ),
+    )
+
+    records = fact_records(document)
+    record = next(record for record in records if record.kind is FactKind.KINSHIP_TIE)
+    assert entity_hint_for_role(document, record, "subject") == "Marta Tartanus-Oryszczak"
+    assert entity_hint_for_role(document, record, "object") == "Łukasza Oryszczaka"
+    assert text_argument(record, "relationship_detail") == "spouse"
 
 
 def test_nominal_kinship_unnamed_creates_proxy() -> None:
@@ -115,7 +134,7 @@ def test_nominal_kinship_unnamed_creates_proxy() -> None:
     records = fact_records(document)
     assert len(records) == 1
     record = records[0]
-    assert record.kind is FactKind.EXTENDED_KINSHIP
+    assert record.kind is FactKind.KINSHIP_TIE
 
     # Check subject role points to proxy
     subject_id = entity_argument_id(record, "subject")

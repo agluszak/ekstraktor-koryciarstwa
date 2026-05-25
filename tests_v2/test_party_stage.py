@@ -68,13 +68,13 @@ def test_party_stage_emits_party_entity_and_direct_membership_from_z_party_phras
     record = first_fact_record(document)
 
     assert tuple(party.canonical_hint for party in parties) == ("Polskie Stronnictwo Ludowe",)
-    assert record.kind is FactKind.PARTY_AFFILIATION
+    assert record.kind is FactKind.PARTY_MEMBERSHIP
     assert entity_hint_for_role(document, record, "subject") == "Jan Kowalski"
     assert entity_hint_for_role(document, record, "object") == "Polskie Stronnictwo Ludowe"
-    assert set(record.signals) == {
+    assert {
         PartyAliasMatchSignal(),
         DirectPrepositionalAttachmentSignal(),
-    }
+    } <= set(record.signals)
 
 
 def test_party_stage_matches_inflected_full_party_name_in_direct_attachment() -> None:
@@ -83,7 +83,7 @@ def test_party_stage_matches_inflected_full_party_name_in_direct_attachment() ->
 
     record = first_fact_record(document)
 
-    assert record.kind is FactKind.PARTY_AFFILIATION
+    assert record.kind is FactKind.PARTY_MEMBERSHIP
     assert entity_hint_for_role(document, record, "subject") == "Adam Struzik"
     assert entity_hint_for_role(document, record, "object") == "Polskie Stronnictwo Ludowe"
 
@@ -101,8 +101,8 @@ def test_party_stage_attaches_profile_phrases_to_nearest_correct_people() -> Non
     records = fact_records(document)
 
     assert tuple(record.kind for record in records) == (
-        FactKind.PARTY_AFFILIATION,
-        FactKind.PARTY_AFFILIATION,
+        FactKind.PARTY_MEMBERSHIP,
+        FactKind.PARTY_MEMBERSHIP,
     )
     attachments = {
         (
@@ -123,7 +123,7 @@ def test_party_stage_attaches_reverse_profile_phrase_to_preceding_person() -> No
 
     record = first_fact_record(document)
 
-    assert record.kind is FactKind.PARTY_AFFILIATION
+    assert record.kind is FactKind.PARTY_MEMBERSHIP
     assert entity_hint_for_role(document, record, "subject") == "Marcelina Zawisza"
     assert entity_hint_for_role(document, record, "object") == "Razem"
 

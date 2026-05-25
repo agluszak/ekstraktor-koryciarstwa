@@ -7,8 +7,12 @@ import spacy
 from spacy.language import Language
 
 from pipeline_v2.candidates import EntityCandidate, FullPersonNameKey
+from pipeline_v2.catalogues import is_role_title_lemma
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import MentionId, ProducerId
+from pipeline_v2.ids import (
+    MentionId,
+    ProducerId,
+)
 from pipeline_v2.nlp import EvidenceSpan, MentionFactory, MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.types import EntityKind, GroundingKind, MentionKind, NerLabel
 
@@ -64,20 +68,87 @@ class NamedEntityCandidateStage:
             if sentence_id is None:
                 continue
             evidence_id = document.store.next_evidence_id()
+            sentence = document.store.sentences[sentence_id]
             evidence = EvidenceSpan(
                 id=evidence_id,
                 text=entity_span.text,
                 span=entity_span.span,
                 sentence_id=sentence_id,
-                paragraph_index=document.store.sentences[sentence_id].paragraph_index,
+                paragraph_index=sentence.paragraph_index,
                 source=self.config.producer_id,
             )
-            document.store.add_evidence(evidence)
             entity_kind = ner_label_to_entity_kind(entity_span.label)
             token_ids = document.store.token_ids_for_span(
                 sentence_id=sentence_id,
                 span=evidence,
             )
+
+            role_token_ids = []
+            if entity_kind == EntityKind.PERSON and token_ids:
+                first_token = document.store.tokens.get(token_ids[0])
+                first_token_lemma = None
+                if first_token is not None:
+                    first_token_lemma = first_token.preferred_lemma() or first_token.text.lower()
+                if first_token is not None and is_role_title_lemma(first_token_lemma):
+                    if len(token_ids) == 1:
+                        entity_kind = EntityKind.ROLE
+                    else:
+                        role_token_ids = [token_ids[0]]
+                        token_ids = token_ids[1:]
+
+            if role_token_ids:
+                # Add a separate ROLE entity and mention for the stripped title
+                role_evidence_id = document.store.next_evidence_id()
+                role_token = document.store.tokens[role_token_ids[0]]
+                role_evidence = EvidenceSpan(
+                    id=role_evidence_id,
+                    text=role_token.text,
+                    span=role_token.span,
+                    sentence_id=sentence_id,
+                    paragraph_index=sentence.paragraph_index,
+                    source=self.config.producer_id,
+                )
+                document.store.add_evidence(role_evidence)
+
+                role_mention_id = document.store.next_mention_id()
+                document.store.add_mention(
+                    self.mention_factory.build_mention(
+                        mention_id=role_mention_id,
+                        text=role_token.text,
+                        kind=MentionKind.NER,
+                        evidence_id=role_evidence_id,
+                        sentence_id=sentence_id,
+                        token_ids=tuple(role_token_ids),
+                    )
+                )
+
+                document.store.add_entity_candidate(
+                    EntityCandidate(
+                        id=document.store.next_entity_candidate_id(),
+                        kind=EntityKind.ROLE,
+                        mention_ids=(role_mention_id,),
+                        canonical_hint=None,
+                        grounding=GroundingKind.OBSERVED,
+                        source=self.config.producer_id,
+                    )
+                )
+
+                # Update main person evidence
+                start_token = document.store.tokens[token_ids[0]]
+                end_token = document.store.tokens[token_ids[-1]]
+                new_text = document.cleaned_text[
+                    start_token.span.start_char : end_token.span.end_char
+                ]
+                evidence = EvidenceSpan(
+                    id=evidence_id,
+                    text=new_text,
+                    span=Span(start_token.span.start_char, end_token.span.end_char),
+                    sentence_id=sentence_id,
+                    paragraph_index=sentence.paragraph_index,
+                    source=self.config.producer_id,
+                )
+            document.store.add_evidence(evidence)
+
             mention_kind = MentionKind.NER
             if entity_kind == EntityKind.PERSON and len(token_ids) == 1:
                 mention_kind = MentionKind.SURNAME_ONLY
@@ -86,11 +157,11 @@ class NamedEntityCandidateStage:
             document.store.add_mention(
                 self.mention_factory.build_mention(
                     mention_id=mention_id,
-                    text=entity_span.text,
+                    text=evidence.text,
                     kind=mention_kind,
                     evidence_id=evidence_id,
                     sentence_id=sentence_id,
-                    token_ids=token_ids,
+                    token_ids=tuple(token_ids),
                 )
             )
             if entity_kind is None:
@@ -99,7 +170,7 @@ class NamedEntityCandidateStage:
                 id=document.store.next_entity_candidate_id(),
                 kind=entity_kind,
                 mention_ids=(mention_id,),
-                canonical_hint=entity_span.text,
+                canonical_hint=evidence.text,
                 grounding=GroundingKind.OBSERVED,
                 source=self.config.producer_id,
                 reuse_key=full_person_reuse_key(document, mention_id, entity_kind),

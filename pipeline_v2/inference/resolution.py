@@ -53,6 +53,7 @@ from pipeline_v2.inference.graph_spec import (
 )
 from pipeline_v2.producers import EvidenceSignalProducer
 from pipeline_v2.retrieval import EntityCandidateRetriever
+from pipeline_v2.scope import EvidenceScope, ScopeCompatibilityPolicy
 from pipeline_v2.types import (
     CanonicalHintMatchSignal,
     ConflictingPartyAffiliationSignal,
@@ -76,6 +77,7 @@ from pipeline_v2.types import (
     Signal,
     SignalPolarity,
     SurnameBaseMatchSignal,
+    TextMatchSignal,
     ThirdPersonPronounSignal,
 )
 
@@ -315,6 +317,7 @@ class ResolutionInferenceGraphBuilder:
             factors=factors,
             same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
             same_event_proposal_by_variable_id=same_event_proposal_by_variable_id,
+            entity_proposal_by_variable_id=entity_proposal_by_variable_id,
         )
         self._add_inverse_child_tie_conflict_factors(
             document=document,
@@ -345,7 +348,7 @@ class ResolutionInferenceGraphBuilder:
         tie_event_ids: list[EventCandidateId] = [
             event_id
             for event_id, view in event_views.items()
-            if view.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.EXTENDED_KINSHIP}
+            if view.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.KINSHIP_TIE}
             and RelationshipDetail.CHILD.value
             in view.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
         ]
@@ -1187,6 +1190,7 @@ class ResolutionInferenceGraphBuilder:
             tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
         ],
         same_event_proposal_by_variable_id: dict[InferenceVariableId, SameEventProposal],
+        entity_proposal_by_variable_id: dict[InferenceVariableId, EntityResolutionProposal],
     ) -> None:
         event_views = self._event_views(document)
         event_variable_id_by_event_id = {
@@ -1202,6 +1206,7 @@ class ResolutionInferenceGraphBuilder:
             event_views=event_views,
             fact_id_by_event_id=fact_id_by_event_id,
             same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            entity_proposal_by_variable_id=entity_proposal_by_variable_id,
         )
         for proposal in proposals:
             variable_id = InferenceVariableId(
@@ -1285,6 +1290,128 @@ class ResolutionInferenceGraphBuilder:
             )
         return views
 
+    def _event_sentence_index(
+        self,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+    ) -> int | None:
+        for binding in document.store.argument_bindings_for_event(event_id):
+            if binding.evidence_ids:
+                evidence = document.store.evidence[binding.evidence_ids[0]]
+                if evidence.sentence_id is not None:
+                    return document.store.sentences[evidence.sentence_id].sentence_index
+        return None
+
+    def _event_scope(
+        self,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+    ) -> EvidenceScope | None:
+        for binding in document.store.argument_bindings_for_event(event_id):
+            if binding.evidence_ids:
+                evidence = document.store.evidence[binding.evidence_ids[0]]
+                if evidence.sentence_id is not None:
+                    sentence = document.store.sentences[evidence.sentence_id]
+                    return sentence.scope or EvidenceScope(paragraph_index=sentence.paragraph_index)
+        return None
+
+    def _events_share_strong_participant(
+        self,
+        document: ArticleDocument,
+        left: _EventBindingView,
+        right: _EventBindingView,
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+        entity_proposal_by_variable_id: dict[InferenceVariableId, EntityResolutionProposal],
+    ) -> bool:
+        strong_signal_types = (
+            TextMatchSignal,
+            FullNameReuseMatchSignal,
+            CanonicalHintMatchSignal,
+        )
+        for role in left.entity_fillers:
+            if role not in right.entity_fillers:
+                continue
+
+            # Exact overlap
+            if not left.entity_fillers[role].isdisjoint(right.entity_fillers[role]):
+                return True
+
+            for left_ent_id in left.entity_fillers[role]:
+                for right_ent_id in right.entity_fillers[role]:
+                    pair = self._entity_pair(left_ent_id, right_ent_id)
+                    var_id = same_entity_variable_id_by_pair.get(pair)
+                    if var_id is not None:
+                        proposal = entity_proposal_by_variable_id[var_id]
+                        # Only allow strong entity proposals to link events
+                        # i.e., not weak surnames or descriptors
+                        strong = any(
+                            isinstance(signal, strong_signal_types)
+                            for signal in proposal.retrieval_signals
+                        )
+                        if strong:
+                            return True
+
+                    if self._reference_proposal_links_entities(
+                        document=document,
+                        left_entity_id=left_ent_id,
+                        right_entity_id=right_ent_id,
+                    ):
+                        return True
+
+        for role in left.text_fillers:
+            if role in right.text_fillers and not left.text_fillers[role].isdisjoint(
+                right.text_fillers[role]
+            ):
+                return True
+
+        return False
+
+    def _reference_proposal_links_entities(
+        self,
+        *,
+        document: ArticleDocument,
+        left_entity_id: EntityCandidateId,
+        right_entity_id: EntityCandidateId,
+    ) -> bool:
+        left_entity = document.store.entity_candidates.get(left_entity_id)
+        right_entity = document.store.entity_candidates.get(right_entity_id)
+        if left_entity is None or right_entity is None:
+            return False
+        left_reference_ids = frozenset(left_entity.reference_ids)
+        right_reference_ids = frozenset(right_entity.reference_ids)
+        if not left_reference_ids and not right_reference_ids:
+            return False
+        return any(
+            (
+                proposal.reference_id in left_reference_ids
+                and proposal.candidate_entity_id == right_entity_id
+            )
+            or (
+                proposal.reference_id in right_reference_ids
+                and proposal.candidate_entity_id == left_entity_id
+            )
+            for proposal in document.reference_resolution_proposals
+        )
+
+    def _same_event_scope_allowed(
+        self,
+        *,
+        policy: ScopeCompatibilityPolicy,
+        left_scope: EvidenceScope | None,
+        right_scope: EvidenceScope | None,
+        left_idx: int | None,
+        right_idx: int | None,
+    ) -> bool:
+        if left_idx is None or right_idx is None:
+            return False
+        if abs(left_idx - right_idx) > 2:
+            return False
+        if left_scope is not None and right_scope is not None:
+            return policy.scope_allows_same_event(left_scope, right_scope)
+        return False
+
     def _same_event_proposals(
         self,
         *,
@@ -1294,28 +1421,63 @@ class ResolutionInferenceGraphBuilder:
         same_entity_variable_id_by_pair: dict[
             tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
         ],
+        entity_proposal_by_variable_id: dict[InferenceVariableId, EntityResolutionProposal],
     ) -> tuple[SameEventProposal, ...]:
         event_ids: list[EventCandidateId] = list(event_views.keys())
         event_ids.sort(key=lambda item: str(item))
         proposals: list[SameEventProposal] = []
+        policy = ScopeCompatibilityPolicy()
+
         for index, left_event_id in enumerate(event_ids):
             left = event_views[left_event_id]
+            left_scope = self._event_scope(document, left_event_id)
+            left_idx = self._event_sentence_index(document, left_event_id)
+
             for right_event_id in event_ids[index + 1 :]:
                 right = event_views[right_event_id]
                 if left.kind is not right.kind:
                     continue
-                strategy = self._same_event_strategy(left, right, same_entity_variable_id_by_pair)
+
+                right_scope = self._event_scope(document, right_event_id)
+                right_idx = self._event_sentence_index(document, right_event_id)
+
+                # Condition 1: Shared participant
+                has_shared_participant = self._events_share_strong_participant(
+                    document,
+                    left,
+                    right,
+                    same_entity_variable_id_by_pair,
+                    entity_proposal_by_variable_id,
+                )
+
+                # Condition 2: Proximity or Similarity
                 semantic_match = self._semantic_event_similarity(
                     document=document,
                     left_event_id=left_event_id,
                     right_event_id=right_event_id,
                 )
+
+                has_proximity = self._same_event_scope_allowed(
+                    policy=policy,
+                    left_scope=left_scope,
+                    right_scope=right_scope,
+                    left_idx=left_idx,
+                    right_idx=right_idx,
+                )
+
+                has_semantic = semantic_match is not None
+
+                if not has_shared_participant or not (has_proximity or has_semantic):
+                    continue
+
+                strategy = self._same_event_strategy(left, right, same_entity_variable_id_by_pair)
                 if strategy is None:
-                    if left.kind in {FactKind.PARTY_AFFILIATION, FactKind.POLITICAL_SUPPORT}:
+                    if left.kind in {FactKind.PARTY_MEMBERSHIP, FactKind.POLITICAL_SUPPORT}:
                         continue
-                    if semantic_match is None:
+                    if not has_semantic:
                         continue
                     strategy = FactResolutionStrategy.SEMANTIC_EVIDENCE
+
                 linked_entity_pairs = self._linked_entity_pairs(
                     left, right, strategy, same_entity_variable_id_by_pair
                 )
@@ -1575,14 +1737,15 @@ class ResolutionInferenceGraphBuilder:
     ) -> FactResolutionStrategy | None:
         if left.entity_fillers == right.entity_fillers and left.text_fillers == right.text_fillers:
             return FactResolutionStrategy.EXACT_ARGUMENTS
-        if left.kind in {FactKind.PARTY_AFFILIATION, FactKind.POLITICAL_SUPPORT}:
+        if left.kind in {FactKind.PARTY_MEMBERSHIP, FactKind.POLITICAL_SUPPORT}:
             return None
         if left.kind in {
-            FactKind.GOVERNANCE_APPOINTMENT,
-            FactKind.GOVERNANCE_DISMISSAL,
+            FactKind.PUBLIC_ROLE_APPOINTMENT,
+            FactKind.PUBLIC_ROLE_HOLDING,
+            FactKind.PUBLIC_ROLE_END,
         } and self._without_roles(left) == self._without_roles(right):
             return FactResolutionStrategy.GOVERNANCE_ROLE_RELAXED
-        if left.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.EXTENDED_KINSHIP}:
+        if left.kind in {FactKind.PERSONAL_OR_POLITICAL_TIE, FactKind.KINSHIP_TIE}:
             left_object = left.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
             right_object = right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
             left_detail = left.text_fillers.get(FactArgumentRole.RELATIONSHIP_DETAIL, frozenset())
