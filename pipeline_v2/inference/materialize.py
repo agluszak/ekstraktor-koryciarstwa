@@ -146,6 +146,40 @@ class FactAssessmentMaterializer:
                     ),
                 )
             )
+        _symmetric_kinds = frozenset(
+            {FactKind.EXTENDED_KINSHIP, FactKind.PERSONAL_OR_POLITICAL_TIE}
+        )
+        seen_pairs: set[tuple[FactKind, frozenset]] = set()
+        assessment_by_id = {a.materialized_fact_id: a for a in document.fact_assessments}
+        deduped_records: list[FactCandidateRecord] = []
+        deduped_assessments: list[FactAssessment] = []
+        for record in document.materialized_fact_records:
+            if record.kind not in _symmetric_kinds:
+                deduped_records.append(record)
+                if (a := assessment_by_id.get(record.id)) is not None:
+                    deduped_assessments.append(a)
+                continue
+            pair_ids = frozenset(
+                arg.entity_id
+                for arg in record.arguments
+                if isinstance(arg, EntityFactArgument)
+                and arg.role in {FactArgumentRole.SUBJECT, FactArgumentRole.OBJECT}
+            )
+            if not pair_ids:
+                deduped_records.append(record)
+                if (a := assessment_by_id.get(record.id)) is not None:
+                    deduped_assessments.append(a)
+                continue
+            key = (record.kind, pair_ids)
+            if key in seen_pairs:
+                document.materialized_role_alternatives.pop(record.id, None)
+                continue
+            seen_pairs.add(key)
+            deduped_records.append(record)
+            if (a := assessment_by_id.get(record.id)) is not None:
+                deduped_assessments.append(a)
+        document.materialized_fact_records = deduped_records
+        document.fact_assessments = deduped_assessments
         return document
 
     def _fact_projection_groups(
@@ -391,6 +425,10 @@ class FactAssessmentMaterializer:
             case FactKind.CORPORATE_OWNERSHIP:
                 return any(
                     argument.role is FactArgumentRole.AMOUNT for argument in record.arguments
+                )
+            case FactKind.POLITICAL_OFFICE | FactKind.ELECTION_CANDIDACY:
+                return any(
+                    argument.role is FactArgumentRole.PERSON for argument in record.arguments
                 )
             case _:
                 return True

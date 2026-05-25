@@ -9,7 +9,7 @@ from pipeline_v2.candidates import (
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.entity_classification import entity_has_lexical_context_proposal
 from pipeline_v2.event_frames import EventFrame, EventFrameBuilder, FrameArgumentRole
-from pipeline_v2.ids import EntityCandidateId, ProducerId
+from pipeline_v2.ids import EntityCandidateId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.syntax_view import SyntaxView
@@ -266,11 +266,7 @@ class GovernanceCandidateStage:
                         ]
                 if not viable_combinations:
                     continue
-                person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                organization_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                context_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                role_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                combos_by_person: dict[EntityCandidateId, list] = {}
                 for person_id, organization_id, role_id, entity_signals in viable_combinations:
                     if (
                         kind == FactKind.GOVERNANCE_APPOINTMENT
@@ -282,7 +278,6 @@ class GovernanceCandidateStage:
                         )
                     ):
                         continue
-                    # "Z wyjątkiem X" — X is the exception to the dismissal, not a dismissee.
                     if (
                         kind == FactKind.GOVERNANCE_DISMISSAL
                         and self._person_is_in_exception_clause(
@@ -290,83 +285,99 @@ class GovernanceCandidateStage:
                         )
                     ):
                         continue
-                    if self._signals_include_active_subject_context(entity_signals):
-                        actor_bindings[person_id] = self._merge_binding_signals(
-                            actor_bindings.get(person_id, ()),
-                            self._actor_binding_signals(entity_signals),
-                        )
-                    else:
-                        person_bindings[person_id] = self._merge_binding_signals(
-                            person_bindings.get(person_id, ()),
-                            self._person_binding_signals(entity_signals),
-                        )
-                    if organization_id is not None:
-                        organization_signals = self._organization_binding_signals(entity_signals)
-                        organization_bindings[organization_id] = self._merge_binding_signals(
-                            organization_bindings.get(organization_id, ()),
-                            organization_signals,
-                        )
-                        is_context_org = entity_has_lexical_context_proposal(
-                            document, organization_id, EntityTag.GENERIC_OWNER
-                        ) or entity_has_lexical_context_proposal(
-                            document, organization_id, EntityTag.GOVERNING_BODY
-                        )
-                        if is_context_org:
-                            context_bindings[organization_id] = self._merge_binding_signals(
-                                context_bindings.get(organization_id, ()),
+                    combos_by_person.setdefault(person_id, []).append(
+                        (organization_id, role_id, entity_signals)
+                    )
+
+                for person_id, combos in combos_by_person.items():
+                    person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                    actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                    organization_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                    context_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                    role_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+
+                    for organization_id, role_id, entity_signals in combos:
+                        if self._signals_include_active_subject_context(entity_signals):
+                            actor_bindings[person_id] = self._merge_binding_signals(
+                                actor_bindings.get(person_id, ()),
+                                self._actor_binding_signals(entity_signals),
+                            )
+                        else:
+                            person_bindings[person_id] = self._merge_binding_signals(
+                                person_bindings.get(person_id, ()),
+                                self._person_binding_signals(entity_signals),
+                            )
+                        if organization_id is not None:
+                            organization_signals = self._organization_binding_signals(
+                                entity_signals
+                            )
+                            organization_bindings[organization_id] = self._merge_binding_signals(
+                                organization_bindings.get(organization_id, ()),
                                 organization_signals,
                             )
-                    if role_id is not None:
-                        role_bindings[role_id] = self._merge_binding_signals(
-                            role_bindings.get(role_id, ()),
-                            self._role_binding_signals(entity_signals),
-                        )
-                if not person_bindings:
-                    continue
-                event = EventCandidate(
-                    id=document.store.next_event_candidate_id(),
-                    kind=kind,
-                    trigger_evidence_id=evidence.id,
-                    evidence_ids=(evidence.id,),
-                    source=self.producer_id,
-                    signals=signals,
-                )
-                document.store.add_event_candidate(event)
-                self._add_governance_bindings(
-                    document=document,
-                    event=event,
-                    role=EventRole.PERSON,
-                    bindings=person_bindings,
-                    evidence_id=evidence.id,
-                )
-                self._add_governance_bindings(
-                    document=document,
-                    event=event,
-                    role=EventRole.ACTOR,
-                    bindings=actor_bindings,
-                    evidence_id=evidence.id,
-                )
-                self._add_governance_bindings(
-                    document=document,
-                    event=event,
-                    role=EventRole.ORGANIZATION,
-                    bindings=organization_bindings,
-                    evidence_id=evidence.id,
-                )
-                self._add_governance_bindings(
-                    document=document,
-                    event=event,
-                    role=EventRole.ROLE,
-                    bindings=role_bindings,
-                    evidence_id=evidence.id,
-                )
-                self._add_governance_bindings(
-                    document=document,
-                    event=event,
-                    role=EventRole.CONTEXT,
-                    bindings=context_bindings,
-                    evidence_id=evidence.id,
-                )
+                            is_context_org = entity_has_lexical_context_proposal(
+                                document, organization_id, EntityTag.GENERIC_OWNER
+                            ) or entity_has_lexical_context_proposal(
+                                document, organization_id, EntityTag.GOVERNING_BODY
+                            )
+                            if is_context_org:
+                                context_bindings[organization_id] = self._merge_binding_signals(
+                                    context_bindings.get(organization_id, ()),
+                                    organization_signals,
+                                )
+                        if role_id is not None:
+                            role_bindings[role_id] = self._merge_binding_signals(
+                                role_bindings.get(role_id, ()),
+                                self._role_binding_signals(entity_signals),
+                            )
+
+                    if not person_bindings:
+                        continue
+
+                    event = EventCandidate(
+                        id=document.store.next_event_candidate_id(),
+                        kind=kind,
+                        trigger_evidence_id=evidence.id,
+                        evidence_ids=(evidence.id,),
+                        source=self.producer_id,
+                        signals=signals,
+                    )
+                    document.store.add_event_candidate(event)
+                    self._add_governance_bindings(
+                        document=document,
+                        event=event,
+                        role=EventRole.PERSON,
+                        bindings=person_bindings,
+                        evidence_id=evidence.id,
+                    )
+                    self._add_governance_bindings(
+                        document=document,
+                        event=event,
+                        role=EventRole.ACTOR,
+                        bindings=actor_bindings,
+                        evidence_id=evidence.id,
+                    )
+                    self._add_governance_bindings(
+                        document=document,
+                        event=event,
+                        role=EventRole.ORGANIZATION,
+                        bindings=organization_bindings,
+                        evidence_id=evidence.id,
+                    )
+                    self._add_governance_bindings(
+                        document=document,
+                        event=event,
+                        role=EventRole.ROLE,
+                        bindings=role_bindings,
+                        evidence_id=evidence.id,
+                    )
+                    self._add_governance_bindings(
+                        document=document,
+                        event=event,
+                        role=EventRole.CONTEXT,
+                        bindings=context_bindings,
+                        evidence_id=evidence.id,
+                    )
         return document
 
     def _add_governance_bindings(
@@ -487,6 +498,17 @@ class GovernanceCandidateStage:
         plain_dismissal_lemmas = self._dismissal_lemmas - {"zasiadać"}
         negatable_dismissal_lemmas = {"zasiadać"}
         dismissal_match = lemmas & plain_dismissal_lemmas
+        # "odwołać się" (reflexive) means "to appeal", not "to be dismissed".
+        # Remove reflexive odwołać/odwoływać from the match when "się" is a syntactic
+        # child of the trigger token.
+        _odwolac_lemmas = frozenset({"odwołać", "odwoływać"})
+        if dismissal_match & _odwolac_lemmas:
+            syntax = SyntaxView(document.store)
+            trigger = syntax.first_token_with_lemmas(sentence, _odwolac_lemmas)
+            if trigger is not None and self._has_reflexive_particle(
+                document, sentence, trigger, syntax
+            ):
+                dismissal_match = dismissal_match - _odwolac_lemmas
         negated_zasiadac = (lemmas & negatable_dismissal_lemmas) and ("nie" in lemmas)
         if dismissal_match or negated_zasiadac:
             matched_lemma = (
@@ -857,6 +879,11 @@ class GovernanceCandidateStage:
         if not people:
             return ()
 
+        # Expand conjunct person entities: "powołano m.in. A, B i C" — each
+        # person in a CONJ chain shares the same event trigger and should be
+        # considered as an independent APPOINTEE candidate.
+        people = self._expand_conjunct_people(document, sentence, people, entities)
+
         organizations = self._select_entities(
             document,
             sentence,
@@ -1073,6 +1100,50 @@ class GovernanceCandidateStage:
         _ = (document, sentence, person, role, trigger_start_char)
         return organizations
 
+    def _expand_conjunct_people(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        people: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
+        local_entities: tuple[SentenceEntity, ...],
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        syntax = SyntaxView(document.store)
+        token_to_entity: dict[TokenId, SentenceEntity] = {}
+        for entity in local_entities:
+            if entity.kind != EntityKind.PERSON:
+                continue
+            binding = syntax.entity_binding(sentence, entity.id)
+            if binding is not None:
+                token_to_entity[binding.token_id] = entity
+
+        existing_ids: set[EntityCandidateId] = {person.id for person, _ in people}
+        expanded: list[tuple[SentenceEntity, tuple[Signal, ...]]] = list(people)
+
+        to_visit: list[TokenId] = []
+        for person, _ in people:
+            binding = syntax.entity_binding(sentence, person.id)
+            if binding is not None:
+                to_visit.append(binding.token_id)
+
+        visited: set[TokenId] = set(to_visit)
+        while to_visit:
+            curr_token_id = to_visit.pop(0)
+            for arc in syntax.token_children(
+                sentence,
+                curr_token_id,
+                relations=frozenset({DependencyRelation.CONJ}),
+            ):
+                dep_id = arc.dependent_token_id
+                if dep_id not in visited:
+                    visited.add(dep_id)
+                    to_visit.append(dep_id)
+                    conjunct = token_to_entity.get(dep_id)
+                    if conjunct is not None and conjunct.id not in existing_ids:
+                        existing_ids.add(conjunct.id)
+                        expanded.append((conjunct, (LocalPersonSignal(),)))
+
+        return tuple(expanded)
+
     def _select_entities(
         self,
         document: ArticleDocument,
@@ -1142,6 +1213,19 @@ class GovernanceCandidateStage:
                     if analysis.lemma in public_office_lemmas
                 )
         return None
+
+    def _has_reflexive_particle(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        trigger: Token,
+        syntax: SyntaxView,
+    ) -> bool:
+        for arc in syntax.token_children(sentence, trigger.id):
+            child = document.store.tokens[arc.dependent_token_id]
+            if child.text.lower() == "się":
+                return True
+        return False
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence: Sentence) -> frozenset[str]:
         lemmas: set[str] = set()
