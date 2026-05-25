@@ -25,21 +25,25 @@ class PgmpyInferenceBackend(InferenceBackend):
 
     show_progress: bool = False
     minimum_potential: float = 1e-6
+    max_exact_state_space: int = 1_000_000
 
     def run(self, spec: InferenceGraphSpec) -> InferenceResult:
         if not spec.variables:
             return InferenceResult(marginals=())
 
         marginals: list[VariableMarginal] = []
+        diagnostics: list[InferenceDiagnostic] = []
         for component in self._components(spec):
             component_result = self._run_component(
                 variables=component.variables,
                 factors=component.factors,
             )
             marginals.extend(component_result.marginals)
+            diagnostics.extend(component_result.diagnostics)
+        diagnostics.append(InferenceDiagnostic(message="pgmpy inference completed"))
         return InferenceResult(
             marginals=tuple(marginals),
-            diagnostics=(InferenceDiagnostic(message="pgmpy belief propagation completed"),),
+            diagnostics=tuple(diagnostics),
         )
 
     def _run_component(
@@ -51,6 +55,13 @@ class PgmpyInferenceBackend(InferenceBackend):
         if not factors:
             return InferenceResult(
                 marginals=tuple(self._uniform_marginal(variable) for variable in variables)
+            )
+        state_space = self._state_space_size(variables)
+        if state_space > self.max_exact_state_space:
+            return self._run_local_marginal_approximation(
+                variables=variables,
+                factors=factors,
+                state_space=state_space,
             )
 
         with warnings.catch_warnings():
@@ -105,6 +116,98 @@ class PgmpyInferenceBackend(InferenceBackend):
                     VariableMarginal(variable_id=variable.id, probabilities=probabilities)
                 )
         return InferenceResult(marginals=tuple(marginals))
+
+    def _run_local_marginal_approximation(
+        self,
+        *,
+        variables: tuple[InferenceVariable, ...],
+        factors: tuple[InferenceFactor, ...],
+        state_space: int,
+    ) -> InferenceResult:
+        variables_by_id = {variable.id: variable for variable in variables}
+        beliefs: dict[InferenceVariableId, list[float]] = {
+            variable.id: [1.0 for _ in variable.states] for variable in variables
+        }
+        for factor in factors:
+            cardinalities = tuple(
+                len(variables_by_id[variable_id].states) for variable_id in factor.variable_ids
+            )
+            self._validate_factor_shape(factor=factor, cardinalities=cardinalities)
+            sanitized = self._sanitize_potentials(factor.potentials)
+            for axis, variable_id in enumerate(factor.variable_ids):
+                contribution = self._factor_axis_contribution(
+                    potentials=sanitized,
+                    cardinalities=cardinalities,
+                    axis=axis,
+                )
+                beliefs[variable_id] = [
+                    current * contribution[index]
+                    for index, current in enumerate(beliefs[variable_id])
+                ]
+
+        marginals = []
+        for variable in variables:
+            normalized = self._normalize_probabilities(beliefs[variable.id], len(variable.states))
+            marginals.append(
+                VariableMarginal(
+                    variable_id=variable.id,
+                    probabilities=tuple(
+                        StateProbability(state_id=state.id, probability=normalized[index])
+                        for index, state in enumerate(variable.states)
+                    ),
+                )
+            )
+        return InferenceResult(
+            marginals=tuple(marginals),
+            diagnostics=(
+                InferenceDiagnostic(
+                    message=(
+                        "pgmpy exact inference skipped for component with "
+                        f"{len(variables)} variables and state space {state_space}; "
+                        "used bounded local marginal approximation"
+                    )
+                ),
+            ),
+        )
+
+    def _factor_axis_contribution(
+        self,
+        *,
+        potentials: tuple[float, ...],
+        cardinalities: tuple[int, ...],
+        axis: int,
+    ) -> tuple[float, ...]:
+        if len(cardinalities) == 1:
+            return self._normalize_probabilities(potentials, cardinalities[axis])
+        contribution = [0.0 for _ in range(cardinalities[axis])]
+        for flat_index, potential in enumerate(potentials):
+            state_index = self._axis_state_index(
+                flat_index=flat_index,
+                cardinalities=cardinalities,
+                axis=axis,
+            )
+            contribution[state_index] += potential
+        return self._normalize_probabilities(contribution, cardinalities[axis])
+
+    def _axis_state_index(
+        self,
+        *,
+        flat_index: int,
+        cardinalities: tuple[int, ...],
+        axis: int,
+    ) -> int:
+        stride = 1
+        for cardinality in cardinalities[axis + 1 :]:
+            stride *= cardinality
+        return (flat_index // stride) % cardinalities[axis]
+
+    def _state_space_size(self, variables: tuple[InferenceVariable, ...]) -> int:
+        size = 1
+        for variable in variables:
+            size *= len(variable.states)
+            if size > self.max_exact_state_space:
+                return size
+        return size
 
     def _sanitize_potentials(self, potentials: tuple[float, ...]) -> tuple[float, ...]:
         if not potentials:

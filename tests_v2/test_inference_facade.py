@@ -157,6 +157,47 @@ def test_pgmpy_backend_runs_disconnected_unary_components_independently() -> Non
     assert right_marginal.probability_for(InferenceStateId("true")) == 0.9
 
 
+def test_pgmpy_backend_uses_bounded_fallback_for_large_connected_components() -> None:
+    variables = tuple(
+        InferenceVariable(
+            id=InferenceVariableId(f"v-{index}"),
+            kind=InferenceVariableKind.EVENT_ACTIVE,
+            states=(
+                InferenceState(InferenceStateId(f"v-{index}:false"), "false"),
+                InferenceState(InferenceStateId(f"v-{index}:true"), "true"),
+            ),
+        )
+        for index in range(12)
+    )
+    factors: list[InferenceFactor] = [
+        InferenceFactor(
+            id=InferenceFactorId("prior"),
+            kind=InferenceFactorKind.EVIDENCE_PRIOR,
+            variable_ids=(variables[0].id,),
+            potentials=(0.2, 0.8),
+        )
+    ]
+    factors.extend(
+        InferenceFactor(
+            id=InferenceFactorId(f"link-{index}"),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(variables[index].id, variables[index + 1].id),
+            potentials=(1.0, 1.0, 1.0, 1.0),
+        )
+        for index in range(len(variables) - 1)
+    )
+
+    result = PgmpyInferenceBackend(max_exact_state_space=1_000).run(
+        InferenceGraphSpec(variables=variables, factors=tuple(factors))
+    )
+
+    assert len(result.marginals) == len(variables)
+    assert any("bounded local marginal approximation" in d.message for d in result.diagnostics)
+    first_marginal = result.marginal_for(variables[0].id)
+    assert first_marginal is not None
+    assert first_marginal.probability_for(InferenceStateId("v-0:true")) == 0.8
+
+
 def test_pgmpy_backend_returns_uniform_marginal_for_factorless_variable() -> None:
     variable = InferenceVariable(
         id=InferenceVariableId("factorless-variable"),
@@ -499,7 +540,7 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
     document.store.add_event_candidate(
         EventCandidate(
             id=event_id,
-            kind=FactKind.PARTY_AFFILIATION,
+            kind=FactKind.PARTY_MEMBERSHIP,
             trigger_evidence_id=None,
             evidence_ids=(),
             source=ProducerId("test"),
@@ -1509,7 +1550,7 @@ def test_probabilistic_inference_keeps_unresolved_descriptor_person_visible() ->
     add_event(
         document,
         event_id=EventCandidateId("event-1"),
-        kind=FactKind.GOVERNANCE_DISMISSAL,
+        kind=FactKind.PUBLIC_ROLE_END,
         signals=(LocalPersonSignal(), LocalOrganizationSignal(), LocalRoleSignal()),
     )
     bind_entity(
@@ -1641,7 +1682,7 @@ def test_probabilistic_inference_projects_named_person_for_resolved_descriptor_d
         add_event(
             document,
             event_id=event_id,
-            kind=FactKind.GOVERNANCE_APPOINTMENT,
+            kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
             signals=(
                 AppointmentLemmaSignal(lemma="powołać"),
                 LocalOrganizationSignal(),
