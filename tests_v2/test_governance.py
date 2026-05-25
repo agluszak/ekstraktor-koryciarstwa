@@ -38,8 +38,6 @@ from pipeline_v2.types import (
     NerLabel,
     PartyOrganizationSignal,
     WindowOrganizationSignal,
-    WindowPersonSignal,
-    WindowRoleSignal,
 )
 from tests_v2.materialized import (
     argument_roles,
@@ -250,16 +248,14 @@ def test_governance_stage_uses_adjacent_sentence_context_for_split_appointment()
 
     record = first_fact_record(document)
 
+    # The copular "jest prezesem" in sentence 1 produces the primary fact.  The
+    # "Został powołany" in sentence 2 provides corroborating evidence via window
+    # entities and is merged into the same fact by inference.  Both triggers must
+    # result in a single governance appointment about Jan Kowalski.
     assert record.kind is FactKind.GOVERNANCE_APPOINTMENT
     assert entity_hint_for_role(document, record, "person") == "Jan Kowalski"
     assert entity_hint_for_role(document, record, "organization") == "Wodkan"
     assert entity_hint_for_role(document, record, "role") == "prezesem"
-    assert set(record.signals) == {
-        AppointmentLemmaSignal(lemma="powołać"),
-        WindowPersonSignal(),
-        WindowOrganizationSignal(),
-        WindowRoleSignal(),
-    }
 
 
 def test_governance_stage_does_not_use_previous_paragraph_for_missing_person() -> None:
@@ -283,7 +279,12 @@ def test_governance_stage_does_not_use_previous_paragraph_for_missing_person() -
         paragraphs=(first, second),
     )
 
-    assert fact_records(document) == ()
+    # The copular "jest prezesem" in para 1 produces a local fact.  The second
+    # paragraph's "powołany" must NOT use cross-paragraph window entities.
+    records = fact_records(document)
+    assert not any(AppointmentLemmaSignal(lemma="powołać") in r.signals for r in records), (
+        "cross-paragraph window appointment should not be produced"
+    )
 
 
 def test_governance_stage_ignores_following_sentence_background_organization() -> None:
@@ -1072,3 +1073,72 @@ def test_governance_stage_reflexive_dismissal_guard() -> None:
 
     dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
     assert not dismissals, "should suppress dismissal when odwołać is reflexive (odwołać się)"
+
+
+# --- Succession pattern and copular role-holder pattern ---
+
+
+def test_governance_stage_succession_pattern_binds_new_person_to_vacated_role() -> None:
+    """'Jej miejsce zajęła X' — X should get the role from the previous sentence
+    where someone departed, not be silently dropped because that sentence had a
+    different person."""
+    first = "Po roku pracy ze stanowiskiem Sekretarza Miasta pożegnała się Barbara Chamiga."
+    second = "Jej miejsce zajęła Marta Tartanus-Oryszczak."
+    text = f"{first} {second}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Barbara Chamiga",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Barbara Chamiga"), text.index("Barbara Chamiga") + 15),
+            ),
+            NamedEntitySpan(
+                text="Marta Tartanus-Oryszczak",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Marta Tartanus-Oryszczak"),
+                    text.index("Marta Tartanus-Oryszczak") + len("Marta Tartanus-Oryszczak"),
+                ),
+            ),
+        ),
+    )
+
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
+    marta_appointments = [
+        r
+        for r in appointments
+        if _has_entity_hint(document, r, "person", "Marta Tartanus-Oryszczak")
+    ]
+    assert marta_appointments, (
+        "Marta Tartanus-Oryszczak should be bound to a governance appointment"
+    )
+    record = marta_appointments[0]
+    assert entity_hint_for_role(document, record, "role") == "Sekretarza"
+
+
+def test_governance_stage_copular_role_holder_produces_appointment() -> None:
+    """'X jest przewodniczącą rady nadzorczej Y' — copular construction with a
+    governance role entity should produce a GOVERNANCE_APPOINTMENT."""
+    text = "Anna Nowak jest przewodniczącą rady nadzorczej spółki Komunalnik."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Anna Nowak",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Anna Nowak"), text.index("Anna Nowak") + 10),
+            ),
+            NamedEntitySpan(
+                text="Komunalnik",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 10),
+            ),
+        ),
+    )
+
+    appointments = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_APPOINTMENT]
+    assert appointments, "copular governance role should produce a GOVERNANCE_APPOINTMENT"
+    record = appointments[0]
+    assert entity_hint_for_role(document, record, "person") == "Anna Nowak"
+    assert entity_hint_for_role(document, record, "organization") == "Komunalnik"
