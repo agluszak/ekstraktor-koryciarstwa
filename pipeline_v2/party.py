@@ -65,6 +65,10 @@ class PartyCandidateStage:
                 PartyAlias("Nowa Lewica", "Nowa Lewica"),
                 PartyAlias("Polska 2050", "Polska 2050"),
                 PartyAlias("Razem", "Razem"),
+                PartyAlias("SLD", "Sojusz Lewicy Demokratycznej", case_sensitive=True),
+                PartyAlias("Sojusz Lewicy Demokratycznej", "Sojusz Lewicy Demokratycznej"),
+                PartyAlias("TD", "Trzecia Droga", case_sensitive=True),
+                PartyAlias("Trzecia Droga", "Trzecia Droga"),
             ),
             key=lambda item: len(item.alias),
             reverse=True,
@@ -79,6 +83,12 @@ class PartyCandidateStage:
             "radny",
             "poseł",
             "posłanka",
+            "szef",
+            "przewodniczący",
+            "wódz",
+            "kierownik",
+            "sekretarz",
+            "współzałożyciel",
         }
     )
     _support_lemmas = frozenset(
@@ -317,7 +327,7 @@ class PartyCandidateStage:
                 match.span.end_char,
                 person.start_char,
             )
-            if len(token_ids) > 2:
+            if len(token_ids) > 5:
                 return None
             if any(
                 document.store.tokens[token_id].text in {",", ".", ";", ":"}
@@ -369,8 +379,8 @@ class PartyCandidateStage:
             document,
             sentence,
             match.span.start_char,
-            before=2,
-            after=0,
+            before=3,
+            after=5,
         )
         return self._tokens_contain_lemmas(document, token_ids, self._profile_lemmas)
 
@@ -560,11 +570,16 @@ class PartyCandidateStage:
         match: "PartyAliasMatch",
     ) -> bool:
         former_lemmas = frozenset({"były", "dawny", "wcześniej", "niegdyś", "ex-"})
+        start_char = max(
+            sentence.span.start_char,
+            min(person.start_char, match.span.start_char) - 30,
+        )
+        end_char = max(person.end_char, match.span.end_char)
         token_ids = self._token_ids_in_span(
             document=document,
             sentence=sentence,
-            start_char=max(sentence.span.start_char, person.start_char - 30),
-            end_char=match.span.end_char,
+            start_char=start_char,
+            end_char=end_char,
         )
         if self._tokens_contain_lemmas(document, token_ids, former_lemmas):
             return True

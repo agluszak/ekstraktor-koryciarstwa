@@ -49,6 +49,8 @@ class PersonalTieCandidateStage:
         "kuzynka": RelationshipDetail.FAMILY,
         "matka": RelationshipDetail.PARENT,
         "mąż": RelationshipDetail.SPOUSE,
+        "narzeczona": RelationshipDetail.SPOUSE,
+        "narzeczony": RelationshipDetail.SPOUSE,
         "ojciec": RelationshipDetail.PARENT,
         "partner": RelationshipDetail.SPOUSE,
         "partnerka": RelationshipDetail.SPOUSE,

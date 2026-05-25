@@ -1624,12 +1624,9 @@ class ResolutionInferenceGraphBuilder:
                 return FactResolutionStrategy.PROXY_NAMED_TIE
             return None
         if left.text_fillers == right.text_fillers:
-            if same_entity_variable_id_by_pair:
-                aligned = self._aligned_entity_pairs_with_resolution(
-                    left, right, same_entity_variable_id_by_pair
-                )
-            else:
-                aligned = self._aligned_entity_pairs(left, right)
+            aligned = self._aligned_entity_pairs_with_resolution(
+                left, right, same_entity_variable_id_by_pair
+            )
             if aligned:
                 return FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED
         return None

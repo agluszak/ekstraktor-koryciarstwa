@@ -340,3 +340,17 @@ def test_corporate_ownership_constraint_demotes_posterior() -> None:
         r for r in fact_records(document_invalid) if r.kind == FactKind.CORPORATE_OWNERSHIP
     ]
     assert len(invalid_ownership) == 0
+
+
+def test_former_party_membership_person_after_party() -> None:
+    text = "Do Platformy Obywatelskiej należał były poseł Jan Kowalski."
+    document = run_pipeline(
+        text,
+        (entity_span(text, "Jan Kowalski", NerLabel.PERSON),),
+    )
+    records = fact_records(document)
+    former_records = [r for r in records if r.kind == FactKind.FORMER_PARTY_MEMBERSHIP]
+    assert len(former_records) >= 1
+    rec = former_records[0]
+    assert entity_hint_for_role(document, rec, "subject") == "Jan Kowalski"
+    assert entity_hint_for_role(document, rec, "object") == "Platforma Obywatelska"

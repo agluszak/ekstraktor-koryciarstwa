@@ -925,3 +925,150 @@ def test_governance_stage_still_binds_named_person_with_role_title() -> None:
         if record.kind is FactKind.GOVERNANCE_APPOINTMENT
     ]
     assert "Prezes Jan Kowalski" in governance_people
+
+
+def test_governance_stage_list_appointments_via_conj() -> None:
+    text = "Do zarządu powołano Jana Kowalskiego, Tomasza Nowaka i Adama Cisza."
+    entities = (
+        NamedEntitySpan(
+            text="Jana Kowalskiego",
+            label=NerLabel.PERSON,
+            span=Span(20, 36),
+        ),
+        NamedEntitySpan(
+            text="Tomasza Nowaka",
+            label=NerLabel.PERSON,
+            span=Span(38, 52),
+        ),
+        NamedEntitySpan(
+            text="Adama Cisza",
+            label=NerLabel.PERSON,
+            span=Span(55, 66),
+        ),
+    )
+
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=(text,),
+    )
+    morphology = Morfeusz2MorphologyAdapter()
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(entities),
+        morphology=morphology,
+    ).run(document)
+    LexicalEntityContextStage().run(document)
+    RoleCandidateStage(morphology).run(document)
+
+    sentence = next(iter(document.store.sentences.values()))
+    tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+
+    kowalskiego_idx = next(i + 1 for i, t in enumerate(tokens) if t.text.lower() == "kowalskiego")
+    nowaka_idx = next(i + 1 for i, t in enumerate(tokens) if t.text.lower() == "nowaka")
+    cisza_idx = next(i + 1 for i, t in enumerate(tokens) if t.text.lower() == "cisza")
+
+    DependencyParseStage(
+        StaticDependencyProvider(
+            (
+                ParsedDependencySentence(
+                    sentence_index=0,
+                    tokens=(
+                        ParsedDependencyToken(
+                            token_index=nowaka_idx,
+                            text="Nowaka",
+                            lemma="Nowak",
+                            upos="PROPN",
+                            head_index=kowalskiego_idx,
+                            relation=DependencyRelation.CONJ,
+                        ),
+                        ParsedDependencyToken(
+                            token_index=cisza_idx,
+                            text="Cisza",
+                            lemma="Cisz",
+                            upos="PROPN",
+                            head_index=nowaka_idx,
+                            relation=DependencyRelation.CONJ,
+                        ),
+                    ),
+                ),
+            )
+        )
+    ).run(document)
+
+    GovernanceCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    appointments = [
+        entity_hint_for_role(document, r, "person")
+        for r in fact_records(document)
+        if r.kind is FactKind.GOVERNANCE_APPOINTMENT
+    ]
+    assert "Jana Kowalskiego" in appointments
+    assert "Tomasza Nowaka" in appointments
+    assert "Adama Cisza" in appointments
+
+
+def test_governance_stage_reflexive_dismissal_guard() -> None:
+    text = "Marta Kowalska odwołała się od decyzji."
+    entities = (
+        NamedEntitySpan(
+            text="Marta Kowalska",
+            label=NerLabel.PERSON,
+            span=Span(0, 14),
+        ),
+    )
+
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=(text,),
+    )
+    morphology = Morfeusz2MorphologyAdapter()
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(entities),
+        morphology=morphology,
+    ).run(document)
+    LexicalEntityContextStage().run(document)
+    RoleCandidateStage(morphology).run(document)
+
+    sentence = next(iter(document.store.sentences.values()))
+    tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+
+    odwolala_idx = next(i + 1 for i, t in enumerate(tokens) if t.text.lower() == "odwołała")
+    sie_idx = next(i + 1 for i, t in enumerate(tokens) if t.text.lower() == "się")
+
+    DependencyParseStage(
+        StaticDependencyProvider(
+            (
+                ParsedDependencySentence(
+                    sentence_index=0,
+                    tokens=(
+                        ParsedDependencyToken(
+                            token_index=sie_idx,
+                            text="się",
+                            lemma="się",
+                            upos="PRON",
+                            head_index=odwolala_idx,
+                            relation=DependencyRelation.UNKNOWN,
+                        ),
+                    ),
+                ),
+            )
+        )
+    ).run(document)
+
+    GovernanceCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.GOVERNANCE_DISMISSAL]
+    assert not dismissals, "should suppress dismissal when odwołać is reflexive (odwołać się)"
