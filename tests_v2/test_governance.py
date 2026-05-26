@@ -45,6 +45,7 @@ from tests_v2.materialized import (
     entity_hint_for_role,
     fact_records,
     first_fact_record,
+    text_argument,
 )
 
 
@@ -289,6 +290,220 @@ def test_governance_stage_does_not_use_previous_paragraph_for_missing_person() -
     records = fact_records(document)
     assert not any(AppointmentLemmaSignal(lemma="powołać") in r.signals for r in records), (
         "cross-paragraph window appointment should not be produced"
+    )
+
+
+def test_governance_stage_emits_holding_for_role_first_persistence_clause() -> None:
+    first = "Krzysztof Michalski będzie prezesem spółki Aqua."
+    second = "Wiceprezesem firmy pozostaje Henryk Wysogląd."
+    text = f"{first} {second}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Krzysztof Michalski",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Krzysztof Michalski"),
+                    text.index("Krzysztof Michalski") + 19,
+                ),
+            ),
+            NamedEntitySpan(
+                text="Henryk Wysogląd",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Henryk Wysogląd"), text.index("Henryk Wysogląd") + len("Henryk Wysogląd")),
+            ),
+            NamedEntitySpan(
+                text="Aqua",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Aqua"), text.index("Aqua") + 4),
+            ),
+        ),
+    )
+
+    holdings = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_HOLDING]
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Henryk Wysogląd"
+        and entity_hint_for_role(document, record, "organization") == "Aqua"
+        and (entity_hint_for_role(document, record, "role") or "").startswith("Wiceprezes")
+        for record in holdings
+    )
+
+
+def test_governance_stage_prefers_board_role_in_zasiadac_clause() -> None:
+    text = (
+        "Krzysztof Michalski zasiada także w radzie nadzorczej spółki GPW Inżynieria, "
+        "na co zgodę wyraziła rada nadzorcza spółki Aqua."
+    )
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Krzysztof Michalski",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Krzysztof Michalski"),
+                    text.index("Krzysztof Michalski") + 19,
+                ),
+            ),
+            NamedEntitySpan(
+                text="GPW Inżynieria",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("GPW Inżynieria"), text.index("GPW Inżynieria") + 14),
+            ),
+            NamedEntitySpan(
+                text="Aqua",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.rindex("Aqua"), text.rindex("Aqua") + 4),
+            ),
+        ),
+    )
+
+    holdings = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_HOLDING]
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Krzysztof Michalski"
+        and entity_hint_for_role(document, record, "organization") == "GPW Inżynieria"
+        and "nadzorc" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in holdings
+    )
+
+
+def test_governance_stage_prefers_pretrigger_board_role_in_zasiadac_clause() -> None:
+    text = (
+        "W radzie nadzorczej spółki Aqua zasiada Maria Wasiak, "
+        "wiceprezydent Bydgoszczy i była minister."
+    )
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Maria Wasiak",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Maria Wasiak"), text.index("Maria Wasiak") + 12),
+            ),
+            NamedEntitySpan(
+                text="Aqua",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Aqua"), text.index("Aqua") + 4),
+            ),
+            NamedEntitySpan(
+                text="Bydgoszczy",
+                label=NerLabel.LOCATION,
+                span=Span(text.index("Bydgoszczy"), text.index("Bydgoszczy") + 10),
+            ),
+        ),
+    )
+
+    holdings = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_HOLDING]
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Maria Wasiak"
+        and entity_hint_for_role(document, record, "organization") == "Aqua"
+        and "nadzorc" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        and text_argument(record, "role_domain") == "supervisory_board"
+        for record in holdings
+    )
+
+
+def test_governance_stage_prefers_predicate_role_over_former_political_apposition() -> None:
+    text = "W samorządowej spółce Aqua wiceszefem rady nadzorczej jest były minister Jan Kowalski."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+            NamedEntitySpan(
+                text="Aqua",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Aqua"), text.index("Aqua") + 4),
+            ),
+        ),
+    )
+
+    holdings = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_HOLDING]
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Jan Kowalski"
+        and entity_hint_for_role(document, record, "organization") == "Aqua"
+        and (role := (entity_hint_for_role(document, record, "role") or "").casefold())
+        and "minister" not in role
+        and ("wiceszef" in role or "nadzorc" in role)
+        for record in holdings
+    )
+
+
+def test_governance_stage_prefers_post_trigger_person_over_historical_name_in_holding_clause() -> (
+    None
+):
+    text = "Jej prezesem jest Konrad Mikołajski, wcześniej prezes Zachemu i członek zarządu KPEC."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Konrad Mikołajski",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Konrad Mikołajski"),
+                    text.index("Konrad Mikołajski") + 17,
+                ),
+            ),
+            NamedEntitySpan(
+                text="Zachemu",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Zachemu"), text.index("Zachemu") + 7),
+            ),
+            NamedEntitySpan(
+                text="KPEC",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("KPEC"), text.index("KPEC") + 4),
+            ),
+        ),
+    )
+
+    holdings = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_HOLDING]
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Konrad Mikołajski"
+        and "prezes" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in holdings
+    )
+    assert not any(
+        entity_hint_for_role(document, record, "person") == "Konrad Mikołajski"
+        and "organization" in argument_roles(record)
+        and entity_hint_for_role(document, record, "organization") == "KPEC"
+        and "prezes" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in holdings
+    )
+    assert not any(
+        entity_hint_for_role(document, record, "person") == "Zachemu"
+        and "prezes" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in holdings
+    )
+
+
+def test_governance_stage_skips_former_political_title_background_holding() -> None:
+    text = "W ProNaturze pracuje Jan Kowalski, były radny PiS."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+            NamedEntitySpan(
+                text="ProNaturze",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("ProNaturze"), text.index("ProNaturze") + 10),
+            ),
+        ),
+    )
+
+    assert not any(
+        record.kind is FactKind.PUBLIC_ROLE_HOLDING
+        and entity_hint_for_role(document, record, "person") == "Jan Kowalski"
+        and "radn" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in fact_records(document)
     )
 
 

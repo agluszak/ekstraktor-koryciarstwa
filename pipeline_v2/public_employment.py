@@ -64,6 +64,22 @@ class PublicEmploymentCandidateStage:
             "szefowa",
         }
     )
+    _political_role_lemmas = frozenset(
+        {
+            "burmistrz",
+            "marszałek",
+            "minister",
+            "poseł",
+            "posłanka",
+            "prezydent",
+            "radna",
+            "radny",
+            "senator",
+            "starosta",
+            "wojewoda",
+            "wójt",
+        }
+    )
     _public_org_head_lemmas = frozenset({"gmina", "samorząd", "starostwo", "urząd"})
     _contextual_public_org_head_lemmas = frozenset({"jednostka", "spółka"})
     _public_org_context_lemmas = frozenset(
@@ -1032,20 +1048,23 @@ class PublicEmploymentCandidateStage:
         phrase_role = self._role_from_local_phrase(document, sentence, anchor_char)
         if phrase_role is not None:
             return phrase_role
-        following_role = self._nearest_following_entity(
+        for following_role in self._following_entities(
             entities,
             anchor_char,
             kinds=frozenset({EntityKind.ROLE}),
-        )
-        if following_role is not None:
-            return following_role
+        ):
+            if not self._is_political_role(document, following_role.id):
+                return following_role
         if prefer_following_only:
             return None
-        return self._nearest_preceding_entity(
+        for preceding_role in self._preceding_entities(
             entities,
             anchor_char,
             kinds=frozenset({EntityKind.ROLE}),
-        )
+        ):
+            if not self._is_political_role(document, preceding_role.id):
+                return preceding_role
+        return None
 
     def _role_from_local_phrase(
         self,
@@ -1187,6 +1206,19 @@ class PublicEmploymentCandidateStage:
                 return entity
         return None
 
+    def _following_entities(
+        self,
+        entities: tuple[SentenceEntity, ...],
+        anchor_char: int,
+        *,
+        kinds: frozenset[EntityKind],
+    ) -> tuple[SentenceEntity, ...]:
+        return tuple(
+            entity
+            for entity in entities
+            if entity.kind in kinds and entity.start_char >= anchor_char
+        )
+
     def _nearest_preceding_entity(
         self,
         entities: tuple[SentenceEntity, ...],
@@ -1199,6 +1231,19 @@ class PublicEmploymentCandidateStage:
                 return entity
         return None
 
+    def _preceding_entities(
+        self,
+        entities: tuple[SentenceEntity, ...],
+        anchor_char: int,
+        *,
+        kinds: frozenset[EntityKind],
+    ) -> tuple[SentenceEntity, ...]:
+        return tuple(
+            entity
+            for entity in reversed(entities)
+            if entity.kind in kinds and entity.start_char < anchor_char
+        )
+
     def _is_governance_role(
         self,
         document: ArticleDocument,
@@ -1209,6 +1254,19 @@ class PublicEmploymentCandidateStage:
         for mention in document.store.candidate_mentions(role_id):
             for token in document.store.tokens_for_mention(mention.id):
                 if any(analysis.lemma in self._governance_role_lemmas for analysis in token.morph):
+                    return True
+        return False
+
+    def _is_political_role(
+        self,
+        document: ArticleDocument,
+        role_id: EntityCandidateId | None,
+    ) -> bool:
+        if role_id is None:
+            return False
+        for mention in document.store.candidate_mentions(role_id):
+            for token in document.store.tokens_for_mention(mention.id):
+                if any(analysis.lemma in self._political_role_lemmas for analysis in token.morph):
                     return True
         return False
 

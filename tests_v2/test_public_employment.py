@@ -191,6 +191,26 @@ def test_public_employment_stage_does_not_emit_for_political_office_role() -> No
     assert not any(record.kind is FactKind.PUBLIC_EMPLOYMENT for record in fact_records(document))
 
 
+def test_public_employment_stage_ignores_former_political_title_as_job_role() -> None:
+    text = "W ProNaturze pracuje Jan Kowalski, były radny PiS."
+    document = run_public_employment_stage(
+        text,
+        (
+            organization_span(text, "ProNaturze"),
+            person_span(text, "Jan Kowalski"),
+        ),
+        include_governance=True,
+    )
+
+    records = [
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_EMPLOYMENT
+    ]
+    assert len(records) == 1
+    assert entity_hint_for_role(document, records[0], "person") == "Jan Kowalski"
+    assert entity_hint_for_role(document, records[0], "organization") == "ProNaturze"
+    assert "role" not in argument_roles(records[0])
+
+
 def test_public_employment_stage_does_not_emit_for_procurement_without_person() -> None:
     text = "Urząd podpisał umowę z firmą Alfa za 49 tys. zł."
     document = run_public_employment_stage(

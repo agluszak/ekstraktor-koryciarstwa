@@ -267,6 +267,81 @@ def test_article_fixture_keeps_governance_control_article_relevant() -> None:
     assert any(candidate.kind is FactKind.COMPENSATION for candidate in fact_records(document))
 
 
+def test_article_fixture_recovers_bielsko_board_holdings() -> None:
+    title = "Zaskoczenia nie było. Prezes miejskiej spółki powołany na kolejną kadencję"
+    paragraphs = (
+        "Krzysztof Michalski przez kolejne trzy lata będzie prezesem spółki Aqua.",
+        "Taką decyzję podjęła rada nadzorcza spółki Aqua. Organ powołał Krzysztofa "
+        "Michalskiego na trzyletnią kadencję. Wiceprezesem firmy pozostaje Henryk Wysogląd.",
+        "Krzysztof Michalski zasiada także w radzie nadzorczej spółki GPW Inżynieria, "
+        "na co zgodę wyraziła rada nadzorcza spółki Aqua.",
+        "Od maja zasiada także w radzie nadzorczej spółki Inter Balt w Gdańsku.",
+    )
+    text = "\n".join(paragraphs)
+    document = run_article_pipeline(
+        title=title,
+        paragraphs=paragraphs,
+        entities=(
+            person_span(text, "Krzysztof Michalski"),
+            NamedEntitySpan(
+                text="Krzysztof Michalski",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Krzysztof Michalski", text.index("Krzysztof Michalski") + 1),
+                    text.index("Krzysztof Michalski", text.index("Krzysztof Michalski") + 1)
+                    + len("Krzysztof Michalski"),
+                ),
+            ),
+            person_span(text, "Henryk Wysogląd"),
+            NamedEntitySpan(
+                text="Aqua",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Aqua"), text.index("Aqua") + len("Aqua")),
+            ),
+            NamedEntitySpan(
+                text="Aqua",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Aqua", text.index("Aqua") + 1),
+                    text.index("Aqua", text.index("Aqua") + 1) + len("Aqua"),
+                ),
+            ),
+            organization_span(text, "GPW Inżynieria"),
+            organization_span(text, "Inter Balt w Gdańsku"),
+        ),
+    )
+
+    assert document.relevance is not None
+    assert document.relevance.is_relevant is True
+    holdings = [
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_ROLE_HOLDING
+    ]
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Krzysztof Michalski"
+        and entity_hint_for_role(document, record, "organization") == "Aqua"
+        and (entity_hint_for_role(document, record, "role") or "").startswith("prezes")
+        for record in holdings
+    )
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Henryk Wysogląd"
+        and entity_hint_for_role(document, record, "organization") == "Aqua"
+        and "wiceprezes" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in holdings
+    )
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Krzysztof Michalski"
+        and entity_hint_for_role(document, record, "organization") == "GPW Inżynieria"
+        and "nadzorc" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in holdings
+    )
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Krzysztof Michalski"
+        and entity_hint_for_role(document, record, "organization") == "Inter Balt w Gdańsku"
+        and "nadzorc" in (entity_hint_for_role(document, record, "role") or "").casefold()
+        for record in holdings
+    )
+
+
 def test_article_fixture_does_not_promote_background_political_person_to_appointee() -> None:
     title = "Synekury Polski 2050"
     paragraphs = (
