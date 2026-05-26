@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pipeline_v2.candidates import (
     EntityCandidate,
 )
@@ -35,6 +37,12 @@ from pipeline_v2.types import (
     WindowPersonSignal,
     WindowRoleSignal,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class HoldingTrigger:
+    lemma: str
+    start_char: int
 
 
 class GovernanceCandidateStage:
@@ -99,6 +107,8 @@ class GovernanceCandidateStage:
             "zająć",  # "zajął stanowisko/funkcję prezesa"
         }
     )
+    _holding_lemmas = frozenset({"być", "pozostawać", "zasiadać"})
+    _former_descriptor_lemmas = frozenset({"były", "dawny", "wcześniej", "niegdyś", "ex-"})
     _generic_appointment_lemmas = frozenset({"zostać", "wejść", "nominacja", "zająć"})
     # Lemmas that only trigger appointment when used as temporal phrases (Bug 2).
     _objac_appointment_lemmas = frozenset({"objąć", "objęcie"})
@@ -150,6 +160,9 @@ class GovernanceCandidateStage:
             "wiceprezes",
             "kierownik",
             "szef",
+            "wiceszef",
+            "przewodniczący",
+            "przewodnicząca",
         }
     )
     _political_role_lemmas = frozenset(
@@ -168,6 +181,9 @@ class GovernanceCandidateStage:
             "starosta",
             "marszałek",
         }
+    )
+    _verb_like_pos = frozenset(
+        {"fin", "praet", "bedzie", "impt", "imps", "inf", "pcon", "pant", "ger", "pred"}
     )
     _role_title_only_person_lemmas = frozenset(
         {
@@ -600,17 +616,24 @@ class GovernanceCandidateStage:
                     )
                 )
             ]
-        # Copular role-holder pattern: "X jest [governance role] [org]" — a predicative
-        # construction stating that X currently holds the role.  Only fires when no
-        # explicit appointment trigger is present and a ROLE entity with governance/
-        # political lemmas appears in the sentence.
+        # Holding patterns: copular clauses ("X jest prezesem"), persistence
+        # clauses ("wiceprezesem pozostaje X"), and board-membership clauses
+        # ("X zasiada w radzie nadzorczej").
+        holding_trigger = self._first_holding_trigger(document, sentence)
         if (
             not (lemmas & self._appointment_lemmas)
-            and "być" in lemmas
-            and self._sentence_has_governance_role_entity(document, sentence)
+            and holding_trigger is not None
+            and (
+                self._sentence_has_governance_role_entity(document, sentence)
+                or self._sentence_has_inline_person_title(document, sentence)
+                or self._sentence_has_holding_predicate_title(document, sentence)
+            )
         ):
             candidates.append(
-                (FactKind.PUBLIC_ROLE_HOLDING, (AppointmentLemmaSignal(lemma="być"),))
+                (
+                    FactKind.PUBLIC_ROLE_HOLDING,
+                    (AppointmentLemmaSignal(lemma=holding_trigger.lemma),),
+                )
             )
         return tuple(candidates)
 
@@ -631,6 +654,10 @@ class GovernanceCandidateStage:
         bindings: list[tuple[SentenceEntity, SentenceEntity]] = []
         for role in roles:
             if not self._is_political_role(document, role.id):
+                continue
+            if self._role_has_former_descriptor(document, sentence, role):
+                continue
+            if self._role_is_embedded_under_other_role(document, sentence, role):
                 continue
             role_frame = frame_builder.frame_for_trigger(
                 sentence,
@@ -653,13 +680,13 @@ class GovernanceCandidateStage:
         )
         document.store.add_evidence(evidence)
         emitter = DomainEventEmitter(document, self.producer_id)
-        event = emitter.event(
-            kind=FactKind.PUBLIC_ROLE_HOLDING,
-            trigger_evidence_id=evidence.id,
-            evidence_ids=(evidence.id,),
-            signals=(),
-        )
         for person, role in bindings:
+            event = emitter.event(
+                kind=FactKind.PUBLIC_ROLE_HOLDING,
+                trigger_evidence_id=evidence.id,
+                evidence_ids=(evidence.id,),
+                signals=(),
+            )
             self._add_governance_bindings(
                 document=document,
                 emitter=emitter,
@@ -722,6 +749,146 @@ class GovernanceCandidateStage:
         if copular:
             return min(copular, key=lambda person: abs(person.start_char - role.start_char))
         return None
+
+    def _first_holding_trigger(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> HoldingTrigger | None:
+        role_vocab = self._governance_role_lemmas | self._political_role_lemmas
+        for token_index, token_id in enumerate(sentence.token_ids):
+            token = document.store.tokens[token_id]
+            if self._is_former_role_descriptor_trigger(
+                document=document,
+                sentence=sentence,
+                token_index=token_index,
+                role_vocab=role_vocab,
+            ):
+                continue
+            for analysis in token.morph:
+                if analysis.lemma not in self._holding_lemmas:
+                    continue
+                if analysis.lemma == "być" and analysis.pos not in self._verb_like_pos:
+                    continue
+                return HoldingTrigger(
+                    lemma=analysis.lemma,
+                    start_char=token.span.start_char,
+                )
+        return None
+
+    def _is_former_role_descriptor_trigger(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        token_index: int,
+        role_vocab: frozenset[str],
+    ) -> bool:
+        token = document.store.tokens[sentence.token_ids[token_index]]
+        if not self._token_has_former_descriptor(token):
+            return False
+        window_end = min(len(sentence.token_ids), token_index + 4)
+        role_token_index = next(
+            (
+                next_index
+                for next_index in range(token_index + 1, window_end)
+                if {
+                    analysis.lemma
+                    for analysis in document.store.tokens[sentence.token_ids[next_index]].morph
+                }
+                & role_vocab
+            ),
+            None,
+        )
+        if role_token_index is None:
+            return False
+        role_token = document.store.tokens[sentence.token_ids[role_token_index]]
+        if not self._token_has_instrumental_role_analysis(role_token, role_vocab):
+            return True
+        return self._sentence_has_following_finite_noncopular_verb(
+            document=document,
+            sentence=sentence,
+            token_index=role_token_index + 1,
+        )
+
+    def _token_has_former_descriptor(self, token: Token) -> bool:
+        token_lower = token.text.casefold()
+        if token_lower in {"był", "była", "było", "byli", "byłe", "były"}:
+            return True
+        for analysis in token.morph:
+            if analysis.lemma in self._former_descriptor_lemmas:
+                return True
+            if analysis.lemma == "być" and analysis.tag and "praet" in analysis.tag:
+                return True
+        return False
+
+    def _sentence_has_following_finite_noncopular_verb(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        token_index: int,
+    ) -> bool:
+        for later_token_id in sentence.token_ids[token_index:]:
+            token = document.store.tokens[later_token_id]
+            for analysis in token.morph:
+                if analysis.pos not in self._verb_like_pos:
+                    continue
+                if analysis.lemma == "być":
+                    continue
+                return True
+        return False
+
+    def _token_has_instrumental_role_analysis(
+        self,
+        token: Token,
+        role_vocab: frozenset[str],
+    ) -> bool:
+        for analysis in token.morph:
+            if analysis.lemma not in role_vocab:
+                continue
+            if analysis.tag and ":inst" in analysis.tag:
+                return True
+        return False
+
+    def _role_has_former_descriptor(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        role: SentenceEntity,
+    ) -> bool:
+        role_token_indexes = [
+            index
+            for index, token_id in enumerate(sentence.token_ids)
+            if role.start_char <= document.store.tokens[token_id].span.start_char < role.end_char
+        ]
+        if not role_token_indexes:
+            return False
+        first_role_index = min(role_token_indexes)
+        for token_id in sentence.token_ids[max(0, first_role_index - 3) : first_role_index]:
+            if self._token_has_former_descriptor(document.store.tokens[token_id]):
+                return True
+        return False
+
+    def _role_is_embedded_under_other_role(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        role: SentenceEntity,
+    ) -> bool:
+        role_token_indexes = [
+            index
+            for index, token_id in enumerate(sentence.token_ids)
+            if role.start_char <= document.store.tokens[token_id].span.start_char < role.end_char
+        ]
+        if not role_token_indexes:
+            return False
+        first_role_index = min(role_token_indexes)
+        role_vocab = self._governance_role_lemmas | self._political_role_lemmas
+        for token_id in sentence.token_ids[max(0, first_role_index - 2) : first_role_index]:
+            if {analysis.lemma for analysis in document.store.tokens[token_id].morph} & role_vocab:
+                return True
+        return False
 
     def _first_token_for_entity(
         self,
@@ -1028,7 +1195,7 @@ class GovernanceCandidateStage:
             return True
         return "na rzecz" in prefix_folded
 
-    def _augment_exit_roles_with_local_titles(
+    def _augment_local_roles_with_person_titles(
         self,
         *,
         document: ArticleDocument,
@@ -1070,6 +1237,9 @@ class GovernanceCandidateStage:
                 continue
             existing_role_ids.add(role_entity.id)
             augmented_roles.append((role_entity, (LocalRoleSignal(),)))
+        holding_title = self._holding_predicate_role_entity(document, sentence)
+        if holding_title is not None and holding_title.id not in existing_role_ids:
+            augmented_roles.append((holding_title, (LocalRoleSignal(),)))
         return tuple(augmented_roles)
 
     def _materialize_local_role_entity(
@@ -1152,6 +1322,13 @@ class GovernanceCandidateStage:
         retriever = SentenceEntityRetriever(document.store)
         entities = retriever.entities_for_sentence(sentence)
         window_entities = retriever.entities_for_sentence_window(sentence, before=1, after=0)
+        organization_window_entities = window_entities
+        if self._first_holding_trigger(document, sentence) is not None:
+            organization_window_entities = retriever.entities_for_sentence_window(
+                sentence,
+                before=2,
+                after=0,
+            )
 
         people = self._select_entities(
             document,
@@ -1162,6 +1339,16 @@ class GovernanceCandidateStage:
             local_signal=LocalPersonSignal(),
             window_signal=WindowPersonSignal(),
         )
+        if not any(entity.kind is EntityKind.PERSON for entity in entities) and (
+            self._first_holding_trigger(document, sentence) is not None
+        ):
+            seen_person_ids = {person.id for person, _signals in people}
+            previous_sentence_people = self._previous_sentence_holding_people(document, sentence)
+            people = people + tuple(
+                (person, (WindowPersonSignal(),))
+                for person in previous_sentence_people
+                if person.id not in seen_person_ids
+            )
         roles = self._select_entities(
             document,
             sentence,
@@ -1191,7 +1378,7 @@ class GovernanceCandidateStage:
             document,
             sentence,
             entities,
-            window_entities,
+            organization_window_entities,
             EntityKind.ORGANIZATION,
             local_signal=LocalOrganizationSignal(),
             window_signal=WindowOrganizationSignal(),
@@ -1200,6 +1387,18 @@ class GovernanceCandidateStage:
             # (e.g. PSL) and can win once party/owner signals are applied.
             merge_window_with_local=True,
         )
+        if self._sentence_has_holding_predicate_title(document, sentence) and not any(
+            entity.kind is EntityKind.ORGANIZATION for entity in entities
+        ):
+            organizations = tuple(
+                (
+                    organization,
+                    (LocalOrganizationSignal(), WindowOrganizationSignal())
+                    if signals == (WindowOrganizationSignal(),)
+                    else signals,
+                )
+                for organization, signals in organizations
+            )
         roles = self._select_entities(
             document,
             sentence,
@@ -1209,8 +1408,10 @@ class GovernanceCandidateStage:
             local_signal=LocalRoleSignal(),
             window_signal=WindowRoleSignal(),
         )
-        if self._sentence_lemmas(document, sentence) & self._dismissal_lemmas:
-            roles = self._augment_exit_roles_with_local_titles(
+        if self._sentence_lemmas(document, sentence) & self._dismissal_lemmas or (
+            self._first_holding_trigger(document, sentence) is not None
+        ):
+            roles = self._augment_local_roles_with_person_titles(
                 document=document,
                 sentence=sentence,
                 local_entities=entities,
@@ -1242,11 +1443,38 @@ class GovernanceCandidateStage:
             return frozenset(person_ids)
 
         syntax = SyntaxView(document.store)
+        holding_trigger = self._first_holding_trigger(document, sentence)
+        holding_clause_end_char = (
+            self._clause_end_after_char(document, sentence, holding_trigger.start_char)
+            if holding_trigger is not None and holding_trigger.lemma in {"być", "pozostawać"}
+            else None
+        )
+        has_clause_local_post_trigger_person = (
+            holding_trigger is not None
+            and holding_clause_end_char is not None
+            and any(
+                self._entity_source_sentence_id(document, person.id) == sentence.id
+                and holding_trigger.start_char < person.start_char < holding_clause_end_char
+                for person, _person_signals in people
+            )
+        )
         for person, p_signals in people:
             person_negative_signals: list[Signal] = []
             if self._is_implausible_person_candidate(document, person.id):
                 person_negative_signals.append(ImplausiblePersonBindingSignal())
             person_is_window_only = person.id not in local_people_ids
+            if (
+                has_clause_local_post_trigger_person
+                and holding_trigger is not None
+                and holding_clause_end_char is not None
+                and (
+                    self._entity_source_sentence_id(document, person.id) != sentence.id
+                    or not (
+                        holding_trigger.start_char < person.start_char < holding_clause_end_char
+                    )
+                )
+            ):
+                continue
             # Exclude appointer (nominative subject in active sentence with appointment lemma)
             trigger_token = syntax.first_token_with_lemmas(sentence, self._appointment_lemmas)
             if trigger_token is not None and not person_is_window_only:
@@ -1401,6 +1629,42 @@ class GovernanceCandidateStage:
             compatible_roles.append((role, role_signals))
         if not compatible_roles:
             return ()
+        zasiadac_start_char = self._first_token_start_char_with_lemmas(
+            document,
+            sentence,
+            frozenset({"zasiadać"}),
+        )
+        if zasiadac_start_char is not None:
+            clause_start_char = self._clause_start_before_char(
+                document,
+                sentence,
+                zasiadac_start_char,
+            )
+            clause_end_char = self._clause_end_after_char(document, sentence, zasiadac_start_char)
+            zasiadac_roles = [
+                (role, role_signals)
+                for role, role_signals in compatible_roles
+                if clause_start_char <= role.start_char < clause_end_char
+            ]
+            if zasiadac_roles:
+                return tuple(zasiadac_roles)
+        holding_trigger = self._first_holding_trigger(document, sentence)
+        if holding_trigger is not None and holding_trigger.lemma in {"być", "pozostawać"}:
+            clause_start_char = self._clause_start_before_char(
+                document,
+                sentence,
+                holding_trigger.start_char,
+            )
+            predicate_roles = [
+                (role, role_signals)
+                for role, role_signals in compatible_roles
+                if (
+                    self._entity_source_sentence_id(document, role.id) == sentence.id
+                    and clause_start_char <= role.start_char < holding_trigger.start_char
+                )
+            ]
+            if predicate_roles:
+                return tuple(predicate_roles)
         _ = trigger_start_char
         return tuple(compatible_roles)
 
@@ -1455,6 +1719,72 @@ class GovernanceCandidateStage:
                 for organization, signals in organizations
                 if self._entity_source_sentence_id(document, organization.id) == role_sentence_id
             )
+        zasiadac_start_char = self._first_token_start_char_with_lemmas(
+            document,
+            sentence,
+            frozenset({"zasiadać"}),
+        )
+        if role is None:
+            return organizations
+        if zasiadac_start_char is not None:
+            clause_end_char = self._clause_end_after_char(document, sentence, zasiadac_start_char)
+            same_clause_organizations = tuple(
+                (organization, signals)
+                for organization, signals in organizations
+                if role.start_char <= organization.start_char < clause_end_char
+            )
+            if same_clause_organizations:
+                return same_clause_organizations
+        holding_trigger = self._first_holding_trigger(document, sentence)
+        if (
+            holding_trigger is not None
+            and holding_trigger.lemma in {"być", "pozostawać"}
+            and role is not None
+            and role.start_char < holding_trigger.start_char
+        ):
+            holding_clause_end_char = self._clause_end_after_char(
+                document,
+                sentence,
+                holding_trigger.start_char,
+            )
+            clause_start_char = self._clause_start_before_char(
+                document,
+                sentence,
+                holding_trigger.start_char,
+            )
+            predicate_organizations = tuple(
+                (organization, signals)
+                for organization, signals in organizations
+                if (
+                    self._entity_source_sentence_id(document, organization.id) == sentence.id
+                    and clause_start_char <= organization.start_char < holding_trigger.start_char
+                )
+            )
+            if predicate_organizations:
+                return predicate_organizations
+            window_organizations = tuple(
+                (organization, signals)
+                for organization, signals in organizations
+                if self._entity_source_sentence_id(document, organization.id) != sentence.id
+            )
+            trailing_local_organizations = tuple(
+                (organization, signals)
+                for organization, signals in organizations
+                if (
+                    self._entity_source_sentence_id(document, organization.id) == sentence.id
+                    and organization.start_char >= holding_clause_end_char
+                )
+            )
+            if window_organizations and trailing_local_organizations:
+                return window_organizations
+            if trailing_local_organizations and (
+                self._sentence_has_possessive_holder_pronoun_before_char(
+                    document,
+                    sentence,
+                    role.start_char,
+                )
+            ):
+                return window_organizations
         return organizations
 
     def _sentence_has_current_descriptor(
@@ -1468,6 +1798,49 @@ class GovernanceCandidateStage:
             document.store.tokens[token_id].text.casefold().startswith("dotychczas")
             for token_id in sentence.token_ids
         )
+
+    def _sentence_has_possessive_holder_pronoun_before_char(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        end_char: int,
+    ) -> bool:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if token.span.start_char >= end_char:
+                break
+            token_lower = token.text.casefold()
+            if token_lower in {"jej", "jego", "ich"}:
+                return True
+        return False
+
+    def _previous_sentence_holding_people(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> tuple[SentenceEntity, ...]:
+        previous_index = sentence.sentence_index - 1
+        if previous_index < 0:
+            return ()
+        people: list[SentenceEntity] = []
+        for candidate in document.store.candidates_by_kind(EntityKind.PERSON):
+            spans = [
+                evidence.span
+                for evidence in document.store.evidence_for_entity(candidate.id)
+                if evidence.sentence_id is not None
+                and document.store.sentences[evidence.sentence_id].sentence_index == previous_index
+            ]
+            if not spans:
+                continue
+            people.append(
+                SentenceEntity(
+                    id=candidate.id,
+                    kind=EntityKind.PERSON,
+                    start_char=min(span.start_char for span in spans),
+                    end_char=max(span.end_char for span in spans),
+                )
+            )
+        return tuple(sorted(people, key=lambda person: person.start_char))
 
     def _expand_conjunct_people(
         self,
@@ -1512,6 +1885,47 @@ class GovernanceCandidateStage:
                         expanded.append((conjunct, (LocalPersonSignal(),)))
 
         return tuple(expanded)
+
+    def _first_token_start_char_with_lemmas(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        vocabulary: frozenset[str],
+    ) -> int | None:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if {analysis.lemma for analysis in token.morph} & vocabulary:
+                return token.span.start_char
+        return None
+
+    def _clause_end_after_char(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        start_char: int,
+    ) -> int:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if token.span.start_char <= start_char:
+                continue
+            if token.text in {",", ";", "—", "–"}:
+                return token.span.start_char
+        return sentence.span.end_char
+
+    def _clause_start_before_char(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        end_char: int,
+    ) -> int:
+        clause_start = sentence.span.start_char
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if token.span.start_char >= end_char:
+                break
+            if token.text in {",", ";", "-", "—", "–"}:
+                clause_start = token.span.end_char
+        return clause_start
 
     def _select_entities(
         self,
@@ -1656,6 +2070,72 @@ class GovernanceCandidateStage:
                     ):
                         return True
         return False
+
+    def _sentence_has_inline_person_title(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> bool:
+        role_vocab = self._governance_role_lemmas | self._political_role_lemmas
+        retriever = SentenceEntityRetriever(document.store)
+        people = tuple(
+            entity
+            for entity in retriever.entities_for_sentence(sentence)
+            if entity.kind is EntityKind.PERSON
+        )
+        sentence_token_ids = list(sentence.token_ids)
+        for person in people:
+            person_start_index = next(
+                (
+                    index
+                    for index, token_id in enumerate(sentence_token_ids)
+                    if document.store.tokens[token_id].span.start_char >= person.start_char
+                ),
+                None,
+            )
+            if person_start_index is None or person_start_index == 0:
+                continue
+            title_token = document.store.tokens[sentence_token_ids[person_start_index - 1]]
+            if {analysis.lemma for analysis in title_token.morph} & role_vocab:
+                return True
+        return False
+
+    def _sentence_has_holding_predicate_title(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> bool:
+        return self._holding_predicate_role_entity(document, sentence) is not None
+
+    def _holding_predicate_role_entity(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> SentenceEntity | None:
+        role_vocab = self._governance_role_lemmas | self._political_role_lemmas
+        trigger = self._first_holding_trigger(document, sentence)
+        if trigger is None or trigger.lemma not in {"być", "pozostawać"}:
+            return None
+        trigger_start_char = trigger.start_char
+        trigger_token_index = next(
+            (
+                index
+                for index, token_id in enumerate(sentence.token_ids)
+                if document.store.tokens[token_id].span.start_char == trigger_start_char
+            ),
+            None,
+        )
+        if trigger_token_index is None:
+            return None
+        for token_index in range(trigger_token_index - 1, -1, -1):
+            token = document.store.tokens[sentence.token_ids[token_index]]
+            if {analysis.lemma for analysis in token.morph} & role_vocab:
+                return self._materialize_local_role_entity(
+                    document=document,
+                    sentence=sentence,
+                    token_index=token_index,
+                )
+        return None
 
     def _sentence_lemmas(self, document: ArticleDocument, sentence: Sentence) -> frozenset[str]:
         lemmas: set[str] = set()
@@ -2035,7 +2515,7 @@ class GovernanceCandidateStage:
             return PublicRoleDomain.SUPERVISORY_BOARD
         if {"prezes", "wiceprezes", "zarząd"} & lemmas:
             return PublicRoleDomain.PUBLIC_COMPANY_MANAGEMENT
-        if {"dyrektor", "wicedyrektor", "kierownik", "szef"} & lemmas:
+        if {"dyrektor", "wicedyrektor", "kierownik", "szef", "wiceszef"} & lemmas:
             return PublicRoleDomain.INSTITUTION_MANAGEMENT
         if {"sekretarz", "naczelnik", "skarbnik"} & lemmas:
             return PublicRoleDomain.ADMINISTRATIVE_OFFICE
