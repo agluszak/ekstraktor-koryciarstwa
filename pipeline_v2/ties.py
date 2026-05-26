@@ -261,6 +261,8 @@ class PersonalTieCandidateStage:
         institution_entities = tuple(
             entity for entity in context_entities if entity.kind == EntityKind.ORGANIZATION
         )
+        if len(participants) < 2 and not institution_entities:
+            return
         shared_signals: list[Signal] = [ExplicitPatronageLemmaSignal(lemma=complaint_lemma)]
         if institution_entities:
             shared_signals.append(LocalInstitutionSignal())
@@ -317,6 +319,8 @@ class PersonalTieCandidateStage:
         )
         document.store.add_event_candidate(event)
         for participant in participants:
+            if not self._participant_supports_role(primary_left_role, participant):
+                continue
             left_signals = self._complaint_role_signals(
                 role=primary_left_role,
                 participant=participant,
@@ -333,6 +337,8 @@ class PersonalTieCandidateStage:
             )
         if len(participants) >= 2:
             for participant in participants:
+                if not self._participant_supports_role(primary_right_role, participant):
+                    continue
                 right_signals = self._complaint_role_signals(
                     role=primary_right_role,
                     participant=participant,
@@ -482,6 +488,17 @@ class PersonalTieCandidateStage:
                 ),
             )
         )
+
+    def _participant_supports_role(
+        self,
+        role: EventRole,
+        participant: _ComplaintParticipant,
+    ) -> bool:
+        if participant.sentence_distance > 0 or participant.preferred_side is None:
+            return True
+        left_roles = {EventRole.SUBJECT, EventRole.COMPLAINANT}
+        role_side = EventRole.SUBJECT if role in left_roles else EventRole.OBJECT
+        return participant.preferred_side is role_side
 
     def _complaint_role_signals(
         self,

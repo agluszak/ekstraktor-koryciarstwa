@@ -104,6 +104,15 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
             RoleSpec(EventRole.HIRING_AUTHORITY, FactArgumentRole.ACTOR, _PERSON),
         ),
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.EMPLOYEE,
+                right_role=EventRole.HIRING_AUTHORITY,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.FUNDING: EventSchema(
         fact_kind=FactKind.FUNDING,
@@ -174,8 +183,8 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             DistinctRoleConstraint(
                 left_role=EventRole.COMPLAINANT,
                 right_role=EventRole.TARGET,
-                same_candidate_penalty=_SOFT_DISTINCT,
-                resolution_penalty=_SOFT_DISTINCT,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
                 same_canonical_hint_penalty=_SOFT_DISTINCT,
             ),
         ),
@@ -218,7 +227,7 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
             DistinctRoleConstraint(
                 left_role=EventRole.COMPLAINANT,
                 right_role=EventRole.TARGET,
-                same_candidate_penalty=_SOFT_DISTINCT,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
                 resolution_penalty=_SELF_TIE_RESOLUTION,
                 same_canonical_hint_penalty=_SOFT_DISTINCT,
             ),

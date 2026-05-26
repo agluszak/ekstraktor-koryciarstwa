@@ -150,6 +150,55 @@ def test_named_entity_stage_strips_role_title_from_person_candidate() -> None:
     assert "Minister" in role_mention_texts
 
 
+def test_named_entity_stage_strips_multi_token_role_prefix_from_person_candidate() -> None:
+    cleaned_text = "Wiceprezes zarządu Jan Kowalski zabrał głos."
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=cleaned_text,
+        paragraphs=(cleaned_text,),
+    )
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage().run(document)
+    start = cleaned_text.index("Wiceprezes zarządu Jan Kowalski")
+
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(
+            (
+                NamedEntitySpan(
+                    text="Wiceprezes zarządu Jan Kowalski",
+                    label=NerLabel.PERSON,
+                    span=Span(start, start + len("Wiceprezes zarządu Jan Kowalski")),
+                ),
+            )
+        ),
+        morphology=Morfeusz2MorphologyAdapter(),
+    ).run(document)
+
+    person_candidates = [
+        candidate
+        for candidate in document.store.entity_candidates.values()
+        if candidate.kind is EntityKind.PERSON
+    ]
+    role_candidates = [
+        candidate
+        for candidate in document.store.entity_candidates.values()
+        if candidate.kind is EntityKind.ROLE
+    ]
+
+    assert len(person_candidates) == 1
+    assert len(role_candidates) >= 1
+    assert person_candidates[0].canonical_hint == "Jan Kowalski"
+    role_mention_texts = {
+        document.store.mentions[mention_id].text
+        for candidate in role_candidates
+        for mention_id in candidate.mention_ids
+    }
+    assert "Wiceprezes zarządu" in role_mention_texts
+
+
 def test_named_entity_stage_reclassifies_surname_like_company_after_org_descriptor() -> None:
     cleaned_text = "Firma Karlik dostarczyla samochody."
     document = ArticleDocument(

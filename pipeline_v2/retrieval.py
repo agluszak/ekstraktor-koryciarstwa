@@ -142,9 +142,7 @@ class EntityCandidateRetriever:
     ) -> tuple[EntityResolutionProposal, ...]:
         reuse_key = entity.reuse_key
         full_name_keys = self._person_full_name_keys(entity)
-        surname_base = entity.person_surname_base() or self._surname_base_for_surname_only_entity(
-            entity
-        )
+        surname_bases = self._surname_bases(entity, full_name_keys)
 
         proposals: list[EntityResolutionProposal] = []
         for candidate in self.store.candidates_by_kind(EntityKind.PERSON):
@@ -186,18 +184,29 @@ class EntityCandidateRetriever:
                         self._build_proposal(entity, candidate, FullNameReuseMatchSignal())
                     )
                     continue
-
             # 2. Surname base match
-            candidate_surname_base = (
-                candidate.person_surname_base()
-                or self._surname_base_for_surname_only_entity(candidate)
-            )
-            if surname_base is not None and candidate_surname_base == surname_base:
+            # 2. Surname base match
+            candidate_surname_bases = self._surname_bases(candidate, candidate_full_name_keys)
+            shared_surname_bases = surname_bases & candidate_surname_bases
+            if shared_surname_bases:
+                surname_base = next(iter(sorted(shared_surname_bases)))
                 distance = self._minimum_paragraph_distance(entity, candidate)
-                if distance is not None and distance <= 3:
+                if (
+                    distance is not None
+                    and distance <= 3
+                    or self._has_unique_document_surname_match(
+                        entity=entity,
+                        candidate=candidate,
+                        surname_base=surname_base,
+                    )
+                ):
                     proposals.append(
                         self._build_proposal(
-                            entity, candidate, SurnameBaseMatchSignal(distance=distance)
+                            entity,
+                            candidate,
+                            SurnameBaseMatchSignal(
+                                distance=distance if distance is not None else 99
+                            ),
                         )
                     )
                 continue
@@ -209,8 +218,26 @@ class EntityCandidateRetriever:
         self,
         entity: EntityCandidate,
     ) -> tuple[EntityResolutionProposal, ...]:
-        # TODO: Implement organization acronym matching
-        return ()
+        normalized_hint = self._normalized_canonical_hint(entity)
+        if normalized_hint is None:
+            return ()
+        proposals: list[EntityResolutionProposal] = []
+        for candidate in self.store.candidates_by_kind(EntityKind.ORGANIZATION):
+            if candidate.id == entity.id:
+                continue
+            if self._normalized_canonical_hint(candidate) != normalized_hint:
+                continue
+            distance = self._minimum_paragraph_distance(entity, candidate)
+            if distance is not None and distance > 3:
+                continue
+            proposals.append(
+                self._build_proposal(
+                    entity,
+                    candidate,
+                    CanonicalHintMatchSignal(hint=normalized_hint),
+                )
+            )
+        return tuple(proposals)
 
     def _political_party_proposals(
         self,
@@ -392,6 +419,22 @@ class EntityCandidateRetriever:
                 return mention.head_lemma.casefold()
         return None
 
+    def _surname_bases(
+        self,
+        entity: EntityCandidate,
+        full_name_keys: frozenset[FullPersonNameKey],
+    ) -> frozenset[str]:
+        bases: set[str] = set()
+        person_surname_base = entity.person_surname_base()
+        if person_surname_base is not None:
+            bases.add(person_surname_base)
+        surname_only_base = self._surname_base_for_surname_only_entity(entity)
+        if surname_only_base is not None:
+            bases.add(surname_only_base)
+        for key in full_name_keys:
+            bases.add(key.surname_base)
+        return frozenset(bases)
+
     def _minimum_paragraph_distance(
         self,
         left: EntityCandidate,
@@ -412,6 +455,26 @@ class EntityCandidateRetriever:
             if left_paragraph is not None and right_paragraph is not None
         ]
         return min(distances) if distances else None
+
+    def _has_unique_document_surname_match(
+        self,
+        *,
+        entity: EntityCandidate,
+        candidate: EntityCandidate,
+        surname_base: str,
+    ) -> bool:
+        if not self._person_full_name_keys(entity) and not self._person_full_name_keys(candidate):
+            return False
+        matching_people = 0
+        for person in self.store.candidates_by_kind(EntityKind.PERSON):
+            person_surname_base = person.person_surname_base() or (
+                self._surname_base_for_surname_only_entity(person)
+            )
+            if person_surname_base == surname_base:
+                matching_people += 1
+            if matching_people > 2:
+                return False
+        return matching_people == 2
 
     def _descriptor_person_lemma(self, entity: EntityCandidate) -> str | None:
         if entity.kind is not EntityKind.PERSON:

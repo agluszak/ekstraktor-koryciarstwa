@@ -8,6 +8,7 @@ from pipeline_v2.candidates import (
     EntityFiller,
     FactArgument,
     FactCandidateRecord,
+    FactResolutionClaim,
     MaterializedFactAlternative,
     MaterializedRoleAlternative,
     TextFactArgument,
@@ -18,6 +19,7 @@ from pipeline_v2.ids import (
     EntityCandidateId,
     EventCandidateId,
     FactCandidateId,
+    ProducerId,
     ResolutionClaimId,
     ScorerId,
 )
@@ -54,6 +56,7 @@ class _FactProjection:
 
 
 class FactAssessmentMaterializer:
+    producer_id = ProducerId("probabilistic_fact_inference_v2")
     scorer_id = ScorerId("probabilistic_fact_inference_v2")
     _alternative_threshold = 0.01
     _primary_fact_threshold = 0.2
@@ -172,6 +175,7 @@ class FactAssessmentMaterializer:
                 deduped_assessments.append(a)
         document.materialized_fact_records = deduped_records
         document.fact_assessments = deduped_assessments
+        self._drop_exact_output_duplicates(document)
         return document
 
     def _tie_dedup_key(self, record: FactCandidateRecord) -> tuple[object, ...] | None:
@@ -284,29 +288,132 @@ class FactAssessmentMaterializer:
         records: dict[FactCandidateId, FactCandidateRecord],
         fact_id: FactCandidateId,
         score: float,
-    ) -> tuple[int, float, str]:
-        return (self._projection_specificity(records, fact_id), score, str(fact_id))
+    ) -> tuple[int, int, float, str]:
+        status_specificity, argument_specificity = self._projection_specificity(records, fact_id)
+        return (status_specificity, argument_specificity, score, str(fact_id))
 
     def _projection_specificity(
         self,
         records: dict[FactCandidateId, FactCandidateRecord],
         fact_id: FactCandidateId,
-    ) -> int:
+    ) -> tuple[int, int]:
         record = records.get(fact_id)
-        if record is None or record.kind is not FactKind.PARTY_MEMBERSHIP:
-            return 0
-        status = next(
-            (
-                argument.value
-                for argument in record.arguments
-                if isinstance(argument, TextFactArgument)
-                and argument.role is FactArgumentRole.STATUS
-            ),
-            None,
+        if record is None:
+            return (0, 0)
+        status_specificity = 0
+        if record.kind is FactKind.PARTY_MEMBERSHIP:
+            status = next(
+                (
+                    argument.value
+                    for argument in record.arguments
+                    if isinstance(argument, TextFactArgument)
+                    and argument.role is FactArgumentRole.STATUS
+                ),
+                None,
+            )
+            if status in {"former", "current"}:
+                status_specificity = 1
+        argument_specificity = sum(
+            1
+            for argument in record.arguments
+            if argument.role not in {FactArgumentRole.CONTEXT, FactArgumentRole.ROLE_DOMAIN}
         )
-        if status in {"former", "current"}:
-            return 1
-        return 0
+        return (status_specificity, argument_specificity)
+
+    def _drop_exact_output_duplicates(self, document: ArticleDocument) -> None:
+        primary_by_signature: dict[tuple[object, ...], FactCandidateRecord] = {}
+        deduped_records: list[FactCandidateRecord] = []
+        deduped_assessments: list[FactAssessment] = []
+        assessment_by_id = {a.materialized_fact_id: a for a in document.fact_assessments}
+        for record in document.materialized_fact_records:
+            signature = self._fact_output_signature(record)
+            primary = primary_by_signature.get(signature)
+            if primary is not None:
+                self._preserve_exact_duplicate_as_alternative(
+                    document=document,
+                    primary=primary,
+                    duplicate=record,
+                    assessment=assessment_by_id.get(record.id),
+                )
+                continue
+            primary_by_signature[signature] = record
+            deduped_records.append(record)
+            if (assessment := assessment_by_id.get(record.id)) is not None:
+                deduped_assessments.append(assessment)
+        document.materialized_fact_records = deduped_records
+        document.fact_assessments = deduped_assessments
+
+    def _preserve_exact_duplicate_as_alternative(
+        self,
+        *,
+        document: ArticleDocument,
+        primary: FactCandidateRecord,
+        duplicate: FactCandidateRecord,
+        assessment: FactAssessment | None,
+    ) -> None:
+        score = assessment.assessment.score if assessment is not None else 0.0
+        claim = FactResolutionClaim(
+            id=document.store.next_fact_resolution_claim_id(),
+            left_fact_id=primary.id,
+            right_fact_id=duplicate.id,
+            relation=ResolutionRelation.SAME_FACT,
+            evidence_ids=duplicate.evidence_ids,
+            assessment=Assessment(
+                score=score,
+                positive_signals=tuple(
+                    signal
+                    for signal in duplicate.signals
+                    if signal.polarity is SignalPolarity.POSITIVE
+                ),
+                negative_signals=tuple(
+                    signal
+                    for signal in duplicate.signals
+                    if signal.polarity is SignalPolarity.NEGATIVE
+                ),
+                scorer_id=self.scorer_id,
+                explanation="exact output duplicate preserved as materialized alternative",
+            ),
+            source=self.producer_id,
+        )
+        document.store.add_fact_resolution_claim(claim)
+        document.materialized_fact_alternatives[primary.id] = (
+            *document.materialized_fact_alternatives.get(primary.id, ()),
+            MaterializedFactAlternative(
+                record=duplicate,
+                score=round(score, 3),
+                claim_id=claim.id,
+                relation=ResolutionRelation.SAME_FACT,
+            ),
+        )
+        duplicate_role_alternatives = document.materialized_role_alternatives.pop(
+            duplicate.id,
+            (),
+        )
+        if duplicate_role_alternatives:
+            document.materialized_role_alternatives[primary.id] = (
+                *document.materialized_role_alternatives.get(primary.id, ()),
+                *duplicate_role_alternatives,
+            )
+        duplicate_fact_alternatives = document.materialized_fact_alternatives.pop(
+            duplicate.id,
+            (),
+        )
+        if duplicate_fact_alternatives:
+            document.materialized_fact_alternatives[primary.id] = (
+                *document.materialized_fact_alternatives.get(primary.id, ()),
+                *duplicate_fact_alternatives,
+            )
+
+    def _fact_output_signature(self, record: FactCandidateRecord) -> tuple[object, ...]:
+        normalized_arguments: list[tuple[str, str, str]] = []
+        for argument in record.arguments:
+            match argument:
+                case EntityFactArgument(role=role, entity_id=entity_id):
+                    normalized_arguments.append((role.value, "entity", str(entity_id)))
+                case TextFactArgument(role=role, value=value):
+                    normalized_arguments.append((role.value, "text", value))
+        normalized_arguments.sort()
+        return (record.kind.value, *normalized_arguments)
 
     def _materialized_record(
         self,

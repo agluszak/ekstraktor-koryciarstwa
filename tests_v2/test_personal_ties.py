@@ -235,3 +235,21 @@ def test_patronage_complaint_uses_adjacent_sentence_people_and_keeps_evidence() 
     assert entity_hint_for_role(document, allegation, "target") == "Jacka Guzego"
     assert entity_hint_for_role(document, network, "subject") == "Dorota Połedniok"
     assert entity_hint_for_role(document, network, "object") == "Jacka Guzego"
+
+
+def test_patronage_complaint_ignores_single_weak_person_without_institution() -> None:
+    text = "Bytomski alarmuje o kolesiostwie."
+    document, _morphology = build_document(
+        text,
+        (person_span(text, "Bytomski"),),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    complaint_records = [
+        record
+        for record in fact_records(document)
+        if record.kind in {FactKind.PATRONAGE_ALLEGATION, FactKind.PATRONAGE_NETWORK_TIE}
+    ]
+    assert complaint_records == []

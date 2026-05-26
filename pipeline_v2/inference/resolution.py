@@ -1439,6 +1439,17 @@ class ResolutionInferenceGraphBuilder:
             return policy.scope_allows_same_event(left_scope, right_scope)
         return False
 
+    def _same_event_scope_compatible(
+        self,
+        *,
+        policy: ScopeCompatibilityPolicy,
+        left_scope: EvidenceScope | None,
+        right_scope: EvidenceScope | None,
+    ) -> bool:
+        if left_scope is None or right_scope is None:
+            return True
+        return policy.scope_allows_same_event(left_scope, right_scope)
+
     def _same_event_proposals(
         self,
         *,
@@ -1523,17 +1534,24 @@ class ResolutionInferenceGraphBuilder:
                     left_idx=left_idx,
                     right_idx=right_idx,
                 )
+                scope_compatible = self._same_event_scope_compatible(
+                    policy=policy,
+                    left_scope=left_scope,
+                    right_scope=right_scope,
+                )
 
                 has_semantic = semantic_match is not None
                 strategy = self._same_event_strategy(left, right, same_entity_variable_id_by_pair)
                 has_structural_strategy = strategy in {
                     FactResolutionStrategy.EXACT_ARGUMENTS,
                     FactResolutionStrategy.INVERSE_CHILD_TIE,
+                    FactResolutionStrategy.SPARSE_ARGUMENT_SUBSET,
                 }
 
-                if not has_shared_participant or not (
-                    has_proximity or has_semantic or has_structural_strategy
-                ):
+                if not has_shared_participant or not scope_compatible:
+                    continue
+
+                if not (has_proximity or has_semantic or has_structural_strategy):
                     continue
 
                 if strategy is None:
@@ -1812,6 +1830,18 @@ class ResolutionInferenceGraphBuilder:
                 return FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED
             return None
         if left.kind in {
+            FactKind.ANTI_CORRUPTION_REFERRAL,
+            FactKind.ANTI_CORRUPTION_INVESTIGATION,
+            FactKind.PATRONAGE_ALLEGATION,
+        }:
+            subset_pairs = self._sparse_argument_subset_pairs(
+                left=left,
+                right=right,
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            if subset_pairs is not None:
+                return FactResolutionStrategy.SPARSE_ARGUMENT_SUBSET
+        if left.kind in {
             FactKind.PUBLIC_ROLE_APPOINTMENT,
             FactKind.PUBLIC_ROLE_HOLDING,
             FactKind.PUBLIC_ROLE_END,
@@ -2064,6 +2094,13 @@ class ResolutionInferenceGraphBuilder:
                 same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
             )
             return (object_pair,) if object_pair is not None else ()
+        if strategy is FactResolutionStrategy.SPARSE_ARGUMENT_SUBSET:
+            subset_pairs = self._sparse_argument_subset_pairs(
+                left=left,
+                right=right,
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            return subset_pairs or ()
         if strategy in {
             FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED,
             FactResolutionStrategy.PARTY_MEMBERSHIP_RESTATEMENT,
@@ -2180,6 +2217,83 @@ class ResolutionInferenceGraphBuilder:
             ),
         )
 
+    def _without_context(
+        self,
+        view: _EventBindingView,
+    ) -> tuple[
+        tuple[tuple[FactArgumentRole, frozenset[EntityCandidateId]], ...],
+        tuple[tuple[FactArgumentRole, frozenset[str]], ...],
+    ]:
+        return (
+            tuple(sorted(view.entity_fillers.items(), key=lambda item: item[0].value)),
+            tuple(
+                sorted(
+                    (
+                        (role, fillers)
+                        for role, fillers in view.text_fillers.items()
+                        if role is not FactArgumentRole.CONTEXT
+                    ),
+                    key=lambda item: item[0].value,
+                )
+            ),
+        )
+
+    def _sparse_argument_subset_pairs(
+        self,
+        *,
+        left: _EventBindingView,
+        right: _EventBindingView,
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> tuple[tuple[EntityCandidateId, EntityCandidateId], ...] | None:
+        if self._without_context(left)[1] != self._without_context(right)[1]:
+            return None
+        left_context = left.text_fillers.get(FactArgumentRole.CONTEXT, frozenset())
+        right_context = right.text_fillers.get(FactArgumentRole.CONTEXT, frozenset())
+        if left_context and right_context and left_context != right_context:
+            return None
+        left_roles = set(left.entity_fillers)
+        right_roles = set(right.entity_fillers)
+        if left_roles == right_roles or not left_roles or not right_roles:
+            return None
+        if left_roles < right_roles:
+            smaller = left
+            larger = right
+        elif right_roles < left_roles:
+            smaller = right
+            larger = left
+        else:
+            return None
+        missing_roles = set(larger.entity_fillers) - set(smaller.entity_fillers)
+        if not missing_roles <= {
+            FactArgumentRole.COMPLAINANT,
+            FactArgumentRole.TARGET,
+            FactArgumentRole.INSTITUTION,
+        }:
+            return None
+        shared_anchor_roles = set(smaller.entity_fillers) & {
+            FactArgumentRole.INSTITUTION,
+            FactArgumentRole.TARGET,
+        }
+        if not shared_anchor_roles:
+            return None
+        linked_pairs: list[tuple[EntityCandidateId, EntityCandidateId]] = []
+        for role in sorted(smaller.entity_fillers, key=lambda item: item.value):
+            smaller_fillers = smaller.entity_fillers.get(role, frozenset())
+            larger_fillers = larger.entity_fillers.get(role, frozenset())
+            if smaller_fillers == larger_fillers:
+                continue
+            pair = self._linked_single_filler_pairs_with_resolution(
+                left_fillers=smaller_fillers,
+                right_fillers=larger_fillers,
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            if pair is None:
+                return None
+            linked_pairs.extend(pair)
+        return tuple(linked_pairs)
+
     def _same_event_activity_factor(
         self,
         *,
@@ -2270,6 +2384,8 @@ class ResolutionInferenceGraphBuilder:
             return (0.2, 0.8)
         if strategy is FactResolutionStrategy.PARTY_MEMBERSHIP_RESTATEMENT:
             return (0.15, 0.85)
+        if strategy is FactResolutionStrategy.SPARSE_ARGUMENT_SUBSET:
+            return (0.25, 0.75)
         if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED and fact_kind in {
             FactKind.POLITICAL_SUPPORT,
         }:

@@ -373,7 +373,17 @@ def test_article_fixture_keeps_public_employment_local_to_first_clause() -> None
         for candidate in fact_records(document)
         if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
     }
+    employment_people = {
+        entity_hint_for_role(document, candidate, "person")
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
+    }
     assert "Urzędzie Stanu Cywilnego" not in employment_organizations
+    assert "Jan Kowalski" not in employment_people
+    assert any(
+        person is not None and ("teść" in person or "szwagier" in person)
+        for person in employment_people
+    )
 
 
 def test_article_fixture_emits_anti_corruption_for_control_demand_language() -> None:

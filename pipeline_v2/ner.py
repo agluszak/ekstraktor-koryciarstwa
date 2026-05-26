@@ -88,16 +88,11 @@ class NamedEntityCandidateStage:
 
             role_token_ids = []
             if entity_kind == EntityKind.PERSON and token_ids:
-                first_token = document.store.tokens.get(token_ids[0])
-                first_token_lemma = None
-                if first_token is not None:
-                    first_token_lemma = first_token.preferred_lemma() or first_token.text.lower()
-                if first_token is not None and is_role_title_lemma(first_token_lemma):
-                    if len(token_ids) == 1:
-                        entity_kind = EntityKind.ROLE
-                    else:
-                        role_token_ids = [token_ids[0]]
-                        token_ids = token_ids[1:]
+                role_token_ids, token_ids = self._split_person_title_prefix(document, token_ids)
+                if role_token_ids and not token_ids:
+                    entity_kind = EntityKind.ROLE
+                elif role_token_ids:
+                    pass
                 elif len(token_ids) == 1 and self._has_preceding_org_descriptor(
                     document,
                     sentence_id,
@@ -107,14 +102,18 @@ class NamedEntityCandidateStage:
                 elif len(token_ids) == 1 and is_media_outlet_name(entity_span.text):
                     entity_kind = EntityKind.ORGANIZATION
 
-            if role_token_ids:
+            if role_token_ids and token_ids:
                 # Add a separate ROLE entity and mention for the stripped title
                 role_evidence_id = document.store.next_evidence_id()
-                role_token = document.store.tokens[role_token_ids[0]]
+                start_role_token = document.store.tokens[role_token_ids[0]]
+                end_role_token = document.store.tokens[role_token_ids[-1]]
+                role_text = document.cleaned_text[
+                    start_role_token.span.start_char : end_role_token.span.end_char
+                ]
                 role_evidence = EvidenceSpan(
                     id=role_evidence_id,
-                    text=role_token.text,
-                    span=role_token.span,
+                    text=role_text,
+                    span=Span(start_role_token.span.start_char, end_role_token.span.end_char),
                     sentence_id=sentence_id,
                     paragraph_index=sentence.paragraph_index,
                     source=self.config.producer_id,
@@ -125,7 +124,7 @@ class NamedEntityCandidateStage:
                 document.store.add_mention(
                     self.mention_factory.build_mention(
                         mention_id=role_mention_id,
-                        text=role_token.text,
+                        text=role_text,
                         kind=MentionKind.NER,
                         evidence_id=role_evidence_id,
                         sentence_id=sentence_id,
@@ -144,20 +143,21 @@ class NamedEntityCandidateStage:
                     )
                 )
 
-                # Update main person evidence
-                start_token = document.store.tokens[token_ids[0]]
-                end_token = document.store.tokens[token_ids[-1]]
-                new_text = document.cleaned_text[
-                    start_token.span.start_char : end_token.span.end_char
-                ]
-                evidence = EvidenceSpan(
-                    id=evidence_id,
-                    text=new_text,
-                    span=Span(start_token.span.start_char, end_token.span.end_char),
-                    sentence_id=sentence_id,
-                    paragraph_index=sentence.paragraph_index,
-                    source=self.config.producer_id,
-                )
+                if token_ids:
+                    # Update main person evidence after stripping the role prefix.
+                    start_token = document.store.tokens[token_ids[0]]
+                    end_token = document.store.tokens[token_ids[-1]]
+                    new_text = document.cleaned_text[
+                        start_token.span.start_char : end_token.span.end_char
+                    ]
+                    evidence = EvidenceSpan(
+                        id=evidence_id,
+                        text=new_text,
+                        span=Span(start_token.span.start_char, end_token.span.end_char),
+                        sentence_id=sentence_id,
+                        paragraph_index=sentence.paragraph_index,
+                        source=self.config.producer_id,
+                    )
             document.store.add_evidence(evidence)
 
             mention_kind = MentionKind.NER
@@ -211,6 +211,31 @@ class NamedEntityCandidateStage:
             if is_organization_descriptor_lemma(previous_lemma):
                 return True
         return False
+
+    def _split_person_title_prefix(
+        self,
+        document: ArticleDocument,
+        token_ids: tuple[TokenId, ...],
+    ) -> tuple[list[TokenId], tuple[TokenId, ...]]:
+        first_token = document.store.tokens.get(token_ids[0])
+        if first_token is None:
+            return [], token_ids
+        first_token_lemma = first_token.preferred_lemma() or first_token.text.lower()
+        if not is_role_title_lemma(first_token_lemma):
+            return [], token_ids
+
+        split_index = 1
+        while split_index < len(token_ids):
+            token = document.store.tokens.get(token_ids[split_index])
+            if token is None or self._token_looks_like_person_name(token):
+                break
+            split_index += 1
+        return list(token_ids[:split_index]), token_ids[split_index:]
+
+    def _token_looks_like_person_name(self, token) -> bool:
+        return any(
+            "imię" in analysis.labels or "nazwisko" in analysis.labels for analysis in token.morph
+        )
 
 
 def spacy_label_to_ner_label(label: str) -> NerLabel | None:

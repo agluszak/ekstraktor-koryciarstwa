@@ -16,6 +16,7 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
     EntityKind,
     FactKind,
+    GroundingKind,
     InferredPublicOrganizationSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
@@ -176,6 +177,20 @@ def test_public_employment_stage_does_not_emit_for_governance_role_hire_overlap(
     assert entity_hint_for_role(document, records[0], "role") == "prezesa"
 
 
+def test_public_employment_stage_does_not_emit_for_political_office_role() -> None:
+    text = "Urząd gminy zatrudnił Jana Kowalskiego jako wójta."
+    document = run_public_employment_stage(
+        text,
+        (
+            organization_span(text, "Urząd gminy"),
+            person_span(text, "Jana Kowalskiego"),
+        ),
+        include_governance=True,
+    )
+
+    assert not any(record.kind is FactKind.PUBLIC_EMPLOYMENT for record in fact_records(document))
+
+
 def test_public_employment_stage_does_not_emit_for_procurement_without_person() -> None:
     text = "Urząd podpisał umowę z firmą Alfa za 49 tys. zł."
     document = run_public_employment_stage(
@@ -237,6 +252,31 @@ def test_public_employment_stage_binds_possessive_kinship_proxy_as_hired_person(
     assert record.kind is FactKind.PUBLIC_EMPLOYMENT
     assert proxy_entity.canonical_hint == "teść of Tomasz Kościelniak"
     assert assessment.score >= 0.6
+
+
+def test_public_employment_stage_binds_proxy_before_employment_cue() -> None:
+    text = "Partnerka Tomasza Kościelniaka zaczęła pracować w Urzędzie Stanu Cywilnego."
+    document = run_public_employment_stage(
+        text,
+        (
+            person_span(text, "Tomasza Kościelniaka"),
+            organization_span(text, "Urzędzie Stanu Cywilnego"),
+        ),
+        include_nominal_kinship=True,
+    )
+
+    candidate = next(
+        candidate
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
+    )
+    proxy_entity = document.store.entity_candidates[entity_argument(candidate, "person")]
+
+    assert candidate.kind is FactKind.PUBLIC_EMPLOYMENT
+    assert proxy_entity.grounding is GroundingKind.PROXY
+    assert proxy_entity.canonical_hint is not None
+    assert "partnerka" in proxy_entity.canonical_hint
+    assert entity_hint_for_role(document, candidate, "organization") == "Urzędzie Stanu Cywilnego"
 
 
 def test_public_employment_stage_handles_impersonal_passive_hiring_sentence() -> None:

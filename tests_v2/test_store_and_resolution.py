@@ -270,6 +270,44 @@ def test_repeated_political_party_mentions_create_resolution_proposal() -> None:
     )
 
 
+def test_repeated_organization_mentions_create_resolution_proposal() -> None:
+    store = ExtractionStore()
+    first_sentence = _add_sentence(store, "CBA sprawdzi sprawę.")
+    second_sentence = _add_sentence(store, "Do CBA trafiło zawiadomienie.")
+    first_mention = _add_mention(store, sentence_id=first_sentence, text="CBA", start=0)
+    second_mention = _add_mention(store, sentence_id=second_sentence, text="CBA", start=3)
+
+    first_id = store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("org-1"),
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(first_mention,),
+            canonical_hint="CBA",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    second_id = store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("org-2"),
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(second_mention,),
+            canonical_hint="CBA",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+
+    proposals = EntityCandidateRetriever(store).proposals_for_entity(
+        store.entity_candidates[second_id]
+    )
+
+    assert len(proposals) == 1
+    assert proposals[0].left_entity_id == second_id
+    assert proposals[0].right_entity_id == first_id
+    assert proposals[0].retrieval_signals == (CanonicalHintMatchSignal(hint="cba"),)
+
+
 def test_inflected_full_name_candidates_create_resolution_proposal_without_reuse_key() -> None:
     store = ExtractionStore()
     first_sentence = _add_sentence(store, "Dominika Herberholza skrytykowano.")
@@ -360,6 +398,50 @@ def test_inflected_full_name_candidates_create_resolution_proposal_without_reuse
     assert len(proposals) == 1
     assert proposals[0].left_entity_id == second_id
     assert proposals[0].right_entity_id == first_id
+
+
+def test_unique_far_surname_match_creates_resolution_proposal() -> None:
+    store = ExtractionStore()
+    producer = SimpleEntityCandidateProducer()
+    first_sentence = _add_sentence(store, "Rafał Krzemień zabrał głos.", paragraph_index=0)
+    second_sentence = _add_sentence(store, "Krzemień został odwołany.", paragraph_index=6)
+    full_mention = _add_mention(
+        store,
+        sentence_id=first_sentence,
+        text="Rafał Krzemień",
+        start=0,
+    )
+    surname_mention = _add_mention(
+        store,
+        sentence_id=second_sentence,
+        text="Krzemień",
+        start=0,
+        kind=MentionKind.SURNAME_ONLY,
+        use_morphology=True,
+    )
+
+    full_id = producer.add_full_person(
+        store,
+        candidate_id=EntityCandidateId("person-full"),
+        mention_ids=(full_mention,),
+        given_name_lemma="rafał",
+        surname_base="krzemień",
+        canonical_hint="Rafał Krzemień",
+    )
+    surname_only_id = producer.add_surname_only_person(
+        store,
+        candidate_id=EntityCandidateId("person-surname"),
+        mention_ids=(surname_mention,),
+        canonical_hint="Krzemień",
+    )
+
+    proposals = EntityCandidateRetriever(store).proposals_for_entity(
+        store.entity_candidates[surname_only_id]
+    )
+
+    assert len(proposals) == 1
+    assert proposals[0].left_entity_id == surname_only_id
+    assert proposals[0].right_entity_id == full_id
 
 
 def test_same_name_contrast_context_does_not_confirm_identity() -> None:

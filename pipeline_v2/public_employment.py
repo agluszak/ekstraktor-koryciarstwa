@@ -62,17 +62,6 @@ class PublicEmploymentCandidateStage:
             "szefowa",
         }
     )
-    _singular_person_role_lemmas = frozenset(
-        {
-            "doradca",
-            "konsultant",
-            "konsultantka",
-            "pełnomocnik",
-            "radca",
-            "szef",
-            "szefowa",
-        }
-    )
     _public_org_head_lemmas = frozenset({"gmina", "samorząd", "starostwo", "urząd"})
     _contextual_public_org_head_lemmas = frozenset({"jednostka", "spółka"})
     _public_org_context_lemmas = frozenset(
@@ -126,10 +115,14 @@ class PublicEmploymentCandidateStage:
     )
     _governance_role_lemmas = frozenset(
         {
+            "burmistrz",
             "członek",
             "nadzorczy",
+            "poseł",
             "prezes",
             "rada",
+            "starosta",
+            "wójt",
             "zarząd",
         }
     )
@@ -156,7 +149,9 @@ class PublicEmploymentCandidateStage:
 
             role = self._select_role(entities, cue.anchor_char)
             if self._is_governance_role(document, role.id if role is not None else None):
-                continue
+                if role is not None and role.start_char >= cue.anchor_char:
+                    continue
+                role = None
             evidence = EvidenceSpan(
                 id=document.store.next_evidence_id(),
                 text=sentence.text,
@@ -233,28 +228,24 @@ class PublicEmploymentCandidateStage:
         retriever: SentenceEntityRetriever,
         cue: EmploymentCue,
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         proxy = self._select_proxy_family_person(document, sentence, cue.anchor_char)
         if proxy is not None:
             entity, kinship_lemma = proxy
-            return (
+            candidates.append(
                 (
                     entity,
                     (
                         ProxyFamilyEntitySignal(),
                         PossessiveKinshipSignal(kinship_lemma=kinship_lemma),
                     ),
-                ),
+                )
             )
-
-        proxy_person = self._proxy_from_role_entity(document, sentence, cue.anchor_char)
-        if proxy_person is not None:
-            return ((proxy_person, (LocalPersonSignal(),)),)
 
         syntax = SyntaxView(document.store)
         trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
         entities = retriever.entities_for_sentence(sentence)
         role = self._select_role(entities, cue.anchor_char)
-        candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         for entity in entities:
             if entity.kind is not EntityKind.PERSON:
                 continue
@@ -539,70 +530,6 @@ class PublicEmploymentCandidateStage:
     def _has_contract_form(self, lemmas: frozenset[str]) -> bool:
         return self._contract_form_lemmas <= lemmas
 
-    def _select_person(
-        self,
-        document: ArticleDocument,
-        sentence: Sentence,
-        retriever: SentenceEntityRetriever,
-        cue: EmploymentCue,
-    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
-        proxy = self._select_proxy_family_person(document, sentence, cue.anchor_char)
-        if proxy is not None:
-            entity, kinship_lemma = proxy
-            return (
-                entity,
-                (
-                    ProxyFamilyEntitySignal(),
-                    PossessiveKinshipSignal(kinship_lemma=kinship_lemma),
-                ),
-            )
-
-        syntax = SyntaxView(document.store)
-        trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
-        entities = retriever.entities_for_sentence(sentence)
-        local = self._nearest_following_entity(
-            entities,
-            cue.anchor_char,
-            kinds=frozenset({EntityKind.PERSON}),
-        ) or self._nearest_preceding_entity(
-            entities,
-            cue.anchor_char,
-            kinds=frozenset({EntityKind.PERSON}),
-        )
-        if local is not None:
-            relation = (
-                syntax.dependency_relation(
-                    sentence=sentence,
-                    trigger_token_id=trigger.id,
-                    entity_id=local.id,
-                )
-                if trigger is not None
-                else None
-            )
-            if relation is not None and syntax.is_subject_relation(relation):
-                if not syntax.is_passive_sentence(sentence, trigger.id if trigger else None):
-                    return None
-                return local, (DependencySubjectSignal(relation=relation),)
-            if relation is not None and syntax.is_object_relation(relation):
-                return local, (DependencyObjectSignal(relation=relation),)
-            if self._has_collective_person_context(document, sentence):
-                return None
-            if self._is_nominative_subject_in_active_sentence(document, sentence, local.id):
-                return None
-            return local, (LocalPersonSignal(),)
-
-        window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
-        people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
-        if people:
-            if self._has_collective_person_context(document, sentence):
-                return None
-            # Check if the window person is the active nominative subject
-            candidate = people[-1]
-            if self._is_nominative_subject_in_active_sentence(document, sentence, candidate.id):
-                return None
-            return candidate, (WindowPersonSignal(),)
-        return None
-
     def _select_proxy_family_person(
         self,
         document: ArticleDocument,
@@ -620,8 +547,6 @@ class PublicEmploymentCandidateStage:
                     continue
                 first_token = document.store.tokens[reference.token_ids[0]]
                 last_token = document.store.tokens[reference.token_ids[-1]]
-                if first_token.span.start_char < anchor_char:
-                    continue
                 candidates.append(
                     (
                         SentenceEntity(
@@ -635,7 +560,10 @@ class PublicEmploymentCandidateStage:
                 )
         if not candidates:
             return None
-        return min(candidates, key=lambda item: item[0].start_char)
+        return min(
+            candidates,
+            key=lambda item: (abs(item[0].start_char - anchor_char), item[0].start_char),
+        )
 
     def _is_nominative_subject_in_active_sentence(
         self,
@@ -1096,35 +1024,6 @@ class PublicEmploymentCandidateStage:
             anchor_char,
             kinds=frozenset({EntityKind.ROLE}),
         )
-
-    def _proxy_from_role_entity(
-        self,
-        document: ArticleDocument,
-        sentence: Sentence,
-        anchor_char: int,
-    ) -> SentenceEntity | None:
-        # A role descriptor such as "szefowa" is useful role/context evidence, but it is not
-        # a person identity. Keep it as role evidence instead of materializing a fake PERSON.
-        _ = document, sentence, anchor_char
-        return None
-
-    def _has_singular_person_role(
-        self,
-        document: ArticleDocument,
-        role_id: EntityCandidateId,
-    ) -> bool:
-        for mention in document.store.candidate_mentions(role_id):
-            has_supported_lemma = False
-            for token in document.store.tokens_for_mention(mention.id):
-                if any(
-                    analysis.lemma in self._singular_person_role_lemmas for analysis in token.morph
-                ):
-                    has_supported_lemma = True
-                if any(analysis.number == "pl" for analysis in token.morph):
-                    return False
-            if has_supported_lemma:
-                return True
-        return False
 
     def _nearest_following_entity(
         self,

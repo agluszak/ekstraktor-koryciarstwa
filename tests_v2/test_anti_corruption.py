@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
+from pipeline_v2.candidates import EntityFiller
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import DocumentId
@@ -11,7 +12,7 @@ from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
-from pipeline_v2.types import EntityKind, FactKind, NerLabel
+from pipeline_v2.types import EntityKind, EventRole, FactKind, NerLabel
 from tests_v2.materialized import (
     argument_roles,
     entity_argument,
@@ -78,6 +79,15 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
     )
 
 
+def organization_span_at(text: str, name: str, start_index: int) -> NamedEntitySpan:
+    offset = text.index(name, start_index)
+    return NamedEntitySpan(
+        text=name,
+        label=NerLabel.ORGANIZATION,
+        span=Span(offset, offset + len(name)),
+    )
+
+
 def test_anti_corruption_stage_emits_referral_with_party_actor_context() -> None:
     text = "Radni PiS zapowiedzieli zawiadomienie do CBA w sprawie zatrudnienia Jana Nowaka."
     document = run_anti_corruption_pipeline(
@@ -123,6 +133,40 @@ def test_anti_corruption_stage_emits_referral_with_party_actor_context() -> None
     )
 
 
+def test_anti_corruption_stage_keeps_person_and_party_complainant_candidates() -> None:
+    text = "Jan Kowalski z PiS złożył zawiadomienie do CBA w sprawie konkursu."
+    document = run_anti_corruption_pipeline(
+        text,
+        (
+            person_span(text, "Jan Kowalski"),
+            organization_span(text, "CBA"),
+        ),
+    )
+
+    referral_event = next(
+        event
+        for event in document.store.event_candidates.values()
+        if event.kind is FactKind.ANTI_CORRUPTION_REFERRAL
+    )
+    complainant_bindings = tuple(
+        binding
+        for binding in document.store.argument_bindings_for_event(referral_event.id)
+        if binding.role is EventRole.COMPLAINANT
+    )
+    complainant_hints: set[str | None] = set()
+    for binding in complainant_bindings:
+        match binding.filler:
+            case EntityFiller(entity_id=entity_id):
+                complainant_hints.add(document.store.entity_candidates[entity_id].canonical_hint)
+            case _:
+                continue
+
+    assert "Jan Kowalski" in complainant_hints
+    assert any(
+        hint is not None and "sprawiedliwość" in hint.casefold() for hint in complainant_hints
+    )
+
+
 def test_anti_corruption_stage_emits_impersonal_referral_to_prosecutor() -> None:
     text = "Sprawę skierowano do prokuratury po kontroli w urzędzie."
     document = run_anti_corruption_pipeline(text)
@@ -133,6 +177,53 @@ def test_anti_corruption_stage_emits_impersonal_referral_to_prosecutor() -> None
     assert record.kind is FactKind.ANTI_CORRUPTION_REFERRAL
     assert text_argument(record, "institution") == "prokuratury"
     assert assessment.score >= 0.5
+
+
+def test_anti_corruption_stage_merges_repeated_referral_restatements() -> None:
+    text = (
+        "Radni PiS złożyli zawiadomienie do CBA. "
+        "Informacja w sprawie złożenia zawiadomienia do CBA dotarła do urzędu."
+    )
+    first_cba = organization_span(text, "CBA")
+    second_cba = organization_span_at(text, "CBA", first_cba.span.end_char)
+    document = run_anti_corruption_pipeline(
+        text,
+        (
+            first_cba,
+            second_cba,
+        ),
+    )
+
+    referral_records = [
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.ANTI_CORRUPTION_REFERRAL
+    ]
+
+    assert len(referral_records) == 1
+    assert entity_hint_for_role(document, referral_records[0], "institution") == "CBA"
+    assert "complainant" in argument_roles(referral_records[0])
+    assert document.materialized_fact_alternatives[referral_records[0].id]
+
+
+def test_anti_corruption_stage_does_not_merge_distinct_referral_contexts() -> None:
+    text = (
+        "Radni PiS złożyli zawiadomienie do CBA w sprawie zatrudnienia. "
+        "Radni PiS złożyli zawiadomienie do CBA w sprawie przetargu."
+    )
+    first_cba = organization_span(text, "CBA")
+    second_cba = organization_span_at(text, "CBA", first_cba.span.end_char)
+    document = run_anti_corruption_pipeline(text, (first_cba, second_cba))
+
+    referral_records = tuple(
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.ANTI_CORRUPTION_REFERRAL
+    )
+    contexts = {text_argument(record, "context") for record in referral_records}
+
+    assert len(referral_records) == 2
+    assert contexts == {"w sprawie zatrudnienia", "w sprawie przetargu"}
 
 
 def test_anti_corruption_stage_emits_investigation_for_nik_control() -> None:

@@ -132,7 +132,7 @@ class AntiCorruptionCandidateStage:
                     ):
                         continue
                     referral_emitted = True
-                    actor, target = self._select_actor_and_target(entities, institution)
+                    actors, target = self._select_actors_and_target(entities, institution)
                     institution_id = self._institution_entity_id(document, sentence, institution)
                     signals: list[Signal] = [
                         AntiCorruptionReferralLemmaSignal(
@@ -140,7 +140,7 @@ class AntiCorruptionCandidateStage:
                         ),
                         OversightInstitutionSignal(),
                     ]
-                    if actor is not None:
+                    if actors:
                         signals.append(LocalActorSignal())
                     if target is not None:
                         signals.append(LocalTargetSignal())
@@ -155,7 +155,7 @@ class AntiCorruptionCandidateStage:
                         signals=tuple(signals),
                     )
                     document.store.add_event_candidate(event)
-                    if actor is not None:
+                    for actor in actors:
                         document.store.add_argument_binding(
                             ArgumentBindingCandidate(
                                 id=document.store.next_argument_binding_candidate_id(),
@@ -362,30 +362,34 @@ class AntiCorruptionCandidateStage:
     def _has_reporting_lemma(self, lemmas: frozenset[str]) -> bool:
         return bool(lemmas & self._reporting_lemmas)
 
-    def _select_actor_and_target(
+    def _select_actors_and_target(
         self,
         entities: tuple[SentenceEntity, ...],
         institution: InstitutionMatch,
-    ) -> tuple[SentenceEntity | None, SentenceEntity | None]:
-        actor = self._nearest_preceding_entity(
+    ) -> tuple[tuple[SentenceEntity, ...], SentenceEntity | None]:
+        actors: list[SentenceEntity] = []
+        party_actor = self._nearest_preceding_entity(
+            entities,
+            institution.span.start_char,
+            kinds=frozenset({EntityKind.POLITICAL_PARTY}),
+        )
+        if party_actor is not None:
+            actors.append(party_actor)
+        named_actor = self._nearest_preceding_entity(
             entities,
             institution.span.start_char,
             kinds=frozenset({EntityKind.PERSON, EntityKind.ORGANIZATION}),
         )
-        if actor is None:
-            actor = self._nearest_preceding_entity(
-                entities,
-                institution.span.start_char,
-                kinds=frozenset({EntityKind.POLITICAL_PARTY}),
-            )
+        if named_actor is not None and all(actor.id != named_actor.id for actor in actors):
+            actors.append(named_actor)
         target = self._nearest_following_entity(
             entities,
             institution.span.end_char,
             kinds=frozenset({EntityKind.PERSON, EntityKind.ORGANIZATION}),
         )
-        if actor is not None and target is not None and actor.id == target.id:
-            return actor, None
-        return actor, target
+        if target is not None and any(actor.id == target.id for actor in actors):
+            target = None
+        return tuple(actors), target
 
     def _select_investigation_target(
         self,
