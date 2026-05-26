@@ -242,6 +242,10 @@ class GovernanceCandidateStage:
                         # non-generic even without an explicit governance role entity (Bug 3).
                         and not self._sentence_has_successor_pattern(document, sentence)
                     )
+                    and not (
+                        kind == FactKind.PUBLIC_ROLE_HOLDING
+                        and self._is_descriptor_role_self_pair(document, person_id, role_id)
+                    )
                 ]
                 # Successor pattern: "Jej następcą zostanie Agnieszka Paradyż" — the
                 # appointee is the person appearing AFTER the 'zostać' trigger, not a
@@ -1267,6 +1271,12 @@ class GovernanceCandidateStage:
         merge_window_with_local: bool = False,
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
         local = tuple(entity for entity in local_entities if entity.kind == kind)
+        if kind is EntityKind.ORGANIZATION:
+            local = tuple(
+                entity
+                for entity in local
+                if not self._is_implausible_organization_candidate(document, entity.id)
+            )
         seen_ids: set[EntityCandidateId] = {entity.id for entity in local}
         local_results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = [
             (entity, (local_signal,)) for entity in local
@@ -1277,6 +1287,10 @@ class GovernanceCandidateStage:
         window_results: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         for entity in window_entities:
             if entity.kind != kind or entity.id in seen_ids:
+                continue
+            if kind is EntityKind.ORGANIZATION and self._is_implausible_organization_candidate(
+                document, entity.id
+            ):
                 continue
             entity_min_dist = 999
             for evidence in document.store.evidence_for_entity(entity.id):
@@ -1631,6 +1645,68 @@ class GovernanceCandidateStage:
             if all(any(analysis.number == "pl" for analysis in token.morph) for token in tokens):
                 return True
         return False
+
+    def _is_implausible_organization_candidate(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        candidate = document.store.entity_candidates.get(entity_id)
+        if candidate is None:
+            return False
+        hint = (candidate.canonical_hint or "").strip()
+        if not hint:
+            return False
+        hint_tokens = hint.split()
+        if (
+            len(hint_tokens) == 1
+            and hint_tokens[0].islower()
+            and not entity_has_lexical_context_proposal(
+                document,
+                entity_id,
+                EntityTag.PUBLIC_INSTITUTION,
+            )
+            and not entity_has_lexical_context_proposal(
+                document,
+                entity_id,
+                EntityTag.MEDIA_OUTLET,
+            )
+        ):
+            return True
+        return False
+
+    def _is_descriptor_role_self_pair(
+        self,
+        document: ArticleDocument,
+        person_id: EntityCandidateId,
+        role_id: EntityCandidateId | None,
+    ) -> bool:
+        if role_id is None:
+            return False
+        person = document.store.entity_candidates.get(person_id)
+        role = document.store.entity_candidates.get(role_id)
+        if person is None or role is None:
+            return False
+        if person.grounding is not GroundingKind.INFERRED:
+            return False
+        person_mentions = tuple(document.store.candidate_mentions(person_id))
+        role_mentions = tuple(document.store.candidate_mentions(role_id))
+        if len(person_mentions) != 1 or len(role_mentions) != 1:
+            return False
+        person_mention = person_mentions[0]
+        role_mention = role_mentions[0]
+        if person_mention.kind is not MentionKind.DESCRIPTOR_NOUN_PHRASE:
+            return False
+        if person_mention.text.casefold() != role_mention.text.casefold():
+            return False
+        person_evidence = document.store.evidence.get(person_mention.evidence_id)
+        role_evidence = document.store.evidence.get(role_mention.evidence_id)
+        if person_evidence is None or role_evidence is None:
+            return False
+        return (
+            person_evidence.sentence_id == role_evidence.sentence_id
+            and person_evidence.span == role_evidence.span
+        )
 
     def _person_candidate_is_role_title_only(
         self,

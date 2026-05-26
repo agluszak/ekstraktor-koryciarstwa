@@ -313,16 +313,37 @@ class PartyCandidateStage:
         match: "PartyAliasMatch",
     ) -> SentenceEntity | None:
         people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
+        if self._has_support_context(document, sentence, match):
+            return None
+        previous_person = self._nearest_previous_person(people, match.span.start_char)
+        if previous_person is not None:
+            token_ids = self._tokens_between(
+                document,
+                sentence,
+                previous_person.end_char,
+                match.span.start_char,
+            )
+            if len(token_ids) <= 3:
+                between = document.cleaned_text[previous_person.end_char : match.span.start_char]
+                if re.search(r"\bz\s*$", between.casefold()):
+                    return previous_person
         if self._has_profile_context(document, sentence, match):
             p = self._attached_profile_person(document, sentence, people, match)
             if p is not None:
                 return p
-        previous_person = self._nearest_previous_person(people, match.span.start_char)
-        if previous_person is None:
-            return None
-        between = document.cleaned_text[previous_person.end_char : match.span.start_char]
-        if re.search(r"\bz\s*$", between.casefold()):
-            return previous_person
+        following_person = self._nearest_following_person(people, match.span.end_char)
+        if following_person is not None:
+            token_ids = self._tokens_between(
+                document,
+                sentence,
+                match.span.end_char,
+                following_person.start_char,
+            )
+            if len(token_ids) <= 3 and not any(
+                document.store.tokens[token_id].text in {",", ".", ";", ":"}
+                for token_id in token_ids
+            ):
+                return following_person
         return None
 
     def _attached_profile_person(
@@ -347,6 +368,11 @@ class PartyCandidateStage:
                 return None
             if any(
                 document.store.tokens[token_id].text in {",", ".", ";", ":"}
+                for token_id in token_ids
+            ):
+                return None
+            if any(
+                document.store.tokens[token_id].text.casefold() in {"i", "oraz"}
                 for token_id in token_ids
             ):
                 return None
@@ -505,6 +531,16 @@ class PartyCandidateStage:
         if not previous:
             return None
         return max(previous, key=lambda entity: entity.start_char)
+
+    def _nearest_following_person(
+        self,
+        people: tuple[SentenceEntity, ...],
+        char_position: int,
+    ) -> SentenceEntity | None:
+        following = tuple(entity for entity in people if entity.start_char >= char_position)
+        if not following:
+            return None
+        return min(following, key=lambda entity: entity.start_char)
 
     def _deduplicate_matches(
         self,

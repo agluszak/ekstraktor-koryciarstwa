@@ -221,6 +221,7 @@ class NominalKinshipCandidateStage:
                     for e in retriever.entities_for_sentence(sentence)
                     if e.kind == EntityKind.PERSON
                     and document.store.entity_candidates[e.id].grounding == GroundingKind.OBSERVED
+                    and not self._is_organization_homograph_person(document, e.id)
                 )
                 for p in people:
                     if (
@@ -254,6 +255,7 @@ class NominalKinshipCandidateStage:
             for e in retriever.entities_for_sentence_window(sentence, before=3, after=0)
             if e.kind == EntityKind.PERSON
             and document.store.entity_candidates[e.id].grounding == GroundingKind.OBSERVED
+            and not self._is_organization_homograph_person(document, e.id)
         )
         kinship_token = document.store.tokens[kinship_token_id]
         preceding = [p for p in people if p.end_char <= kinship_token.span.start_char]
@@ -273,6 +275,7 @@ class NominalKinshipCandidateStage:
             for e in retriever.entities_for_sentence(sentence)
             if e.kind == EntityKind.PERSON
             and document.store.entity_candidates[e.id].grounding == GroundingKind.OBSERVED
+            and not self._is_organization_homograph_person(document, e.id)
         )
         following = [p for p in people if p.start_char >= kinship_token.span.end_char]
         if not following:
@@ -296,6 +299,7 @@ class NominalKinshipCandidateStage:
             if e.kind == EntityKind.PERSON
             and document.store.entity_candidates[e.id].grounding == GroundingKind.OBSERVED
             and e.id != possessor_id
+            and not self._is_organization_homograph_person(document, e.id)
         )
         if not people:
             return None
@@ -336,8 +340,34 @@ class NominalKinshipCandidateStage:
             if e.kind == EntityKind.PERSON
             and e.id != possessor_id
             and document.store.entity_candidates[e.id].grounding == GroundingKind.OBSERVED
+            and not self._is_organization_homograph_person(document, e.id)
         )
         preceding = [p for p in people if p.end_char <= kinship_token.span.start_char]
         if not preceding:
             return None
         return max(preceding, key=lambda person: person.end_char).id
+
+    def _is_organization_homograph_person(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> bool:
+        candidate = document.store.entity_candidates.get(entity_id)
+        if candidate is None or candidate.kind is not EntityKind.PERSON:
+            return False
+        person_head_lemmas = frozenset(
+            mention.head_lemma
+            for mention in document.store.candidate_mentions(entity_id)
+            if mention.head_lemma is not None
+        )
+        if not person_head_lemmas:
+            return False
+        for organization in document.store.candidates_by_kind(EntityKind.ORGANIZATION):
+            organization_head_lemmas = frozenset(
+                mention.head_lemma
+                for mention in document.store.candidate_mentions(organization.id)
+                if mention.head_lemma is not None
+            )
+            if person_head_lemmas & organization_head_lemmas:
+                return True
+        return False

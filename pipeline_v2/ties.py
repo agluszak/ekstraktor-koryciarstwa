@@ -113,7 +113,7 @@ class PersonalTieCandidateStage:
         for sentence in document.store.sentences.values():
             entities = retriever.entities_for_sentence(sentence)
             observed_people = self._observed_people(entities, document)
-            candidate_people = self._candidate_people(entities)
+            candidate_people = self._candidate_people(entities, document)
             lemmas = self._sentence_lemmas(document, sentence)
             family_detail = self._family_detail(lemmas)
             if family_detail is not None and len(observed_people) >= 2:
@@ -406,8 +406,18 @@ class PersonalTieCandidateStage:
             and document.store.entity_candidates[entity.id].grounding is GroundingKind.OBSERVED
         )
 
-    def _candidate_people(self, entities: tuple[SentenceEntity, ...]) -> tuple[SentenceEntity, ...]:
-        return tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
+    def _candidate_people(
+        self,
+        entities: tuple[SentenceEntity, ...],
+        document: ArticleDocument,
+    ) -> tuple[SentenceEntity, ...]:
+        return tuple(
+            entity
+            for entity in entities
+            if entity.kind == EntityKind.PERSON
+            and document.store.entity_candidates[entity.id].grounding
+            in {GroundingKind.OBSERVED, GroundingKind.PROXY}
+        )
 
     def _participant_evidence_ids_for_complaint(
         self,
@@ -439,7 +449,10 @@ class PersonalTieCandidateStage:
         sentence,
         retriever: SentenceEntityRetriever,
     ) -> tuple[_ComplaintParticipant, ...]:
-        sentence_people = self._candidate_people(retriever.entities_for_sentence(sentence))
+        sentence_people = self._candidate_people(
+            retriever.entities_for_sentence(sentence),
+            document,
+        )
         merged: dict[EntityCandidateId, _ComplaintParticipant] = {
             entity.id: _ComplaintParticipant(
                 entity=entity,
@@ -517,7 +530,8 @@ class PersonalTieCandidateStage:
         retriever: SentenceEntityRetriever,
     ) -> tuple[tuple[SentenceEntity, int], ...]:
         window_entities = self._candidate_people(
-            retriever.entities_for_sentence_window(sentence, before=1, after=1)
+            retriever.entities_for_sentence_window(sentence, before=1, after=1),
+            document,
         )
         by_entity: dict[EntityCandidateId, tuple[SentenceEntity, int]] = {}
         for entity in window_entities:

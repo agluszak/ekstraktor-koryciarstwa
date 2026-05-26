@@ -56,6 +56,17 @@ MEDIA_OUTLET_LEMMAS = frozenset(
     }
 )
 
+_INFLECTIONAL_SUFFIXES = frozenset(
+    {
+        "a",
+        "e",
+        "em",
+        "ie",
+        "owi",
+        "u",
+    }
+)
+
 
 def is_media_outlet_name(name: str | None) -> bool:
     if name is None:
@@ -85,10 +96,31 @@ def _contains_normalized_phrase(text: str, phrase: str) -> bool:
     if not phrase_tokens or len(phrase_tokens) > len(text_tokens):
         return False
     return any(
-        tuple(text_tokens[index : index + len(phrase_tokens)]) == tuple(phrase_tokens)
+        _tokens_match(
+            tuple(text_tokens[index : index + len(phrase_tokens)]),
+            tuple(phrase_tokens),
+        )
         for index in range(len(text_tokens) - len(phrase_tokens) + 1)
     )
 
 
 def _normalize_spacing(text: str) -> str:
     return " ".join(text.replace(".", " ").split())
+
+
+def _tokens_match(text_tokens: tuple[str, ...], phrase_tokens: tuple[str, ...]) -> bool:
+    if len(text_tokens) != len(phrase_tokens):
+        return False
+    return all(
+        _token_matches_with_inflection(text_token, phrase_token)
+        for text_token, phrase_token in zip(text_tokens, phrase_tokens, strict=True)
+    )
+
+
+def _token_matches_with_inflection(text_token: str, phrase_token: str) -> bool:
+    if text_token == phrase_token:
+        return True
+    suffix = text_token[len(phrase_token) :]
+    if not text_token.startswith(phrase_token) or not suffix:
+        return False
+    return suffix in _INFLECTIONAL_SUFFIXES

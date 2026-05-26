@@ -7,12 +7,15 @@ import spacy
 from spacy.language import Language
 
 from pipeline_v2.candidates import EntityCandidate, FullPersonNameKey
-from pipeline_v2.catalogues import is_role_title_lemma
+from pipeline_v2.catalogues import is_organization_descriptor_lemma, is_role_title_lemma
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
     MentionId,
     ProducerId,
+    SentenceId,
+    TokenId,
 )
+from pipeline_v2.media import is_media_outlet_name
 from pipeline_v2.nlp import EvidenceSpan, MentionFactory, MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.types import EntityKind, GroundingKind, MentionKind, NerLabel
 
@@ -95,6 +98,14 @@ class NamedEntityCandidateStage:
                     else:
                         role_token_ids = [token_ids[0]]
                         token_ids = token_ids[1:]
+                elif len(token_ids) == 1 and self._has_preceding_org_descriptor(
+                    document,
+                    sentence_id,
+                    token_ids[0],
+                ):
+                    entity_kind = EntityKind.ORGANIZATION
+                elif len(token_ids) == 1 and is_media_outlet_name(entity_span.text):
+                    entity_kind = EntityKind.ORGANIZATION
 
             if role_token_ids:
                 # Add a separate ROLE entity and mention for the stripped title
@@ -178,6 +189,28 @@ class NamedEntityCandidateStage:
             )
             document.store.add_entity_candidate(candidate)
         return document
+
+    def _has_preceding_org_descriptor(
+        self,
+        document: ArticleDocument,
+        sentence_id: SentenceId,
+        token_id: TokenId,
+    ) -> bool:
+        sentence = document.store.sentences[sentence_id]
+        try:
+            token_index = sentence.token_ids.index(token_id)
+        except ValueError:
+            return False
+        if token_index == 0:
+            return False
+        for lookback in range(1, min(token_index, 3) + 1):
+            previous_token = document.store.tokens.get(sentence.token_ids[token_index - lookback])
+            if previous_token is None:
+                continue
+            previous_lemma = previous_token.preferred_lemma() or previous_token.text.lower()
+            if is_organization_descriptor_lemma(previous_lemma):
+                return True
+        return False
 
 
 def spacy_label_to_ner_label(label: str) -> NerLabel | None:

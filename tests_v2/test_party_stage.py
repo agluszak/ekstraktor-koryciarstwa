@@ -160,3 +160,49 @@ def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> N
     assert entity_hint_for_role(document, record, "subject") == "Polskie Stronnictwo Ludowe"
     assert entity_hint_for_role(document, record, "object") == "Anna Nowak"
     assert document.fact_assessments[0].assessment.score < 0.7
+
+
+def test_party_stage_does_not_attach_distant_previous_person_to_role_party_phrase() -> None:
+    text = (
+        "Dobre zdanie o Bykowskim mają prezydent Poznania z PO i wicemarszałek województwa z PSL."
+    )
+    document = run_party_stage(text, (person_span(text, "Bykowskim"),))
+
+    assert tuple(record.kind for record in fact_records(document)) == ()
+
+
+def test_party_stage_can_attach_following_person_after_prepositional_party_phrase() -> None:
+    text = "Autorzy skargi odnoszą się do kojarzonego z PiS Mariusza Wiatrowskiego."
+    document = run_party_stage(text, (person_span(text, "Mariusza Wiatrowskiego"),))
+
+    record = first_fact_record(document)
+
+    assert record.kind is FactKind.PARTY_MEMBERSHIP
+    assert entity_hint_for_role(document, record, "subject") == "Mariusza Wiatrowskiego"
+    assert entity_hint_for_role(document, record, "object") == "Prawo i Sprawiedliwość"
+
+
+def test_party_stage_keeps_each_party_with_its_local_named_person() -> None:
+    text = (
+        "Poprosiliśmy prezydenta Poznania Jacka Jaśkowiaka z PO "
+        "oraz wicemarszałka województwa Wojciecha Jankowiaka z PSL."
+    )
+    document = run_party_stage(
+        text,
+        (
+            person_span(text, "Jacka Jaśkowiaka"),
+            person_span(text, "Wojciecha Jankowiaka"),
+        ),
+    )
+
+    attachments = {
+        (
+            entity_hint_for_role(document, record, "subject"),
+            entity_hint_for_role(document, record, "object"),
+        )
+        for record in fact_records(document)
+    }
+    assert attachments == {
+        ("Jacka Jaśkowiaka", "Platforma Obywatelska"),
+        ("Wojciecha Jankowiaka", "Polskie Stronnictwo Ludowe"),
+    }

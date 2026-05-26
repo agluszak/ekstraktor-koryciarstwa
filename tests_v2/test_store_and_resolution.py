@@ -24,6 +24,7 @@ from pipeline_v2.producers import EvidenceSignalProducer, SimpleEntityCandidateP
 from pipeline_v2.retrieval import EntityCandidateRetriever
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
+    CanonicalHintMatchSignal,
     EntityKind,
     GroundingKind,
     MentionKind,
@@ -183,6 +184,46 @@ def test_surname_only_candidate_creates_resolution_claim_instead_of_reuse() -> N
     assert len(claims) == 1
     assert claims[0].relation is ResolutionRelation.SAME_AS
     assert claims[0].assessment.score > 0.5
+
+
+def test_repeated_political_party_mentions_create_resolution_proposal() -> None:
+    store = ExtractionStore()
+    first_sentence = _add_sentence(store, "Z PO rozmawiał prezydent.")
+    second_sentence = _add_sentence(store, "Radny z PO poparł decyzję.")
+    first_mention = _add_mention(store, sentence_id=first_sentence, text="PO", start=2)
+    second_mention = _add_mention(store, sentence_id=second_sentence, text="PO", start=8)
+
+    first_id = store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("party-1"),
+            kind=EntityKind.POLITICAL_PARTY,
+            mention_ids=(first_mention,),
+            canonical_hint="Platforma Obywatelska",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    second_id = store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("party-2"),
+            kind=EntityKind.POLITICAL_PARTY,
+            mention_ids=(second_mention,),
+            canonical_hint="Platforma Obywatelska",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+
+    proposals = EntityCandidateRetriever(store).proposals_for_entity(
+        store.entity_candidates[second_id]
+    )
+
+    assert len(proposals) == 1
+    assert proposals[0].left_entity_id == second_id
+    assert proposals[0].right_entity_id == first_id
+    assert proposals[0].retrieval_signals == (
+        CanonicalHintMatchSignal(hint="platforma obywatelska"),
+    )
 
 
 def test_same_name_contrast_context_does_not_confirm_identity() -> None:

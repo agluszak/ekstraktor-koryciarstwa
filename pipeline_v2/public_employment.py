@@ -50,8 +50,28 @@ class PublicEmploymentCandidateStage:
     producer_id = ProducerId("public_employment_candidate_stage_v2")
 
     _employment_lemmas = frozenset({"etat", "posada", "zatrudnić", "zatrudnienie"})
+    _employment_action_lemmas = frozenset({"pracować"})
     _employment_role_lemmas = frozenset(
-        {"doradca", "konsultant", "konsultantka", "pełnomocnik", "radca"}
+        {
+            "doradca",
+            "konsultant",
+            "konsultantka",
+            "pełnomocnik",
+            "radca",
+            "szef",
+            "szefowa",
+        }
+    )
+    _singular_person_role_lemmas = frozenset(
+        {
+            "doradca",
+            "konsultant",
+            "konsultantka",
+            "pełnomocnik",
+            "radca",
+            "szef",
+            "szefowa",
+        }
     )
     _public_org_head_lemmas = frozenset({"gmina", "samorząd", "starostwo", "urząd"})
     _contextual_public_org_head_lemmas = frozenset({"jednostka", "spółka"})
@@ -88,6 +108,7 @@ class PublicEmploymentCandidateStage:
     )
     _supporting_lemmas = frozenset({"praca", "pracować", "stanowisko", "zostać"})
     _contract_form_lemmas = frozenset({"umowa", "zlecenie"})
+    _workplace_preposition_lemmas = frozenset({"na", "w"})
     _collective_person_context_lemmas = frozenset({"członek", "polityk", "rodzina", "znajomy"})
     _governance_exclusion_lemmas = frozenset(
         {
@@ -225,6 +246,10 @@ class PublicEmploymentCandidateStage:
                 ),
             )
 
+        proxy_person = self._proxy_from_role_entity(document, sentence, cue.anchor_char)
+        if proxy_person is not None:
+            return ((proxy_person, (LocalPersonSignal(),)),)
+
         syntax = SyntaxView(document.store)
         trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
         entities = retriever.entities_for_sentence(sentence)
@@ -358,6 +383,16 @@ class PublicEmploymentCandidateStage:
                 )
             )
 
+        location_workplace = self._location_workplace_candidate(
+            document,
+            sentence,
+            retriever,
+            anchor_char,
+        )
+        if location_workplace is not None:
+            candidates.append(location_workplace)
+            return self._dedupe_entity_candidates(candidates)
+
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         orgs = tuple(
             entity
@@ -408,6 +443,18 @@ class PublicEmploymentCandidateStage:
             if matched_lemmas:
                 detail = next(iter(sorted(matched_lemmas)))
                 return EmploymentCue(anchor_char=token.span.start_char, detail=detail)
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            matched_lemmas = {
+                analysis.lemma for analysis in token.morph
+            } & self._employment_action_lemmas
+            if matched_lemmas:
+                detail = next(iter(sorted(matched_lemmas)))
+                return EmploymentCue(
+                    anchor_char=token.span.start_char,
+                    detail=detail,
+                    active_subject_is_employee=True,
+                )
         if self._has_contract_form(lemmas):
             return EmploymentCue(
                 anchor_char=sentence.span.start_char,
@@ -786,6 +833,105 @@ class PublicEmploymentCandidateStage:
             tuple(signals),
         )
 
+    def _location_workplace_candidate(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        retriever: SentenceEntityRetriever,
+        anchor_char: int,
+    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
+        entities = retriever.entities_for_sentence(sentence)
+        for location in entities:
+            if location.kind is not EntityKind.LOCATION:
+                continue
+            if not (
+                self._preceding_prepositions(document, sentence, location.start_char)
+                & self._workplace_preposition_lemmas
+            ):
+                continue
+            synthesized = self._organization_from_location_entity(document, location)
+            if synthesized is None:
+                continue
+            return (
+                synthesized,
+                (LocalOrganizationSignal(), LocationContextSignal(distance=0)),
+            )
+
+        window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
+        window_locations = tuple(entity for entity in window if entity.kind is EntityKind.LOCATION)
+        if window_locations:
+            nearest = min(window_locations, key=lambda entity: abs(entity.start_char - anchor_char))
+            synthesized = self._organization_from_location_entity(document, nearest)
+            if synthesized is not None:
+                return (
+                    synthesized,
+                    (WindowOrganizationSignal(), LocationContextSignal(distance=1)),
+                )
+        return None
+
+    def _organization_from_location_entity(
+        self,
+        document: ArticleDocument,
+        location: SentenceEntity,
+    ) -> SentenceEntity | None:
+        location_candidate = document.store.entity_candidates.get(location.id)
+        if location_candidate is None or not location_candidate.mention_ids:
+            return None
+        location_mention = document.store.mentions.get(location_candidate.mention_ids[0])
+        if location_mention is None:
+            return None
+        location_evidence = document.store.evidence.get(location_mention.evidence_id)
+        if location_evidence is None:
+            return None
+
+        for candidate in document.store.candidates_by_kind(EntityKind.ORGANIZATION):
+            if (candidate.canonical_hint or "") != (location_candidate.canonical_hint or ""):
+                continue
+            for mention in document.store.candidate_mentions(candidate.id):
+                evidence = document.store.evidence.get(mention.evidence_id)
+                if evidence is None:
+                    continue
+                if (
+                    evidence.sentence_id == location_evidence.sentence_id
+                    and evidence.span.start_char == location_evidence.span.start_char
+                    and evidence.span.end_char == location_evidence.span.end_char
+                ):
+                    return SentenceEntity(
+                        id=candidate.id,
+                        kind=EntityKind.ORGANIZATION,
+                        start_char=location.start_char,
+                        end_char=location.end_char,
+                    )
+
+        mention_id = document.store.next_mention_id()
+        document.store.add_mention(
+            Mention(
+                id=mention_id,
+                text=location_mention.text,
+                kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
+                evidence_id=location_mention.evidence_id,
+                sentence_id=location_mention.sentence_id,
+                token_ids=location_mention.token_ids,
+                head_lemma=location_mention.head_lemma,
+            )
+        )
+        entity_id = document.store.add_entity_candidate(
+            EntityCandidate(
+                id=document.store.next_entity_candidate_id(),
+                kind=EntityKind.ORGANIZATION,
+                mention_ids=(mention_id,),
+                canonical_hint=location_candidate.canonical_hint,
+                grounding=GroundingKind.INFERRED,
+                source=self.producer_id,
+            )
+        )
+        return SentenceEntity(
+            id=entity_id,
+            kind=EntityKind.ORGANIZATION,
+            start_char=location.start_char,
+            end_char=location.end_char,
+        )
+
     def _nearest_public_org_head_token(
         self,
         document: ArticleDocument,
@@ -892,6 +1038,28 @@ class PublicEmploymentCandidateStage:
             return None
         return min(distances)
 
+    def _preceding_prepositions(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        entity_start_char: int,
+    ) -> frozenset[str]:
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        entity_token_index = None
+        for index, token in enumerate(tokens):
+            if token.span.start_char >= entity_start_char:
+                entity_token_index = index
+                break
+        if entity_token_index is None or entity_token_index == 0:
+            return frozenset()
+
+        lemmas: set[str] = set()
+        for token in tokens[max(0, entity_token_index - 3) : entity_token_index]:
+            lemmas.update(
+                analysis.lemma.casefold() for analysis in token.morph if analysis.lemma is not None
+            )
+        return frozenset(lemmas)
+
     def _select_role(
         self,
         entities: tuple[SentenceEntity, ...],
@@ -906,6 +1074,83 @@ class PublicEmploymentCandidateStage:
             anchor_char,
             kinds=frozenset({EntityKind.ROLE}),
         )
+
+    def _proxy_from_role_entity(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        anchor_char: int,
+    ) -> SentenceEntity | None:
+        retriever = SentenceEntityRetriever(document.store)
+        entities = retriever.entities_for_sentence(sentence)
+        role = self._select_role(entities, anchor_char)
+        if role is None or not self._has_singular_person_role(document, role.id):
+            return None
+        role_candidate = document.store.entity_candidates.get(role.id)
+        if role_candidate is None or not role_candidate.mention_ids:
+            return None
+        role_mention = document.store.mentions.get(role_candidate.mention_ids[0])
+        if role_mention is None:
+            return None
+        role_evidence = document.store.evidence.get(role_mention.evidence_id)
+        if role_evidence is None:
+            return None
+
+        evidence = EvidenceSpan(
+            id=document.store.next_evidence_id(),
+            text=role_mention.text,
+            span=role_evidence.span,
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=self.producer_id,
+        )
+        document.store.add_evidence(evidence)
+        mention_id = document.store.next_mention_id()
+        document.store.add_mention(
+            Mention(
+                id=mention_id,
+                text=role_mention.text,
+                kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
+                evidence_id=evidence.id,
+                sentence_id=sentence.id,
+                token_ids=role_mention.token_ids,
+                head_lemma=role_mention.head_lemma,
+            )
+        )
+        entity_id = document.store.add_entity_candidate(
+            EntityCandidate(
+                id=document.store.next_entity_candidate_id(),
+                kind=EntityKind.PERSON,
+                mention_ids=(mention_id,),
+                canonical_hint=role_mention.text,
+                grounding=GroundingKind.INFERRED,
+                source=self.producer_id,
+            )
+        )
+        return SentenceEntity(
+            id=entity_id,
+            kind=EntityKind.PERSON,
+            start_char=role_evidence.span.start_char,
+            end_char=role_evidence.span.end_char,
+        )
+
+    def _has_singular_person_role(
+        self,
+        document: ArticleDocument,
+        role_id: EntityCandidateId,
+    ) -> bool:
+        for mention in document.store.candidate_mentions(role_id):
+            has_supported_lemma = False
+            for token in document.store.tokens_for_mention(mention.id):
+                if any(
+                    analysis.lemma in self._singular_person_role_lemmas for analysis in token.morph
+                ):
+                    has_supported_lemma = True
+                if any(analysis.number == "pl" for analysis in token.morph):
+                    return False
+            if has_supported_lemma:
+                return True
+        return False
 
     def _nearest_following_entity(
         self,

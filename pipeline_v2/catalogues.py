@@ -39,8 +39,33 @@ PUBLIC_ROLE_TITLE_LEMMAS: Final[frozenset[str]] = frozenset(
     }
 )
 
+ORGANIZATION_DESCRIPTOR_LEMMAS: Final[frozenset[str]] = frozenset(
+    {
+        "agencja",
+        "dealer",
+        "firma",
+        "fundacja",
+        "linia",
+        "linie",
+        "lotnisko",
+        "partia",
+        "portal",
+        "port",
+        "redakcja",
+        "spółka",
+        "stowarzyszenie",
+        "urząd",
+    }
+)
+
 
 def is_role_title_lemma(lemma: str | None) -> bool:
     if not lemma:
         return False
     return lemma.lower() in PUBLIC_ROLE_TITLE_LEMMAS
+
+
+def is_organization_descriptor_lemma(lemma: str | None) -> bool:
+    if not lemma:
+        return False
+    return lemma.lower() in ORGANIZATION_DESCRIPTOR_LEMMAS

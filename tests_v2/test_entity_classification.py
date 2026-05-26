@@ -158,3 +158,15 @@ def test_entity_classification_keeps_case_sensitive_media_aliases_from_generic_w
 
     assert tags_by_hint["Niezależna"] == frozenset({EntityTag.MEDIA_OUTLET})
     assert tags_by_hint["niezależna organizacja"] == frozenset()
+
+
+def test_entity_classification_recognizes_inflected_onet_alias() -> None:
+    text = "W rozmowie z Onetem pracownicy opisali sytuację."
+    document = run_entity_classification(
+        text,
+        (organization_span(text, "Onetem"),),
+    )
+
+    tags_by_hint = _proposals_by_hint(document)
+
+    assert tags_by_hint["Onetem"] == frozenset({EntityTag.MEDIA_OUTLET})

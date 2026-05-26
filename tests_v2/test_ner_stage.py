@@ -148,3 +148,102 @@ def test_named_entity_stage_strips_role_title_from_person_candidate() -> None:
         for mention_id in candidate.mention_ids
     }
     assert "Minister" in role_mention_texts
+
+
+def test_named_entity_stage_reclassifies_surname_like_company_after_org_descriptor() -> None:
+    cleaned_text = "Firma Karlik dostarczyla samochody."
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=cleaned_text,
+        paragraphs=(cleaned_text,),
+    )
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage().run(document)
+    start = cleaned_text.index("Karlik")
+
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(
+            (
+                NamedEntitySpan(
+                    text="Karlik",
+                    label=NerLabel.PERSON,
+                    span=Span(start, start + len("Karlik")),
+                ),
+            )
+        ),
+        morphology=Morfeusz2MorphologyAdapter(),
+    ).run(document)
+
+    candidates = tuple(document.store.entity_candidates.values())
+    assert len(candidates) == 1
+    assert candidates[0].canonical_hint == "Karlik"
+    assert candidates[0].kind is EntityKind.ORGANIZATION
+
+
+def test_named_entity_stage_reclassifies_surname_like_company_after_descriptor_with_gap() -> None:
+    cleaned_text = "O pracę u tego dealera Karlika starała się partnerka prezesa."
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=cleaned_text,
+        paragraphs=(cleaned_text,),
+    )
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage().run(document)
+    start = cleaned_text.index("Karlika")
+
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(
+            (
+                NamedEntitySpan(
+                    text="Karlika",
+                    label=NerLabel.PERSON,
+                    span=Span(start, start + len("Karlika")),
+                ),
+            )
+        ),
+        morphology=Morfeusz2MorphologyAdapter(),
+    ).run(document)
+
+    candidates = tuple(document.store.entity_candidates.values())
+    assert len(candidates) == 1
+    assert candidates[0].canonical_hint == "Karlika"
+    assert candidates[0].kind is EntityKind.ORGANIZATION
+
+
+def test_named_entity_stage_reclassifies_inflected_media_outlet_from_person_label() -> None:
+    cleaned_text = "W rozmowie z Onetowi pracownicy opisali sytuację."
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=cleaned_text,
+        paragraphs=(cleaned_text,),
+    )
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage().run(document)
+    start = cleaned_text.index("Onetowi")
+
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(
+            (
+                NamedEntitySpan(
+                    text="Onetowi",
+                    label=NerLabel.PERSON,
+                    span=Span(start, start + len("Onetowi")),
+                ),
+            )
+        ),
+        morphology=Morfeusz2MorphologyAdapter(),
+    ).run(document)
+
+    candidates = tuple(document.store.entity_candidates.values())
+    assert len(candidates) == 1
+    assert candidates[0].canonical_hint == "Onetowi"
+    assert candidates[0].kind is EntityKind.ORGANIZATION

@@ -54,6 +54,14 @@ def person_span(text: str, name: str) -> NamedEntitySpan:
     )
 
 
+def organization_span(text: str, name: str) -> NamedEntitySpan:
+    return NamedEntitySpan(
+        text=name,
+        label=NerLabel.ORGANIZATION,
+        span=Span(text.index(name), text.index(name) + len(name)),
+    )
+
+
 def entity_argument_id(record: FactCandidateRecord, role: str) -> EntityCandidateId:
     argument = next(
         argument.to_json() for argument in record.arguments if argument.to_json()["role"] == role
@@ -141,3 +149,16 @@ def test_nominal_kinship_unnamed_creates_proxy() -> None:
     subject_entity = document.store.entity_candidates[subject_id]
     assert subject_entity.grounding == GroundingKind.PROXY
     assert subject_entity.canonical_hint == "partnerka of Tomasz Kościelniak"
+
+
+def test_nominal_kinship_ignores_person_homograph_for_known_organization() -> None:
+    text = "Jego partnerka starała się o pracę u Karlika i dlatego zacieśniał relacje z tą firmą."
+    document = run_nominal_kinship_stage(
+        text,
+        (
+            person_span(text, "Karlika"),
+            organization_span(text, "Karlika"),
+        ),
+    )
+
+    assert fact_records(document) == ()

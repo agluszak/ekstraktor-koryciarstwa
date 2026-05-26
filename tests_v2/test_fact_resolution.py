@@ -476,6 +476,145 @@ def test_probabilistic_inference_keeps_governance_facts_separate_without_shared_
     assert document.store.fact_resolution_claims == {}
 
 
+def test_probabilistic_inference_suppresses_duplicate_party_memberships_with_same_party_identity() -> (
+    None
+):
+    document = _document()
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-1"),
+        evidence_id=EvidenceId("sentence-evidence-1"),
+        sentence_index=0,
+        paragraph_index=0,
+        text="Bykowski z PO.",
+        start_char=0,
+    )
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-2"),
+        evidence_id=EvidenceId("sentence-evidence-2"),
+        sentence_index=1,
+        paragraph_index=0,
+        text="Bykowski kojarzony z PO.",
+        start_char=20,
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("person"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Grzegorz Bykowski",
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=EvidenceId("party-evidence-1"),
+            text="PO",
+            span=Span(start_char=11, end_char=13),
+            sentence_id=SentenceId("sentence-1"),
+            paragraph_index=0,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=MentionId("party-mention-1"),
+            text="PO",
+            kind=MentionKind.NER,
+            evidence_id=EvidenceId("party-evidence-1"),
+            sentence_id=SentenceId("sentence-1"),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=EvidenceId("party-evidence-2"),
+            text="PO",
+            span=Span(start_char=42, end_char=44),
+            sentence_id=SentenceId("sentence-2"),
+            paragraph_index=0,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=MentionId("party-mention-2"),
+            text="PO",
+            kind=MentionKind.NER,
+            evidence_id=EvidenceId("party-evidence-2"),
+            sentence_id=SentenceId("sentence-2"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("party-1"),
+            kind=EntityKind.POLITICAL_PARTY,
+            mention_ids=(MentionId("party-mention-1"),),
+            canonical_hint="Platforma Obywatelska",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("party-2"),
+            kind=EntityKind.POLITICAL_PARTY,
+            mention_ids=(MentionId("party-mention-2"),),
+            canonical_hint="Platforma Obywatelska",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    add_event(
+        document,
+        event_id=EventCandidateId("event-1"),
+        kind=FactKind.PARTY_MEMBERSHIP,
+    )
+    add_event(
+        document,
+        event_id=EventCandidateId("event-2"),
+        kind=FactKind.PARTY_MEMBERSHIP,
+    )
+    _bind_entity_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-1-subject"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.SUBJECT,
+        entity_id=EntityCandidateId("person"),
+        evidence_id=EvidenceId("sentence-evidence-1"),
+    )
+    _bind_entity_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-1-object"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.OBJECT,
+        entity_id=EntityCandidateId("party-1"),
+        evidence_id=EvidenceId("party-evidence-1"),
+    )
+    _bind_entity_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-2-subject"),
+        event_id=EventCandidateId("event-2"),
+        role=EventRole.SUBJECT,
+        entity_id=EntityCandidateId("person"),
+        evidence_id=EvidenceId("sentence-evidence-2"),
+    )
+    _bind_entity_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-2-object"),
+        event_id=EventCandidateId("event-2"),
+        role=EventRole.OBJECT,
+        entity_id=EntityCandidateId("party-2"),
+        evidence_id=EvidenceId("party-evidence-2"),
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    records = tuple(
+        record for record in fact_records(document) if record.kind is FactKind.PARTY_MEMBERSHIP
+    )
+    assert len(records) == 1
+    assert records[0].id in document.materialized_fact_alternatives
+    assert len(document.materialized_fact_alternatives[records[0].id]) == 1
+
+
 def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resolution() -> None:
     document = _document()
     _add_sentence_evidence(

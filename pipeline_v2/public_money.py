@@ -94,6 +94,8 @@ class PublicMoneyCandidateStage:
             "przetarg",
             "podpisać",
             "zlecić",
+            "dostarczyć",
+            "kupić",
         }
     )
     _compensation_lemmas = frozenset(
@@ -479,6 +481,16 @@ class PublicMoneyCandidateStage:
             return tuple(combinations)
         if len(organizations) == 1:
             org = organizations[0]
+            if self._preposition_before_entity(document, sentence, org.start_char) in {"od", "z"}:
+                target_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    org.id,
+                    org.start_char,
+                    (ContractorSignal(), DirectPrepositionalAttachmentSignal()),
+                    is_source_role=False,
+                )
+                return ((None, (), org.id, target_sigs),)
             person = self._person_contract_recipient(document, sentence, people)
             if person is not None:
                 source_sigs = self._build_signals_for_role(
@@ -507,6 +519,18 @@ class PublicMoneyCandidateStage:
                 is_source_role=True,
             )
             return ((org.id, source_sigs, None, ()),)
+        if people:
+            person = self._person_contract_recipient(document, sentence, people)
+            if person is not None:
+                target_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    person.id,
+                    person.start_char,
+                    (ContractorSignal(),),
+                    is_source_role=False,
+                )
+                return ((None, (), person.id, target_sigs),)
         return ((None, (), None, ()),)
 
     def _person_contract_recipient(

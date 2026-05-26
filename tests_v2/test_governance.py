@@ -932,6 +932,17 @@ def test_governance_stage_still_binds_named_person_with_role_title() -> None:
     assert "Jan Kowalski" in governance_people
 
 
+def test_governance_stage_does_not_materialize_bare_role_descriptor_as_holder() -> None:
+    text = "Prezes jest przy tym bardzo pewny siebie."
+    document = run_governance_stage(text, ())
+
+    records = [
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_ROLE_HOLDING
+    ]
+
+    assert records == []
+
+
 def test_governance_stage_list_appointments_via_conj() -> None:
     text = "Do zarządu powołano Jana Kowalskiego, Tomasza Nowaka i Adama Cisza."
     entities = (

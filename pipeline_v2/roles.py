@@ -25,6 +25,8 @@ class RoleCandidateStage:
                 RolePattern(("prezes",)),
                 RolePattern(("zarząd",)),
                 RolePattern(("dyrektor",)),
+                RolePattern(("szef",)),
+                RolePattern(("szefowa",)),
                 RolePattern(("doradca",)),
                 RolePattern(("konsultant",)),
                 RolePattern(("konsultantka",)),

@@ -304,6 +304,29 @@ def test_public_contract_stage_does_not_materialize_same_surface_on_both_sides()
             )
 
 
+def test_public_money_stage_materializes_amount_backed_delivery_with_person_contractor() -> None:
+    text = "Dominik Herberholz dostarczył program komputerowy za 180 tys. zł."
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="Dominik Herberholz",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Dominik Herberholz"),
+                    text.index("Dominik Herberholz") + 18,
+                ),
+            ),
+        ),
+    )
+
+    record = first_fact_record(document)
+
+    assert record.kind is FactKind.PUBLIC_CONTRACT
+    assert entity_hint_for_role(document, record, "contractor") == "Dominik Herberholz"
+    assert text_argument(record, "amount") == "180 tys. zł"
+
+
 def test_compensation_without_funder_or_recipient_does_not_materialize() -> None:
     document = run_public_money_stage("Premia wyniosła 100 tys. zł.")
 

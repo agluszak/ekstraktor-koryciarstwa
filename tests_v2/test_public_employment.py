@@ -261,6 +261,43 @@ def test_public_employment_stage_handles_impersonal_passive_hiring_sentence() ->
     assert assessment.score >= 0.6
 
 
+def test_public_employment_stage_materializes_unnamed_role_holder() -> None:
+    text = "Nowa szefowa marketingu zaczęła pracować na Ławicy, a stanowisko dostała bez konkursu."
+    document = run_public_employment_stage(text, (location_span(text, "Ławicy"),))
+
+    record = first_fact_record(document)
+    person = document.store.entity_candidates[entity_argument(record, "person")]
+
+    assert record.kind is FactKind.PUBLIC_EMPLOYMENT
+    assert person.grounding.value == "inferred"
+    assert person.canonical_hint == "szefowa"
+    assert entity_hint_for_role(document, record, "role") == "szefowa"
+    assert entity_hint_for_role(document, record, "organization") == "Ławicy"
+
+
+def test_public_employment_stage_does_not_resolve_feminine_descriptor_to_nearby_male_person() -> (
+    None
+):
+    text = (
+        "Były polityk Dominik Herberholz ma zawdzięczać znajomości z nową szefową marketingu, "
+        "która zaczęła pracować na Ławicy, a stanowisko dostała bez konkursu."
+    )
+    document = run_public_employment_stage(
+        text,
+        (
+            person_span(text, "Dominik Herberholz"),
+            location_span(text, "Ławicy"),
+        ),
+    )
+
+    records = tuple(
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_EMPLOYMENT
+    )
+
+    assert len(records) == 1
+    assert entity_hint_for_role(document, records[0], "person") == "szefową"
+
+
 def test_public_employment_stage_materializes_public_org_from_samorzad_and_location() -> None:
     text = (
         "Kontrowersje w gminy Poczesna. "

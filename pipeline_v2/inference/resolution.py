@@ -97,6 +97,8 @@ class _EntityResolutionPriorPolicy:
             match signal:
                 case FullNameReuseMatchSignal():
                     score += 0.55
+                case CanonicalHintMatchSignal():
+                    score += 0.55
                 case SurnameBaseMatchSignal(distance=d):
                     score += 0.2 + max(0.0, 0.15 - 0.05 * d)
                 case LemmaMatchSignal():
@@ -1227,7 +1229,10 @@ class ResolutionInferenceGraphBuilder:
                     ),
                     kind=InferenceFactorKind.EVIDENCE_PRIOR,
                     variable_ids=(variable_id,),
-                    potentials=self._same_event_prior(proposal.strategy),
+                    potentials=self._same_event_prior(
+                        strategy=proposal.strategy,
+                        fact_kind=document.store.event_candidates[proposal.left_event_id].kind,
+                    ),
                     evidence_ids=proposal.fact_proposal.evidence_ids,
                     signals=proposal.fact_proposal.retrieval_signals,
                 )
@@ -1738,6 +1743,13 @@ class ResolutionInferenceGraphBuilder:
         if left.entity_fillers == right.entity_fillers and left.text_fillers == right.text_fillers:
             return FactResolutionStrategy.EXACT_ARGUMENTS
         if left.kind in {FactKind.PARTY_MEMBERSHIP, FactKind.POLITICAL_SUPPORT}:
+            if left.text_fillers != right.text_fillers:
+                return None
+            aligned = self._aligned_entity_pairs_with_resolution(
+                left, right, same_entity_variable_id_by_pair
+            )
+            if aligned:
+                return FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED
             return None
         if left.kind in {
             FactKind.PUBLIC_ROLE_APPOINTMENT,
@@ -2024,9 +2036,16 @@ class ResolutionInferenceGraphBuilder:
 
     def _same_event_prior(
         self,
+        *,
         strategy: FactResolutionStrategy,
+        fact_kind: FactKind,
     ) -> tuple[float, float]:
         if strategy is FactResolutionStrategy.INVERSE_CHILD_TIE:
+            return (0.2, 0.8)
+        if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED and fact_kind in {
+            FactKind.PARTY_MEMBERSHIP,
+            FactKind.POLITICAL_SUPPORT,
+        }:
             return (0.2, 0.8)
         if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED:
             return (0.55, 0.45)
