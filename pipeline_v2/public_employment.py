@@ -14,6 +14,7 @@ from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
     DependencyObjectSignal,
     DependencySubjectSignal,
+    DomainOverlapSuppressionSignal,
     EmploymentContractFormSignal,
     EntityKind,
     EventRole,
@@ -31,8 +32,10 @@ from pipeline_v2.types import (
     PublicEmploymentLemmaSignal,
     ReferenceKind,
     Signal,
+    WeakSyntacticBindingSignal,
     WindowOrganizationSignal,
     WindowPersonSignal,
+    WindowRoleSignal,
 )
 
 
@@ -168,17 +171,25 @@ class PublicEmploymentCandidateStage:
             if not employee_candidates or not workplace_candidates:
                 continue
 
-            role = self._select_role(
+            role_candidates = self._role_candidates(
                 document,
                 sentence,
                 entities,
                 cue.anchor_char,
                 prefer_following_only=self._has_proxy_family_employee(employee_candidates),
             )
-            if self._is_governance_role(document, role.id if role is not None else None):
-                if role is not None and role.start_char >= cue.anchor_char:
-                    continue
-                role = None
+            role_candidates = tuple(
+                (
+                    role,
+                    self._employment_role_signals(
+                        document=document,
+                        role=role,
+                        signals=signals,
+                        cue=cue,
+                    ),
+                )
+                for role, signals in role_candidates
+            )
             evidence = EvidenceSpan(
                 id=document.store.next_evidence_id(),
                 text=sentence.text,
@@ -225,15 +236,49 @@ class PublicEmploymentCandidateStage:
                     evidence_ids=(evidence.id,),
                     signals=authority_signals,
                 )
-            if role is not None:
+            for role, role_signals in role_candidates:
                 emitter.bind_entity(
                     event=event,
                     role=EventRole.ROLE,
                     entity_id=role.id,
                     evidence_ids=(evidence.id,),
-                    signals=(LocalRoleSignal(),),
+                    signals=role_signals,
                 )
         return document
+
+    def _employment_role_signals(
+        self,
+        *,
+        document: ArticleDocument,
+        role: SentenceEntity,
+        signals: tuple[Signal, ...],
+        cue: EmploymentCue,
+    ) -> tuple[Signal, ...]:
+        normalized = self._without_domain_overlap(signals) if cue.detail == "pracować" else signals
+        if not self._is_governance_role(document, role.id):
+            return normalized
+        if cue.detail == "pracować":
+            return (
+                *normalized,
+                WeakSyntacticBindingSignal(reason="governance role in employment context"),
+            )
+        return (
+            *normalized,
+            DomainOverlapSuppressionSignal(reason="governance role in employment context"),
+            WeakSyntacticBindingSignal(reason="governance role in employment context"),
+        )
+
+    def _without_domain_overlap(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
+        return tuple(
+            signal for signal in signals if not self._is_domain_overlap_suppression_signal(signal)
+        )
+
+    def _is_domain_overlap_suppression_signal(self, signal: Signal) -> bool:
+        match signal:
+            case DomainOverlapSuppressionSignal():
+                return True
+            case _:
+                return False
 
     def _employee_candidates(
         self,
@@ -243,9 +288,8 @@ class PublicEmploymentCandidateStage:
         cue: EmploymentCue,
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
         candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
-        proxy = self._select_proxy_family_person(document, sentence, cue.anchor_char)
-        if proxy is not None:
-            entity, kinship_lemma = proxy
+        proxies = self._proxy_family_people(document, sentence)
+        for entity, kinship_lemma in proxies:
             candidates.append(
                 (
                     entity,
@@ -259,23 +303,36 @@ class PublicEmploymentCandidateStage:
         syntax = SyntaxView(document.store)
         trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
         entities = retriever.entities_for_sentence(sentence)
-        role = self._select_role(
+        role_candidates = self._role_candidates(
             document,
             sentence,
             entities,
             cue.anchor_char,
-            prefer_following_only=proxy is not None,
+            prefer_following_only=bool(proxies),
+        )
+        closest_role = min(
+            (role for role, _signals in role_candidates),
+            key=lambda role: min(
+                abs(role.start_char - cue.anchor_char),
+                abs(role.end_char - cue.anchor_char),
+            ),
+            default=None,
         )
         for entity in entities:
             if entity.kind is not EntityKind.PERSON:
                 continue
-            if proxy is not None and entity.start_char < cue.anchor_char:
-                continue
-            if role is not None and self._entity_is_farther_from_anchor_than_role(
-                entity,
-                role,
-                cue.anchor_char,
-            ):
+            if proxies and entity.start_char < cue.anchor_char:
+                candidates.append(
+                    (
+                        entity,
+                        (
+                            WindowPersonSignal(),
+                            WeakSyntacticBindingSignal(
+                                reason="preceding person competes with proxy family employee"
+                            ),
+                        ),
+                    )
+                )
                 continue
             relation = (
                 syntax.dependency_relation(
@@ -301,11 +358,19 @@ class PublicEmploymentCandidateStage:
                 and self._is_nominative_subject_in_active_sentence(document, sentence, entity.id)
             ):
                 continue
-            candidates.append((entity, (LocalPersonSignal(),)))
+            signals: tuple[Signal, ...] = (LocalPersonSignal(),)
+            if closest_role is not None and self._entity_is_farther_from_anchor_than_role(
+                entity,
+                closest_role,
+                cue.anchor_char,
+            ):
+                signals = (
+                    LocalPersonSignal(),
+                    WeakSyntacticBindingSignal(reason="person is farther from cue than role"),
+                )
+            candidates.append((entity, signals))
         if candidates:
             return self._dedupe_entity_candidates(candidates)
-        if role is not None:
-            return ()
 
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
@@ -313,12 +378,26 @@ class PublicEmploymentCandidateStage:
             return ()
         if self._has_collective_person_context(document, sentence):
             return ()
-        candidate = people[-1]
-        if not cue.active_subject_is_employee and self._is_nominative_subject_in_active_sentence(
-            document, sentence, candidate.id
-        ):
-            return ()
-        return ((candidate, (WindowPersonSignal(),)),)
+        candidates = []
+        for person in people:
+            if (
+                not cue.active_subject_is_employee
+                and self._is_nominative_subject_in_active_sentence(document, sentence, person.id)
+            ):
+                candidates.append(
+                    (
+                        person,
+                        (
+                            WindowPersonSignal(),
+                            WeakSyntacticBindingSignal(
+                                reason="window person is nominative in active sentence"
+                            ),
+                        ),
+                    )
+                )
+                continue
+            candidates.append((person, (WindowPersonSignal(),)))
+        return self._dedupe_entity_candidates(candidates)
 
     def _entity_is_farther_from_anchor_than_role(
         self,
@@ -369,12 +448,11 @@ class PublicEmploymentCandidateStage:
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
         entities = retriever.entities_for_sentence(sentence)
         candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
-        local = self._nearest_preceding_entity(
+        for local in self._preceding_entities(
             entities,
             anchor_char,
             kinds=frozenset({EntityKind.ORGANIZATION}),
-        )
-        if local is not None:
+        ):
             candidates.append(
                 (
                     local,
@@ -390,27 +468,28 @@ class PublicEmploymentCandidateStage:
         if inferred is not None:
             candidates.append(inferred)
 
-        following_local = self._nearest_following_entity(
+        following_locals = self._following_entities(
             entities,
             anchor_char,
             kinds=frozenset({EntityKind.ORGANIZATION}),
         )
-        if (
-            following_local is not None
-            and not self._is_after_next_employment_cue(
-                document,
-                sentence,
-                anchor_char,
-                following_local,
-            )
-            and not self._crosses_clause_boundary(
-                document,
-                sentence,
-                anchor_char,
-                following_local.start_char,
-            )
-            and following_local.start_char - anchor_char <= 80
-        ):
+        for following_local in following_locals:
+            if (
+                self._is_after_next_employment_cue(
+                    document,
+                    sentence,
+                    anchor_char,
+                    following_local,
+                )
+                or self._crosses_clause_boundary(
+                    document,
+                    sentence,
+                    anchor_char,
+                    following_local.start_char,
+                )
+                or following_local.start_char - anchor_char > 80
+            ):
+                continue
             candidates.append(
                 (
                     following_local,
@@ -430,7 +509,6 @@ class PublicEmploymentCandidateStage:
         )
         if location_workplace is not None:
             candidates.append(location_workplace)
-            return self._dedupe_entity_candidates(candidates)
 
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         orgs = tuple(
@@ -447,13 +525,13 @@ class PublicEmploymentCandidateStage:
                 )
             )
         )
-        if orgs:
+        for org in orgs:
             candidates.append(
                 (
-                    orgs[-1],
+                    org,
                     self._organization_binding_signals(
                         document,
-                        orgs[-1].id,
+                        org.id,
                         WindowOrganizationSignal(),
                     ),
                 )
@@ -556,12 +634,11 @@ class PublicEmploymentCandidateStage:
     def _has_contract_form(self, lemmas: frozenset[str]) -> bool:
         return self._contract_form_lemmas <= lemmas
 
-    def _select_proxy_family_person(
+    def _proxy_family_people(
         self,
         document: ArticleDocument,
         sentence: Sentence,
-        anchor_char: int,
-    ) -> tuple[SentenceEntity, str] | None:
+    ) -> tuple[tuple[SentenceEntity, str], ...]:
         candidates: list[tuple[SentenceEntity, str]] = []
         for candidate in document.store.candidates_by_kind(EntityKind.PERSON):
             for reference in document.store.candidate_references(candidate.id):
@@ -584,12 +661,7 @@ class PublicEmploymentCandidateStage:
                         reference.head_lemma or "family",
                     )
                 )
-        if not candidates:
-            return None
-        return min(
-            candidates,
-            key=lambda item: (abs(item[0].start_char - anchor_char), item[0].start_char),
-        )
+        return tuple(candidates)
 
     def _is_nominative_subject_in_active_sentence(
         self,
@@ -627,92 +699,6 @@ class PublicEmploymentCandidateStage:
                 break
 
         return not has_passive_aux
-
-    def _select_organization(
-        self,
-        document: ArticleDocument,
-        sentence: Sentence,
-        retriever: SentenceEntityRetriever,
-        anchor_char: int,
-    ) -> tuple[SentenceEntity, tuple[Signal, ...]] | None:
-        entities = retriever.entities_for_sentence(sentence)
-        local = self._nearest_preceding_entity(
-            entities,
-            anchor_char,
-            kinds=frozenset({EntityKind.ORGANIZATION}),
-        )
-        if local is not None:
-            return (
-                local,
-                self._organization_binding_signals(document, local.id, LocalOrganizationSignal()),
-            )
-
-        inferred = self._infer_public_organization(document, sentence, anchor_char)
-        if inferred is not None:
-            entity, signals = inferred
-            return entity, signals
-
-        following_local = self._nearest_following_entity(
-            entities,
-            anchor_char,
-            kinds=frozenset({EntityKind.ORGANIZATION}),
-        )
-        if (
-            following_local is not None
-            and not self._is_after_next_employment_cue(
-                document,
-                sentence,
-                anchor_char,
-                following_local,
-            )
-            and not self._crosses_clause_boundary(
-                document,
-                sentence,
-                anchor_char,
-                following_local.start_char,
-            )
-            and following_local.start_char - anchor_char <= 80
-        ):
-            return (
-                following_local,
-                self._organization_binding_signals(
-                    document,
-                    following_local.id,
-                    LocalOrganizationSignal(),
-                ),
-            )
-
-        window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
-        orgs = tuple(
-            entity
-            for entity in window
-            if entity.kind == EntityKind.ORGANIZATION
-            and not (
-                entity.start_char > anchor_char
-                and self._crosses_clause_boundary(
-                    document,
-                    sentence,
-                    anchor_char,
-                    entity.start_char,
-                )
-            )
-        )
-        if orgs:
-            # Prefer the closest one by absolute character distance
-            anchor = anchor_char
-            closest = min(
-                orgs,
-                key=lambda e: min(abs(e.start_char - anchor), abs(e.end_char - anchor)),
-            )
-            return (
-                closest,
-                self._organization_binding_signals(
-                    document,
-                    closest.id,
-                    WindowOrganizationSignal(),
-                ),
-            )
-        return None
 
     def _is_after_next_employment_cue(
         self,
@@ -1036,7 +1022,7 @@ class PublicEmploymentCandidateStage:
             )
         return frozenset(lemmas)
 
-    def _select_role(
+    def _role_candidates(
         self,
         document: ArticleDocument,
         sentence: Sentence,
@@ -1044,27 +1030,43 @@ class PublicEmploymentCandidateStage:
         anchor_char: int,
         *,
         prefer_following_only: bool,
-    ) -> SentenceEntity | None:
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         phrase_role = self._role_from_local_phrase(document, sentence, anchor_char)
         if phrase_role is not None:
-            return phrase_role
+            candidates.append((phrase_role, (LocalRoleSignal(),)))
         for following_role in self._following_entities(
             entities,
             anchor_char,
             kinds=frozenset({EntityKind.ROLE}),
         ):
-            if not self._is_political_role(document, following_role.id):
-                return following_role
-        if prefer_following_only:
-            return None
-        for preceding_role in self._preceding_entities(
-            entities,
-            anchor_char,
-            kinds=frozenset({EntityKind.ROLE}),
-        ):
-            if not self._is_political_role(document, preceding_role.id):
-                return preceding_role
-        return None
+            signals: tuple[Signal, ...] = (
+                (
+                    DomainOverlapSuppressionSignal(reason="political role in employment context"),
+                    WeakSyntacticBindingSignal(reason="political role in employment context"),
+                )
+                if self._is_political_role(document, following_role.id)
+                else (LocalRoleSignal(),)
+            )
+            candidates.append((following_role, signals))
+        if not prefer_following_only:
+            for preceding_role in self._preceding_entities(
+                entities,
+                anchor_char,
+                kinds=frozenset({EntityKind.ROLE}),
+            ):
+                signals = (
+                    (
+                        DomainOverlapSuppressionSignal(
+                            reason="political role in employment context"
+                        ),
+                        WeakSyntacticBindingSignal(reason="political role in employment context"),
+                    )
+                    if self._is_political_role(document, preceding_role.id)
+                    else (WindowRoleSignal(),)
+                )
+                candidates.append((preceding_role, signals))
+        return self._dedupe_entity_candidates(candidates)
 
     def _role_from_local_phrase(
         self,

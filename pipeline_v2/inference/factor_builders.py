@@ -28,31 +28,19 @@ from pipeline_v2.inference.graph_spec import (
     InferenceVariable,
     InferenceVariableKind,
 )
+from pipeline_v2.inference.role_pair_factors import RolePairFactorRegistry
+from pipeline_v2.inference.role_scoring import RoleBaseWeightPolicy, RoleSignalWeightRegistry
 from pipeline_v2.types import (
-    AppointerContextSignal,
-    ControllerContextSignal,
+    DomainOverlapSuppressionSignal,
     EventRole,
     FactKind,
     GroundingKind,
     ImplausiblePersonBindingSignal,
-    LocalActorSignal,
-    LocalOrganizationSignal,
-    LocalPersonSignal,
-    LocalRoleSignal,
-    LocalTargetSignal,
     PartyOrganizationSignal,
-    PossessiveKinshipSignal,
-    ProxyFamilyEntitySignal,
     ReferenceKind,
-    SelfTieContradictionSignal,
     SemanticEvidenceSimilaritySignal,
     Signal,
-    SignalPolarity,
     WeakSyntacticBindingSignal,
-    WindowFallbackSignal,
-    WindowOrganizationSignal,
-    WindowPersonSignal,
-    WindowRoleSignal,
 )
 
 TRUE_STATE = InferenceState(InferenceStateId("true"), "true")
@@ -136,63 +124,20 @@ class BuiltFactInferenceGraph:
     index: EventInferenceIndex
 
 
-class RoleBaseWeightPolicy:
-    def contribution(self, role: EventRole | None, is_unknown: bool) -> float:
-        if is_unknown:
-            return 0.7
-        if role in {EventRole.EMPLOYEE, EventRole.PERSON, EventRole.SUBJECT, EventRole.OBJECT}:
-            return 0.1
-        if role in {
-            EventRole.WORKPLACE,
-            EventRole.ORGANIZATION,
-            EventRole.FUNDER,
-            EventRole.RECIPIENT,
-        }:
-            return 0.08
-        return 0.0
-
-
-class BindingSignalWeightPolicy:
-    def contribution(self, signal: Signal) -> float:
-        match signal:
-            case LocalPersonSignal() | LocalOrganizationSignal() | LocalRoleSignal():
-                return 0.35
-            case LocalActorSignal() | LocalTargetSignal():
-                return 0.32
-            case WindowPersonSignal() | WindowOrganizationSignal() | WindowRoleSignal():
-                return 0.15
-            case WindowFallbackSignal():
-                return 0.12
-            case ProxyFamilyEntitySignal() | PossessiveKinshipSignal():
-                return 0.35
-            case (
-                WeakSyntacticBindingSignal()
-                | AppointerContextSignal()
-                | ControllerContextSignal()
-                | ImplausiblePersonBindingSignal()
-                | PartyOrganizationSignal()
-                | SelfTieContradictionSignal()
-            ):
-                return -0.85
-            case _ if signal.polarity is SignalPolarity.POSITIVE:
-                return 0.18
-            case _:
-                return -0.22
-
-
 class RoleFillerWeightModel:
     def __init__(
         self,
         *,
         base_policy: RoleBaseWeightPolicy | None = None,
-        signal_policy: BindingSignalWeightPolicy | None = None,
+        signal_registry: RoleSignalWeightRegistry | None = None,
     ) -> None:
         self.base_policy = base_policy or RoleBaseWeightPolicy()
-        self.signal_policy = signal_policy or BindingSignalWeightPolicy()
+        self.signal_registry = signal_registry or RoleSignalWeightRegistry()
 
     def weight(
         self,
         *,
+        fact_kind: FactKind | None,
         role: EventRole | None,
         state: RoleFillerState,
         is_unknown: bool,
@@ -201,7 +146,7 @@ class RoleFillerWeightModel:
             return self.base_policy.contribution(role, is_unknown=True)
         score = 0.5 + self.base_policy.contribution(role, is_unknown=False)
         for signal in state.signals:
-            score += self.signal_policy.contribution(signal)
+            score += self.signal_registry.contribution(signal, fact_kind=fact_kind, role=role)
         return max(0.05, score)
 
 
@@ -212,9 +157,11 @@ class FactInferenceGraphBuilder:
         self,
         prior_registry: FactPriorPolicyRegistry | None = None,
         role_weight_model: RoleFillerWeightModel | None = None,
+        role_pair_registry: RolePairFactorRegistry | None = None,
     ) -> None:
         self.prior_registry = prior_registry or FactPriorPolicyRegistry()
         self.role_weight_model = role_weight_model or RoleFillerWeightModel()
+        self.role_pair_registry = role_pair_registry or RolePairFactorRegistry()
 
     def build(self, document: ArticleDocument) -> BuiltFactInferenceGraph:
         variables: list[InferenceVariable] = []
@@ -283,6 +230,14 @@ class FactInferenceGraphBuilder:
                     )
                     if semantic_factor is not None:
                         factors.append(semantic_factor)
+                    quality_factor = self._event_role_quality_factor(
+                        event_id=event.id,
+                        event_variable=event_variable,
+                        role_variable=role_variable,
+                        states=states,
+                    )
+                    if quality_factor is not None:
+                        factors.append(quality_factor)
                 role_variable_id_by_event_role[(event.id, role)] = role_variable.id
                 filler_states_by_variable_id[role_variable.id] = states
             for constraint in schema.distinct_role_constraints:
@@ -308,6 +263,23 @@ class FactInferenceGraphBuilder:
                         document=document,
                     )
                 )
+            overlap_factor = self._domain_overlap_context_factor(
+                event_id=event.id,
+                fact_kind=event.kind,
+                event_variable=event_variable,
+                role_states_map=role_states_map,
+            )
+            if overlap_factor is not None:
+                factors.append(overlap_factor)
+            factors.extend(
+                self._role_pair_factors(
+                    event_id=event.id,
+                    fact_kind=event.kind,
+                    role_vars=role_vars,
+                    role_states_map=role_states_map,
+                    document=document,
+                )
+            )
 
         factors.extend(
             self._patronage_cross_layer_factors(
@@ -494,7 +466,7 @@ class FactInferenceGraphBuilder:
         variable: InferenceVariable,
         states: tuple[RoleFillerState, ...],
     ) -> InferenceFactor:
-        potentials = self._normalized_weights(variable.role, states)
+        potentials = self._normalized_weights(variable.fact_kind, variable.role, states)
         return InferenceFactor(
             id=InferenceFactorId(f"factor:role-prior:{event_key}:{variable.role}"),
             kind=InferenceFactorKind.ROLE_PRIOR,
@@ -530,6 +502,50 @@ class FactInferenceGraphBuilder:
             variable_ids=(event_variable.id, role_variable.id),
             potentials=tuple(values),
         )
+
+    def _event_role_quality_factor(
+        self,
+        *,
+        event_id: EventCandidateId,
+        event_variable: InferenceVariable,
+        role_variable: InferenceVariable,
+        states: tuple[RoleFillerState, ...],
+    ) -> InferenceFactor | None:
+        if not any(self._has_event_suppressing_role_signal(state.signals) for state in states):
+            return None
+        values: list[float] = []
+        evidence_ids: list[EvidenceId] = []
+        signals: list[Signal] = []
+        for event_state in event_variable.states:
+            event_is_true = event_state.id == TRUE_STATE.id
+            for state in states:
+                if event_is_true and self._has_event_suppressing_role_signal(state.signals):
+                    values.append(0.08)
+                else:
+                    values.append(1.0)
+                evidence_ids.extend(state.evidence_ids)
+                signals.extend(state.signals)
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:event-role-quality:{event_id}:{role_variable.role}"),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(event_variable.id, role_variable.id),
+            potentials=tuple(values),
+            evidence_ids=tuple(dict.fromkeys(evidence_ids)),
+            signals=tuple(dict.fromkeys(signals)),
+        )
+
+    def _has_event_suppressing_role_signal(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case (
+                    DomainOverlapSuppressionSignal()
+                    | ImplausiblePersonBindingSignal()
+                    | WeakSyntacticBindingSignal()
+                ):
+                    return True
+                case _:
+                    continue
+        return False
 
     def _role_compatibility_factor(
         self,
@@ -618,6 +634,124 @@ class FactInferenceGraphBuilder:
             kind=InferenceFactorKind.CONSTRAINT,
             variable_ids=(left_variable.id, right_variable.id),
             potentials=tuple(values),
+        )
+
+    def _role_pair_factors(
+        self,
+        *,
+        event_id: EventCandidateId,
+        fact_kind: FactKind,
+        role_vars: dict[EventRole, InferenceVariable],
+        role_states_map: dict[EventRole, tuple[RoleFillerState, ...]],
+        document: ArticleDocument,
+    ) -> tuple[InferenceFactor, ...]:
+        factors: list[InferenceFactor] = []
+        roles = tuple(sorted(role_vars, key=lambda role: role.value))
+        for left_index, left_role in enumerate(roles):
+            for right_role in roles[left_index + 1 :]:
+                if not self.role_pair_registry.applies_to(
+                    fact_kind=fact_kind,
+                    left_role=left_role,
+                    right_role=right_role,
+                ):
+                    continue
+                factors.append(
+                    self._role_pair_factor(
+                        event_id=event_id,
+                        fact_kind=fact_kind,
+                        left_role=left_role,
+                        left_variable=role_vars[left_role],
+                        left_states=role_states_map[left_role],
+                        right_role=right_role,
+                        right_variable=role_vars[right_role],
+                        right_states=role_states_map[right_role],
+                        document=document,
+                    )
+                )
+        return tuple(factors)
+
+    def _domain_overlap_context_factor(
+        self,
+        *,
+        event_id: EventCandidateId,
+        fact_kind: FactKind,
+        event_variable: InferenceVariable,
+        role_states_map: dict[EventRole, tuple[RoleFillerState, ...]],
+    ) -> InferenceFactor | None:
+        if fact_kind is not FactKind.PUBLIC_EMPLOYMENT:
+            return None
+        role_states = tuple(
+            state for state in role_states_map.get(EventRole.ROLE, ()) if state.filler is not None
+        )
+        if not role_states:
+            return None
+        if not all(self._has_domain_overlap_signal(state.signals) for state in role_states):
+            return None
+        evidence_ids = tuple(
+            dict.fromkeys(
+                evidence_id for state in role_states for evidence_id in state.evidence_ids
+            )
+        )
+        signals = tuple(dict.fromkeys(signal for state in role_states for signal in state.signals))
+        return InferenceFactor(
+            id=InferenceFactorId(f"factor:domain-overlap-context:{event_id}"),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(event_variable.id,),
+            potentials=(1.0, 0.03),
+            evidence_ids=evidence_ids,
+            signals=signals,
+        )
+
+    def _has_domain_overlap_signal(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case DomainOverlapSuppressionSignal():
+                    return True
+                case _:
+                    continue
+        return False
+
+    def _role_pair_factor(
+        self,
+        *,
+        event_id: EventCandidateId,
+        fact_kind: FactKind,
+        left_role: EventRole,
+        left_variable: InferenceVariable,
+        left_states: tuple[RoleFillerState, ...],
+        right_role: EventRole,
+        right_variable: InferenceVariable,
+        right_states: tuple[RoleFillerState, ...],
+        document: ArticleDocument,
+    ) -> InferenceFactor:
+        values: list[float] = []
+        evidence_ids: list[EvidenceId] = []
+        signals: list[Signal] = []
+        for left_state in left_states:
+            for right_state in right_states:
+                values.append(
+                    self.role_pair_registry.multiplier(
+                        fact_kind=fact_kind,
+                        left_role=left_role,
+                        right_role=right_role,
+                        document=document,
+                        left_state=left_state,
+                        right_state=right_state,
+                    )
+                )
+                evidence_ids.extend(left_state.evidence_ids)
+                evidence_ids.extend(right_state.evidence_ids)
+                signals.extend(left_state.signals)
+                signals.extend(right_state.signals)
+        return InferenceFactor(
+            id=InferenceFactorId(
+                f"factor:role-pair:{event_id}:{left_role.value}:{right_role.value}"
+            ),
+            kind=InferenceFactorKind.CONSTRAINT,
+            variable_ids=(left_variable.id, right_variable.id),
+            potentials=tuple(values),
+            evidence_ids=tuple(dict.fromkeys(evidence_ids)),
+            signals=tuple(dict.fromkeys(signals)),
         )
 
     def _direct_overlap_penalty(
@@ -750,13 +884,19 @@ class FactInferenceGraphBuilder:
 
     def _normalized_weights(
         self,
+        fact_kind: FactKind | None,
         role: EventRole | None,
         states: tuple[RoleFillerState, ...],
     ) -> tuple[float, ...]:
         if len(states) == 1:
             return (1.0,)
         weights = [
-            self.role_weight_model.weight(role=role, state=state, is_unknown=index == 0)
+            self.role_weight_model.weight(
+                fact_kind=fact_kind,
+                role=role,
+                state=state,
+                is_unknown=index == 0,
+            )
             for index, state in enumerate(states)
         ]
         total = sum(weights)

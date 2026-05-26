@@ -18,6 +18,7 @@ from pipeline_v2.types import (
     DirectPrepositionalAttachmentSignal,
     DiscourseOrganizationSignal,
     DismissalLemmaSignal,
+    DomainOverlapSuppressionSignal,
     EmbeddedInOrganizationNameSignal,
     EmploymentContractFormSignal,
     ExplicitNonPartyContextSignal,
@@ -208,6 +209,8 @@ class BaseFactPriorPolicy:
                 return -0.55
             case PseudonymousSourceSignal():
                 return -0.55
+            case DomainOverlapSuppressionSignal():
+                return -0.95
             case ServiceTransactionSignal():
                 if kind is FactKind.FUNDING:
                     return -0.35

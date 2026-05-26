@@ -17,7 +17,14 @@ from pipeline_v2.ids import (
 )
 from pipeline_v2.inference.factor_builders import FactInferenceGraphBuilder
 from pipeline_v2.inference.graph_spec import InferenceFactorKind
-from pipeline_v2.types import EntityKind, EventRole, FactKind, GroundingKind
+from pipeline_v2.types import (
+    EntityKind,
+    EventRole,
+    FactKind,
+    GroundingKind,
+    Signal,
+    WeakSyntacticBindingSignal,
+)
 
 
 def test_role_compatibility_factor_penalizes_party_in_organization_slot() -> None:
@@ -131,3 +138,89 @@ def test_role_compatibility_factor_penalizes_party_in_organization_slot() -> Non
     assert factor.potentials[0] == 1.0  # UNKNOWN is allowed (1.0)
     assert factor.potentials[org_index] == 1.0
     assert factor.potentials[party_index] == 0.02
+
+
+def test_role_pair_factor_penalizes_weak_required_role_binding() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Text.",
+        paragraphs=("Text.",),
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("person-under-test"),
+            kind=EntityKind.PERSON,
+            mention_ids=(),
+            canonical_hint="Jan Kowalski",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("workplace-under-test"),
+            kind=EntityKind.ORGANIZATION,
+            mention_ids=(),
+            canonical_hint="Urząd",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    event_id = EventCandidateId("event-under-test")
+    document.store.add_event_candidate(
+        EventCandidate(
+            id=event_id,
+            kind=FactKind.PUBLIC_EMPLOYMENT,
+            trigger_evidence_id=None,
+            evidence_ids=(),
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("weak-employee"),
+            event_id=event_id,
+            role=EventRole.EMPLOYEE,
+            filler=EntityFiller(EntityCandidateId("person-under-test")),
+            evidence_ids=(),
+            signals=(WeakSyntacticBindingSignal(reason="test weak binding"),),
+        )
+    )
+    document.store.add_argument_binding(
+        ArgumentBindingCandidate(
+            id=ArgumentBindingCandidateId("workplace"),
+            event_id=event_id,
+            role=EventRole.WORKPLACE,
+            filler=EntityFiller(EntityCandidateId("workplace-under-test")),
+            evidence_ids=(),
+        )
+    )
+
+    fact_graph = FactInferenceGraphBuilder().build(document)
+
+    employee_variable_id = fact_graph.index.role_variable_id_by_event_role[
+        (event_id, EventRole.EMPLOYEE)
+    ]
+    workplace_variable_id = fact_graph.index.role_variable_id_by_event_role[
+        (event_id, EventRole.WORKPLACE)
+    ]
+    role_pair_factor = next(
+        factor
+        for factor in fact_graph.spec.factors
+        if factor.kind is InferenceFactorKind.CONSTRAINT
+        and set(factor.variable_ids) == {employee_variable_id, workplace_variable_id}
+        and any(_is_weak_binding_signal(signal) for signal in factor.signals)
+    )
+
+    assert min(role_pair_factor.potentials) < 1.0
+
+
+def _is_weak_binding_signal(signal: Signal) -> bool:
+    match signal:
+        case WeakSyntacticBindingSignal():
+            return True
+        case _:
+            return False

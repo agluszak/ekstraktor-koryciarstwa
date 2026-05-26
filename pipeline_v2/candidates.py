@@ -21,6 +21,7 @@ from pipeline_v2.types import (
     FactArgumentRole,
     FactKind,
     GroundingKind,
+    MaterializedAlternativeReason,
     ResolutionRelation,
     Signal,
 )
@@ -252,13 +253,15 @@ class FactResolutionClaim:
 class MaterializedFactAlternative:
     record: FactCandidateRecord
     score: float
-    claim_id: ResolutionClaimId
+    claim_id: ResolutionClaimId | None
     relation: ResolutionRelation
+    reason: MaterializedAlternativeReason = MaterializedAlternativeReason.INFERRED_SAME_FACT
 
     def to_json(self) -> dict[str, object]:
         return {
             "record": self.record.to_json(),
             "score": self.score,
-            "claim_id": str(self.claim_id),
+            "claim_id": str(self.claim_id) if self.claim_id is not None else None,
             "relation": self.relation.value,
+            "reason": self.reason.value,
         }

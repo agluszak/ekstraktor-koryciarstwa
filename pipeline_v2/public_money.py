@@ -507,109 +507,87 @@ class PublicMoneyCandidateStage:
         ],
         ...,
     ]:
-        # Organizations appear in sentence order; the first is often the
-        # contracting authority. People can also be contractors, especially in
-        # clauses like "X otrzymała umowy" or "umowy dla X".
         combinations = []
-        if len(organizations) >= 2:
-            org0, org1 = organizations[0], organizations[1]
-            source_sigs = self._build_signals_for_role(
+        for counterparty in organizations:
+            counterparty_sigs = self._build_signals_for_role(
                 document,
                 sentence,
-                org0.id,
-                org0.start_char,
+                counterparty.id,
+                counterparty.start_char,
                 (ContractCounterpartySignal(),),
                 is_source_role=True,
             )
-            target_sigs = self._build_signals_for_role(
-                document,
-                sentence,
-                org1.id,
-                org1.start_char,
-                (ContractorSignal(),),
-                is_source_role=False,
-            )
-            combinations.append((org0.id, source_sigs, org1.id, target_sigs))
-            person_contractor = self._person_contract_recipient(document, sentence, people)
-            if person_contractor is not None:
+            combinations.append((counterparty.id, counterparty_sigs, None, ()))
+            for contractor in organizations:
+                if contractor.id == counterparty.id:
+                    continue
+                contractor_base: tuple[Signal, ...] = (ContractorSignal(),)
+                if self._preposition_before_entity(document, sentence, contractor.start_char) in {
+                    "od",
+                    "z",
+                }:
+                    contractor_base = (
+                        ContractorSignal(),
+                        DirectPrepositionalAttachmentSignal(),
+                    )
+                contractor_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    contractor.id,
+                    contractor.start_char,
+                    contractor_base,
+                    is_source_role=False,
+                )
+                combinations.append(
+                    (counterparty.id, counterparty_sigs, contractor.id, contractor_sigs)
+                )
+            for person, person_base in self._person_contract_recipients(document, sentence, people):
                 person_sigs = self._build_signals_for_role(
                     document,
                     sentence,
-                    person_contractor.id,
-                    person_contractor.start_char,
-                    (ContractorSignal(), DirectPrepositionalAttachmentSignal()),
+                    person.id,
+                    person.start_char,
+                    person_base,
                     is_source_role=False,
                 )
-                combinations.insert(0, (org0.id, source_sigs, person_contractor.id, person_sigs))
-            return tuple(combinations)
-        if len(organizations) == 1:
-            org = organizations[0]
-            if self._preposition_before_entity(document, sentence, org.start_char) in {"od", "z"}:
-                target_sigs = self._build_signals_for_role(
-                    document,
-                    sentence,
-                    org.id,
-                    org.start_char,
-                    (ContractorSignal(), DirectPrepositionalAttachmentSignal()),
-                    is_source_role=False,
-                )
-                return ((None, (), org.id, target_sigs),)
-            person = self._person_contract_recipient(document, sentence, people)
-            if person is not None:
-                source_sigs = self._build_signals_for_role(
-                    document,
-                    sentence,
-                    org.id,
-                    org.start_char,
-                    (ContractCounterpartySignal(),),
-                    is_source_role=True,
-                )
+                combinations.append((counterparty.id, counterparty_sigs, person.id, person_sigs))
+        if not organizations:
+            for person, person_base in self._person_contract_recipients(document, sentence, people):
                 target_sigs = self._build_signals_for_role(
                     document,
                     sentence,
                     person.id,
                     person.start_char,
-                    (ContractorSignal(), DirectPrepositionalAttachmentSignal()),
+                    person_base,
                     is_source_role=False,
                 )
-                return ((org.id, source_sigs, person.id, target_sigs),)
-            source_sigs = self._build_signals_for_role(
-                document,
-                sentence,
-                org.id,
-                org.start_char,
-                (ContractCounterpartySignal(),),
-                is_source_role=True,
-            )
-            return ((org.id, source_sigs, None, ()),)
-        if people:
-            person = self._person_contract_recipient(document, sentence, people)
-            if person is not None:
-                target_sigs = self._build_signals_for_role(
-                    document,
-                    sentence,
-                    person.id,
-                    person.start_char,
-                    (ContractorSignal(),),
-                    is_source_role=False,
-                )
-                return ((None, (), person.id, target_sigs),)
-        return ((None, (), None, ()),)
+                combinations.append((None, (), person.id, target_sigs))
+        return tuple(combinations) if combinations else ((None, (), None, ()),)
 
-    def _person_contract_recipient(
+    def _person_contract_recipients(
         self,
         document: ArticleDocument,
         sentence: Sentence,
         people: tuple[SentenceEntity, ...],
-    ) -> SentenceEntity | None:
-        if not people:
-            return None
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        recipients: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
+        for person in people:
+            signals = self._person_contract_binding_signals(document, sentence, person)
+            recipients.append((person, signals))
+        return tuple(recipients)
+
+    def _person_contract_binding_signals(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person: SentenceEntity,
+    ) -> tuple[Signal, ...]:
+        signals: list[Signal] = [ContractorSignal()]
         token_ids = sentence.token_ids
-        contract_index = self._first_token_index_with_lemmas(
-            document,
-            token_ids,
-            self._contract_lemmas,
-        )
+        if self._preposition_before_entity(document, sentence, person.start_char) == "dla":
+            signals.append(DirectPrepositionalAttachmentSignal())
+            return tuple(signals)
+
         recipient_action_index = self._first_token_index_with_lemmas(
             document,
             token_ids,
@@ -617,42 +595,24 @@ class PublicMoneyCandidateStage:
         )
         if recipient_action_index is not None:
             action_token = document.store.tokens[token_ids[recipient_action_index]]
-            preceding = tuple(
-                person for person in people if person.start_char <= action_token.span.start_char
-            )
-            if preceding:
-                nominative = tuple(
-                    person
-                    for person in preceding
-                    if self._entity_has_case(document, person.id, "nom")
-                )
-                if nominative:
-                    return min(
-                        nominative,
-                        key=lambda person: action_token.span.start_char - person.start_char,
-                    )
-                return min(
-                    preceding,
-                    key=lambda person: action_token.span.start_char - person.start_char,
-                )
+            if person.start_char <= action_token.span.start_char and self._entity_has_case(
+                document,
+                person.id,
+                "nom",
+            ):
+                signals.append(DirectPrepositionalAttachmentSignal())
+                return tuple(signals)
+
+        contract_index = self._first_token_index_with_lemmas(
+            document,
+            token_ids,
+            self._contract_lemmas,
+        )
         if contract_index is not None:
             contract_token = document.store.tokens[token_ids[contract_index]]
-            with_target_preposition = tuple(
-                person
-                for person in people
-                if self._preposition_before_entity(
-                    document,
-                    sentence,
-                    person.start_char,
-                )
-                == "dla"
-            )
-            if with_target_preposition:
-                return min(
-                    with_target_preposition,
-                    key=lambda person: abs(person.start_char - contract_token.span.start_char),
-                )
-        return people[0]
+            if abs(person.start_char - contract_token.span.start_char) <= 80:
+                signals.append(DirectPrepositionalAttachmentSignal())
+        return tuple(signals)
 
     def _entity_has_case(
         self,
@@ -925,12 +885,7 @@ class PublicMoneyCandidateStage:
         ],
         ...,
     ]:
-        """Select plausible compensation source/recipient bindings.
-
-        This intentionally avoids a full person × organization product. It keeps
-        one recipient candidate and emits source alternatives only when the
-        source itself is ambiguous.
-        """
+        """Emit plausible compensation source/recipient binding alternatives."""
         organizations = tuple(
             entity for entity in entities if entity.kind == EntityKind.ORGANIZATION
         )
@@ -954,45 +909,37 @@ class PublicMoneyCandidateStage:
         else:
             target_signal = CompensationRecipientSignal()
 
-        person = self._nearest_entity(people, sentence.span.start_char)
         combinations = []
         selected_organizations = organizations if organizations else (None,)
+        selected_people = people if people else (None,)
         for org in selected_organizations:
-            source_base = (source_signal,) if org is not None else ()
-            target_base = (target_signal,) if person is not None else ()
-            if (
-                org is not None
-                and source_signal == WindowOrganizationSignal()
-                and self._is_controller_context(document, org.id)
-            ):
-                source_base = source_base + (
-                    ControllerContextSignal(
-                        reason="window organization appears as controller/supervisor"
-                    ),
+            for person in selected_people:
+                source_base = (source_signal,) if org is not None else ()
+                target_base = (target_signal,) if person is not None else ()
+                if (
+                    org is not None
+                    and source_signal == WindowOrganizationSignal()
+                    and self._is_controller_context(document, org.id)
+                ):
+                    source_base = source_base + (
+                        ControllerContextSignal(
+                            reason="window organization appears as controller/supervisor"
+                        ),
+                    )
+
+                source_id = org.id if org else None
+                source_start = org.start_char if org else None
+                target_id = person.id if person else None
+                target_start = person.start_char if person else None
+
+                source_sigs = self._build_signals_for_role(
+                    document, sentence, source_id, source_start, source_base, is_source_role=True
                 )
-
-            source_id = org.id if org else None
-            source_start = org.start_char if org else None
-            target_id = person.id if person else None
-            target_start = person.start_char if person else None
-
-            source_sigs = self._build_signals_for_role(
-                document, sentence, source_id, source_start, source_base, is_source_role=True
-            )
-            target_sigs = self._build_signals_for_role(
-                document, sentence, target_id, target_start, target_base, is_source_role=False
-            )
-            combinations.append((source_id, source_sigs, target_id, target_sigs))
+                target_sigs = self._build_signals_for_role(
+                    document, sentence, target_id, target_start, target_base, is_source_role=False
+                )
+                combinations.append((source_id, source_sigs, target_id, target_sigs))
         return tuple(combinations)
-
-    @staticmethod
-    def _nearest_entity(
-        entities: tuple[SentenceEntity, ...],
-        anchor_char: int,
-    ) -> SentenceEntity | None:
-        if not entities:
-            return None
-        return min(entities, key=lambda entity: abs(entity.start_char - anchor_char))
 
     def _is_controller_context(
         self,

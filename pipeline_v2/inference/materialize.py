@@ -8,7 +8,6 @@ from pipeline_v2.candidates import (
     EntityFiller,
     FactArgument,
     FactCandidateRecord,
-    FactResolutionClaim,
     MaterializedFactAlternative,
     MaterializedRoleAlternative,
     TextFactArgument,
@@ -35,6 +34,7 @@ from pipeline_v2.types import (
     EmploymentContractFormSignal,
     FactArgumentRole,
     FactKind,
+    MaterializedAlternativeReason,
     ResolutionRelation,
     SignalPolarity,
 )
@@ -352,37 +352,14 @@ class FactAssessmentMaterializer:
         assessment: FactAssessment | None,
     ) -> None:
         score = assessment.assessment.score if assessment is not None else 0.0
-        claim = FactResolutionClaim(
-            id=document.store.next_fact_resolution_claim_id(),
-            left_fact_id=primary.id,
-            right_fact_id=duplicate.id,
-            relation=ResolutionRelation.SAME_FACT,
-            evidence_ids=duplicate.evidence_ids,
-            assessment=Assessment(
-                score=score,
-                positive_signals=tuple(
-                    signal
-                    for signal in duplicate.signals
-                    if signal.polarity is SignalPolarity.POSITIVE
-                ),
-                negative_signals=tuple(
-                    signal
-                    for signal in duplicate.signals
-                    if signal.polarity is SignalPolarity.NEGATIVE
-                ),
-                scorer_id=self.scorer_id,
-                explanation="exact output duplicate preserved as materialized alternative",
-            ),
-            source=self.producer_id,
-        )
-        document.store.add_fact_resolution_claim(claim)
         document.materialized_fact_alternatives[primary.id] = (
             *document.materialized_fact_alternatives.get(primary.id, ()),
             MaterializedFactAlternative(
                 record=duplicate,
                 score=round(score, 3),
-                claim_id=claim.id,
+                claim_id=None,
                 relation=ResolutionRelation.SAME_FACT,
+                reason=MaterializedAlternativeReason.EXACT_OUTPUT_DUPLICATE,
             ),
         )
         duplicate_role_alternatives = document.materialized_role_alternatives.pop(

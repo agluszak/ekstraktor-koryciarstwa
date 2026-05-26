@@ -525,6 +525,7 @@ def test_document_output_serializes_materialized_fact_alternatives() -> None:
                 "score": 0.731,
                 "claim_id": "claim-1",
                 "relation": "same_fact",
+                "reason": "inferred_same_fact",
                 "record": {
                     "id": str(suppressed_id),
                     "kind": FactKind.PUBLIC_EMPLOYMENT.value,

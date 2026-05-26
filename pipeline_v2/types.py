@@ -249,6 +249,11 @@ class FactResolutionStrategy(StrEnum):
     SEMANTIC_EVIDENCE = "semantic_evidence"
 
 
+class MaterializedAlternativeReason(StrEnum):
+    INFERRED_SAME_FACT = "inferred_same_fact"
+    EXACT_OUTPUT_DUPLICATE = "exact_output_duplicate"
+
+
 class SignalPolarity(StrEnum):
     POSITIVE = "positive"
     NEGATIVE = "negative"
@@ -866,6 +871,11 @@ class PseudonymousSourceSignal(NegativeSignal):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SelfTieContradictionSignal(NegativeSignal):
+    reason: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DomainOverlapSuppressionSignal(NegativeSignal):
     reason: str
 
 
