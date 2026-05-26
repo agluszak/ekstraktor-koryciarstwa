@@ -1,0 +1,193 @@
+name: v2 golden output snapshot
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: v2-golden-output
+  cancel-in-progress: false
+
+jobs:
+  snapshot-v2-output:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: repo
+          fetch-depth: 1
+          token: ${{ github.token }}
+
+      - name: Checkout previous golden
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: pipeline-v2-golden
+          path: golden
+          fetch-depth: 1
+          token: ${{ github.token }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version-file: "repo/.python-version"
+          enable-cache: true
+          cache-dependency-glob: |
+            repo/pyproject.toml
+            repo/uv.lock
+
+      - name: Cache NLP artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache
+            ~/stanza_resources
+            repo/models
+          key: ${{ runner.os }}-v2-nlp-${{ hashFiles('repo/uv.lock', 'repo/scripts/setup_models.py') }}
+          restore-keys: |
+            ${{ runner.os }}-v2-nlp-
+
+      - name: Install dependencies and models
+        working-directory: repo
+        run: |
+          uv sync --frozen
+          uv run python scripts/setup_models.py
+
+      - name: Run pipeline
+        working-directory: repo
+        run: |
+          rm -rf output
+          uv run extractor \
+            --input-dir inputs \
+            --glob "*.html" \
+            --output-dir output
+
+      - name: Build comparable JSON bundles
+        run: |
+          mkdir -p diff
+
+          if [ -d golden/outputs ] && compgen -G "golden/outputs/*.json" > /dev/null; then
+            jq -n '
+              reduce inputs as $item (
+                {};
+                . + {($item.key): $item.value}
+              )
+            ' < <(
+              for file in golden/outputs/*.json; do
+                jq -c --arg key "$(basename "$file")" '{key: $key, value: .}' "$file"
+              done
+            ) > diff/previous.json
+          else
+            echo '{}' > diff/previous.json
+          fi
+
+          if compgen -G "repo/output/*.json" > /dev/null; then
+            jq -n '
+              reduce inputs as $item (
+                {};
+                . + {($item.key): $item.value}
+              )
+            ' < <(
+              for file in repo/output/*.json; do
+                jq -c --arg key "$(basename "$file")" '{key: $key, value: .}' "$file"
+              done
+            ) > diff/current.json
+          else
+            echo '{}' > diff/current.json
+          fi
+
+      - name: Diff previous golden against current output
+        id: jd
+        uses: josephburnett/jd@v2.1.2
+        with:
+          args: diff/previous.json diff/current.json
+
+      - name: Store diff and summary
+        if: always()
+        run: |
+          printf '%s\n' '${{ steps.jd.outputs.output }}' > diff/jd.diff
+
+          previous_commit="unknown"
+          if [ -f golden/metadata.json ]; then
+            previous_commit="$(jq -r '.source_commit // "unknown"' golden/metadata.json)"
+          fi
+
+          cat > diff/summary.md <<ENDSUMMARY
+          # v2 output snapshot diff
+
+          Previous golden: \`${previous_commit}\`
+          Current commit:  \`${GITHUB_SHA}\`
+          jd exit code:    \`${{ steps.jd.outputs.exit_code }}\`
+
+          Full diff in \`jd.diff\`.
+          ENDSUMMARY
+
+          cat diff/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diff artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-snapshot-diff-${{ github.sha }}
+          path: diff/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload pipeline output artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-pipeline-output-${{ github.sha }}
+          path: repo/output/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Prepare new golden contents
+        run: |
+          rm -rf new-golden
+          mkdir -p new-golden/outputs
+          cp -R repo/output/. new-golden/outputs/
+          cat > new-golden/metadata.json <<ENDMETA
+          {
+            "source_commit": "${GITHUB_SHA}",
+            "created_at_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          }
+          ENDMETA
+
+      - name: Promote current output to golden
+        run: |
+          REMOTE="https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if [ ! -d golden/.git ]; then
+            rm -rf golden
+            mkdir golden
+            cd golden
+            git init
+            git remote add origin "$REMOTE"
+            git checkout --orphan pipeline-v2-golden
+          else
+            cd golden
+            git remote set-url origin "$REMOTE"
+            git checkout pipeline-v2-golden || git checkout -b pipeline-v2-golden
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R ../new-golden/. .
+
+          git add .
+          git commit -m "Promote v2 golden output for ${GITHUB_SHA}" || {
+            echo "Golden output unchanged."
+            exit 0
+          }
+
+          git push origin HEAD:pipeline-v2-golden
