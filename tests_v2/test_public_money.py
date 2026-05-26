@@ -288,6 +288,59 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
     assert mon_funder_alternative.posterior < 0.1
 
 
+def test_public_money_stage_emits_compensation_for_perfective_salary_verb() -> None:
+    text = (
+        "W Totalizatorze Sportowym są dyrektorskie stanowiska. "
+        "Osoby na tych stanowiskach mogą zarobić nawet ponad 20 tys. zł miesięcznie."
+    )
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="Totalizatorze Sportowym",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Totalizatorze Sportowym"),
+                    text.index("Totalizatorze Sportowym") + len("Totalizatorze Sportowym"),
+                ),
+            ),
+        ),
+    )
+
+    compensation_records = [
+        record for record in fact_records(document) if record.kind is FactKind.COMPENSATION
+    ]
+    assert len(compensation_records) == 1
+    record = compensation_records[0]
+    assert entity_hint_for_role(document, record, "funder") == "Totalizatorze Sportowym"
+    assert text_argument(record, "amount") == "20 tys. zł"
+
+
+def test_public_money_stage_emits_compensation_for_textual_amount_phrase() -> None:
+    text = (
+        "Kierowanie WFOŚiGW wiąże się również z wysokimi zarobkami rzędu "
+        "kilkudziesięciu tysięcy złotych miesięcznie."
+    )
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="WFOŚiGW",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("WFOŚiGW"), text.index("WFOŚiGW") + len("WFOŚiGW")),
+            ),
+        ),
+    )
+
+    compensation_records = [
+        record for record in fact_records(document) if record.kind is FactKind.COMPENSATION
+    ]
+    assert len(compensation_records) == 1
+    record = compensation_records[0]
+    assert entity_hint_for_role(document, record, "funder") == "WFOŚiGW"
+    assert text_argument(record, "amount") == "kilkudziesięciu tysięcy złotych"
+
+
 def test_public_contract_stage_does_not_materialize_same_surface_on_both_sides() -> None:
     text = "Wnuk Consulting zawarł umowę z miastem na 397 496,95 zł."
     document = run_public_money_stage_with_entities(

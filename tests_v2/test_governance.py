@@ -687,6 +687,107 @@ def test_governance_stage_emits_dismissal_for_imperfective_rezygnowac() -> None:
     assert dismissals, "expected at least one PUBLIC_ROLE_END"
 
 
+def test_governance_stage_prefers_person_attached_roles_in_multi_person_dismissal() -> None:
+    text = (
+        "Rada nadzorcza odwołała prezes Agnieszkę Kruk i wiceprezes Annę Pokwapisz "
+        "z zarządu WFOŚiGW w Lublinie."
+    )
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Agnieszkę Kruk",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Agnieszkę Kruk"),
+                    text.index("Agnieszkę Kruk") + len("Agnieszkę Kruk"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Annę Pokwapisz",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Annę Pokwapisz"),
+                    text.index("Annę Pokwapisz") + len("Annę Pokwapisz"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="WFOŚiGW w Lublinie",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("WFOŚiGW w Lublinie"),
+                    text.index("WFOŚiGW w Lublinie") + len("WFOŚiGW w Lublinie"),
+                ),
+            ),
+        ),
+    )
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
+    roles_by_person = {
+        entity_hint_for_role(document, record, "person"): entity_hint_for_role(
+            document, record, "role"
+        )
+        for record in dismissals
+    }
+
+    assert roles_by_person["Agnieszkę Kruk"] == "prezes"
+    assert roles_by_person["Annę Pokwapisz"] == "wiceprezes"
+
+
+def test_governance_stage_ignores_alternative_role_in_resignation_clause() -> None:
+    text = (
+        "Nie wykluczam rezygnacji z bycia prezesem WFOŚiGW na rzecz mandatu radnego "
+        "— podkreśla Stanisław Mazur."
+    )
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="WFOŚiGW",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("WFOŚiGW"), text.index("WFOŚiGW") + len("WFOŚiGW")),
+            ),
+            NamedEntitySpan(
+                text="Stanisław Mazur",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Stanisław Mazur"),
+                    text.index("Stanisław Mazur") + len("Stanisław Mazur"),
+                ),
+            ),
+        ),
+    )
+
+    dismissals = [r for r in fact_records(document) if r.kind is FactKind.PUBLIC_ROLE_END]
+    assert dismissals
+    assert any(
+        entity_hint_for_role(document, record, "person") == "Stanisław Mazur"
+        and (entity_hint_for_role(document, record, "role") or "").startswith("prezes")
+        for record in dismissals
+    )
+    assert not any(
+        (entity_hint_for_role(document, record, "person") or "").startswith("prezes")
+        or entity_hint_for_role(document, record, "role") == "radnego"
+        for record in dismissals
+    )
+
+
+def test_governance_stage_does_not_materialize_first_person_departure_without_speaker() -> None:
+    text = "Nie wykluczam rezygnacji z bycia prezesem WFOŚiGW na rzecz mandatu radnego."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="WFOŚiGW",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("WFOŚiGW"), text.index("WFOŚiGW") + len("WFOŚiGW")),
+            ),
+        ),
+    )
+
+    assert not any(record.kind is FactKind.PUBLIC_ROLE_END for record in fact_records(document))
+
+
 # --- Bug 2: temporal objąć/objęcie suppression ---
 
 

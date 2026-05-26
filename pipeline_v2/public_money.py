@@ -107,11 +107,27 @@ class PublicMoneyCandidateStage:
             "wynagrodzenie",
             "pensja",
             "zarobek",
+            "zarobić",
             "zarabiać",
             "dostawać",
             "odprawa",
             "premia",
             "pobrać",
+        }
+    )
+    _currency_lemmas = frozenset({"złoty", "pln"})
+    _amount_scale_lemmas = frozenset({"tysiąc", "milion", "miliard"})
+    _amount_modifier_lemmas = frozenset(
+        {
+            "blisko",
+            "kilka",
+            "kilkanaście",
+            "kilkadziesiąt",
+            "mniej",
+            "niemal",
+            "około",
+            "ponad",
+            "prawie",
         }
     )
 
@@ -120,7 +136,7 @@ class PublicMoneyCandidateStage:
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         for sentence in document.store.sentences.values():
-            amount_texts = self._amount_texts(sentence)
+            amount_texts = self._amount_texts(document, sentence)
             if amount_texts:
                 kinds = self._candidate_kinds(document, sentence)
                 if kinds:
@@ -257,8 +273,49 @@ class PublicMoneyCandidateStage:
             return MicroAmountSignal(amount=amount_text)
         return None
 
-    def _amount_texts(self, sentence: Sentence) -> tuple[str, ...]:
-        return tuple(self._amount_pattern.findall(sentence.text))
+    def _amount_texts(self, document: ArticleDocument, sentence: Sentence) -> tuple[str, ...]:
+        numeric_amounts = tuple(self._amount_pattern.findall(sentence.text))
+        if numeric_amounts:
+            return numeric_amounts
+        textual_amount = self._textual_amount_text(document, sentence)
+        if textual_amount is None:
+            return ()
+        return (textual_amount,)
+
+    def _textual_amount_text(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> str | None:
+        tokens = [document.store.tokens[token_id] for token_id in sentence.token_ids]
+        for currency_index, token in enumerate(tokens):
+            lemmas = {analysis.lemma for analysis in token.morph}
+            if not (lemmas & self._currency_lemmas):
+                continue
+            start_index = currency_index - 1
+            while start_index >= 0 and self._is_textual_amount_token(tokens[start_index]):
+                start_index -= 1
+            start_index += 1
+            if start_index == currency_index:
+                continue
+            start_char = tokens[start_index].span.start_char
+            end_char = token.span.end_char
+            return document.cleaned_text[start_char:end_char].strip()
+        return None
+
+    def _is_textual_amount_token(self, token) -> bool:
+        token_text = token.text.casefold()
+        lemmas = {analysis.lemma for analysis in token.morph}
+        poses = {analysis.pos for analysis in token.morph}
+        if any(char.isdigit() for char in token_text):
+            return True
+        if poses & {"num"}:
+            return True
+        if lemmas & self._amount_scale_lemmas:
+            return True
+        if lemmas & self._amount_modifier_lemmas:
+            return True
+        return False
 
     def _candidate_kinds(
         self,

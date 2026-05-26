@@ -242,7 +242,8 @@ def test_article_fixture_keeps_governance_control_article_relevant() -> None:
         "Dyrektorem kieleckiego oddziału Totalizatora Sportowego został związany z "
         "Koalicją Obywatelską przewodniczący Rady Miasta w Kielcach Karol Wilczyński.",
         "Jego zastępcą na nowym stanowisku jest z kolei Sebastian Nowaczkiewicz, były "
-        "wójt podkieleckich Nowin, związany z Polskim Stronnictwem Ludowym.",
+        "wójt podkieleckich Nowin, związany z Polskim Stronnictwem Ludowym. "
+        "Osoby na tych stanowiskach mogą zarobić nawet ponad 20 tys. zł miesięcznie.",
     )
     text = "\n".join(paragraphs)
     document = run_article_pipeline(
@@ -263,6 +264,7 @@ def test_article_fixture_keeps_governance_control_article_relevant() -> None:
         candidate.kind in {FactKind.PUBLIC_ROLE_APPOINTMENT, FactKind.PUBLIC_ROLE_END}
         for candidate in fact_records(document)
     )
+    assert any(candidate.kind is FactKind.COMPENSATION for candidate in fact_records(document))
 
 
 def test_article_fixture_does_not_promote_background_political_person_to_appointee() -> None:

@@ -295,6 +295,23 @@ class GovernanceCandidateStage:
                     )
 
                 for person_id, combos in combos_by_person.items():
+                    if kind == FactKind.PUBLIC_ROLE_END and len(combos_by_person) > 1:
+                        non_self_pair_combos = [
+                            combo
+                            for combo in combos
+                            if not self._is_descriptor_role_self_pair(document, person_id, combo[1])
+                        ]
+                        if non_self_pair_combos:
+                            combos = non_self_pair_combos
+                    if kind == FactKind.PUBLIC_ROLE_END:
+                        combos = self._filter_exit_role_combinations(
+                            document=document,
+                            sentence=sentence,
+                            person_id=person_id,
+                            combinations=combos,
+                        )
+                    if not combos:
+                        continue
                     person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                     actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                     organization_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
@@ -894,6 +911,231 @@ class GovernanceCandidateStage:
         ]
         return any(0 <= trigger_start_char - span.end_char <= 2 for span in spans)
 
+    def _sentence_is_first_person_departure_report(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> bool:
+        if not (self._sentence_lemmas(document, sentence) & self._dismissal_lemmas):
+            return False
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if any(analysis.person == "pri" for analysis in token.morph):
+                return True
+        return False
+
+    def _filter_exit_role_combinations(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+        combinations: list[
+            tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]]
+        ],
+    ) -> list[tuple[EntityCandidateId | None, EntityCandidateId | None, tuple[Signal, ...]]]:
+        attached_role_ids = {
+            role_id
+            for _, role_id, _ in combinations
+            if role_id is not None
+            and self._role_is_locally_attached_to_person(
+                document=document,
+                sentence=sentence,
+                person_id=person_id,
+                role_id=role_id,
+            )
+        }
+        if attached_role_ids:
+            return [
+                combination
+                for combination in combinations
+                if combination[1] is None or combination[1] in attached_role_ids
+            ]
+
+        non_alternative_role_ids = {
+            role_id
+            for _, role_id, _ in combinations
+            if role_id is not None
+            and not self._role_is_alternative_departure_target(
+                document=document,
+                sentence=sentence,
+                role_id=role_id,
+            )
+        }
+        if non_alternative_role_ids:
+            return [
+                combination
+                for combination in combinations
+                if combination[1] is None or combination[1] in non_alternative_role_ids
+            ]
+        return combinations
+
+    def _role_is_locally_attached_to_person(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+        role_id: EntityCandidateId,
+    ) -> bool:
+        person_spans = [
+            evidence.span
+            for evidence in document.store.evidence_for_entity(person_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        role_spans = [
+            evidence.span
+            for evidence in document.store.evidence_for_entity(role_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        if not person_spans or not role_spans:
+            return False
+
+        person_start = min(span.start_char for span in person_spans)
+        person_end = max(span.end_char for span in person_spans)
+        role_start = min(span.start_char for span in role_spans)
+        role_end = max(span.end_char for span in role_spans)
+
+        if role_end <= person_start:
+            return person_start - role_end <= 2
+        if person_end <= role_start:
+            between_text = document.cleaned_text[person_end:role_start].strip()
+            if len(between_text) > 2:
+                return False
+            return between_text in {"", ",", "—", "–", "-"}
+        return False
+
+    def _role_is_alternative_departure_target(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        role_id: EntityCandidateId,
+    ) -> bool:
+        role_spans = [
+            evidence.span
+            for evidence in document.store.evidence_for_entity(role_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        if not role_spans:
+            return False
+        role_start_char = min(span.start_char for span in role_spans)
+        prefix = document.cleaned_text[
+            max(sentence.span.start_char, role_start_char - 24) : role_start_char
+        ]
+        prefix_folded = prefix.casefold()
+        if "mandat" in prefix_folded:
+            return True
+        return "na rzecz" in prefix_folded
+
+    def _augment_exit_roles_with_local_titles(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        local_entities: tuple[SentenceEntity, ...],
+        roles: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        existing_role_ids = {role.id for role, _signals in roles}
+        sentence_token_ids = list(sentence.token_ids)
+        augmented_roles = list(roles)
+        role_vocab = self._governance_role_lemmas | self._political_role_lemmas
+
+        for entity in local_entities:
+            if entity.kind is not EntityKind.PERSON:
+                continue
+            person_start_index = next(
+                (
+                    index
+                    for index, token_id in enumerate(sentence_token_ids)
+                    if document.store.tokens[token_id].span.start_char >= entity.start_char
+                ),
+                None,
+            )
+            if person_start_index is None:
+                continue
+            title_index = person_start_index - 1
+            if title_index < 0:
+                continue
+            title_token = document.store.tokens[sentence_token_ids[title_index]]
+            title_lemmas = {analysis.lemma for analysis in title_token.morph}
+            if not (title_lemmas & role_vocab):
+                continue
+            role_entity = self._materialize_local_role_entity(
+                document=document,
+                sentence=sentence,
+                token_index=title_index,
+            )
+            if role_entity is None or role_entity.id in existing_role_ids:
+                continue
+            existing_role_ids.add(role_entity.id)
+            augmented_roles.append((role_entity, (LocalRoleSignal(),)))
+        return tuple(augmented_roles)
+
+    def _materialize_local_role_entity(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence: Sentence,
+        token_index: int,
+    ) -> SentenceEntity | None:
+        token_id = sentence.token_ids[token_index]
+        token = document.store.tokens[token_id]
+        start_char = token.span.start_char
+        end_char = token.span.end_char
+
+        for candidate in document.store.candidates_by_kind(EntityKind.ROLE):
+            for evidence in document.store.evidence_for_entity(candidate.id):
+                if (
+                    evidence.sentence_id == sentence.id
+                    and evidence.span.start_char == start_char
+                    and evidence.span.end_char == end_char
+                ):
+                    return SentenceEntity(
+                        id=candidate.id,
+                        kind=EntityKind.ROLE,
+                        start_char=start_char,
+                        end_char=end_char,
+                    )
+
+        evidence_id = document.store.next_evidence_id()
+        evidence = EvidenceSpan(
+            id=evidence_id,
+            text=token.text,
+            span=token.span,
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=self.producer_id,
+        )
+        document.store.add_evidence(evidence)
+        mention_id = document.store.next_mention_id()
+        mention = Mention(
+            id=mention_id,
+            text=token.text,
+            kind=MentionKind.ROLE,
+            evidence_id=evidence_id,
+            sentence_id=sentence.id,
+            token_ids=(token_id,),
+            head_lemma=next((analysis.lemma for analysis in token.morph), None),
+        )
+        document.store.add_mention(mention)
+        candidate_id = document.store.next_entity_candidate_id()
+        candidate = EntityCandidate(
+            id=candidate_id,
+            kind=EntityKind.ROLE,
+            grounding=GroundingKind.OBSERVED,
+            canonical_hint=token.text,
+            mention_ids=(mention_id,),
+            source=self.producer_id,
+        )
+        document.store.add_entity_candidate(candidate)
+        return SentenceEntity(
+            id=candidate_id,
+            kind=EntityKind.ROLE,
+            start_char=start_char,
+            end_char=end_char,
+        )
+
     def _candidate_combinations(
         self,
         document: ArticleDocument,
@@ -932,7 +1174,9 @@ class GovernanceCandidateStage:
         # When no named person is available, synthesise a proxy from a local
         # governance-role entity or a person-descriptor noun (e.g. "polityk").
         if not people:
-            proxy = self._synthesize_proxy_person(document, sentence, roles)
+            proxy = None
+            if not self._sentence_is_first_person_departure_report(document, sentence):
+                proxy = self._synthesize_proxy_person(document, sentence, roles)
             if proxy is not None:
                 people = (proxy,)
         if not people:
@@ -965,6 +1209,13 @@ class GovernanceCandidateStage:
             local_signal=LocalRoleSignal(),
             window_signal=WindowRoleSignal(),
         )
+        if self._sentence_lemmas(document, sentence) & self._dismissal_lemmas:
+            roles = self._augment_exit_roles_with_local_titles(
+                document=document,
+                sentence=sentence,
+                local_entities=entities,
+                roles=roles,
+            )
 
         combinations = []
         # Identify which persons and roles are sentence-local vs window-only
