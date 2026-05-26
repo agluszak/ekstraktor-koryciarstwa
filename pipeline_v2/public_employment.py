@@ -52,10 +52,14 @@ class PublicEmploymentCandidateStage:
     _employment_role_lemmas = frozenset(
         {
             "doradca",
+            "ekodoradca",
             "konsultant",
             "konsultantka",
+            "koordynator",
             "pełnomocnik",
+            "pracownik",
             "radca",
+            "specjalista",
             "szef",
             "szefowa",
         }
@@ -96,6 +100,9 @@ class PublicEmploymentCandidateStage:
     _supporting_lemmas = frozenset({"praca", "pracować", "stanowisko", "zostać"})
     _contract_form_lemmas = frozenset({"umowa", "zlecenie"})
     _workplace_preposition_lemmas = frozenset({"na", "w"})
+    _role_intro_lemmas = frozenset({"jako", "stanowisko"})
+    _role_phrase_stop_lemmas = frozenset({"a", "ale", "i", "lub", "oraz", "po", "w", "z"})
+    _role_phrase_skip_lemmas = frozenset({"kolejny", "nowy", "przyszły", "swój"})
     _collective_person_context_lemmas = frozenset({"członek", "polityk", "rodzina", "znajomy"})
     _governance_exclusion_lemmas = frozenset(
         {
@@ -145,7 +152,13 @@ class PublicEmploymentCandidateStage:
             if not employee_candidates or not workplace_candidates:
                 continue
 
-            role = self._select_role(entities, cue.anchor_char)
+            role = self._select_role(
+                document,
+                sentence,
+                entities,
+                cue.anchor_char,
+                prefer_following_only=self._has_proxy_family_employee(employee_candidates),
+            )
             if self._is_governance_role(document, role.id if role is not None else None):
                 if role is not None and role.start_char >= cue.anchor_char:
                     continue
@@ -185,8 +198,9 @@ class PublicEmploymentCandidateStage:
                     evidence_ids=(evidence.id,),
                     signals=workplace_signals,
                 )
+            employee_ids = frozenset(employee.id for employee, _signals in employee_candidates)
             for authority, authority_signals in self._hiring_authority_candidates(
-                document, sentence, entities
+                document, sentence, entities, excluded_ids=employee_ids
             ):
                 emitter.bind_entity(
                     event=event,
@@ -229,9 +243,17 @@ class PublicEmploymentCandidateStage:
         syntax = SyntaxView(document.store)
         trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
         entities = retriever.entities_for_sentence(sentence)
-        role = self._select_role(entities, cue.anchor_char)
+        role = self._select_role(
+            document,
+            sentence,
+            entities,
+            cue.anchor_char,
+            prefer_following_only=proxy is not None,
+        )
         for entity in entities:
             if entity.kind is not EntityKind.PERSON:
+                continue
+            if proxy is not None and entity.start_char < cue.anchor_char:
                 continue
             if role is not None and self._entity_is_farther_from_anchor_than_role(
                 entity,
@@ -300,6 +322,8 @@ class PublicEmploymentCandidateStage:
         document: ArticleDocument,
         sentence: Sentence,
         entities: tuple[SentenceEntity, ...],
+        *,
+        excluded_ids: frozenset[EntityCandidateId],
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
         syntax = SyntaxView(document.store)
         trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
@@ -308,6 +332,8 @@ class PublicEmploymentCandidateStage:
         candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         for entity in entities:
             if entity.kind is not EntityKind.PERSON:
+                continue
+            if entity.id in excluded_ids:
                 continue
             relation = syntax.dependency_relation(
                 sentence=sentence,
@@ -996,18 +1022,158 @@ class PublicEmploymentCandidateStage:
 
     def _select_role(
         self,
+        document: ArticleDocument,
+        sentence: Sentence,
         entities: tuple[SentenceEntity, ...],
         anchor_char: int,
+        *,
+        prefer_following_only: bool,
     ) -> SentenceEntity | None:
-        return self._nearest_following_entity(
-            entities,
-            anchor_char,
-            kinds=frozenset({EntityKind.ROLE}),
-        ) or self._nearest_preceding_entity(
+        phrase_role = self._role_from_local_phrase(document, sentence, anchor_char)
+        if phrase_role is not None:
+            return phrase_role
+        following_role = self._nearest_following_entity(
             entities,
             anchor_char,
             kinds=frozenset({EntityKind.ROLE}),
         )
+        if following_role is not None:
+            return following_role
+        if prefer_following_only:
+            return None
+        return self._nearest_preceding_entity(
+            entities,
+            anchor_char,
+            kinds=frozenset({EntityKind.ROLE}),
+        )
+
+    def _role_from_local_phrase(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        anchor_char: int,
+    ) -> SentenceEntity | None:
+        phrase_token_ids = self._role_phrase_token_ids(document, sentence, anchor_char)
+        if not phrase_token_ids:
+            return None
+        start_char = document.store.tokens[phrase_token_ids[0]].span.start_char
+        end_char = document.store.tokens[phrase_token_ids[-1]].span.end_char
+        probe = EvidenceSpan(
+            id=EvidenceId("probe"),
+            text=document.cleaned_text[start_char:end_char],
+            span=Span(start_char, end_char),
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=self.producer_id,
+        )
+        for candidate_id in document.store.candidate_ids_with_evidence_overlapping_span(probe):
+            candidate = document.store.entity_candidates[candidate_id]
+            if candidate.kind is not EntityKind.ROLE:
+                continue
+            return SentenceEntity(
+                id=candidate_id,
+                kind=EntityKind.ROLE,
+                start_char=start_char,
+                end_char=end_char,
+            )
+        evidence = EvidenceSpan(
+            id=document.store.next_evidence_id(),
+            text=document.cleaned_text[start_char:end_char],
+            span=Span(start_char, end_char),
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=self.producer_id,
+        )
+        document.store.add_evidence(evidence)
+        mention_id = document.store.next_mention_id()
+        document.store.add_mention(
+            Mention(
+                id=mention_id,
+                text=evidence.text,
+                kind=MentionKind.ROLE,
+                evidence_id=evidence.id,
+                sentence_id=sentence.id,
+                token_ids=phrase_token_ids,
+                head_lemma=document.store.tokens[phrase_token_ids[0]].preferred_lemma(),
+            )
+        )
+        entity_id = document.store.add_entity_candidate(
+            EntityCandidate(
+                id=document.store.next_entity_candidate_id(),
+                kind=EntityKind.ROLE,
+                mention_ids=(mention_id,),
+                canonical_hint=evidence.text,
+                grounding=GroundingKind.INFERRED,
+                source=self.producer_id,
+            )
+        )
+        return SentenceEntity(
+            id=entity_id,
+            kind=EntityKind.ROLE,
+            start_char=start_char,
+            end_char=end_char,
+        )
+
+    def _role_phrase_token_ids(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        anchor_char: int,
+    ) -> tuple[TokenId, ...]:
+        tokens = [document.store.tokens[token_id] for token_id in sentence.token_ids]
+        start_index: int | None = None
+        skip_first = False
+        for index, token in enumerate(tokens):
+            if token.span.start_char < anchor_char:
+                continue
+            token_lemmas = {analysis.lemma for analysis in token.morph}
+            if "jako" in token_lemmas:
+                start_index = index + 1
+                break
+            if "stanowisko" in token_lemmas:
+                start_index = index + 1
+                skip_first = True
+                break
+        if start_index is None or start_index >= len(tokens):
+            return ()
+        collected: list[TokenId] = []
+        for token in tokens[start_index:]:
+            token_lemmas = {analysis.lemma for analysis in token.morph}
+            if token.text in {",", ".", ";", ":"}:
+                break
+            if collected and token_lemmas & self._role_phrase_stop_lemmas:
+                break
+            if token_lemmas & self._workplace_preposition_lemmas:
+                break
+            if not self._is_role_phrase_token(token):
+                if collected:
+                    break
+                continue
+            if skip_first and not collected and token_lemmas & self._role_phrase_skip_lemmas:
+                continue
+            collected.append(token.id)
+            if len(collected) >= 4:
+                break
+        return tuple(collected)
+
+    def _is_role_phrase_token(self, token: Token) -> bool:
+        if token.text in {",", ".", ";", ":"}:
+            return False
+        for analysis in token.morph:
+            if analysis.pos in {"adj", "subst"}:
+                return True
+        return False
+
+    def _has_proxy_family_employee(
+        self,
+        candidates: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
+    ) -> bool:
+        for _entity, signals in candidates:
+            for signal in signals:
+                match signal:
+                    case ProxyFamilyEntitySignal():
+                        return True
+        return False
 
     def _nearest_following_entity(
         self,

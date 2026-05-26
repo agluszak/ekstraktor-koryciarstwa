@@ -73,19 +73,48 @@ class PersonalTieCandidateStage:
         }
     )
     _patronage_preference = (
-        "znajomy",
-        "współpracownik",
-        "rekomendacja",
-        "związany",
-        "powiązać",
-        "polecenie",
-        "człowiek",
-        "baron",
-        "układ",
-        "kolesiostwo",
-        "konkurs",
-        "rozdawać",
         "posada",
+        "rozdawać",
+        "kolesiostwo",
+        "układ",
+        "baron",
+        "polecenie",
+        "rekomendacja",
+        "powiązać",
+        "współpracownik",
+        "znajomy",
+        "związany",
+        "człowiek",
+    )
+    _collaborator_tie_lemmas = frozenset(
+        {
+            "człowiek",
+            "powiązać",
+            "przyjaciel",
+            "współpracownik",
+            "znajomy",
+            "związany",
+        }
+    )
+    _strong_complaint_lemmas = frozenset(
+        {
+            "baron",
+            "kolesiostwo",
+            "rozdawać",
+            "układ",
+        }
+    )
+    _complaint_verbs = frozenset(
+        {
+            "alarmować",
+            "krytykować",
+            "oskarżyć",
+            "piętnować",
+            "zarzucić",
+            "zarzucać",
+            "zapowiadać",
+            "zawiadomić",
+        }
     )
     _complaint_lemmas = frozenset(
         {
@@ -122,8 +151,31 @@ class PersonalTieCandidateStage:
                     signal=NamedKinshipLemmaSignal(lemma=family_detail.value),
                 )
                 continue
+            collaborator_lemma = self._collaborator_tie_detail(lemmas)
+            if collaborator_lemma is not None:
+                collaborator_pair = self._explicit_tie_participants(
+                    document=document,
+                    sentence=sentence,
+                    retriever=retriever,
+                    cue_lemma=collaborator_lemma,
+                )
+                if collaborator_pair is not None:
+                    self._add_explicit_tie(
+                        document,
+                        subject=collaborator_pair[0],
+                        object_entity=collaborator_pair[1],
+                        sentence=sentence,
+                        sentence_id=sentence.id,
+                        relationship_detail=None,
+                        signal=ExplicitPatronageLemmaSignal(lemma=collaborator_lemma),
+                        context_text=collaborator_lemma,
+                    )
             patronage_lemma = self._patronage_detail(lemmas)
-            if patronage_lemma is not None and len(candidate_people) >= 2:
+            if (
+                patronage_lemma is not None
+                and collaborator_lemma is None
+                and len(candidate_people) >= 2
+            ):
                 self._add_explicit_tie(
                     document,
                     subject=candidate_people[0],
@@ -141,6 +193,16 @@ class PersonalTieCandidateStage:
                     sentence=sentence,
                     retriever=retriever,
                 )
+                if not self._should_emit_patronage_complaint(
+                    document=document,
+                    sentence=sentence,
+                    participants=participants,
+                    complaint_lemma=complaint_lemma,
+                    context_entities=tuple(
+                        entity for entity in entities if entity.kind != EntityKind.PERSON
+                    ),
+                ):
+                    continue
                 self._add_patronage_complaint(
                     document=document,
                     sentence=sentence,
@@ -151,6 +213,47 @@ class PersonalTieCandidateStage:
                     complaint_lemma=complaint_lemma,
                 )
         return document
+
+    def _explicit_tie_participants(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence,
+        retriever: SentenceEntityRetriever,
+        cue_lemma: str,
+    ) -> tuple[SentenceEntity, SentenceEntity] | None:
+        local_people = self._observed_people(
+            retriever.entities_for_sentence(sentence),
+            document,
+        )
+        if not local_people:
+            return None
+        cue_start = self._first_lemma_start(document, sentence, cue_lemma)
+        preceding = tuple(person for person in local_people if person.end_char <= cue_start)
+        following = tuple(person for person in local_people if person.start_char >= cue_start)
+        if preceding and following:
+            return (preceding[-1], following[0])
+        if len(local_people) >= 2:
+            ordered = sorted(
+                local_people,
+                key=lambda person: (
+                    abs(person.start_char - cue_start),
+                    person.start_char,
+                ),
+            )
+            return (ordered[0], ordered[1])
+        fallback = self._nearest_window_observed_person(
+            document=document,
+            sentence=sentence,
+            retriever=retriever,
+            exclude_ids=frozenset({local_people[0].id}),
+        )
+        if fallback is None:
+            return None
+        local_person = local_people[0]
+        if local_person.start_char < cue_start:
+            return (fallback, local_person)
+        return (local_person, fallback)
 
     def _add_explicit_tie(
         self,
@@ -389,6 +492,44 @@ class PersonalTieCandidateStage:
             in {GroundingKind.OBSERVED, GroundingKind.PROXY}
         )
 
+    def _nearest_window_observed_person(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence,
+        retriever: SentenceEntityRetriever,
+        exclude_ids: frozenset[EntityCandidateId],
+    ) -> SentenceEntity | None:
+        window_people = self._observed_people(
+            retriever.entities_for_sentence_window(sentence, before=1, after=0),
+            document,
+        )
+        candidates: list[tuple[int, SentenceEntity]] = []
+        for person in window_people:
+            if person.id in exclude_ids:
+                continue
+            anchor_index = sentence.sentence_index
+            distances = [
+                abs(document.store.sentences[evidence.sentence_id].sentence_index - anchor_index)
+                for evidence in document.store.evidence_for_entity(person.id)
+                if evidence.sentence_id is not None
+            ]
+            distance = min(distances) if distances else None
+            if distance is None or distance > 1:
+                continue
+            candidates.append((distance, person))
+        if not candidates:
+            return None
+        _, best = min(
+            candidates,
+            key=lambda item: (
+                item[0],
+                abs(item[1].start_char - sentence.span.start_char),
+                item[1].start_char,
+            ),
+        )
+        return best
+
     def _participant_evidence_ids_for_complaint(
         self,
         *,
@@ -595,11 +736,56 @@ class PersonalTieCandidateStage:
             return None
         return matched[0]
 
+    def _collaborator_tie_detail(self, lemmas: frozenset[str]) -> str | None:
+        collaborator_preference = (
+            "przyjaciel",
+            "współpracownik",
+            "znajomy",
+            "powiązać",
+            "związany",
+            "człowiek",
+        )
+        for lemma in collaborator_preference:
+            if lemma in self._collaborator_tie_lemmas:
+                if lemma in lemmas:
+                    return lemma
+        return None
+
     def _patronage_complaint_detail(self, lemmas: frozenset[str]) -> str | None:
         matched = tuple(sorted(lemmas & self._complaint_lemmas))
         if not matched:
             return None
         return matched[0]
+
+    def _first_lemma_start(self, document: ArticleDocument, sentence, lemma: str) -> int:
+        for token_id in sentence.token_ids:
+            token = document.store.tokens[token_id]
+            if any(analysis.lemma == lemma for analysis in token.morph):
+                return token.span.start_char
+        return sentence.span.start_char
+
+    def _should_emit_patronage_complaint(
+        self,
+        *,
+        document: ArticleDocument,
+        sentence,
+        participants: tuple[_ComplaintParticipant, ...],
+        complaint_lemma: str,
+        context_entities: tuple[SentenceEntity, ...],
+    ) -> bool:
+        institution_entities = tuple(
+            entity for entity in context_entities if entity.kind == EntityKind.ORGANIZATION
+        )
+        if len(participants) >= 2:
+            return True
+        if complaint_lemma in self._strong_complaint_lemmas:
+            return True
+        lemmas = self._sentence_lemmas(document, sentence)
+        if lemmas & self._complaint_verbs:
+            return True
+        if institution_entities and complaint_lemma not in {"konkurs", "posada"}:
+            return True
+        return False
 
     def _add_kinship_tie(
         self,

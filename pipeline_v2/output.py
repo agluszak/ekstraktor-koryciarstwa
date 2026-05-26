@@ -16,9 +16,10 @@ from pipeline_v2.candidates import (
     UnknownFiller,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.ids import EntityCandidateId
 from pipeline_v2.inference.graph_spec import InferenceDiagnostic, VariableMarginal
 from pipeline_v2.nlp import EvidenceSpan, Mention, MorphAnalysis, ReferenceMention, Sentence, Token
-from pipeline_v2.types import Signal
+from pipeline_v2.types import EntityKind, FactArgumentRole, Signal
 
 type JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 type JsonObject = dict[str, JsonValue]
@@ -195,20 +196,17 @@ def document_to_json(document: ArticleDocument) -> JsonObject:
 
 
 def document_to_slim_json(document: ArticleDocument) -> JsonObject:
-    entity_name: dict[str, str] = {
-        str(e.id): e.canonical_hint or str(e.id) for e in document.store.entity_candidates.values()
-    }
     fact_score: dict[str, float] = {
         str(fa.materialized_fact_id): fa.assessment.score for fa in document.fact_assessments
     }
 
-    slim_facts: list[JsonValue] = []
+    slim_facts: list[JsonObject] = []
     for record in document.materialized_fact_records:
         roles: dict[str, JsonValue] = {}
         for arg in record.arguments:
             match arg:
                 case EntityFactArgument(role=role, entity_id=eid):
-                    name = entity_name.get(str(eid))
+                    name = _slim_entity_name(document, eid, role)
                     if name:
                         roles[role.value] = name
                 case TextFactArgument(role=role, value=value):
@@ -219,6 +217,7 @@ def document_to_slim_json(document: ArticleDocument) -> JsonObject:
             entry["confidence"] = round(score, 3)
         entry.update(cast(JsonObject, roles))
         slim_facts.append(entry)
+    slim_facts = _dedupe_slim_facts(slim_facts)
 
     relevance = document.relevance
     return cast(
@@ -231,6 +230,61 @@ def document_to_slim_json(document: ArticleDocument) -> JsonObject:
             "facts": slim_facts,
         },
     )
+
+
+def _slim_entity_name(
+    document: ArticleDocument,
+    entity_id: EntityCandidateId,
+    role: FactArgumentRole,
+) -> str | None:
+    entity = document.store.entity_candidates.get(entity_id)
+    if entity is None:
+        return None
+    if entity.kind is EntityKind.ROLE and role is FactArgumentRole.ROLE:
+        normalized = _normalized_role_name(document, entity)
+        if normalized:
+            return normalized
+    return entity.canonical_hint or str(entity.id)
+
+
+def _normalized_role_name(document: ArticleDocument, entity: EntityCandidate) -> str | None:
+    mention = _primary_entity_mention(document, entity)
+    if mention is None:
+        return None
+    lemmas = [
+        lemma
+        for token_id in mention.token_ids
+        if (lemma := document.store.tokens[token_id].preferred_lemma()) is not None
+    ]
+    if lemmas:
+        return " ".join(lemmas)
+    return mention.head_lemma
+
+
+def _primary_entity_mention(document: ArticleDocument, entity: EntityCandidate) -> Mention | None:
+    if not entity.mention_ids:
+        return None
+    return document.store.mentions.get(entity.mention_ids[0])
+
+
+def _dedupe_slim_facts(facts: list[JsonObject]) -> list[JsonObject]:
+    deduped: dict[tuple[tuple[str, JsonValue], ...], JsonObject] = {}
+    order: list[tuple[tuple[str, JsonValue], ...]] = []
+    for fact in facts:
+        key = tuple(sorted((key, value) for key, value in fact.items() if key != "confidence"))
+        if key not in deduped:
+            deduped[key] = fact
+            order.append(key)
+            continue
+        existing_confidence = deduped[key].get("confidence")
+        new_confidence = fact.get("confidence")
+        if (
+            isinstance(existing_confidence, (int, float))
+            and isinstance(new_confidence, (int, float))
+            and new_confidence > existing_confidence
+        ):
+            deduped[key] = fact
+    return [deduped[key] for key in order]
 
 
 def relevance_to_json(document: ArticleDocument) -> JsonObject:

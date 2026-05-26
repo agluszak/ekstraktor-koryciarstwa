@@ -279,6 +279,33 @@ def test_public_employment_stage_binds_proxy_before_employment_cue() -> None:
     assert entity_hint_for_role(document, candidate, "organization") == "Urzędzie Stanu Cywilnego"
 
 
+def test_public_employment_stage_recovers_job_detail_for_proxy_relative() -> None:
+    text = (
+        "Tomasz Kościelniak zatrudnił swoją partnerkę na stanowisko ekodoradcy "
+        "w Urzędzie Stanu Cywilnego."
+    )
+    document = run_public_employment_stage(
+        text,
+        (
+            person_span(text, "Tomasz Kościelniak"),
+            organization_span(text, "Urzędzie Stanu Cywilnego"),
+        ),
+        include_nominal_kinship=True,
+    )
+
+    candidate = next(
+        candidate
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
+    )
+    person_hint = entity_hint_for_role(document, candidate, "person")
+    role_hint = entity_hint_for_role(document, candidate, "role")
+
+    assert person_hint is not None and "partnerka" in person_hint
+    assert entity_hint_for_role(document, candidate, "organization") == "Urzędzie Stanu Cywilnego"
+    assert role_hint is not None and "ekodoradc" in role_hint
+
+
 def test_public_employment_stage_handles_impersonal_passive_hiring_sentence() -> None:
     text = (
         "Na początku lipca w samorządzie Gminy Poczesna zatrudniono Rafała Dobosza "

@@ -378,12 +378,18 @@ def test_article_fixture_keeps_public_employment_local_to_first_clause() -> None
         for candidate in fact_records(document)
         if candidate.kind is FactKind.PUBLIC_EMPLOYMENT
     }
+    employment_roles = {
+        entity_hint_for_role(document, candidate, "role")
+        for candidate in fact_records(document)
+        if candidate.kind is FactKind.PUBLIC_EMPLOYMENT and "role" in argument_roles(candidate)
+    }
     assert "Urzędzie Stanu Cywilnego" not in employment_organizations
     assert "Jan Kowalski" not in employment_people
     assert any(
         person is not None and ("teść" in person or "szwagier" in person)
         for person in employment_people
     )
+    assert any(role is not None and "pracownik" in role.casefold() for role in employment_roles)
 
 
 def test_article_fixture_emits_anti_corruption_for_control_demand_language() -> None:
@@ -892,19 +898,20 @@ def test_regression_rp_klich_emits_collaborator_tie_signal() -> None:
     ]
     assert tie_or_complaint_records
     assert any(
-        record.kind in {FactKind.PATRONAGE_ALLEGATION, FactKind.PATRONAGE_NETWORK_TIE}
-        for record in tie_or_complaint_records
+        record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE for record in tie_or_complaint_records
     )
     assert any(
         get_assessment_score(document, record.id) >= 0.45 for record in tie_or_complaint_records
     )
 
     assert any(
-        entity_hint_for_role(document, record, "complainant") in {"Jarosław Hodura", "Klicha"}
-        or entity_hint_for_role(document, record, "target") in {"Jarosław Hodura", "Klicha"}
-        or entity_hint_for_role(document, record, "subject") in {"Jarosław Hodura", "Klicha"}
-        or entity_hint_for_role(document, record, "object") in {"Jarosław Hodura", "Klicha"}
+        {
+            entity_hint_for_role(document, record, "subject"),
+            entity_hint_for_role(document, record, "object"),
+        }
+        == {"Jarosław Hodura", "Klicha"}
         for record in tie_or_complaint_records
+        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
     )
 
 

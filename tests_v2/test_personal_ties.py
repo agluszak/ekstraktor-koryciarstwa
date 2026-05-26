@@ -194,6 +194,39 @@ def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organizat
     assert fact_records(document) == ()
 
 
+def test_personal_tie_stage_uses_previous_sentence_person_for_collaborator_tie() -> None:
+    text = (
+        "Jarosław Hodura od grudnia jest prezesem Grupy Hoteli WAM. "
+        "Były szef biura europoselskiego Klicha i jego wieloletni przyjaciel trafił do zarządu."
+    )
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Jarosław Hodura"),
+            person_span(text, "Klicha"),
+            organization_span(text, "Grupy Hoteli WAM"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    records = [
+        record
+        for record in fact_records(document)
+        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert records
+    assert any(
+        {
+            entity_hint_for_role(document, record, "subject"),
+            entity_hint_for_role(document, record, "object"),
+        }
+        == {"Jarosław Hodura", "Klicha"}
+        for record in records
+    )
+
+
 def test_patronage_complaint_uses_adjacent_sentence_people_and_keeps_evidence() -> None:
     text = (
         "W mieście trwa kolesiostwo i rozdawanie posad. "

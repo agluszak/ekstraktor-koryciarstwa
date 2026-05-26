@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from pipeline_v2.candidates import Assessment, FactCandidateRecord, MaterializedFactAlternative
+from pipeline_v2.candidates import (
+    Assessment,
+    EntityCandidate,
+    EntityFactArgument,
+    FactCandidateRecord,
+    MaterializedFactAlternative,
+)
 from pipeline_v2.cli import main
 from pipeline_v2.document import (
     ArticleDocument,
@@ -18,22 +24,29 @@ from pipeline_v2.document import (
 )
 from pipeline_v2.ids import (
     DocumentId,
+    EntityCandidateId,
     EvidenceId,
     FactCandidateId,
     InferenceStateId,
     InferenceVariableId,
+    MentionId,
     ProducerId,
     ResolutionClaimId,
     ScorerId,
     SentenceId,
+    TokenId,
 )
 from pipeline_v2.inference.graph_spec import InferenceDiagnostic, StateProbability, VariableMarginal
-from pipeline_v2.nlp import EvidenceSpan, Sentence, Span
-from pipeline_v2.output import document_to_json
+from pipeline_v2.nlp import EvidenceSpan, Mention, MorphAnalysis, Sentence, Span, Token
+from pipeline_v2.output import document_to_json, document_to_slim_json
 from pipeline_v2.types import (
     DependencyObjectSignal,
     DependencyRelation,
+    EntityKind,
+    FactArgumentRole,
     FactKind,
+    GroundingKind,
+    MentionKind,
     PublicMoneyRelevanceSignal,
     ResolutionRelation,
 )
@@ -200,6 +213,183 @@ def test_document_output_serializes_signal_details_as_structured_json() -> None:
                 "explanation": None,
             },
         }
+    ]
+
+
+def test_slim_output_normalizes_role_entities_to_lemmas() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Został prezesem.",
+        paragraphs=("Został prezesem.",),
+    )
+    sentence_id = SentenceId("sentence-1")
+    evidence_id = EvidenceId("evidence-1")
+    token_id = TokenId("token-1")
+    mention_id = MentionId("mention-1")
+    role_id = EntityCandidateId("role-1")
+    document.store.add_sentence(
+        Sentence(
+            id=sentence_id,
+            sentence_index=0,
+            paragraph_index=0,
+            text="Został prezesem.",
+            span=Span(0, 16),
+            token_ids=(token_id,),
+        )
+    )
+    document.store.add_evidence(
+        EvidenceSpan(
+            id=evidence_id,
+            text="prezesem",
+            span=Span(7, 15),
+            sentence_id=sentence_id,
+            paragraph_index=0,
+            source=ProducerId("test"),
+        )
+    )
+    document.store.add_token(
+        Token(
+            id=token_id,
+            sentence_id=sentence_id,
+            text="prezesem",
+            span=Span(7, 15),
+            morph=(MorphAnalysis(lemma="prezes", pos="subst"),),
+        )
+    )
+    document.store.add_mention(
+        Mention(
+            id=mention_id,
+            text="prezesem",
+            kind=MentionKind.NER,
+            evidence_id=evidence_id,
+            sentence_id=sentence_id,
+            token_ids=(token_id,),
+            head_lemma="prezes",
+        )
+    )
+    document.store.add_entity_candidate(
+        EntityCandidate(
+            id=role_id,
+            kind=EntityKind.ROLE,
+            mention_ids=(mention_id,),
+            canonical_hint="prezesem",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    document.materialized_fact_records.append(
+        FactCandidateRecord(
+            id=FactCandidateId("fact-1"),
+            kind=FactKind.PUBLIC_ROLE_HOLDING,
+            arguments=(EntityFactArgument(role=FactArgumentRole.ROLE, entity_id=role_id),),
+            evidence_ids=(evidence_id,),
+            source=ProducerId("test"),
+        )
+    )
+
+    rendered = document_to_slim_json(document)
+
+    assert rendered["facts"] == [{"kind": "public_role_holding", "role": "prezes"}]
+
+
+def test_slim_output_dedupes_role_variants_by_normalized_content() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text="Był prezesem i później prezesowi zarzucono...",
+        paragraphs=("Był prezesem i później prezesowi zarzucono...",),
+    )
+    sentence_id = SentenceId("sentence-1")
+    document.store.add_sentence(
+        Sentence(
+            id=sentence_id,
+            sentence_index=0,
+            paragraph_index=0,
+            text="Był prezesem i później prezesowi zarzucono...",
+            span=Span(0, 43),
+            token_ids=(TokenId("token-1"), TokenId("token-2")),
+        )
+    )
+    role_specs = (
+        ("1", "prezesem", Span(4, 12), 0.61),
+        ("2", "prezesowi", Span(23, 32), 0.74),
+    )
+    for suffix, text, span, score in role_specs:
+        evidence_id = EvidenceId(f"evidence-{suffix}")
+        token_id = TokenId(f"token-{suffix}")
+        mention_id = MentionId(f"mention-{suffix}")
+        role_id = EntityCandidateId(f"role-{suffix}")
+        document.store.add_evidence(
+            EvidenceSpan(
+                id=evidence_id,
+                text=text,
+                span=span,
+                sentence_id=sentence_id,
+                paragraph_index=0,
+                source=ProducerId("test"),
+            )
+        )
+        document.store.add_token(
+            Token(
+                id=token_id,
+                sentence_id=sentence_id,
+                text=text,
+                span=span,
+                morph=(MorphAnalysis(lemma="prezes", pos="subst"),),
+            )
+        )
+        document.store.add_mention(
+            Mention(
+                id=mention_id,
+                text=text,
+                kind=MentionKind.NER,
+                evidence_id=evidence_id,
+                sentence_id=sentence_id,
+                token_ids=(token_id,),
+                head_lemma="prezes",
+            )
+        )
+        document.store.add_entity_candidate(
+            EntityCandidate(
+                id=role_id,
+                kind=EntityKind.ROLE,
+                mention_ids=(mention_id,),
+                canonical_hint=text,
+                grounding=GroundingKind.OBSERVED,
+                source=ProducerId("test"),
+            )
+        )
+        fact_id = FactCandidateId(f"fact-{suffix}")
+        document.materialized_fact_records.append(
+            FactCandidateRecord(
+                id=fact_id,
+                kind=FactKind.PUBLIC_ROLE_HOLDING,
+                arguments=(EntityFactArgument(role=FactArgumentRole.ROLE, entity_id=role_id),),
+                evidence_ids=(evidence_id,),
+                source=ProducerId("test"),
+            )
+        )
+        document.fact_assessments.append(
+            FactAssessment(
+                materialized_fact_id=fact_id,
+                assessment=Assessment(
+                    score=score,
+                    positive_signals=(),
+                    negative_signals=(),
+                    scorer_id=ScorerId("test_scorer"),
+                ),
+            )
+        )
+
+    rendered = document_to_slim_json(document)
+
+    assert rendered["facts"] == [
+        {"kind": "public_role_holding", "confidence": 0.74, "role": "prezes"}
     ]
 
 
