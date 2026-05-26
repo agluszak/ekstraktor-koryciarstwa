@@ -910,10 +910,35 @@ class SyntaxPossessorSignal(PositiveSignal):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class FinancialTransactionShapeSignal(PositiveSignal):
+class StrongPossessorSignal(PositiveSignal):
     pass
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class KinshipFirstTokenCaseSignal(NegativeSignal):
+class MediumPossessorSignal(PositiveSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WeakPossessorSignal(NegativeSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class NegativePossessorSignal(NegativeSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ServiceTransactionSignal(PositiveSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GrantTransactionSignal(PositiveSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ContractDocumentSignal(PositiveSignal):
     pass

@@ -12,16 +12,18 @@ from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
     ContractCounterpartySignal,
+    ContractDocumentSignal,
     ContractorSignal,
     DirectPrepositionalAttachmentSignal,
     FactArgumentRole,
     FactKind,
-    FinancialTransactionShapeSignal,
     FundingLemmaSignal,
+    GrantTransactionSignal,
     LocalPhraseRecipientSignal,
     MoneyAmountSignal,
     NerLabel,
     PublicContractLemmaSignal,
+    ServiceTransactionSignal,
 )
 from tests_v2.materialized import (
     entity_argument,
@@ -136,6 +138,7 @@ def test_public_money_facts_are_scored_from_evidence_signals() -> None:
         MoneyAmountSignal(amount="100 tys. zł"),
         FundingLemmaSignal(lemma="dotacja"),
         LocalPhraseRecipientSignal(),
+        GrantTransactionSignal(),
     }
 
 
@@ -172,7 +175,7 @@ def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_argumen
         # Urząd Miasta is subject (no prep) → counterparty boost;
         # Alfa follows "z" → contractor boost.
         DirectPrepositionalAttachmentSignal(),
-        FinancialTransactionShapeSignal(),
+        ContractDocumentSignal(),
     }
 
 
@@ -212,11 +215,25 @@ def test_public_money_stage_infers_local_organization_phrases_when_ner_misses_pa
         "Fundacja założona przez dyrektora warszawskiego pogotowia ratunkowego Karola Bielskiego"
     )
     assert text_argument(record, "amount") == "100 tysięcy złotych"
-    assert document.store.entity_candidates[entity_argument(record, "funder")].grounding.value == (
-        "inferred"
-    )
+    funder = document.store.entity_candidates[entity_argument(record, "funder")]
+    assert funder.grounding.value == "inferred"
     recipient = document.store.entity_candidates[entity_argument(record, "recipient")]
     assert recipient.grounding.value == "inferred"
+
+
+def test_public_money_stage_overproduces_mixed_service_and_grant_shapes() -> None:
+    document = run_public_money_stage(
+        "Fundacja otrzymała 100 tys. zł dotacji za usługę promocyjną."
+    )
+
+    kinds = {record.kind for record in fact_records(document)}
+
+    assert FactKind.FUNDING in kinds
+    assert FactKind.PUBLIC_CONTRACT in kinds
+    contract = next(
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_CONTRACT
+    )
+    assert ServiceTransactionSignal() in contract.signals
 
 
 def test_compensation_scores_controller_organization_below_direct_employer() -> None:

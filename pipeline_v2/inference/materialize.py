@@ -14,7 +14,13 @@ from pipeline_v2.candidates import (
     TextFiller,
 )
 from pipeline_v2.document import ArticleDocument, FactAssessment
-from pipeline_v2.ids import EventCandidateId, FactCandidateId, ResolutionClaimId, ScorerId
+from pipeline_v2.ids import (
+    EntityCandidateId,
+    EventCandidateId,
+    FactCandidateId,
+    ResolutionClaimId,
+    ScorerId,
+)
 from pipeline_v2.inference.event_schema import RoleSpec, schema_for
 from pipeline_v2.inference.factor_builders import (
     TRUE_STATE,
@@ -146,39 +152,59 @@ class FactAssessmentMaterializer:
                     ),
                 )
             )
-        _symmetric_kinds = frozenset({FactKind.KINSHIP_TIE, FactKind.PERSONAL_OR_POLITICAL_TIE})
-        seen_pairs: set[tuple[FactKind, frozenset]] = set()
+        seen_tie_keys: set[tuple[object, ...]] = set()
         assessment_by_id = {a.materialized_fact_id: a for a in document.fact_assessments}
         deduped_records: list[FactCandidateRecord] = []
         deduped_assessments: list[FactAssessment] = []
         for record in document.materialized_fact_records:
-            if record.kind not in _symmetric_kinds:
+            tie_key = self._tie_dedup_key(record)
+            if tie_key is None:
                 deduped_records.append(record)
                 if (a := assessment_by_id.get(record.id)) is not None:
                     deduped_assessments.append(a)
                 continue
-            pair_ids = frozenset(
-                arg.entity_id
-                for arg in record.arguments
-                if isinstance(arg, EntityFactArgument)
-                and arg.role in {FactArgumentRole.SUBJECT, FactArgumentRole.OBJECT}
-            )
-            if not pair_ids:
-                deduped_records.append(record)
-                if (a := assessment_by_id.get(record.id)) is not None:
-                    deduped_assessments.append(a)
-                continue
-            key = (record.kind, pair_ids)
-            if key in seen_pairs:
+            if tie_key in seen_tie_keys:
                 document.materialized_role_alternatives.pop(record.id, None)
                 continue
-            seen_pairs.add(key)
+            seen_tie_keys.add(tie_key)
             deduped_records.append(record)
             if (a := assessment_by_id.get(record.id)) is not None:
                 deduped_assessments.append(a)
         document.materialized_fact_records = deduped_records
         document.fact_assessments = deduped_assessments
         return document
+
+    def _tie_dedup_key(self, record: FactCandidateRecord) -> tuple[object, ...] | None:
+        if record.kind not in {FactKind.KINSHIP_TIE, FactKind.PERSONAL_OR_POLITICAL_TIE}:
+            return None
+        subject = self._entity_arg(record, FactArgumentRole.SUBJECT)
+        obj = self._entity_arg(record, FactArgumentRole.OBJECT)
+        if subject is None or obj is None:
+            return None
+        detail = self._text_arg(record, FactArgumentRole.RELATIONSHIP_DETAIL)
+        if record.kind is FactKind.KINSHIP_TIE and detail in {"spouse", "sibling", "family"}:
+            return (record.kind, detail, frozenset({subject, obj}))
+        return (record.kind, detail, subject, obj)
+
+    def _entity_arg(
+        self,
+        record: FactCandidateRecord,
+        role: FactArgumentRole,
+    ) -> EntityCandidateId | None:
+        for argument in record.arguments:
+            if isinstance(argument, EntityFactArgument) and argument.role is role:
+                return argument.entity_id
+        return None
+
+    def _text_arg(
+        self,
+        record: FactCandidateRecord,
+        role: FactArgumentRole,
+    ) -> str | None:
+        for argument in record.arguments:
+            if isinstance(argument, TextFactArgument) and argument.role is role:
+                return argument.value
+        return None
 
     def _fact_projection_groups(
         self,

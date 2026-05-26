@@ -11,6 +11,7 @@ from pipeline_v2.types import (
     CandidacyContextSignal,
     CollectivePartyContextSignal,
     CompensationLemmaSignal,
+    ContractDocumentSignal,
     ControllerContextSignal,
     DependencyObjectSignal,
     DependencySubjectSignal,
@@ -22,9 +23,8 @@ from pipeline_v2.types import (
     ExplicitNonPartyContextSignal,
     ExplicitPatronageLemmaSignal,
     FactKind,
-    FinancialTransactionShapeSignal,
     FundingLemmaSignal,
-    KinshipFirstTokenCaseSignal,
+    GrantTransactionSignal,
     LocalActorSignal,
     LocalInstitutionSignal,
     LocalObjectSignal,
@@ -33,9 +33,11 @@ from pipeline_v2.types import (
     LocalRoleSignal,
     LocalSubjectSignal,
     LocalTargetSignal,
+    MediumPossessorSignal,
     MicroAmountSignal,
     MoneyAmountSignal,
     NamedKinshipLemmaSignal,
+    NegativePossessorSignal,
     NominalKinshipSignal,
     OversightInstitutionSignal,
     PartyAliasMatchSignal,
@@ -48,9 +50,12 @@ from pipeline_v2.types import (
     PublicContractLemmaSignal,
     PublicEmploymentLemmaSignal,
     RelationshipDetailSignal,
+    ServiceTransactionSignal,
     Signal,
     SignalPolarity,
+    StrongPossessorSignal,
     SyntaxPossessorSignal,
+    WeakPossessorSignal,
     WeakSyntacticBindingSignal,
     WindowFallbackSignal,
     WindowOrganizationSignal,
@@ -71,7 +76,7 @@ class FactPriorPolicy(Protocol):
 
     def base_score(self, kind: FactKind) -> float: ...
 
-    def positive_delta(self, signal: Signal) -> float: ...
+    def positive_delta(self, signal: Signal, kind: FactKind) -> float: ...
 
     def negative_delta(self, signal: Signal, kind: FactKind) -> float: ...
 
@@ -87,7 +92,7 @@ class BaseFactPriorPolicy:
         _ = kind
         return 0.2 + self.kind_bonus
 
-    def positive_delta(self, signal: Signal) -> float:
+    def positive_delta(self, signal: Signal, kind: FactKind) -> float:
         match signal:
             case MoneyAmountSignal():
                 return 0.25
@@ -157,14 +162,33 @@ class BaseFactPriorPolicy:
                 return max(0.0, 0.08 - 0.02 * distance)
             case SyntaxPossessorSignal():
                 return 0.35
-            case FinancialTransactionShapeSignal():
-                return 0.45
+            case StrongPossessorSignal():
+                return 0.35
+            case MediumPossessorSignal():
+                return 0.15
+            case ServiceTransactionSignal():
+                if kind is FactKind.PUBLIC_CONTRACT:
+                    return 0.35
+                if kind is FactKind.FUNDING:
+                    return 0.0
+            case ContractDocumentSignal():
+                if kind is FactKind.PUBLIC_CONTRACT:
+                    return 0.3
+                if kind is FactKind.FUNDING:
+                    return 0.0
+            case GrantTransactionSignal():
+                if kind is FactKind.FUNDING:
+                    return 0.3
+                if kind is FactKind.PUBLIC_CONTRACT:
+                    return 0.0
         return 0.0
 
     def negative_delta(self, signal: Signal, kind: FactKind) -> float:
         match signal:
-            case KinshipFirstTokenCaseSignal():
-                return -0.8
+            case WeakPossessorSignal():
+                return -0.35
+            case NegativePossessorSignal():
+                return -0.85
             case ExplicitNonPartyContextSignal():
                 return -1.0
             case MicroAmountSignal():
@@ -184,6 +208,15 @@ class BaseFactPriorPolicy:
                 return -0.55
             case PseudonymousSourceSignal():
                 return -0.55
+            case ServiceTransactionSignal():
+                if kind is FactKind.FUNDING:
+                    return -0.35
+            case ContractDocumentSignal():
+                if kind is FactKind.FUNDING:
+                    return -0.25
+            case GrantTransactionSignal():
+                if kind is FactKind.PUBLIC_CONTRACT:
+                    return -0.35
         return 0.0
 
 
@@ -278,7 +311,7 @@ class FactPriorPolicyRegistry:
         negative = tuple(signal for signal in signals if signal.polarity == SignalPolarity.NEGATIVE)
         score = policy.base_score(kind)
         for signal in positive:
-            score += policy.positive_delta(signal)
+            score += policy.positive_delta(signal, kind)
         for signal in negative:
             score += policy.negative_delta(signal, kind)
         return FactPrior(

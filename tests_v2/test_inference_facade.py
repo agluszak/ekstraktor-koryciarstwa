@@ -31,6 +31,10 @@ from pipeline_v2.ids import (
     SentenceId,
 )
 from pipeline_v2.inference.backend import InferenceBackend
+from pipeline_v2.inference.backends.hybrid_backend import HybridInferenceBackend
+from pipeline_v2.inference.backends.loopy_belief_propagation_backend import (
+    LoopyBeliefPropagationBackend,
+)
 from pipeline_v2.inference.backends.pgmpy_backend import PgmpyInferenceBackend
 from pipeline_v2.inference.components import InferenceComponentBuilder
 from pipeline_v2.inference.factor_builders import TRUE_STATE, FactInferenceGraphBuilder
@@ -158,7 +162,7 @@ def test_pgmpy_backend_runs_disconnected_unary_components_independently() -> Non
     assert right_marginal.probability_for(InferenceStateId("true")) == 0.9
 
 
-def test_pgmpy_backend_uses_bounded_fallback_for_large_connected_components() -> None:
+def test_hybrid_backend_uses_loopy_fallback_for_large_connected_components() -> None:
     variables = tuple(
         InferenceVariable(
             id=InferenceVariableId(f"v-{index}"),
@@ -188,15 +192,70 @@ def test_pgmpy_backend_uses_bounded_fallback_for_large_connected_components() ->
         for index in range(len(variables) - 1)
     )
 
-    result = PgmpyInferenceBackend(max_exact_state_space=1_000).run(
+    result = HybridInferenceBackend(max_exact_state_space=1_000).run(
         InferenceGraphSpec(variables=variables, factors=tuple(factors))
     )
 
     assert len(result.marginals) == len(variables)
-    assert any("bounded local marginal approximation" in d.message for d in result.diagnostics)
+    assert any(d.message == "hybrid backend mode: approximate" for d in result.diagnostics)
     first_marginal = result.marginal_for(variables[0].id)
     assert first_marginal is not None
-    assert first_marginal.probability_for(InferenceStateId("v-0:true")) == 0.8
+    assert first_marginal.probability_for(InferenceStateId("v-0:true")) == pytest.approx(0.8)
+
+
+def test_loopy_backend_preserves_pairwise_constraint_in_fallback_mode() -> None:
+    left = InferenceVariable(
+        id=InferenceVariableId("left"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("left:false"), "false"),
+            InferenceState(InferenceStateId("left:true"), "true"),
+        ),
+    )
+    right = InferenceVariable(
+        id=InferenceVariableId("right"),
+        kind=InferenceVariableKind.EVENT_ACTIVE,
+        states=(
+            InferenceState(InferenceStateId("right:false"), "false"),
+            InferenceState(InferenceStateId("right:true"), "true"),
+        ),
+    )
+    spec = InferenceGraphSpec(
+        variables=(left, right),
+        factors=(
+            InferenceFactor(
+                id=InferenceFactorId("left-prior"),
+                kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                variable_ids=(left.id,),
+                potentials=(0.1, 0.9),
+            ),
+            InferenceFactor(
+                id=InferenceFactorId("right-prior"),
+                kind=InferenceFactorKind.EVIDENCE_PRIOR,
+                variable_ids=(right.id,),
+                potentials=(0.9, 0.1),
+            ),
+            InferenceFactor(
+                id=InferenceFactorId("same-state-constraint"),
+                kind=InferenceFactorKind.CONSTRAINT,
+                variable_ids=(left.id, right.id),
+                potentials=(1.0, 0.001, 0.001, 1.0),
+            ),
+        ),
+    )
+
+    unconstrained = LoopyBeliefPropagationBackend().run(
+        InferenceGraphSpec(variables=(right,), factors=(spec.factors[1],))
+    )
+    constrained = LoopyBeliefPropagationBackend().run(spec)
+
+    unconstrained_right = unconstrained.marginal_for(right.id)
+    constrained_right = constrained.marginal_for(right.id)
+    assert unconstrained_right is not None
+    assert constrained_right is not None
+    assert constrained_right.probability_for(InferenceStateId("right:true")) > (
+        unconstrained_right.probability_for(InferenceStateId("right:true"))
+    )
 
 
 def test_pgmpy_backend_returns_uniform_marginal_for_factorless_variable() -> None:
@@ -579,7 +638,10 @@ def test_probabilistic_stage_depends_on_backend_facade() -> None:
     assert any(
         marginal.variable_id == event_variable.id for marginal in document.inference_marginals
     )
-    assert document.inference_diagnostics == []
+    assert any(
+        diagnostic.message == "inference total component count: 1"
+        for diagnostic in document.inference_diagnostics
+    )
     assert len(document.fact_assessments) == 1
     assert document.fact_assessments[0].materialized_fact_id in {
         record.id for record in document.materialized_fact_records

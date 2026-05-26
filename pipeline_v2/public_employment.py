@@ -253,9 +253,16 @@ class PublicEmploymentCandidateStage:
         syntax = SyntaxView(document.store)
         trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
         entities = retriever.entities_for_sentence(sentence)
+        role = self._select_role(entities, cue.anchor_char)
         candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         for entity in entities:
             if entity.kind is not EntityKind.PERSON:
+                continue
+            if role is not None and self._entity_is_farther_from_anchor_than_role(
+                entity,
+                role,
+                cue.anchor_char,
+            ):
                 continue
             relation = (
                 syntax.dependency_relation(
@@ -284,6 +291,8 @@ class PublicEmploymentCandidateStage:
             candidates.append((entity, (LocalPersonSignal(),)))
         if candidates:
             return self._dedupe_entity_candidates(candidates)
+        if role is not None:
+            return ()
 
         window = retriever.entities_for_sentence_window(sentence, before=3, after=0)
         people = tuple(entity for entity in window if entity.kind == EntityKind.PERSON)
@@ -297,6 +306,19 @@ class PublicEmploymentCandidateStage:
         ):
             return ()
         return ((candidate, (WindowPersonSignal(),)),)
+
+    def _entity_is_farther_from_anchor_than_role(
+        self,
+        entity: SentenceEntity,
+        role: SentenceEntity,
+        anchor_char: int,
+    ) -> bool:
+        entity_distance = min(
+            abs(entity.start_char - anchor_char),
+            abs(entity.end_char - anchor_char),
+        )
+        role_distance = min(abs(role.start_char - anchor_char), abs(role.end_char - anchor_char))
+        return role_distance < entity_distance
 
     def _hiring_authority_candidates(
         self,
@@ -1081,58 +1103,10 @@ class PublicEmploymentCandidateStage:
         sentence: Sentence,
         anchor_char: int,
     ) -> SentenceEntity | None:
-        retriever = SentenceEntityRetriever(document.store)
-        entities = retriever.entities_for_sentence(sentence)
-        role = self._select_role(entities, anchor_char)
-        if role is None or not self._has_singular_person_role(document, role.id):
-            return None
-        role_candidate = document.store.entity_candidates.get(role.id)
-        if role_candidate is None or not role_candidate.mention_ids:
-            return None
-        role_mention = document.store.mentions.get(role_candidate.mention_ids[0])
-        if role_mention is None:
-            return None
-        role_evidence = document.store.evidence.get(role_mention.evidence_id)
-        if role_evidence is None:
-            return None
-
-        evidence = EvidenceSpan(
-            id=document.store.next_evidence_id(),
-            text=role_mention.text,
-            span=role_evidence.span,
-            sentence_id=sentence.id,
-            paragraph_index=sentence.paragraph_index,
-            source=self.producer_id,
-        )
-        document.store.add_evidence(evidence)
-        mention_id = document.store.next_mention_id()
-        document.store.add_mention(
-            Mention(
-                id=mention_id,
-                text=role_mention.text,
-                kind=MentionKind.DESCRIPTOR_NOUN_PHRASE,
-                evidence_id=evidence.id,
-                sentence_id=sentence.id,
-                token_ids=role_mention.token_ids,
-                head_lemma=role_mention.head_lemma,
-            )
-        )
-        entity_id = document.store.add_entity_candidate(
-            EntityCandidate(
-                id=document.store.next_entity_candidate_id(),
-                kind=EntityKind.PERSON,
-                mention_ids=(mention_id,),
-                canonical_hint=role_mention.text,
-                grounding=GroundingKind.INFERRED,
-                source=self.producer_id,
-            )
-        )
-        return SentenceEntity(
-            id=entity_id,
-            kind=EntityKind.PERSON,
-            start_char=role_evidence.span.start_char,
-            end_char=role_evidence.span.end_char,
-        )
+        # A role descriptor such as "szefowa" is useful role/context evidence, but it is not
+        # a person identity. Keep it as role evidence instead of materializing a fake PERSON.
+        _ = document, sentence, anchor_char
+        return None
 
     def _has_singular_person_role(
         self,

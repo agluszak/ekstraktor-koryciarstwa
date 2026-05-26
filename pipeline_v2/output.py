@@ -284,6 +284,19 @@ def evidence_to_json(evidence: EvidenceSpan) -> JsonObject:
         "sentence_id": str(evidence.sentence_id) if evidence.sentence_id is not None else None,
         "paragraph_index": evidence.paragraph_index,
         "source": evidence.source,
+        "scope": (
+            {
+                "paragraph_index": evidence.scope.paragraph_index,
+                "list_block_id": (
+                    str(evidence.scope.list_block_id)
+                    if evidence.scope.list_block_id is not None
+                    else None
+                ),
+                "list_item_index": evidence.scope.list_item_index,
+            }
+            if evidence.scope is not None
+            else None
+        ),
     }
 
 

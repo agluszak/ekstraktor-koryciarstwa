@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
@@ -94,6 +95,10 @@ class ExtractionStore:
         return tuple(self.dependency_arcs_by_sentence_id.get(sentence_id, ()))
 
     def add_evidence(self, evidence: EvidenceSpan) -> EvidenceId:
+        if evidence.scope is None and evidence.sentence_id is not None:
+            sentence = self.sentences.get(evidence.sentence_id)
+            if sentence is not None:
+                evidence = replace(evidence, scope=sentence.scope)
         self.evidence[evidence.id] = evidence
         return evidence.id
 

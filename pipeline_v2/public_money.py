@@ -25,15 +25,16 @@ from pipeline_v2.types import (
     CompensationRecipientSignal,
     CompensationSourceSignal,
     ContractCounterpartySignal,
+    ContractDocumentSignal,
     ContractorSignal,
     ControllerContextSignal,
     DirectPrepositionalAttachmentSignal,
     EntityKind,
     EventRole,
     FactKind,
-    FinancialTransactionShapeSignal,
     FunderSignal,
     FundingLemmaSignal,
+    GrantTransactionSignal,
     GroundingKind,
     LocalObjectSignal,
     LocalPhraseFunderSignal,
@@ -45,6 +46,7 @@ from pipeline_v2.types import (
     PartyOrganizationSignal,
     PublicContractLemmaSignal,
     RecipientSignal,
+    ServiceTransactionSignal,
     Signal,
     WindowOrganizationSignal,
     WindowPersonSignal,
@@ -98,6 +100,11 @@ class PublicMoneyCandidateStage:
             "kupić",
         }
     )
+    _service_transaction_lemmas = frozenset(
+        {"reklama", "promocja", "obsługa", "usługa", "zlecenie"}
+    )
+    _contract_document_lemmas = frozenset({"umowa", "kontrakt", "faktura", "zamówienie"})
+    _grant_transaction_lemmas = frozenset({"dotacja", "dofinansowanie", "grant"})
     _compensation_lemmas = frozenset(
         {
             "wynagrodzenie",
@@ -136,16 +143,10 @@ class PublicMoneyCandidateStage:
                             kind,
                         )
 
-                        has_full_shape = any(
-                            src is not None and tgt is not None for src, _, tgt, _ in party_options
-                        )
-
                         event_signals: list[Signal] = [
                             MoneyAmountSignal(amount=amount_texts[0]),
                             *signals,
                         ]
-                        if has_full_shape:
-                            event_signals.append(FinancialTransactionShapeSignal())
 
                         if kind == FactKind.COMPENSATION:
                             micro = self._micro_amount_signal(amount_texts[0])
@@ -275,27 +276,41 @@ class PublicMoneyCandidateStage:
     ) -> tuple[tuple[FactKind, tuple[Signal, ...]], ...]:
         lemmas = self._sentence_lemmas(document, sentence)
         has_funding = bool(self._funding_lemmas & lemmas)
-        has_contract = bool(self._contract_lemmas & lemmas)
+        has_service_shape = bool(self._service_transaction_lemmas & lemmas)
+        has_contract_document = bool(self._contract_document_lemmas & lemmas)
+        has_grant_shape = bool(self._grant_transaction_lemmas & lemmas)
+        has_contract = bool(self._contract_lemmas & lemmas) or has_service_shape
         has_compensation = bool(self._compensation_lemmas & lemmas)
-        if has_funding and has_contract:
-            has_funding = False
         kinds = []
         if has_funding:
+            signals: list[Signal] = [
+                FundingLemmaSignal(lemma=self._matched_detail(lemmas, self._funding_lemmas))
+            ]
+            if has_grant_shape:
+                signals.append(GrantTransactionSignal())
+            if has_service_shape:
+                signals.append(ServiceTransactionSignal())
             kinds.append(
                 (
                     FactKind.FUNDING,
-                    (FundingLemmaSignal(lemma=self._matched_detail(lemmas, self._funding_lemmas)),),
+                    tuple(signals),
                 )
             )
         if has_contract:
+            contract_vocab = self._contract_lemmas | self._service_transaction_lemmas
+            signals = [
+                PublicContractLemmaSignal(lemma=self._matched_detail(lemmas, contract_vocab))
+            ]
+            if has_service_shape:
+                signals.append(ServiceTransactionSignal())
+            if has_contract_document:
+                signals.append(ContractDocumentSignal())
+            if has_grant_shape:
+                signals.append(GrantTransactionSignal())
             kinds.append(
                 (
                     FactKind.PUBLIC_CONTRACT,
-                    (
-                        PublicContractLemmaSignal(
-                            lemma=self._matched_detail(lemmas, self._contract_lemmas)
-                        ),
-                    ),
+                    tuple(signals),
                 )
             )
         if has_compensation:

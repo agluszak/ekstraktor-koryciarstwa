@@ -14,6 +14,7 @@ from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
+    EntityKind,
     FactKind,
     InferredPublicOrganizationSignal,
     LocalOrganizationSignal,
@@ -261,18 +262,21 @@ def test_public_employment_stage_handles_impersonal_passive_hiring_sentence() ->
     assert assessment.score >= 0.6
 
 
-def test_public_employment_stage_materializes_unnamed_role_holder() -> None:
+def test_public_employment_stage_keeps_unnamed_role_holder_out_of_person_slot() -> None:
     text = "Nowa szefowa marketingu zaczęła pracować na Ławicy, a stanowisko dostała bez konkursu."
     document = run_public_employment_stage(text, (location_span(text, "Ławicy"),))
 
-    record = first_fact_record(document)
-    person = document.store.entity_candidates[entity_argument(record, "person")]
+    records = tuple(
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_EMPLOYMENT
+    )
+    role_candidates = [
+        candidate
+        for candidate in document.store.entity_candidates.values()
+        if candidate.kind is EntityKind.ROLE and candidate.canonical_hint == "szefowa"
+    ]
 
-    assert record.kind is FactKind.PUBLIC_EMPLOYMENT
-    assert person.grounding.value == "inferred"
-    assert person.canonical_hint == "szefowa"
-    assert entity_hint_for_role(document, record, "role") == "szefowa"
-    assert entity_hint_for_role(document, record, "organization") == "Ławicy"
+    assert records == ()
+    assert role_candidates
 
 
 def test_public_employment_stage_does_not_resolve_feminine_descriptor_to_nearby_male_person() -> (
@@ -294,8 +298,7 @@ def test_public_employment_stage_does_not_resolve_feminine_descriptor_to_nearby_
         record for record in fact_records(document) if record.kind is FactKind.PUBLIC_EMPLOYMENT
     )
 
-    assert len(records) == 1
-    assert entity_hint_for_role(document, records[0], "person") == "szefową"
+    assert records == ()
 
 
 def test_public_employment_stage_materializes_public_org_from_samorzad_and_location() -> None:

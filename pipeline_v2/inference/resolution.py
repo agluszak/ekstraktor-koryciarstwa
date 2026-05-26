@@ -1300,24 +1300,38 @@ class ResolutionInferenceGraphBuilder:
         document: ArticleDocument,
         event_id: EventCandidateId,
     ) -> int | None:
-        for binding in document.store.argument_bindings_for_event(event_id):
-            if binding.evidence_ids:
-                evidence = document.store.evidence[binding.evidence_ids[0]]
-                if evidence.sentence_id is not None:
-                    return document.store.sentences[evidence.sentence_id].sentence_index
+        for evidence_id in self._event_location_evidence_ids(document, event_id):
+            evidence = document.store.evidence[evidence_id]
+            if evidence.sentence_id is not None:
+                return document.store.sentences[evidence.sentence_id].sentence_index
         return None
+
+    def _event_location_evidence_ids(
+        self,
+        document: ArticleDocument,
+        event_id: EventCandidateId,
+    ) -> tuple[EvidenceId, ...]:
+        event = document.store.event_candidates[event_id]
+        evidence_ids: list[EvidenceId] = []
+        if event.trigger_evidence_id is not None:
+            evidence_ids.append(event.trigger_evidence_id)
+        evidence_ids.extend(event.evidence_ids)
+        for binding in document.store.argument_bindings_for_event(event_id):
+            evidence_ids.extend(binding.evidence_ids)
+        return tuple(dict.fromkeys(evidence_ids))
 
     def _event_scope(
         self,
         document: ArticleDocument,
         event_id: EventCandidateId,
     ) -> EvidenceScope | None:
-        for binding in document.store.argument_bindings_for_event(event_id):
-            if binding.evidence_ids:
-                evidence = document.store.evidence[binding.evidence_ids[0]]
-                if evidence.sentence_id is not None:
-                    sentence = document.store.sentences[evidence.sentence_id]
-                    return sentence.scope or EvidenceScope(paragraph_index=sentence.paragraph_index)
+        for evidence_id in self._event_location_evidence_ids(document, event_id):
+            evidence = document.store.evidence[evidence_id]
+            if evidence.scope is not None:
+                return evidence.scope
+            if evidence.sentence_id is not None:
+                sentence = document.store.sentences[evidence.sentence_id]
+                return sentence.scope or EvidenceScope(paragraph_index=sentence.paragraph_index)
         return None
 
     def _events_share_strong_participant(
@@ -1349,11 +1363,19 @@ class ResolutionInferenceGraphBuilder:
                     var_id = same_entity_variable_id_by_pair.get(pair)
                     if var_id is not None:
                         proposal = entity_proposal_by_variable_id[var_id]
-                        # Only allow strong entity proposals to link events
-                        # i.e., not weak surnames or descriptors
-                        strong = any(
-                            isinstance(signal, strong_signal_types)
+                        assessment = _EntityResolutionPriorPolicy().score(proposal)
+                        has_negative_context = any(
+                            signal.polarity is SignalPolarity.NEGATIVE
+                            for signal in proposal.context_signals
+                        )
+                        has_strong_signal = any(
+                            type(signal) in strong_signal_types
                             for signal in proposal.retrieval_signals
+                        )
+                        strong = (
+                            assessment.score >= 0.75
+                            and not has_negative_context
+                            and has_strong_signal
                         )
                         if strong:
                             return True
@@ -1503,11 +1525,17 @@ class ResolutionInferenceGraphBuilder:
                 )
 
                 has_semantic = semantic_match is not None
+                strategy = self._same_event_strategy(left, right, same_entity_variable_id_by_pair)
+                has_structural_strategy = strategy in {
+                    FactResolutionStrategy.EXACT_ARGUMENTS,
+                    FactResolutionStrategy.INVERSE_CHILD_TIE,
+                }
 
-                if not has_shared_participant or not (has_proximity or has_semantic):
+                if not has_shared_participant or not (
+                    has_proximity or has_semantic or has_structural_strategy
+                ):
                     continue
 
-                strategy = self._same_event_strategy(left, right, same_entity_variable_id_by_pair)
                 if strategy is None:
                     if left.kind in {FactKind.PARTY_MEMBERSHIP, FactKind.POLITICAL_SUPPORT}:
                         continue

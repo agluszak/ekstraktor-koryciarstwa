@@ -4,11 +4,15 @@ from dataclasses import dataclass
 
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.inference.backend import InferenceBackend
-from pipeline_v2.inference.backends.pgmpy_backend import PgmpyInferenceBackend
+from pipeline_v2.inference.backends.hybrid_backend import HybridInferenceBackend
 from pipeline_v2.inference.components import BuiltInferenceComponents, InferenceComponentBuilder
 from pipeline_v2.inference.external_factors import ExternalInferenceFactorBuilder
 from pipeline_v2.inference.factor_builders import FactInferenceGraphBuilder
-from pipeline_v2.inference.graph_spec import InferenceGraphSpec, InferenceResult
+from pipeline_v2.inference.graph_spec import (
+    InferenceDiagnostic,
+    InferenceGraphSpec,
+    InferenceResult,
+)
 from pipeline_v2.inference.materialize import FactAssessmentMaterializer
 from pipeline_v2.inference.resolution import (
     ResolutionAssessmentMaterializer,
@@ -55,7 +59,7 @@ class ProbabilisticInferenceStage:
             )
         component_builder = self.component_builder or InferenceComponentBuilder()
         built_components = component_builder.build(combined_spec)
-        backend = self.backend or PgmpyInferenceBackend()
+        backend = self.backend or HybridInferenceBackend()
         result = self._run_components(backend=backend, built_components=built_components)
         resolution_materializer = self.resolution_materializer or ResolutionAssessmentMaterializer()
         document = resolution_materializer.materialize(
@@ -81,8 +85,38 @@ class ProbabilisticInferenceStage:
     ) -> InferenceResult:
         marginals = []
         diagnostics = []
+        approximate_components = 0
+        exact_components = 0
+        largest_variable_count = 0
         for component in built_components.components:
+            largest_variable_count = max(largest_variable_count, len(component.spec.variables))
             component_result = backend.run(component.spec)
             marginals.extend(component_result.marginals)
             diagnostics.extend(component_result.diagnostics)
+            used_approximate = any(
+                diagnostic.message == "hybrid backend mode: approximate"
+                for diagnostic in component_result.diagnostics
+            )
+            used_exact = any(
+                diagnostic.message == "hybrid backend mode: exact"
+                for diagnostic in component_result.diagnostics
+            )
+            if used_approximate:
+                approximate_components += 1
+            if used_exact:
+                exact_components += 1
+        diagnostics.extend(
+            (
+                InferenceDiagnostic(
+                    message=f"inference total component count: {len(built_components.components)}"
+                ),
+                InferenceDiagnostic(message=f"inference exact component count: {exact_components}"),
+                InferenceDiagnostic(
+                    message=f"inference fallback component count: {approximate_components}"
+                ),
+                InferenceDiagnostic(
+                    message=f"inference largest variable count: {largest_variable_count}"
+                ),
+            )
+        )
         return InferenceResult(marginals=tuple(marginals), diagnostics=tuple(diagnostics))

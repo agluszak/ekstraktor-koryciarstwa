@@ -125,6 +125,7 @@ def test_document_output_includes_evidence_and_materialized_facts() -> None:
             "sentence_id": "sentence-1",
             "paragraph_index": 0,
             "source": "test",
+            "scope": None,
         }
     ]
     assert rendered["stage_diagnostics"] == [

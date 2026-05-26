@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityCandidate,
@@ -17,13 +19,22 @@ from pipeline_v2.types import (
     EventRole,
     FactKind,
     GroundingKind,
-    KinshipFirstTokenCaseSignal,
+    MediumPossessorSignal,
+    NegativePossessorSignal,
     NominalKinshipSignal,
     ReferenceKind,
     RelationshipDetail,
     Signal,
+    StrongPossessorSignal,
     SyntaxPossessorSignal,
+    WeakPossessorSignal,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PossessorCandidate:
+    entity_id: EntityCandidateId
+    signals: tuple[Signal, ...]
 
 
 class NominalKinshipCandidateStage:
@@ -81,26 +92,22 @@ class NominalKinshipCandidateStage:
     ) -> None:
         token = document.store.tokens[token_id]
 
-        token_index = sentence.token_ids.index(token_id)
         signals: list[Signal] = [NominalKinshipSignal(lemma=lemma)]
 
-        if token_index == 0 and token.text and token.text[0].isupper():
-            signals.append(KinshipFirstTokenCaseSignal())
+        possessor = self._find_possessor_via_syntax(document, sentence, token_id, retriever)
 
-        possessor_id = self._find_possessor_via_syntax(document, sentence, token_id, retriever)
-        if possessor_id is not None:
-            signals.append(SyntaxPossessorSignal())
+        if possessor is None:
+            possessor = self._find_possessor_via_pronoun(document, sentence, token_id, retriever)
 
-        if possessor_id is None:
-            possessor_id = self._find_possessor_via_pronoun(document, sentence, token_id, retriever)
-
-        if possessor_id is None:
-            possessor_id = self._find_possessor_via_adjacent_entity(
+        if possessor is None:
+            possessor = self._find_possessor_via_adjacent_entity(
                 document, sentence, token, retriever
             )
 
-        if possessor_id is None:
+        if possessor is None:
             return
+        possessor_id = possessor.entity_id
+        signals.extend(possessor.signals)
 
         referent_id = self._find_referent(document, sentence, token, possessor_id, retriever)
         if referent_id is None:
@@ -209,7 +216,7 @@ class NominalKinshipCandidateStage:
         sentence: Sentence,
         kinship_token_id: TokenId,
         retriever: SentenceEntityRetriever,
-    ) -> EntityCandidateId | None:
+    ) -> PossessorCandidate | None:
         arcs = document.store.dependency_arcs_by_sentence_id.get(sentence.id, [])
         for arc in arcs:
             if arc.head_token_id == kinship_token_id and arc.relation == DependencyRelation.NMOD:
@@ -228,7 +235,14 @@ class NominalKinshipCandidateStage:
                         p.start_char <= dependent_token.span.start_char
                         and p.end_char >= dependent_token.span.end_char
                     ):
-                        return p.id
+                        strength = self._morphological_possessor_signal(document, p.id)
+                        return PossessorCandidate(
+                            p.id,
+                            (
+                                SyntaxPossessorSignal(),
+                                strength if strength is not None else MediumPossessorSignal(),
+                            ),
+                        )
         return None
 
     def _find_possessor_via_pronoun(
@@ -237,7 +251,7 @@ class NominalKinshipCandidateStage:
         sentence: Sentence,
         kinship_token_id: TokenId,
         retriever: SentenceEntityRetriever,
-    ) -> EntityCandidateId | None:
+    ) -> PossessorCandidate | None:
         token_index = sentence.token_ids.index(kinship_token_id)
         start_idx = max(0, token_index - 3)
         has_pronoun = False
@@ -260,7 +274,10 @@ class NominalKinshipCandidateStage:
         kinship_token = document.store.tokens[kinship_token_id]
         preceding = [p for p in people if p.end_char <= kinship_token.span.start_char]
         if preceding:
-            return max(preceding, key=lambda p: p.end_char).id
+            return PossessorCandidate(
+                max(preceding, key=lambda p: p.end_char).id,
+                (StrongPossessorSignal(),),
+            )
         return None
 
     def _find_possessor_via_adjacent_entity(
@@ -269,7 +286,7 @@ class NominalKinshipCandidateStage:
         sentence: Sentence,
         kinship_token: Token,
         retriever: SentenceEntityRetriever,
-    ) -> EntityCandidateId | None:
+    ) -> PossessorCandidate | None:
         people = tuple(
             e
             for e in retriever.entities_for_sentence(sentence)
@@ -282,8 +299,31 @@ class NominalKinshipCandidateStage:
             return None
         nearest = min(following, key=lambda p: p.start_char)
         if nearest.start_char - kinship_token.span.end_char < 50:
-            return nearest.id
+            signal = self._morphological_possessor_signal(document, nearest.id)
+            if signal is None:
+                signal = WeakPossessorSignal()
+            return PossessorCandidate(nearest.id, (signal,))
         return None
+
+    def _morphological_possessor_signal(
+        self,
+        document: ArticleDocument,
+        entity_id: EntityCandidateId,
+    ) -> Signal | None:
+        candidate = document.store.entity_candidates.get(entity_id)
+        if candidate is None or not candidate.mention_ids:
+            return None
+        mention = document.store.mentions.get(candidate.mention_ids[0])
+        if mention is None or not mention.token_ids:
+            return None
+        tokens = [document.store.tokens[token_id] for token_id in mention.token_ids]
+        head_token = tokens[-1]
+        cases = {analysis.case for analysis in head_token.morph if analysis.case is not None}
+        if "gen" in cases:
+            return StrongPossessorSignal()
+        if cases and "nom" in cases:
+            return NegativePossessorSignal()
+        return WeakPossessorSignal()
 
     def _find_referent(
         self,
