@@ -3,13 +3,10 @@ from __future__ import annotations
 import re
 
 from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
     EntityCandidate,
-    EntityFiller,
-    EventCandidate,
-    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter, EmittedEvent
 from pipeline_v2.event_frames import EventFrameBuilder, FrameArgumentRole
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
@@ -136,6 +133,7 @@ class PublicMoneyCandidateStage:
                         source=self.producer_id,
                     )
                     document.store.add_evidence(evidence)
+                    emitter = DomainEventEmitter(document, self.producer_id)
                     for kind, signals in kinds:
                         party_options = self._select_parties(
                             document,
@@ -152,16 +150,18 @@ class PublicMoneyCandidateStage:
                             micro = self._micro_amount_signal(amount_texts[0])
                             if micro is not None:
                                 event_signals.append(micro)
-                        event = EventCandidate(
-                            id=document.store.next_event_candidate_id(),
+                        event = emitter.event(
                             kind=kind,
                             trigger_evidence_id=evidence.id,
                             evidence_ids=(evidence.id,),
-                            source=self.producer_id,
                             signals=tuple(event_signals),
                         )
-                        document.store.add_event_candidate(event)
-                        self._add_amount_binding(document, event, amount_texts[0], evidence.id)
+                        self._add_amount_binding(
+                            emitter,
+                            event,
+                            amount_texts[0],
+                            evidence.id,
+                        )
                         for (
                             source_entity_id,
                             source_signals,
@@ -169,7 +169,7 @@ class PublicMoneyCandidateStage:
                             target_signals,
                         ) in party_options:
                             self._add_party_bindings(
-                                document=document,
+                                emitter=emitter,
                                 event=event,
                                 kind=kind,
                                 source_entity_id=source_entity_id,
@@ -183,26 +183,23 @@ class PublicMoneyCandidateStage:
 
     def _add_amount_binding(
         self,
-        document: ArticleDocument,
-        event: EventCandidate,
+        emitter: DomainEventEmitter,
+        event: EmittedEvent,
         amount_text: str,
         evidence_id: EvidenceId,
     ) -> None:
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.AMOUNT,
-                filler=TextFiller(amount_text),
-                evidence_ids=(evidence_id,),
-            )
+        emitter.bind_text(
+            event=event,
+            role=EventRole.AMOUNT,
+            value=amount_text,
+            evidence_ids=(evidence_id,),
         )
 
     def _add_party_bindings(
         self,
         *,
-        document: ArticleDocument,
-        event: EventCandidate,
+        emitter: DomainEventEmitter,
+        event: EmittedEvent,
         kind: FactKind,
         source_entity_id: EntityCandidateId | None,
         source_signals: tuple[Signal, ...],
@@ -217,26 +214,20 @@ class PublicMoneyCandidateStage:
             EventRole.CONTRACTOR if kind is FactKind.PUBLIC_CONTRACT else EventRole.RECIPIENT
         )
         if source_entity_id is not None:
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=source_role,
-                    filler=EntityFiller(source_entity_id),
-                    evidence_ids=(evidence_id,),
-                    signals=source_signals,
-                )
+            emitter.bind_entity(
+                event=event,
+                role=source_role,
+                entity_id=source_entity_id,
+                evidence_ids=(evidence_id,),
+                signals=source_signals,
             )
         if target_entity_id is not None:
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=target_role,
-                    filler=EntityFiller(target_entity_id),
-                    evidence_ids=(evidence_id,),
-                    signals=target_signals,
-                )
+            emitter.bind_entity(
+                event=event,
+                role=target_role,
+                entity_id=target_entity_id,
+                evidence_ids=(evidence_id,),
+                signals=target_signals,
             )
 
     _scale_pattern = re.compile(r"tys\.?|tysi[eę]cy|mln|milion", re.IGNORECASE)
@@ -1013,16 +1004,16 @@ class PublicMoneyCandidateStage:
             if frame is not None:
                 people = frame.entities(EntityKind.PERSON)
                 if people:
-                    event, evidence_id = self._add_sentence_event(
+                    emitter, event, evidence_id = self._add_sentence_event(
                         document,
                         sentence,
                         FactKind.ASSET_DECLARATION,
                         signals=(MoneyAmountSignal(amount=amount_texts[0]),),
                     )
-                    self._add_amount_binding(document, event, amount_texts[0], evidence_id)
+                    self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
                     for person in people:
                         self._add_entity_binding(
-                            document,
+                            emitter,
                             event,
                             EventRole.PERSON,
                             person.entity.id,
@@ -1040,7 +1031,7 @@ class PublicMoneyCandidateStage:
                         )
                     ):
                         self._add_entity_binding(
-                            document,
+                            emitter,
                             event,
                             EventRole.CONTEXT,
                             other.entity.id,
@@ -1062,15 +1053,15 @@ class PublicMoneyCandidateStage:
                 )
                 recipients = frame.entities(EntityKind.POLITICAL_PARTY, before_trigger=False)
                 if funder is not None and recipients:
-                    event, evidence_id = self._add_sentence_event(
+                    emitter, event, evidence_id = self._add_sentence_event(
                         document,
                         sentence,
                         FactKind.PARTY_DONATION,
                         signals=(MoneyAmountSignal(amount=amount_texts[0]),),
                     )
-                    self._add_amount_binding(document, event, amount_texts[0], evidence_id)
+                    self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
                     self._add_entity_binding(
-                        document,
+                        emitter,
                         event,
                         EventRole.FUNDER,
                         funder.entity.id,
@@ -1079,7 +1070,7 @@ class PublicMoneyCandidateStage:
                     )
                     for recipient in recipients:
                         self._add_entity_binding(
-                            document,
+                            emitter,
                             event,
                             EventRole.RECIPIENT,
                             recipient.entity.id,
@@ -1117,16 +1108,16 @@ class PublicMoneyCandidateStage:
                     prepositions=frozenset({"w", "we"}),
                 ) or frame.entities(EntityKind.ORGANIZATION, before_trigger=False)
                 if subject is not None and objects:
-                    event, evidence_id = self._add_sentence_event(
+                    emitter, event, evidence_id = self._add_sentence_event(
                         document,
                         sentence,
                         FactKind.CORPORATE_OWNERSHIP,
                         signals=(),
                     )
                     if amount_texts:
-                        self._add_amount_binding(document, event, amount_texts[0], evidence_id)
+                        self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
                     self._add_entity_binding(
-                        document,
+                        emitter,
                         event,
                         EventRole.SUBJECT,
                         subject.entity.id,
@@ -1137,7 +1128,7 @@ class PublicMoneyCandidateStage:
                         if obj.entity.id == subject.entity.id:
                             continue
                         self._add_entity_binding(
-                            document,
+                            emitter,
                             event,
                             EventRole.OBJECT,
                             obj.entity.id,
@@ -1146,7 +1137,7 @@ class PublicMoneyCandidateStage:
                         )
                     for role in frame.entities(EntityKind.ROLE):
                         self._add_entity_binding(
-                            document,
+                            emitter,
                             event,
                             EventRole.ROLE,
                             role.entity.id,
@@ -1161,7 +1152,7 @@ class PublicMoneyCandidateStage:
         kind: FactKind,
         *,
         signals: tuple[Signal, ...],
-    ) -> tuple[EventCandidate, EvidenceId]:
+    ) -> tuple[DomainEventEmitter, EmittedEvent, EvidenceId]:
         evidence = EvidenceSpan(
             id=document.store.next_evidence_id(),
             text=sentence.text,
@@ -1171,34 +1162,29 @@ class PublicMoneyCandidateStage:
             source=self.producer_id,
         )
         document.store.add_evidence(evidence)
-        event = EventCandidate(
-            id=document.store.next_event_candidate_id(),
+        emitter = DomainEventEmitter(document, self.producer_id)
+        event = emitter.event(
             kind=kind,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
-            source=self.producer_id,
             signals=signals,
         )
-        document.store.add_event_candidate(event)
-        return event, evidence.id
+        return emitter, event, evidence.id
 
     def _add_entity_binding(
         self,
-        document: ArticleDocument,
-        event: EventCandidate,
+        emitter: DomainEventEmitter,
+        event: EmittedEvent,
         role: EventRole,
         entity_id: EntityCandidateId,
         evidence_id: EvidenceId,
         *,
         signals: tuple[Signal, ...],
     ) -> None:
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=role,
-                filler=EntityFiller(entity_id),
-                evidence_ids=(evidence_id,),
-                signals=signals,
-            )
+        emitter.bind_entity(
+            event=event,
+            role=role,
+            entity_id=entity_id,
+            evidence_ids=(evidence_id,),
+            signals=signals,
         )

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
     EntityCandidate,
-    EntityFiller,
-    EventCandidate,
-    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter, EmittedEvent
 from pipeline_v2.entity_classification import entity_has_lexical_context_proposal
 from pipeline_v2.event_frames import EventFrame, EventFrameBuilder, FrameArgumentRole
 from pipeline_v2.ids import EntityCandidateId, ProducerId, SentenceId, TokenId
@@ -342,17 +339,16 @@ class GovernanceCandidateStage:
                     if not person_bindings:
                         continue
 
-                    event = EventCandidate(
-                        id=document.store.next_event_candidate_id(),
+                    emitter = DomainEventEmitter(document, self.producer_id)
+                    event = emitter.event(
                         kind=kind,
                         trigger_evidence_id=evidence.id,
                         evidence_ids=(evidence.id,),
-                        source=self.producer_id,
                         signals=signals,
                     )
-                    document.store.add_event_candidate(event)
                     self._add_governance_bindings(
                         document=document,
+                        emitter=emitter,
                         event=event,
                         role=EventRole.PERSON,
                         bindings=person_bindings,
@@ -360,6 +356,7 @@ class GovernanceCandidateStage:
                     )
                     self._add_governance_bindings(
                         document=document,
+                        emitter=emitter,
                         event=event,
                         role=EventRole.ACTOR,
                         bindings=actor_bindings,
@@ -367,6 +364,7 @@ class GovernanceCandidateStage:
                     )
                     self._add_governance_bindings(
                         document=document,
+                        emitter=emitter,
                         event=event,
                         role=EventRole.ORGANIZATION,
                         bindings=organization_bindings,
@@ -374,6 +372,7 @@ class GovernanceCandidateStage:
                     )
                     self._add_governance_bindings(
                         document=document,
+                        emitter=emitter,
                         event=event,
                         role=EventRole.ROLE,
                         bindings=role_bindings,
@@ -381,12 +380,14 @@ class GovernanceCandidateStage:
                     )
                     self._add_role_domain_bindings(
                         document=document,
+                        emitter=emitter,
                         event=event,
                         role_bindings=role_bindings,
                         evidence_id=evidence.id,
                     )
                     self._add_governance_bindings(
                         document=document,
+                        emitter=emitter,
                         event=event,
                         role=EventRole.CONTEXT,
                         bindings=context_bindings,
@@ -398,28 +399,27 @@ class GovernanceCandidateStage:
         self,
         *,
         document: ArticleDocument,
-        event: EventCandidate,
+        emitter: DomainEventEmitter,
+        event: EmittedEvent,
         role: EventRole,
         bindings: dict[EntityCandidateId, tuple[Signal, ...]],
         evidence_id,
     ) -> None:
         for entity_id, signals in bindings.items():
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=role,
-                    filler=EntityFiller(entity_id),
-                    evidence_ids=(evidence_id,),
-                    signals=signals,
-                )
+            emitter.bind_entity(
+                event=event,
+                role=role,
+                entity_id=entity_id,
+                evidence_ids=(evidence_id,),
+                signals=signals,
             )
 
     def _add_role_domain_bindings(
         self,
         *,
         document: ArticleDocument,
-        event: EventCandidate,
+        emitter: DomainEventEmitter,
+        event: EmittedEvent,
         role_bindings: dict[EntityCandidateId, tuple[Signal, ...]],
         evidence_id,
     ) -> None:
@@ -428,15 +428,12 @@ class GovernanceCandidateStage:
         }
         domains.discard(None)
         for domain in sorted(domains, key=lambda value: value.value):
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.ROLE_DOMAIN,
-                    filler=TextFiller(domain.value),
-                    evidence_ids=(evidence_id,),
-                    signals=(PublicRoleDomainSignal(domain=domain),),
-                )
+            emitter.bind_text(
+                event=event,
+                role=EventRole.ROLE_DOMAIN,
+                value=domain.value,
+                evidence_ids=(evidence_id,),
+                signals=(PublicRoleDomainSignal(domain=domain),),
             )
 
     def _person_binding_signals(self, signals: tuple[Signal, ...]) -> tuple[Signal, ...]:
@@ -638,18 +635,17 @@ class GovernanceCandidateStage:
             source=self.producer_id,
         )
         document.store.add_evidence(evidence)
-        event = EventCandidate(
-            id=document.store.next_event_candidate_id(),
+        emitter = DomainEventEmitter(document, self.producer_id)
+        event = emitter.event(
             kind=FactKind.PUBLIC_ROLE_HOLDING,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
-            source=self.producer_id,
             signals=(),
         )
-        document.store.add_event_candidate(event)
         for person, role in bindings:
             self._add_governance_bindings(
                 document=document,
+                emitter=emitter,
                 event=event,
                 role=EventRole.PERSON,
                 bindings={person.id: (LocalPersonSignal(),)},
@@ -657,6 +653,7 @@ class GovernanceCandidateStage:
             )
             self._add_governance_bindings(
                 document=document,
+                emitter=emitter,
                 event=event,
                 role=EventRole.ROLE,
                 bindings={role.id: (LocalRoleSignal(),)},
@@ -664,6 +661,7 @@ class GovernanceCandidateStage:
             )
             self._add_role_domain_bindings(
                 document=document,
+                emitter=emitter,
                 event=event,
                 role_bindings={role.id: (LocalRoleSignal(),)},
                 evidence_id=evidence.id,

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
     EntityCandidate,
-    EntityFiller,
-    EventCandidate,
-    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import ProducerId
 from pipeline_v2.types import (
     EntityKind,
@@ -46,44 +43,33 @@ class FamilyProxyCandidateStage:
                     source=self.producer_id,
                 )
             )
-            event = EventCandidate(
-                id=document.store.next_event_candidate_id(),
+            emitter = DomainEventEmitter(document, self.producer_id)
+            event = emitter.event(
                 kind=FactKind.KINSHIP_TIE,
                 trigger_evidence_id=reference.evidence_id,
                 evidence_ids=(reference.evidence_id,),
-                source=self.producer_id,
                 signals=(
                     ProxyFamilyEntitySignal(),
                     RelationshipDetailSignal(detail=reference.relationship_detail),
                 ),
             )
-            document.store.add_event_candidate(event)
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.SUBJECT,
-                    filler=EntityFiller(proxy_id),
-                    evidence_ids=(reference.evidence_id,),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.SUBJECT,
+                entity_id=proxy_id,
+                evidence_ids=(reference.evidence_id,),
             )
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.OBJECT,
-                    filler=EntityFiller(anchor.id),
-                    evidence_ids=(reference.evidence_id,),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.OBJECT,
+                entity_id=anchor.id,
+                evidence_ids=(reference.evidence_id,),
             )
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.RELATIONSHIP_DETAIL,
-                    filler=TextFiller(reference.relationship_detail.value),
-                    evidence_ids=(reference.evidence_id,),
-                )
+            emitter.bind_text(
+                event=event,
+                role=EventRole.RELATIONSHIP_DETAIL,
+                value=reference.relationship_detail.value,
+                evidence_ids=(reference.evidence_id,),
             )
         return document
 

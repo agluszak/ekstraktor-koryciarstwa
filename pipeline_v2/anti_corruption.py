@@ -3,13 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
-    EntityFiller,
-    EventCandidate,
-    TextFiller,
-)
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
@@ -120,6 +115,7 @@ class AntiCorruptionCandidateStage:
                 source=self.producer_id,
             )
             document.store.add_evidence(evidence)
+            emitter = DomainEventEmitter(document, self.producer_id)
             entities = retriever.entities_for_sentence(sentence)
             context_text = self._context_text(sentence)
             referral_emitted = False
@@ -146,67 +142,49 @@ class AntiCorruptionCandidateStage:
                         signals.append(LocalTargetSignal())
                     if institution_id is not None:
                         signals.append(LocalInstitutionSignal())
-                    event = EventCandidate(
-                        id=document.store.next_event_candidate_id(),
+                    event = emitter.event(
                         kind=FactKind.ANTI_CORRUPTION_REFERRAL,
                         trigger_evidence_id=evidence.id,
                         evidence_ids=(evidence.id,),
-                        source=self.producer_id,
                         signals=tuple(signals),
                     )
-                    document.store.add_event_candidate(event)
                     for actor in actors:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.COMPLAINANT,
-                                filler=EntityFiller(actor.id),
-                                evidence_ids=(evidence.id,),
-                                signals=(LocalActorSignal(),),
-                            )
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.COMPLAINANT,
+                            entity_id=actor.id,
+                            evidence_ids=(evidence.id,),
+                            signals=(LocalActorSignal(),),
                         )
                     for target in targets:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.TARGET,
-                                filler=EntityFiller(target.id),
-                                evidence_ids=(evidence.id,),
-                                signals=(LocalTargetSignal(),),
-                            )
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.TARGET,
+                            entity_id=target.id,
+                            evidence_ids=(evidence.id,),
+                            signals=(LocalTargetSignal(),),
                         )
                     if institution_id is not None:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.INSTITUTION,
-                                filler=EntityFiller(institution_id),
-                                evidence_ids=(evidence.id,),
-                                signals=(LocalInstitutionSignal(),),
-                            )
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.INSTITUTION,
+                            entity_id=institution_id,
+                            evidence_ids=(evidence.id,),
+                            signals=(LocalInstitutionSignal(),),
                         )
                     elif institution.text:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.INSTITUTION,
-                                filler=TextFiller(institution.text),
-                                evidence_ids=(evidence.id,),
-                            )
+                        emitter.bind_text(
+                            event=event,
+                            role=EventRole.INSTITUTION,
+                            value=institution.text,
+                            evidence_ids=(evidence.id,),
                         )
                     if context_text is not None:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.CONTEXT,
-                                filler=TextFiller(context_text),
-                                evidence_ids=(evidence.id,),
-                            )
+                        emitter.bind_text(
+                            event=event,
+                            role=EventRole.CONTEXT,
+                            value=context_text,
+                            evidence_ids=(evidence.id,),
                         )
             if (
                 (matched_investigation_lemmas or matched_control_request_lemmas)
@@ -249,56 +227,41 @@ class AntiCorruptionCandidateStage:
                         signals.append(LocalTargetSignal())
                     if institution_id is not None:
                         signals.append(LocalInstitutionSignal())
-                    event = EventCandidate(
-                        id=document.store.next_event_candidate_id(),
+                    event = emitter.event(
                         kind=FactKind.ANTI_CORRUPTION_INVESTIGATION,
                         trigger_evidence_id=evidence.id,
                         evidence_ids=(evidence.id,),
-                        source=self.producer_id,
                         signals=tuple(signals),
                     )
-                    document.store.add_event_candidate(event)
                     if target is not None:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.TARGET,
-                                filler=EntityFiller(target.id),
-                                evidence_ids=(evidence.id,),
-                                signals=(LocalTargetSignal(),),
-                            )
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.TARGET,
+                            entity_id=target.id,
+                            evidence_ids=(evidence.id,),
+                            signals=(LocalTargetSignal(),),
                         )
                     if institution_id is not None:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.INSTITUTION,
-                                filler=EntityFiller(institution_id),
-                                evidence_ids=(evidence.id,),
-                                signals=(LocalInstitutionSignal(),),
-                            )
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.INSTITUTION,
+                            entity_id=institution_id,
+                            evidence_ids=(evidence.id,),
+                            signals=(LocalInstitutionSignal(),),
                         )
                     elif institution.text:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.INSTITUTION,
-                                filler=TextFiller(institution.text),
-                                evidence_ids=(evidence.id,),
-                            )
+                        emitter.bind_text(
+                            event=event,
+                            role=EventRole.INSTITUTION,
+                            value=institution.text,
+                            evidence_ids=(evidence.id,),
                         )
                     if context_text is not None:
-                        document.store.add_argument_binding(
-                            ArgumentBindingCandidate(
-                                id=document.store.next_argument_binding_candidate_id(),
-                                event_id=event.id,
-                                role=EventRole.CONTEXT,
-                                filler=TextFiller(context_text),
-                                evidence_ids=(evidence.id,),
-                            )
+                        emitter.bind_text(
+                            event=event,
+                            role=EventRole.CONTEXT,
+                            value=context_text,
+                            evidence_ids=(evidence.id,),
                         )
         return document
 

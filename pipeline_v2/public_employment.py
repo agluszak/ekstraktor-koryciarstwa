@@ -3,12 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
     EntityCandidate,
-    EntityFiller,
-    EventCandidate,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
@@ -164,60 +162,46 @@ class PublicEmploymentCandidateStage:
             event_signals: list[Signal] = [PublicEmploymentLemmaSignal(lemma=cue.detail)]
             if cue.context_text is not None:
                 event_signals.append(EmploymentContractFormSignal(form=cue.context_text))
-            event = EventCandidate(
-                id=document.store.next_event_candidate_id(),
+            emitter = DomainEventEmitter(document, self.producer_id)
+            event = emitter.event(
                 kind=FactKind.PUBLIC_EMPLOYMENT,
                 trigger_evidence_id=evidence.id,
                 evidence_ids=(evidence.id,),
-                source=self.producer_id,
                 signals=tuple(event_signals),
             )
-            document.store.add_event_candidate(event)
             for employee, employee_signals in employee_candidates:
-                document.store.add_argument_binding(
-                    ArgumentBindingCandidate(
-                        id=document.store.next_argument_binding_candidate_id(),
-                        event_id=event.id,
-                        role=EventRole.EMPLOYEE,
-                        filler=EntityFiller(employee.id),
-                        evidence_ids=(evidence.id,),
-                        signals=employee_signals,
-                    )
+                emitter.bind_entity(
+                    event=event,
+                    role=EventRole.EMPLOYEE,
+                    entity_id=employee.id,
+                    evidence_ids=(evidence.id,),
+                    signals=employee_signals,
                 )
             for workplace, workplace_signals in workplace_candidates:
-                document.store.add_argument_binding(
-                    ArgumentBindingCandidate(
-                        id=document.store.next_argument_binding_candidate_id(),
-                        event_id=event.id,
-                        role=EventRole.WORKPLACE,
-                        filler=EntityFiller(workplace.id),
-                        evidence_ids=(evidence.id,),
-                        signals=workplace_signals,
-                    )
+                emitter.bind_entity(
+                    event=event,
+                    role=EventRole.WORKPLACE,
+                    entity_id=workplace.id,
+                    evidence_ids=(evidence.id,),
+                    signals=workplace_signals,
                 )
             for authority, authority_signals in self._hiring_authority_candidates(
                 document, sentence, entities
             ):
-                document.store.add_argument_binding(
-                    ArgumentBindingCandidate(
-                        id=document.store.next_argument_binding_candidate_id(),
-                        event_id=event.id,
-                        role=EventRole.HIRING_AUTHORITY,
-                        filler=EntityFiller(authority.id),
-                        evidence_ids=(evidence.id,),
-                        signals=authority_signals,
-                    )
+                emitter.bind_entity(
+                    event=event,
+                    role=EventRole.HIRING_AUTHORITY,
+                    entity_id=authority.id,
+                    evidence_ids=(evidence.id,),
+                    signals=authority_signals,
                 )
             if role is not None:
-                document.store.add_argument_binding(
-                    ArgumentBindingCandidate(
-                        id=document.store.next_argument_binding_candidate_id(),
-                        event_id=event.id,
-                        role=EventRole.ROLE,
-                        filler=EntityFiller(role.id),
-                        evidence_ids=(evidence.id,),
-                        signals=(LocalRoleSignal(),),
-                    )
+                emitter.bind_entity(
+                    event=event,
+                    role=EventRole.ROLE,
+                    entity_id=role.id,
+                    evidence_ids=(evidence.id,),
+                    signals=(LocalRoleSignal(),),
                 )
         return document
 

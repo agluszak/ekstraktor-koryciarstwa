@@ -2,13 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
-    EntityFiller,
-    EventCandidate,
-    TextFiller,
-)
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
@@ -186,52 +181,38 @@ class PersonalTieCandidateStage:
             for evidence in document.store.evidence_for_entity(object_entity.id)
             if evidence.sentence_id == sentence_id
         )
-        event = EventCandidate(
-            id=document.store.next_event_candidate_id(),
+        emitter = DomainEventEmitter(document, self.producer_id)
+        event = emitter.event(
             kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
             trigger_evidence_id=evidence_ids[0] if evidence_ids else None,
             evidence_ids=evidence_ids,
-            source=self.producer_id,
             signals=tuple(signals),
         )
-        document.store.add_event_candidate(event)
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.SUBJECT,
-                filler=EntityFiller(subject.id),
-                evidence_ids=evidence_ids,
-            )
+        emitter.bind_entity(
+            event=event,
+            role=EventRole.SUBJECT,
+            entity_id=subject.id,
+            evidence_ids=evidence_ids,
         )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.OBJECT,
-                filler=EntityFiller(object_entity.id),
-                evidence_ids=evidence_ids,
-            )
+        emitter.bind_entity(
+            event=event,
+            role=EventRole.OBJECT,
+            entity_id=object_entity.id,
+            evidence_ids=evidence_ids,
         )
         if relationship_detail is not None:
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.RELATIONSHIP_DETAIL,
-                    filler=TextFiller(relationship_detail.value),
-                    evidence_ids=evidence_ids,
-                )
+            emitter.bind_text(
+                event=event,
+                role=EventRole.RELATIONSHIP_DETAIL,
+                value=relationship_detail.value,
+                evidence_ids=evidence_ids,
             )
         if context_text is not None:
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.CONTEXT,
-                    filler=TextFiller(context_text),
-                    evidence_ids=evidence_ids,
-                )
+            emitter.bind_text(
+                event=event,
+                role=EventRole.CONTEXT,
+                value=context_text,
+                evidence_ids=evidence_ids,
             )
 
     def _add_patronage_complaint(
@@ -309,15 +290,13 @@ class PersonalTieCandidateStage:
         institution_entities: tuple[SentenceEntity, ...],
         complaint_lemma: str,
     ) -> None:
-        event = EventCandidate(
-            id=document.store.next_event_candidate_id(),
+        emitter = DomainEventEmitter(document, self.producer_id)
+        event = emitter.event(
             kind=kind,
             trigger_evidence_id=sentence_evidence_id,
             evidence_ids=evidence_ids,
-            source=self.producer_id,
             signals=shared_signals,
         )
-        document.store.add_event_candidate(event)
         for participant in participants:
             if not self._participant_supports_role(primary_left_role, participant):
                 continue
@@ -325,15 +304,12 @@ class PersonalTieCandidateStage:
                 role=primary_left_role,
                 participant=participant,
             )
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=primary_left_role,
-                    filler=EntityFiller(participant.entity.id),
-                    evidence_ids=evidence_ids,
-                    signals=left_signals,
-                )
+            emitter.bind_entity(
+                event=event,
+                role=primary_left_role,
+                entity_id=participant.entity.id,
+                evidence_ids=evidence_ids,
+                signals=left_signals,
             )
         if len(participants) >= 2:
             for participant in participants:
@@ -343,45 +319,33 @@ class PersonalTieCandidateStage:
                     role=primary_right_role,
                     participant=participant,
                 )
-                document.store.add_argument_binding(
-                    ArgumentBindingCandidate(
-                        id=document.store.next_argument_binding_candidate_id(),
-                        event_id=event.id,
-                        role=primary_right_role,
-                        filler=EntityFiller(participant.entity.id),
-                        evidence_ids=evidence_ids,
-                        signals=right_signals,
-                    )
+                emitter.bind_entity(
+                    event=event,
+                    role=primary_right_role,
+                    entity_id=participant.entity.id,
+                    evidence_ids=evidence_ids,
+                    signals=right_signals,
                 )
         for institution in institution_entities:
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.INSTITUTION,
-                    filler=EntityFiller(institution.id),
-                    evidence_ids=evidence_ids,
-                    signals=(LocalInstitutionSignal(),),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.INSTITUTION,
+                entity_id=institution.id,
+                evidence_ids=evidence_ids,
+                signals=(LocalInstitutionSignal(),),
             )
         for context_entity in context_entities:
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.CONTEXT,
-                    filler=EntityFiller(context_entity.id),
-                    evidence_ids=evidence_ids,
-                )
-            )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
+            emitter.bind_entity(
+                event=event,
                 role=EventRole.CONTEXT,
-                filler=TextFiller(complaint_lemma),
+                entity_id=context_entity.id,
                 evidence_ids=evidence_ids,
             )
+        emitter.bind_text(
+            event=event,
+            role=EventRole.CONTEXT,
+            value=complaint_lemma,
+            evidence_ids=evidence_ids,
         )
 
     def _pseudonymous_source_signal(
@@ -662,39 +626,28 @@ class PersonalTieCandidateStage:
             for evidence in document.store.evidence_for_entity(object_entity.id)
             if evidence.sentence_id == sentence_id
         )
-        event = EventCandidate(
-            id=document.store.next_event_candidate_id(),
+        emitter = DomainEventEmitter(document, self.producer_id)
+        event = emitter.event(
             kind=FactKind.KINSHIP_TIE,
             trigger_evidence_id=evidence_ids[0] if evidence_ids else None,
             evidence_ids=evidence_ids,
-            source=self.producer_id,
             signals=tuple(signals),
         )
-        document.store.add_event_candidate(event)
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.SUBJECT,
-                filler=EntityFiller(subject.id),
-                evidence_ids=evidence_ids,
-            )
+        emitter.bind_entity(
+            event=event,
+            role=EventRole.SUBJECT,
+            entity_id=subject.id,
+            evidence_ids=evidence_ids,
         )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.OBJECT,
-                filler=EntityFiller(object_entity.id),
-                evidence_ids=evidence_ids,
-            )
+        emitter.bind_entity(
+            event=event,
+            role=EventRole.OBJECT,
+            entity_id=object_entity.id,
+            evidence_ids=evidence_ids,
         )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.RELATIONSHIP_DETAIL,
-                filler=TextFiller(relationship_detail.value),
-                evidence_ids=evidence_ids,
-            )
+        emitter.bind_text(
+            event=event,
+            role=EventRole.RELATIONSHIP_DETAIL,
+            value=relationship_detail.value,
+            evidence_ids=evidence_ids,
         )

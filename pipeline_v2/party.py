@@ -4,13 +4,10 @@ import re
 from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
     EntityCandidate,
-    EntityFiller,
-    EventCandidate,
-    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.event_frames import EventFrameBuilder, FrameArgumentRole
 from pipeline_v2.ids import (
     EntityCandidateId,
@@ -224,45 +221,34 @@ class PartyCandidateStage:
                 )
                 else PartyMembershipStatus.UNKNOWN
             )
-            event = EventCandidate(
-                id=document.store.next_event_candidate_id(),
+            emitter = DomainEventEmitter(document, self.producer_id)
+            event = emitter.event(
                 kind=FactKind.PARTY_MEMBERSHIP,
                 trigger_evidence_id=evidence.id,
                 evidence_ids=(evidence.id,),
-                source=self.producer_id,
                 signals=(
                     *self._party_membership_signals(document, sentence, match),
                     PartyMembershipStatusSignal(status=status),
                 ),
             )
-            document.store.add_event_candidate(event)
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.SUBJECT,
-                    filler=EntityFiller(person.id),
-                    evidence_ids=(evidence.id,),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.SUBJECT,
+                entity_id=person.id,
+                evidence_ids=(evidence.id,),
             )
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.OBJECT,
-                    filler=EntityFiller(party_id),
-                    evidence_ids=(evidence.id,),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.OBJECT,
+                entity_id=party_id,
+                evidence_ids=(evidence.id,),
             )
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.STATUS,
-                    filler=TextFiller(status.value),
-                    evidence_ids=(evidence.id,),
-                    signals=(PartyMembershipStatusSignal(status=status),),
-                )
+            emitter.bind_text(
+                event=event,
+                role=EventRole.STATUS,
+                value=status.value,
+                evidence_ids=(evidence.id,),
+                signals=(PartyMembershipStatusSignal(status=status),),
             )
             return
 
@@ -277,32 +263,24 @@ class PartyCandidateStage:
                 signals.append(EmbeddedInOrganizationNameSignal())
 
             document.store.add_evidence(evidence)
-            event = EventCandidate(
-                id=document.store.next_event_candidate_id(),
+            emitter = DomainEventEmitter(document, self.producer_id)
+            event = emitter.event(
                 kind=FactKind.POLITICAL_SUPPORT,
                 trigger_evidence_id=evidence.id,
                 evidence_ids=(evidence.id,),
-                source=self.producer_id,
                 signals=tuple(signals),
             )
-            document.store.add_event_candidate(event)
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.SUBJECT,
-                    filler=EntityFiller(party_id),
-                    evidence_ids=(evidence.id,),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.SUBJECT,
+                entity_id=party_id,
+                evidence_ids=(evidence.id,),
             )
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.OBJECT,
-                    filler=EntityFiller(supported.id),
-                    evidence_ids=(evidence.id,),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.OBJECT,
+                entity_id=supported.id,
+                evidence_ids=(evidence.id,),
             )
 
     def _direct_affiliation_person(
@@ -688,53 +666,42 @@ class PartyCandidateStage:
         )
         document.store.add_evidence(evidence)
 
-        event = EventCandidate(
-            id=document.store.next_event_candidate_id(),
+        emitter = DomainEventEmitter(document, self.producer_id)
+        event = emitter.event(
             kind=FactKind.ELECTION_CANDIDACY,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
-            source=self.producer_id,
             signals=(CandidacyContextSignal(),),
         )
-        document.store.add_event_candidate(event)
 
         person_signal = PartyProfileLemmaSignal(
             lemma=frame.trigger.preferred_lemma() or frame.trigger.text
         )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.PERSON,
-                filler=EntityFiller(person.entity.id),
-                evidence_ids=(evidence.id,),
-                signals=(person_signal,),
-            )
+        emitter.bind_entity(
+            event=event,
+            role=EventRole.PERSON,
+            entity_id=person.entity.id,
+            evidence_ids=(evidence.id,),
+            signals=(person_signal,),
         )
         for role in frame.entities(EntityKind.ROLE):
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.ROLE,
-                    filler=EntityFiller(role.entity.id),
-                    evidence_ids=(evidence.id,),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.ROLE,
+                entity_id=role.entity.id,
+                evidence_ids=(evidence.id,),
             )
         for organization in frame.entities(
             frozenset({EntityKind.ORGANIZATION, EntityKind.POLITICAL_PARTY}),
             before_trigger=False,
             prepositions=frozenset({"z", "do", "w", "na"}),
         ):
-            document.store.add_argument_binding(
-                ArgumentBindingCandidate(
-                    id=document.store.next_argument_binding_candidate_id(),
-                    event_id=event.id,
-                    role=EventRole.ORGANIZATION,
-                    filler=EntityFiller(organization.entity.id),
-                    evidence_ids=(evidence.id,),
-                    signals=(DirectPrepositionalAttachmentSignal(),),
-                )
+            emitter.bind_entity(
+                event=event,
+                role=EventRole.ORGANIZATION,
+                entity_id=organization.entity.id,
+                evidence_ids=(evidence.id,),
+                signals=(DirectPrepositionalAttachmentSignal(),),
             )
 
 

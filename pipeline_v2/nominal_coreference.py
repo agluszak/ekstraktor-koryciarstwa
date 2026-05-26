@@ -3,13 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from pipeline_v2.candidates import (
-    ArgumentBindingCandidate,
     EntityCandidate,
-    EntityFiller,
-    EventCandidate,
-    TextFiller,
 )
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, ReferenceMention, Sentence, Token
 from pipeline_v2.retrieval import SentenceEntityRetriever
@@ -164,50 +161,36 @@ class NominalKinshipCandidateStage:
                 )
             )
 
-        event = EventCandidate(
-            id=document.store.next_event_candidate_id(),
+        emitter = DomainEventEmitter(document, self.producer_id)
+        event = emitter.event(
             kind=FactKind.KINSHIP_TIE,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
-            source=self.producer_id,
             signals=tuple(signals),
         )
-        document.store.add_event_candidate(event)
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.SUBJECT,
-                filler=EntityFiller(referent_id),
-                evidence_ids=(evidence.id,),
-            )
+        emitter.bind_entity(
+            event=event,
+            role=EventRole.SUBJECT,
+            entity_id=referent_id,
+            evidence_ids=(evidence.id,),
         )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.OBJECT,
-                filler=EntityFiller(possessor_id),
-                evidence_ids=(evidence.id,),
-            )
+        emitter.bind_entity(
+            event=event,
+            role=EventRole.OBJECT,
+            entity_id=possessor_id,
+            evidence_ids=(evidence.id,),
         )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.RELATIONSHIP_DETAIL,
-                filler=TextFiller(relationship_detail.value),
-                evidence_ids=(evidence.id,),
-            )
+        emitter.bind_text(
+            event=event,
+            role=EventRole.RELATIONSHIP_DETAIL,
+            value=relationship_detail.value,
+            evidence_ids=(evidence.id,),
         )
-        document.store.add_argument_binding(
-            ArgumentBindingCandidate(
-                id=document.store.next_argument_binding_candidate_id(),
-                event_id=event.id,
-                role=EventRole.CONTEXT,
-                filler=TextFiller(lemma),
-                evidence_ids=(evidence.id,),
-            )
+        emitter.bind_text(
+            event=event,
+            role=EventRole.CONTEXT,
+            value=lemma,
+            evidence_ids=(evidence.id,),
         )
 
     def _find_possessor_via_syntax(
