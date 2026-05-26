@@ -55,10 +55,12 @@ DEFAULT_RELEVANCE_PROFILE = RelevanceProfile(
     ),
     public_org_terms=(
         "urząd",
+        "zakład",
         "ministerstw",
         "spółk",
         "fundacj",
         "rada",
+        "radzie nadzorczej",
         "zarząd",
         "dyrektor",
         "ratusz",
@@ -75,6 +77,7 @@ DEFAULT_RELEVANCE_PROFILE = RelevanceProfile(
     ),
     appointment_terms=(
         "powoła",
+        "nadzorcz",
         "zatrudni",
         "stanowisk",
         "nominacj",

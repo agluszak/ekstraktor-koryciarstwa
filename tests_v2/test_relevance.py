@@ -46,3 +46,26 @@ def test_relevance_filter_rejects_legal_analysis_without_public_money_or_employm
     assert any(
         reason.name == "legal-analysis negative context" for reason in document.relevance.reasons
     )
+
+
+def test_relevance_filter_accepts_board_appointment_title_without_body_text() -> None:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title=(
+            "Polityk Platformy Obywatelskiej w radzie nadzorczej Zakładów Azotowych. "
+            "To były kandydat na posła"
+        ),
+        publication_date=None,
+        cleaned_text="",
+        paragraphs=(),
+    )
+
+    ProfileRelevanceFilter().run(document)
+
+    assert document.relevance is not None
+    assert document.relevance.is_relevant is True
+    assert document.relevance.score >= 0.4
+    assert any(
+        reason.name == "appointment or employment context" for reason in document.relevance.reasons
+    )
