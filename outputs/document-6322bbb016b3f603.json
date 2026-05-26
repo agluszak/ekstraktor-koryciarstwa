@@ -1,0 +1,62 @@
+{
+  "title": "Nowy zarząd Inwestycji Miejskich",
+  "url": "https://tp.com.pl/artykul/nowy-zarzad-inwestycji-miejskich-n684452",
+  "relevant": true,
+  "relevance_score": 0.7,
+  "facts": [
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Artur Biernat",
+      "organization": "PKN Orlen",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.675,
+      "person": "Mirosław Milewski",
+      "organization": "Inwestycje Miejskie"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.663,
+      "person": "Mariusz Stec",
+      "organization": "Inwestycji Miejskich",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.56,
+      "person": "Kamil Rybacki",
+      "organization": "PKN Orlen",
+      "role": "prezes",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.56,
+      "person": "Artur Biernat",
+      "organization": "PKN Orlen",
+      "role": "prezes",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.493,
+      "person": "prezesa",
+      "organization": "Urzędu Miasta",
+      "role": "rada nadzorczy",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.431,
+      "person": "Piotr Śladowski",
+      "organization": "Inwestycji Miejskich",
+      "role": "wiceprezes",
+      "role_domain": "public_company_management"
+    }
+  ]
+}

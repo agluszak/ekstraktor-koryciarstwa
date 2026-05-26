@@ -1,0 +1,123 @@
+{
+  "title": "Trzęsienie ziemi w Totalizatorze Sportowym. Prezes odwołany ze stanowiska po publikacji Onetu",
+  "url": "https://wiadomosci.onet.pl/kraj/sa-skutki-afery-ujawnionej-przez-onet-leca-glowy-na-szczytach-totalizatora/v1x1k0e",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.675,
+      "person": "Borys Budka",
+      "organization": "Totalizatora",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.655,
+      "person": "Rafała Krzemienia",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.655,
+      "person": "Prezes",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.649,
+      "person": "Krzemienia"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Sławomira Nitrasa",
+      "object": "Stanisława Gawłowskiego",
+      "context": "współpracownik"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Stanisława Gawłowskiego",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Sławomira Nitrasa",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Donaldem Tuskiem",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.573,
+      "person": "Jakub Jaworowski",
+      "organization": "Skarbu Państwa",
+      "role": "minister",
+      "role_domain": "political_office",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.56,
+      "person": "Jakub Jaworowski",
+      "role": "prezes",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.529,
+      "person": "Jaworowski",
+      "organization": "Totalizatora",
+      "role": "rad nadzorczy",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Borys Budka",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Sławomira Nitrasa",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Jakub Jaworowski",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Stanisława Gawłowskiego",
+      "role": "senator",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.233,
+      "person": "dyrektorów",
+      "organization": "Totalizatora Sportowego",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    }
+  ]
+}

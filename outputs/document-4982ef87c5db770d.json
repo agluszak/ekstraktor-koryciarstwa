@@ -1,0 +1,59 @@
+{
+  "title": "Kadrowa czystka objęła kolejną państwową spółkę. Następne zmiany niebawem",
+  "url": "https://businessinsider.com.pl/biznes/kadrowa-czystka-objela-kolejna-panstwowa-spolke-nastepne-zmiany-niebawem/v75q3s4",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Sojusz Lewicy Demokratycznej",
+      "status": "former"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Beata Kozłowska",
+      "organization": "PZU",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.658,
+      "person": "Paweł Górecki",
+      "organization": "PZU",
+      "context": "MAP"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.572,
+      "person": "Wojciecha Olejniczaka",
+      "organization": "Skarbu Państwa",
+      "role": "szef",
+      "role_domain": "institution_management",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.553,
+      "person": "Andrzeja Jarczyka",
+      "organization": "PZU"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Wojciecha Olejniczaka"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.261,
+      "person": "Marcina Kubiczy",
+      "organization": "PZU",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board",
+      "context": "Ministerstwo Aktywów Państwowych"
+    }
+  ]
+}

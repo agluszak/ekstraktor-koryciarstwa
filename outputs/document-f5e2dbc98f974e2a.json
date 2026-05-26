@@ -1,0 +1,16 @@
+{
+  "title": "Z wiceprezydenta na wiceprezesa. Jarosław Słoma w zarządzie olsztyńskich wodociągów",
+  "url": "https://olsztyn.tvp.pl/41863255/z-wiceprezydenta-na-wiceprezesa-jaroslaw-sloma-w-zarzadzie-olsztynskich-wodociagow",
+  "relevant": true,
+  "relevance_score": 0.45,
+  "facts": [
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "Jarosław Słoma",
+      "organization": "Przedsiębiorstwa Wodociągów i Kanalizacji",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    }
+  ]
+}

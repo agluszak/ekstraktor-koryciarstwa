@@ -1,0 +1,38 @@
+{
+  "title": "Bez konkursu i bez wysłuchania kandydatów. Tak nowa władza wprowadza swoich ludzi do ważnej instytucji",
+  "url": "https://wiadomosci.onet.pl/lublin/nowe-wladze-wfosigw-w-lublinie-bez-konkursu-i-bez-wysluchania-kandydatow/cpw9ltt",
+  "relevant": true,
+  "relevance_score": 0.97,
+  "facts": [
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Andrzej Kloc",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.645,
+      "person": "Andrzej Kloc",
+      "organization": "Wojewódzkim Funduszem Ochrony Środowiska i Gospodarki Wodnej w Lublinie",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.645,
+      "person": "Stanisław Mazur",
+      "organization": "Wojewódzkim Funduszem Ochrony Środowiska i Gospodarki Wodnej w Lublinie",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.404,
+      "complainant": "Andrzej Kloc",
+      "target": "Andrzej Kloc",
+      "context": "radę nadzorczą"
+    }
+  ]
+}

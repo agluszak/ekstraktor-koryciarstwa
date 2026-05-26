@@ -1,0 +1,41 @@
+{
+  "title": "\"Kolesiostwo i rozdawanie posad. Miasto umiera\". Radna PO ze Śląska pisze do premiera",
+  "url": "https://web.archive.org/web/20250427191848/https://tvn24.pl/polska/kolesiostwo-i-rozdawanie-posad-miasto-umiera-radna-po-ze-slaska-pisze-do-premiera-ra323735-ls3431831",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Bolesław Piecha",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Doroda Połedniok",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Bolesław Piecha",
+      "organization": "Senatu",
+      "role": "senator",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.649,
+      "person": "Donalda Tuska",
+      "organization": "Siemianowic Śląskich"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Jacek Guzy"
+    }
+  ]
+}

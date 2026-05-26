@@ -1,0 +1,154 @@
+{
+  "title": "Wiedza, doświadczenie i kompetencje, czyli rodzina na swoim w Opolu",
+  "url": "https://wiadomosci.wp.pl/wiedza-doswiadczenie-i-kompetencje-czyli-rodzina-na-swoim-w-opolu-7147022691576352a",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_employment",
+      "confidence": 0.763,
+      "person": "Monika Jurek",
+      "organization": "Biurze Bezpieczeństwa Urzędu Marszałkowskiego Województwa Opolskiego"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.756,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "Generalnego Opolskiego Urzędu Wojewódzkiego",
+      "role": "dyrektor"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.721,
+      "subject": "Dariusz Jurek",
+      "object": "Monika Jurek",
+      "relationship_detail": "spouse",
+      "context": "mąż"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.712,
+      "person": "Jarosław Draguć",
+      "organization": "Urzędu Wojewódzkiego",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.712,
+      "person": "Andrzej Buła",
+      "organization": "Urzędu Wojewódzkiego",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.701,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "Urzędu Wojewódzkiego",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.701,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "Generalnego Opolskiego Urzędu Wojewódzkiego",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Agnieszki Królikowskiej",
+      "object": "Szymona Ogłazy",
+      "relationship_detail": "spouse",
+      "context": "partnerka"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.688,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "województwa opolskiego"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.663,
+      "person": "Monika Jurek",
+      "organization": "OUW",
+      "role": "wojewoda",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.642,
+      "person": "Szymona Ogłazy",
+      "organization": "urzędzie"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.639,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "OUW",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.625,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "urzędu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.596,
+      "person": "Agnieszki Królikowskiej",
+      "role": "wojewoda",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.579,
+      "person": "Monika Jurek",
+      "organization": "OUW",
+      "role": "wojewoda",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.557,
+      "person": "Szymona Ogłazy",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Monika Jurek",
+      "role": "wojewoda",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Jurek",
+      "role": "wojewoda",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.513,
+      "person": "Szymona Ogłazy",
+      "organization": "Urząd",
+      "role": "marszałek"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.444,
+      "complainant": "Monika Jurek",
+      "target": "Monika Jurek",
+      "institution": "Generalnego Urzędu",
+      "context": "Dyrektora"
+    }
+  ]
+}

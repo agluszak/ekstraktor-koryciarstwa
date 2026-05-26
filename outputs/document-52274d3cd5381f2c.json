@@ -1,0 +1,55 @@
+{
+  "title": "Hotelarz Rząsowski: Robota w spółce podległej MON dla radnego powiatowego. Nowy zaciąg tłustych kotów?",
+  "url": "https://radomszczanska.pl/artykul/nowy-zaciag-tlustych-n1256470",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.718,
+      "person": "Marek Rząsowski",
+      "organization": "AMW Rewita",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "Mirella Zugaj",
+      "object": "Radka Zugaja",
+      "relationship_detail": "spouse",
+      "context": "żona"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marek Rząsowski",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.682,
+      "person": "Marku",
+      "organization": "starostwu"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.66,
+      "recipient": "Marek Rząsowski",
+      "amount": "24 tys. zł"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Marek Rząsowski",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Jacka Łęskiego"
+    }
+  ]
+}

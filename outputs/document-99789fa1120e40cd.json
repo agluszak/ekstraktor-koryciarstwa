@@ -1,0 +1,110 @@
+{
+  "title": "Nepotyzm w Bytomiu? Radni reprezentujący PIS zapowiedzieli, że złożą zawiadomienie do CBA o możliwości popełnienia przestępstwa",
+  "url": "https://web.archive.org/web/20230923073103/https://dziennikzachodni.pl/nepotyzm-w-bytomiu-radni-reprezentujacy-pis-zapowiedzieli-ze-zloza-zawiadomienie-do-cba-o-mozliwosci-popelnienia-przestepstwa/ar/c1-16375383",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "anti_corruption_referral",
+      "confidence": 0.711,
+      "complainant": "PIS",
+      "institution": "CBA"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.7,
+      "person": "Mirosław Luks",
+      "organization": "Urzędu Miejskiego w Bytomiu",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "anti_corruption_referral",
+      "confidence": 0.678,
+      "institution": "CBA"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.651,
+      "person": "Macieja Bartkowa",
+      "organization": "spółek"
+    },
+    {
+      "kind": "public_contract",
+      "confidence": 0.649,
+      "counterparty": "Wnuk Consulting",
+      "contractor": "PEC",
+      "amount": "397 496,95 zł"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Mariuszem Wołoszem",
+      "object": "Macieja Bartkowa",
+      "relationship_detail": "spouse"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Macieja Bartkowa",
+      "object": "Mariuszem Wołoszem",
+      "context": "związany"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.597,
+      "person": "Wnuk Consulting",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.597,
+      "person": "Bartłomieja Wnuka",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "anti_corruption_referral",
+      "confidence": 0.591,
+      "complainant": "Prawo i Sprawiedliwość",
+      "institution": "CBA",
+      "context": "w sprawie złożenia zawiadomienia do CBA, choć z pewnymi perturbacjami, finalnie doszła do skutku"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.566,
+      "person": "Macieja Bartkowa",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "anti_corruption_referral",
+      "confidence": 0.549,
+      "complainant": "Macieja Bartkowa",
+      "target": "Przedsiębiorstwie Energetyki Cieplnej Sp.",
+      "institution": "CBA"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Robert Rabus",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Mariusz Janas",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.489,
+      "subject": "Bytomski",
+      "object": "Bytomski",
+      "context": "związany"
+    }
+  ]
+}

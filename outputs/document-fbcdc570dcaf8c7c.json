@@ -1,0 +1,159 @@
+{
+  "title": "Odpartyjnienie rad nadzorczych? \"Nie tak miało być, wygląda to bardzo źle\"",
+  "url": "https://wiadomosci.wp.pl/odpartyjnienie-rad-nadzorczych-nie-tak-mialo-byc-wyglada-to-bardzo-zle-6996280410176160a",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "party_membership",
+      "confidence": 0.754,
+      "subject": "Szymon Hołownia",
+      "object": "Polska 2050",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marek Papuga",
+      "object": "Sojusz Lewicy Demokratycznej",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marek Papuga",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Ewy Patalas",
+      "object": "Polska 2050",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.674,
+      "person": "Szymon Hołownia",
+      "organization": "Sejmie",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.652,
+      "funder": "Wirtualnej Polski",
+      "recipient": "Krzysztof Izdebski",
+      "amount": "8 tys. zł"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.644,
+      "person": "Paweł Marciniak",
+      "organization": "Sejmu",
+      "role": "marszałek",
+      "role_domain": "political_office",
+      "context": "Ministerstwo Klimatu i Środowiska"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.644,
+      "person": "Szymon Hołownia",
+      "organization": "Sejmu",
+      "role": "marszałek",
+      "role_domain": "political_office",
+      "context": "Ministerstwo Klimatu i Środowiska"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.624,
+      "person": "Paweł Pudłowski",
+      "organization": "Wirtualnej Polski",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Paweł Marciniak",
+      "object": "Szymon Hołownia",
+      "context": "człowiek"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.613,
+      "person": "Hołownia",
+      "organization": "Sejmie",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.605,
+      "person": "Szymon Hołownia",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Krzysztofa Pałki",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.597,
+      "person": "Szymon Hołownia",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Szymon Hołownia",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.567,
+      "person": "Mariola Rzepka",
+      "organization": "Narodowy Funduszu Ochrony Środowiska i Gospodarki Wodnej",
+      "role": "minister",
+      "role_domain": "political_office",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.567,
+      "person": "Paulinę Hennig-Kloskę",
+      "organization": "Narodowy Funduszu Ochrony Środowiska i Gospodarki Wodnej",
+      "role": "minister",
+      "role_domain": "political_office",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Emilii Wasielewskiej",
+      "role": "radna",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Olgierd Geblewicz",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Paulinę Hennig-Kloskę",
+      "role": "minister",
+      "role_domain": "political_office"
+    }
+  ]
+}

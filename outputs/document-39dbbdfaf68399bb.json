@@ -1,0 +1,78 @@
+{
+  "title": "Pensja 30 tys. zł brutto. Tak zarabiają prezesi warszawskich spółek miejskich",
+  "url": "https://wiadomosci.wp.pl/warszawa/pensja-30-tys-zl-brutto-tak-zarabiaja-prezesi-warszawskich-spolek-miejskich-7283597240129600a",
+  "relevant": true,
+  "relevance_score": 0.84,
+  "facts": [
+    {
+      "kind": "funding",
+      "confidence": 0.739,
+      "amount": "86,5 tysiąca złotych"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.739,
+      "amount": "72,2 tysiąca złotych"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.708,
+      "funder": "Tramwajów Warszawskich",
+      "amount": "35 tysięcy złotych"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.708,
+      "funder": "MPO",
+      "amount": "29,4 tysiąca złotych"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.708,
+      "funder": "MPWiK",
+      "amount": "420 tysięcy złotych"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.708,
+      "funder": "Miejskich Zakładach Autobusowych i Metrze Warszawskim",
+      "amount": "30 tys. zł"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.702,
+      "funder": "Tramwajów Warszawskich",
+      "amount": "92,6 tysiąca złotych"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.702,
+      "funder": "Miejskich Zakładach Autobusowych i Metrze Warszawskim",
+      "amount": "100 tys. zł"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.702,
+      "funder": "MPO",
+      "amount": "352,8 tysiąca złotych"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.702,
+      "funder": "MPWiK",
+      "amount": "72,2 tysiąca złotych"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.698,
+      "recipient": "spółek transportowych",
+      "amount": "100 tys. zł"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.698,
+      "funder": "spółek transportowych",
+      "amount": "100 tys. zł"
+    }
+  ]
+}

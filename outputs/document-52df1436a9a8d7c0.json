@@ -1,0 +1,274 @@
+{
+  "title": "Żona posła PiS odnalazła się w Lublinie. Była \"ofiarą\" uchwały o nepotyzmie",
+  "url": "https://wiadomosci.wp.pl/zona-posla-pis-odnalazla-sie-w-lublinie-byla-ofiara-uchwaly-o-nepotyzmie-7273798906222848a",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "party_membership",
+      "confidence": 0.754,
+      "subject": "Krzysztofa Sobolewskiego",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "former"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "Sylwii Sobolewskiej",
+      "object": "Krzysztofa Sobolewskiego",
+      "relationship_detail": "spouse",
+      "context": "żona"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Przemysław Czarnek",
+      "object": "Krzysztofa Sobolewskiego",
+      "relationship_detail": "spouse",
+      "context": "żona"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Grzegorz Schreiber",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "former"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Iwonie Koperskiej",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.661,
+      "person": "Grzegorz Schreiber",
+      "organization": "urzędzie"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Krzysztofa Sobolewskiego",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.655,
+      "person": "Krzysztofa Sobolewskiego",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.642,
+      "person": "Krzysztofa Sobolewskiego",
+      "organization": "Spółka Lubelskie",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.642,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Spółka Lubelskie",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.631,
+      "funder": "Przedsiębiorstwie Gospodarki Komunalnej w Kamieniu Pomorskim",
+      "recipient": "Sylwii Sobolewskiej",
+      "amount": "niemal pół miliona złotych"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.631,
+      "person": "Jarosława Kaczyńskiego",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Mateuszem Morawieckim",
+      "object": "Krzysztofa Sobolewskiego",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Krzysztofa Sobolewskiego",
+      "object": "Jarosława Kaczyńskiego",
+      "context": "współpracownik"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.614,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Orlenie",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Krzysztofa Sobolewskiego",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Sylwii Sobolewskiej",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.593,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Lubelskich Kolei",
+      "role": "rada nadzorczy",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.584,
+      "person": "Paweł Majewski",
+      "organization": "Lotosu",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.58,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Przedsiębiorstwie Gospodarki Komunalnej w Kamieniu Pomorskim",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.564,
+      "person": "Jarosława Kaczyńskiego",
+      "organization": "Skarbu Państwa",
+      "role": "poseł",
+      "role_domain": "political_office",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.564,
+      "person": "Krzysztofa Sobolewskiego",
+      "organization": "Skarbu Państwa",
+      "role": "poseł",
+      "role_domain": "political_office",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "asset_declaration",
+      "confidence": 0.548,
+      "person": "Sylwii Sobolewskiej",
+      "amount": "niemal pół miliona złotych"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.529,
+      "person": "Krzysztofa Sobolewskiego",
+      "organization": "Lubelskie Koleje",
+      "role": "marszałek",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.529,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Lubelskie Koleje",
+      "role": "marszałek",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Łukasza Smółki",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Krzysztofa Sobolewskiego",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Stawiarski",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Sylwii Sobolewskiej",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.483,
+      "person": "Łukasza Smółki",
+      "organization": "Lubelskich Kolei",
+      "role": "rad nadzorczy",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.483,
+      "person": "Mariolę Duraj-Majdę",
+      "organization": "Lubelskich Kolei",
+      "role": "rad nadzorczy",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.483,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Lubelskich Kolei",
+      "role": "rad nadzorczy",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Przemysław Czarnek"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.464,
+      "complainant": "Iwonie Koperskiej",
+      "target": "Iwonie Koperskiej",
+      "institution": "PiS"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.434,
+      "person": "Łukasz Jakubowski",
+      "organization": "PKP CARGO",
+      "role": "członek zarząd",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.282,
+      "funder": "Lubelskie Koleje",
+      "amount": "2,3 tys. zł"
+    }
+  ]
+}

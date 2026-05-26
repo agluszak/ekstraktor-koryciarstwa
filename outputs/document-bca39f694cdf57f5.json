@@ -1,0 +1,54 @@
+{
+  "title": "Radna powiatowa z posadą prezesa państwowej spółki. A. Góralczyk odpowiadać będzie za stadninę koni pełnej krwi angielskiej",
+  "url": "/pl/12_biznes/16076_radna-powiatowa-z-posada-zmiana-prezesa-slynnej-panstwowej-stadniny-koni.html",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Przemysław Pacia",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.655,
+      "person": "Przemysław Pacia",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Góralczyk",
+      "object": "A.",
+      "context": "związany"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.576,
+      "person": "Góralczyk",
+      "organization": "Kościelnej Wsi",
+      "role": "prezes",
+      "role_domain": "public_company_management",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.576,
+      "person": "A.",
+      "organization": "Kościelnej Wsi",
+      "role": "prezes",
+      "role_domain": "public_company_management",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.382,
+      "complainant": "A.",
+      "target": "A.",
+      "context": "Radna"
+    }
+  ]
+}

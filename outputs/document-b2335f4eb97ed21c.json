@@ -1,0 +1,226 @@
+{
+  "title": "Bez konkursu i bez wysłuchania kandydatów. Tak nowa władza wprowadza swoich ludzi do ważnej instytucji",
+  "url": "https://wiadomosci.onet.pl/lublin/nowe-wladze-wfosigw-w-lublinie-bez-konkursu-i-bez-wysluchania-kandydatow/cpw9ltt",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "funding",
+      "confidence": 0.884,
+      "amount": "milionami złotych"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.754,
+      "subject": "Andrzeja Kloca",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.754,
+      "subject": "Stanisława Mazura",
+      "object": "Lewica",
+      "status": "unknown"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.708,
+      "funder": "WFOŚiGW",
+      "amount": "kilkudziesięciu tysięcy złotych"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.704,
+      "person": "Pauliny Hennig-Kloski",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Grzegorzem Czelejem",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.684,
+      "person": "Stanisława Mazura",
+      "organization": "WFOŚiGW",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "Stanisława Mazura",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.667,
+      "person": "Andrzeja Kloca",
+      "organization": "Urzędzie Marszałkowskim Województwa Lubelskiego"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.658,
+      "person": "Anna Glijer",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.658,
+      "person": "Michał Marciniak",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.658,
+      "person": "Lucjan Orgasiński",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.658,
+      "person": "Piotr Bogusz",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.655,
+      "person": "prezes",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.653,
+      "person": "Annę Pokwapisz",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "wiceprezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.653,
+      "person": "Agnieszkę Kruk",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.625,
+      "person": "Andrzeja Kloca",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Jerzy Szwaj",
+      "object": "Anna Glijer",
+      "context": "człowiek"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Jerzy Szwaj",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.597,
+      "person": "Andrzeja Kloca",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.593,
+      "person": "Stanisława Mazura",
+      "organization": "WFOŚiGW",
+      "role": "prezes",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.56,
+      "person": "Piotr Bogusz",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.557,
+      "person": "Jarosław Stawiarski",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.531,
+      "person": "Jarosław Stawiarski",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Stanisława Mazura",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Anna Glijer",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Remigiusz Małecki"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Hennig-Kloska"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.476,
+      "subject": "Pauliny Hennig-Kloski",
+      "institution": "Koalicji 15 Października",
+      "context": "Koalicji 15 Października"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.467,
+      "complainant": "Pauliny Hennig-Kloski",
+      "institution": "Koalicji 15 Października",
+      "context": "Koalicji 15 Października"
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "title": "Miliony złotych od państwa na „pajęczynę” o. Rydzyka. Liczymy pieniądze, pokazujemy zdjęcia z drona",
+  "url": "https://oko.press/miliony-pajeczyna-rydzyka",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "funding",
+      "confidence": 0.814,
+      "funder": "Narodowego Instytutu Wolności",
+      "amount": "520 tys. zł"
+    },
+    {
+      "kind": "public_contract",
+      "confidence": 0.785,
+      "counterparty": "Jastrzębska Spółka Węglowa",
+      "amount": "200 tysięcy złotych"
+    },
+    {
+      "kind": "public_contract",
+      "confidence": 0.755,
+      "counterparty": "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Toruniu",
+      "contractor": "Lux Veritatis",
+      "amount": "300 tys. zł"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.739,
+      "amount": "520 tys. zł"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.708,
+      "funder": "Fundacji Lux Veritatis",
+      "amount": "5 mln zł"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "córka of Zbigniewa Ziobro",
+      "object": "Zbigniewa Ziobro",
+      "relationship_detail": "child",
+      "context": "córka"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.58,
+      "funder": "Lux Veritatis",
+      "recipient": "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Toruniu",
+      "amount": "300 tys. zł"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.552,
+      "funder": "Fundacja KGHM",
+      "recipient": "Rydzyka",
+      "amount": "200 tys. zł"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.545,
+      "funder": "Fundacji Lux Veritatis, że 100 tys. zł",
+      "recipient": "Jastrzębskie Zakłady Remontowe",
+      "amount": "100 tys. zł"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.51,
+      "person": "Zbigniewa Ziobro",
+      "organization": "WFOŚiGW w Toruniu",
+      "role": "prezes",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.51,
+      "person": "Ireneusz Stachowiak",
+      "organization": "WFOŚiGW w Toruniu",
+      "role": "prezes",
+      "role_domain": "other_public_role"
+    }
+  ]
+}

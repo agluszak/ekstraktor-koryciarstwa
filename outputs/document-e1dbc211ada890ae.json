@@ -1,0 +1,68 @@
+{
+  "title": "Posady współpracowników Klicha",
+  "url": "https://www.rp.pl/polityka/art15805981-posady-wspolpracownikow-klicha",
+  "relevant": true,
+  "relevance_score": 0.6,
+  "facts": [
+    {
+      "kind": "public_employment",
+      "confidence": 0.667,
+      "person": "Bogdana Klicha",
+      "organization": "Wojskowej Agencji Mieszkaniowej"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.639,
+      "person": "Marcin Dulian",
+      "organization": "Grupy Hoteli",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.633,
+      "person": "Jarosław Hodura",
+      "organization": "Hodura",
+      "role": "zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.632,
+      "person": "Krzysztof Kuczmański",
+      "organization": "Przedsiębiorstwa Usług Hotelarskich i Turystycznych",
+      "role": "prezes",
+      "role_domain": "public_company_management",
+      "context": "MON"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Bogdana Klicha",
+      "object": "Marcin Dulian",
+      "context": "przyjaciel"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Bogdana Klicha",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.515,
+      "complainant": "Marcin Dulian",
+      "target": "Marcin Dulian",
+      "institution": "Grupy Hoteli"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.445,
+      "complainant": "Krzysztof Kuczmański",
+      "target": "Krzysztof Kuczmański",
+      "institution": "MON",
+      "context": "szefowi"
+    }
+  ]
+}

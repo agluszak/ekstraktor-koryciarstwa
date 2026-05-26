@@ -1,0 +1,96 @@
+{
+  "title": "24 LATA I JUŻ ZOSTAŁA WICEPREZESKĄ ELEKTROCIEPŁOWNI W SKIERNIEWICACH. TAKIE KARIERY TYLKO Z PSL?",
+  "url": null,
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "Urszula Bury",
+      "object": "Jana Burego",
+      "relationship_detail": "spouse",
+      "context": "żona"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "brat of Jarosława Kalinowskiego",
+      "object": "Jarosława Kalinowskiego",
+      "relationship_detail": "sibling",
+      "context": "brat"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Eugeniusza Kłopotka",
+      "object": "Stanisława Żelichowskiego",
+      "relationship_detail": "child",
+      "context": "syn"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Stanisława Żelichowskiego",
+      "object": "Eugeniusza Kłopotka",
+      "relationship_detail": "sibling",
+      "context": "brat"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Lucjan Ograsiński",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.684,
+      "person": "Jana Burego",
+      "organization": "Agencji Rynku Rolnego",
+      "role": "sekretarz"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.637,
+      "person": "Jacek Śmietanko",
+      "organization": "Elewarru",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.626,
+      "person": "Adam Kalinowski",
+      "organization": "Elewarr"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Lucjan Ograsiński",
+      "object": "Mariusz Suchecki",
+      "context": "związany"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Mariusz Suchecki",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Lucjan Ograsiński",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.476,
+      "person": "Paweł Bejda",
+      "role": "rada nadzorczy",
+      "role_domain": "other_public_role"
+    }
+  ]
+}

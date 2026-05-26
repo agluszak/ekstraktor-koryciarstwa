@@ -1,0 +1,57 @@
+{
+  "title": "Czy wójt ukrywa nepotyzm?",
+  "url": "https://ai42.pl/2024/08/04/czy-wojt-ukrywa-nepotyzm/",
+  "relevant": true,
+  "relevance_score": 0.95,
+  "facts": [
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.72,
+      "person": "Arturem Sosną",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "Rafała Dobosza",
+      "object": "Arturem Sosną",
+      "relationship_detail": "family",
+      "context": "kuzyn"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "kuzyn of Sosna",
+      "object": "Arturem Sosną",
+      "relationship_detail": "family",
+      "context": "kuzyn"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.688,
+      "person": "Rafała Dobosza",
+      "organization": "gminy"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.67,
+      "person": "Rafała Dobosza",
+      "organization": "samorządzie",
+      "role": "pomoc administracyjny"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Rafała Dobosza",
+      "object": "Arturem Sosną",
+      "context": "współpracownik"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.564,
+      "person": "Rafała Dobosza",
+      "organization": "urzędzie"
+    }
+  ]
+}

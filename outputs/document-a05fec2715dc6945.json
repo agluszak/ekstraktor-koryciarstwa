@@ -1,0 +1,226 @@
+{
+  "title": "Dwa dni i trzy umowy dla żony sekretarza urzędu miasta",
+  "url": "https://wiadomosci.wp.pl/dwa-dni-i-trzy-umowy-dla-zony-sekretarza-urzedu-miasta-7138977147599616a",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "compensation",
+      "confidence": 0.734,
+      "funder": "Janczarek",
+      "amount": "10 189,50 zł"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.709,
+      "subject": "Agnieszka Bebel",
+      "institution": "Miejskiego Ośrodka Pomocy Społecznej"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "Łukasza Skokowskiego",
+      "object": "Magdaleny Skokowskiej",
+      "relationship_detail": "spouse",
+      "context": "mąż"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.698,
+      "complainant": "Agnieszka Bebel",
+      "institution": "Miejskiego Ośrodka Pomocy Społecznej"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.697,
+      "person": "Michała Stawiarskiego",
+      "organization": "MOSiR w Kraśniku",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Wojciechem Wilkiem",
+      "object": "Razem",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Wojciechem Wilkiem",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.679,
+      "person": "Magdaleny Skokowskiej",
+      "organization": "Urzędu Miasta",
+      "role": "sekretarz"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.675,
+      "person": "Agnieszka Bebel",
+      "organization": "Miejskiego Ośrodka Pomocy Społecznej"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.675,
+      "person": "Magdaleny Skokowskiej",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.675,
+      "person": "Agnieszka Bebel",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.675,
+      "person": "Agnieszka Bebel",
+      "organization": "MOSiR"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.675,
+      "person": "Michała Stawiarskiego",
+      "organization": "MOSiR"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.665,
+      "person": "Łukasza Skokowskiego",
+      "organization": "Urzędu Miasta",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.665,
+      "person": "Magdaleny Skokowskiej",
+      "organization": "Urzędu Miasta",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.663,
+      "person": "Łukasza Skokowskiego",
+      "organization": "Urzędowi Miasta Kraśnik",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Krzysztofa Starucha",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Magdaleny Skokowskiej",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.646,
+      "person": "Agnieszkę",
+      "organization": "MOPS",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.642,
+      "person": "Krzysztofa Starucha",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.631,
+      "person": "Agnieszka Bebel",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.631,
+      "person": "Agnieszka Bebel",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Krzysztofa Starucha",
+      "object": "Agnieszka Bebel",
+      "context": "rozdawać"
+    },
+    {
+      "kind": "political_support",
+      "confidence": 0.575,
+      "subject": "Prawo i Sprawiedliwość",
+      "object": "Krzysztofa Starucha"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Wojciechem Wilkiem",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Piotra Janczarka",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Michała Stawiarskiego",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Jarosław Stawiarski",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Krzysztofa Starucha"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.438,
+      "subject": "Krzysztofa Starucha",
+      "object": "Agnieszka Bebel",
+      "context": "burmistrzem"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.429,
+      "complainant": "Krzysztofa Starucha",
+      "target": "Agnieszka Bebel",
+      "context": "burmistrzem"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.428,
+      "complainant": "Wojciechem Wilkiem",
+      "target": "Wojciechem Wilkiem",
+      "context": "Razem"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "title": "Sprawdzili zarobki prezesów przedsiębiorstw wodociągowych w największych miastach. Ile zarabia prezes WodKanu w Olsztynie?",
+  "url": null,
+  "relevant": true,
+  "relevance_score": 0.64,
+  "facts": [
+    {
+      "kind": "compensation",
+      "confidence": 0.699,
+      "funder": "Przedsiębiorstwa Wodociągów i Kanalizacji w Olsztynie",
+      "recipient": "Wiesława Pancera",
+      "amount": "322 030,80 zł"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.691,
+      "funder": "Przedsiębiorstwa Wodociągów i Kanalizacji w Olsztynie",
+      "recipient": "Wiesława Pancera",
+      "amount": "182 tys. zł"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.631,
+      "person": "prezes",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.337,
+      "funder": "Stowarzyszenie Przyjazne Kielce",
+      "recipient": "Wiesława Pancera",
+      "amount": "1,88 zł"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.282,
+      "recipient": "Henryka Milcarza",
+      "amount": "2,53 zł"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.282,
+      "recipient": "prezesa",
+      "amount": "3,33 zł"
+    }
+  ]
+}

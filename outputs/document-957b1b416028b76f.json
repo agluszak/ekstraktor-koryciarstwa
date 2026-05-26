@@ -1,0 +1,70 @@
+{
+  "title": "Lubczyk dalej ciągnie kasę z Sejmu. Ale są lepsi od niego",
+  "url": "https://wiadomosci.wp.pl/lubczyk-dalej-ciagnie-kase-z-sejmu-ale-sa-lepsi-od-niego-6998874649205248a",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "compensation",
+      "confidence": 0.734,
+      "funder": "Sejmu",
+      "amount": "778 tys. zł"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.704,
+      "person": "niezawodowy",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Anna-Maria Żukowska",
+      "object": "Lewica",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.638,
+      "person": "Lubczyk",
+      "organization": "Sejmu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Radosławie Lubczyku",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Katarzyna Karpa-Świderek",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Lubczyk",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Szymon Hołownia",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.205,
+      "person": "polityk",
+      "organization": "Sejmu",
+      "role": "senator",
+      "role_domain": "political_office"
+    }
+  ]
+}

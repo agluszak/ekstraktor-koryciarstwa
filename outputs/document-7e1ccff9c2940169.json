@@ -1,0 +1,151 @@
+{
+  "title": "Bardzo rodzinne starostwo… - Interwencja",
+  "url": "https://interwencja.polsatnews.pl/reportaz/2013-11-29/bardzo-rodzinne-starostwo_1329791/",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_employment",
+      "confidence": 0.739,
+      "person": "syn of Jakub Mieszko",
+      "organization": "unijnego"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.704,
+      "person": "Ciechanowski",
+      "role": "starosta",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "mąż of Joanna Pszczółkowska",
+      "object": "Joanna Pszczółkowska",
+      "relationship_detail": "spouse",
+      "context": "mąż"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "syn of Roman",
+      "object": "Roman",
+      "relationship_detail": "child",
+      "context": "syn"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.696,
+      "person": "mąż of Joanna Pszczółkowska",
+      "organization": "starostwu"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "mąż of Joanna Pszczółkowska",
+      "organization": "Powiatowym Centrum Pomocy Rodzinie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Anna Karaś",
+      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "Joanna Pszczółkowska",
+      "organization": "Powiatowym Centrum Pomocy Rodzinie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.678,
+      "person": "Joanna Pszczółkowska",
+      "organization": "unijnego",
+      "role": "sekretarz"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.655,
+      "person": "Jakub Mieszko",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.655,
+      "person": "syn of Jakub Mieszko",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Sławomir Morawski",
+      "role": "starosta",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.655,
+      "person": "Joanna Pszczółkowska",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.623,
+      "subject": "Bartosz",
+      "object": "Joanna Pszczółkowska",
+      "relationship_detail": "child",
+      "context": "syn"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "mąż of Joanna Pszczółkowska",
+      "object": "Joanna Pszczółkowska",
+      "context": "posada"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.61,
+      "person": "Joanna Pszczółkowska",
+      "organization": "Powiatowym Centrum Pomocy Rodzinie"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.538,
+      "person": "Józef Borkowski",
+      "role": "zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.497,
+      "person": "syn of Roman",
+      "organization": "Tygodnika"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.432,
+      "complainant": "Bartosz",
+      "target": "Bartosz",
+      "context": "konkurs"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.39,
+      "complainant": "mąż of Joanna Pszczółkowska",
+      "target": "mąż of Joanna Pszczółkowska",
+      "institution": "starostwu",
+      "context": "sekretarzem"
+    }
+  ]
+}

@@ -1,0 +1,359 @@
+{
+  "title": "Partyjny desant na Totalizator Sportowy. Polityczni działacze dostali lukratywne stanowiska",
+  "url": "https://wiadomosci.onet.pl/kraj/partyjny-desant-na-totalizator-sportowy-oni-dostali-lukratywne-stanowiska/7nvq01b",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_employment",
+      "confidence": 0.726,
+      "person": "szefami",
+      "organization": "Lublinie",
+      "role": "szef"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.708,
+      "funder": "Totalizatora Sportowego",
+      "amount": "345 tys. zł"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.707,
+      "person": "Michała Małeckiego",
+      "role": "członek zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.702,
+      "funder": "Totalizator Sportowy",
+      "amount": "20 tys. zł"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.688,
+      "person": "Michała Małeckiego",
+      "organization": "powiatu piotrkowskiego"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Stanisława Gawłowskiego",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Remigiuszowi Zagórskiemu",
+      "object": "Lewica",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Sławomir Czwal",
+      "object": "Koalicja Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Karol Wilczyński",
+      "object": "Koalicja Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marcin Posadzy",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Tomasz Lutak",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "former"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Sławomir Rybicki",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Magdalena Sekuła",
+      "organization": "Ergo Areną",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Tomasz Lutak",
+      "organization": "TS",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Szymon Osowski",
+      "organization": "Sieci Obywatelskiej Watchdog Polska",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Bartosz Piech",
+      "organization": "Totalizatora Sportowego w Lublinie",
+      "role": "szef",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "Adamem Sekułą",
+      "organization": "Totalizatora",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.663,
+      "person": "Sławomir Czwal",
+      "organization": "Suwerennej Polski",
+      "role": "radny",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.655,
+      "person": "Michała Małeckiego",
+      "role": "członek zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.655,
+      "person": "Olgierd Cieślik",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.655,
+      "person": "Paweł Siedlecki",
+      "role": "szef",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.652,
+      "person": "Sławomir Czwal",
+      "organization": "Google"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.649,
+      "person": "szefowie",
+      "organization": "Katowicach"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.649,
+      "person": "Sławomir Czwal"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.637,
+      "person": "Sebastian Nowaczkiewicz",
+      "organization": "Nowin",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.636,
+      "person": "Michała Małeckiego",
+      "organization": "Agencji Restrukturyzacji i Modernizacji Rolnictwa"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.624,
+      "funder": "Skarbu Państwa",
+      "amount": "353 mln zł"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.619,
+      "person": "Anny Makarewicz",
+      "organization": "Onetowi",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.619,
+      "person": "Stanisława Gawłowskiego",
+      "organization": "Onetowi",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.619,
+      "person": "Anny Makarewicz",
+      "organization": "Onetowi",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.619,
+      "person": "Stanisława Gawłowskiego",
+      "organization": "Onetowi",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Magdalena Sekuła",
+      "object": "Adamem Sekułą",
+      "context": "związany"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.613,
+      "person": "dyrektora",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.607,
+      "person": "Stanisława Gawłowskiego",
+      "role": "senator",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.607,
+      "person": "Stanisława Gawłowskiego",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.606,
+      "person": "Rafał Krzemień",
+      "organization": "Totalizatora",
+      "role": "zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.6,
+      "person": "Sławomir Czwal",
+      "organization": "TS"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Sławomir Czwal",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.593,
+      "person": "Karol Wilczyński",
+      "organization": "Totalizatora Sportowego",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.592,
+      "person": "Stanisława Gawłowskiego",
+      "organization": "Ministerstwo Sportu",
+      "role": "dyrektor",
+      "role_domain": "institution_management",
+      "context": "Ministerstwo Sportu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.57,
+      "person": "Stanisława Gawłowskiego",
+      "organization": "Totalizatorze Sportowym",
+      "role": "poseł",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.57,
+      "person": "Anny Makarewicz",
+      "organization": "Totalizatorze Sportowym",
+      "role": "poseł",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Jacek Karnowski",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Stanisława Gawłowskiego",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.519,
+      "person": "Sławomir Czwal",
+      "role": "prezes",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Tomasz Lutak"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.451,
+      "subject": "partner of Donaldem Tuskiem",
+      "object": "Stanisława Gawłowskiego",
+      "institution": "Platformy Obywatelskiej",
+      "context": "Platformy Obywatelskiej"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.444,
+      "complainant": "partner of Donaldem Tuskiem",
+      "target": "partner of Donaldem Tuskiem",
+      "institution": "Platformy Obywatelskiej",
+      "context": "Platformy Obywatelskiej"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.274,
+      "subject": "partner of Donaldem Tuskiem",
+      "object": "Stanisława Gawłowskiego",
+      "relationship_detail": "spouse",
+      "context": "partner"
+    }
+  ]
+}

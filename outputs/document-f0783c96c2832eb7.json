@@ -1,0 +1,338 @@
+{
+  "title": "Znajoma ministra, brat wiceministra. Tak PSL obsadził państwową spółkę",
+  "url": "https://wiadomosci.onet.pl/kraj/tak-psl-obsadzil-panstwowa-spolke-prace-dostal-min-29-letni-brat-wiceministra/ezt8y9t",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.721,
+      "subject": "narzeczony of Dariusza Klimczaka",
+      "object": "Dariusza Klimczaka",
+      "relationship_detail": "spouse",
+      "context": "narzeczony"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.708,
+      "funder": "PKP",
+      "amount": "53 mln zł"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Miłosz Wojnarowski",
+      "object": "Konrada Wojnarowskiego",
+      "relationship_detail": "sibling",
+      "context": "brat"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Mikołajowi Grzybowi",
+      "object": "Andrzeja Grzyba",
+      "relationship_detail": "child",
+      "context": "syn"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Piotra Smogorzewskiego",
+      "object": "Romana Smogorzewskiego",
+      "relationship_detail": "sibling",
+      "context": "brat"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "Marta Giermasińska",
+      "object": "Dariusza Klimczaka",
+      "relationship_detail": "spouse",
+      "context": "narzeczony"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Andrzeja Grzyba",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Romana Smogorzewskiego",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Jan Grabiec",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Jolantę Sobczyk",
+      "object": "Trzecia Droga",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Piotra Smogorzewskiego",
+      "organization": "Natura Tour",
+      "role": "członek zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.684,
+      "person": "Dariusza Klimczaka",
+      "organization": "PKP",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "Jolantę Sobczyk",
+      "organization": "PKP",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "Miłosz Wojnarowski",
+      "organization": "Natura Tour",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.684,
+      "person": "Dariusza Klimczaka",
+      "organization": "PKP",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.663,
+      "person": "Wojnarowskich",
+      "organization": "Natura Tour",
+      "role": "członek zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Piotra Smogorzewskiego",
+      "role": "prezydent",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Dariusza Klimczaka",
+      "role": "wiceprezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.655,
+      "person": "Krzysztof Jażdżyk",
+      "role": "prezydent",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.655,
+      "person": "Piotra Smogorzewskiego",
+      "role": "członek zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.655,
+      "person": "Jolantę Sobczyk",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Krzysztof Jażdżyk",
+      "object": "Dariusza Klimczaka",
+      "relationship_detail": "spouse"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.645,
+      "person": "Dariusza Klimczaka",
+      "organization": "PKP",
+      "role": "wiceszef",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.631,
+      "person": "Andrzej Melon",
+      "role": "rad",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.631,
+      "person": "Piotra Smogorzewskiego",
+      "role": "członek zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.631,
+      "person": "Piotra Smogorzewskiego",
+      "role": "członek zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.625,
+      "person": "Jolantę Sobczyk",
+      "organization": "Gminnego Centrum Kultury, Rekreacji i",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.622,
+      "person": "Piotra Smogorzewskiego",
+      "organization": "Natura Tour",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.622,
+      "person": "Jolantę Sobczyk",
+      "organization": "Natura Tour",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Krzysztof Jażdżyk",
+      "object": "Marta Giermasińska",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Andrzej Melon",
+      "object": "Krzysztof Jażdżyk",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Jolantę Sobczyk",
+      "object": "Dariusza Klimczaka",
+      "context": "znajomy"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.597,
+      "person": "Dariusza Klimczaka",
+      "role": "wiceszef",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.597,
+      "person": "członkiem",
+      "role": "wiceprezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.544,
+      "person": "Krzysztof Jażdżyk"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.544,
+      "person": "Wojciechem Brzeskim"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.544,
+      "person": "Dariusza Klimczaka"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.544,
+      "person": "Jan Grabiec"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Dariusza Klimczaka",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Jolantę Sobczyk",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.515,
+      "complainant": "Jolantę Sobczyk",
+      "target": "Jolantę Sobczyk",
+      "institution": "PKP"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.489,
+      "subject": "Wojnarowskich",
+      "object": "Wojnarowskim",
+      "context": "związany"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Wojciechem Brzeskim"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Piotra Smogorzewskiego"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.465,
+      "person": "Wojciechem Brzeskim",
+      "role": "radny",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.46,
+      "complainant": "Adama Struzika",
+      "target": "Adama Struzika",
+      "institution": "Departamentu Zdrowia i Polityki Społecznej w mazowieckim"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.277,
+      "funder": "PKP",
+      "amount": "3,7 tys. zł"
+    }
+  ]
+}

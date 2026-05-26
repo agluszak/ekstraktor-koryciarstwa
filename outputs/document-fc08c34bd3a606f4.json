@@ -1,0 +1,141 @@
+{
+  "title": "Rafał Trzaskowski wyrzucił go za hejterstwo. Teraz odnalazł się w spółce Skarbu Państwa",
+  "url": "https://wiadomosci.onet.pl/tylko-w-onecie/rafal-trzaskowski-wyrzucil-go-za-hejterstwo-marcin-kopania-odnalazl-sie-w-phn/3zp8m3y",
+  "relevant": true,
+  "relevance_score": 0.95,
+  "facts": [
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "Marcina Kopanię",
+      "object": "Bartosz Kopania",
+      "relationship_detail": "sibling",
+      "context": "brat"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.692,
+      "person": "Kopani",
+      "organization": "Polskiego Holdingu Nieruchomości"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.692,
+      "person": "Marcina Kopanię",
+      "organization": "PHN"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.692,
+      "person": "Malicki",
+      "organization": "Szpitala Bródnowskiego"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.692,
+      "person": "Roberta Kropiwnickiego",
+      "organization": "Totalizatora"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.687,
+      "person": "Bartosz Kopania",
+      "organization": "Totalizatora Sportowego"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marcina Kopanię",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.684,
+      "person": "Marcina Kopanię",
+      "organization": "Miejskiego Przedsiębiorstwa Realizacji Inwestycji",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_contract",
+      "confidence": 0.68,
+      "contractor": "Bartosz Kopania",
+      "amount": "100 tys. zł"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.663,
+      "person": "Wiesław Malicki",
+      "organization": "PHN",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.659,
+      "person": "Krzysztofa Gołąba",
+      "organization": "PHN",
+      "role": "zarząd",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.649,
+      "person": "Krzysztofa Gołąba",
+      "organization": "warszawskiej"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.615,
+      "person": "Marcina Kopanię",
+      "organization": "Skarbu Państwa Polskim Holdingu Nieruchomości",
+      "role": "prezes",
+      "role_domain": "public_company_management",
+      "context": "Skarbu Państwa Polskim Holdingu Nieruchomości"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.615,
+      "person": "Rafała Trzaskowskiego",
+      "organization": "Skarbu Państwa Polskim Holdingu Nieruchomości",
+      "role": "prezes",
+      "role_domain": "public_company_management",
+      "context": "Skarbu Państwa Polskim Holdingu Nieruchomości"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Szymon Gawryszczak",
+      "object": "Roberta Kropiwnickiego",
+      "context": "znajomy"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Rafała Trzaskowskiego",
+      "object": "Magdalenie Biejat",
+      "context": "człowiek"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.572,
+      "person": "Przemysław Wipler",
+      "organization": "Warszawy"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.489,
+      "subject": "Wiesław Malicki",
+      "object": "Malicki",
+      "context": "współpracownik"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.412,
+      "complainant": "Szymon Gawryszczak",
+      "target": "Szymon Gawryszczak",
+      "institution": "Totalizatora"
+    }
+  ]
+}

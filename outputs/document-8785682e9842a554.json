@@ -1,0 +1,43 @@
+{
+  "title": "\"Adam Struzik chroni swoich\". Chcą kontroli umów w urzędzie",
+  "url": "https://tvn24.pl/tvnwarszawa/srodmiescie/warszawa-100-tysiecy-z-urzedu-dla-fundacji-dyrektora-pogotowia-razem-chce-kontroli-st8987644",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.704,
+      "person": "Adam Struzik",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "funding",
+      "confidence": 0.699,
+      "funder": "urzędu marszałkowskiego",
+      "recipient": "fundacja założona przez dyrektora warszawskiego pogotowia ratunkowego Karola Bielskiego",
+      "amount": "100 tysięcy złotych"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marcelina Zawisza",
+      "object": "Razem",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Adam Struzik",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "Marcelina Zawisza",
+      "role": "posłanka",
+      "role_domain": "political_office"
+    }
+  ]
+}

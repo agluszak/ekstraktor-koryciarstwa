@@ -1,0 +1,122 @@
+{
+  "title": "Kontrowersje wokół wójta Charsznicy. Tak pracę dostała jego partnerka. Tomasz Kościelniak zaprzecza zarzutom",
+  "url": "https://web.archive.org/web/20260422220715/https://dziennikpolski24.pl/kontrowersje-wokol-wojta-charsznicy-tak-prace-dostala-jego-partnerka-tomasz-koscielniak-zaprzecza-zarzutom/ar/c1p2-28656825",
+  "relevant": true,
+  "relevance_score": 1.0,
+  "facts": [
+    {
+      "kind": "public_employment",
+      "confidence": 0.756,
+      "person": "dziewczyna of Tomasz Kościelniak",
+      "organization": "urzędzie",
+      "role": "ekodoradca"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.749,
+      "person": "teść of Tomasz Kościelniak",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "pracownik gospodarczy"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "dziewczyna of Tomasz Kościelniak",
+      "object": "Tomasza Kościelniaka",
+      "relationship_detail": "spouse",
+      "context": "dziewczyna"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.704,
+      "person": "Tomasza Kościelniaka",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "teść of Tomasz Kościelniak",
+      "object": "Tomasza Kościelniaka",
+      "relationship_detail": "family",
+      "context": "teść"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.685,
+      "person": "Tomasza Kościelniaka",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.685,
+      "person": "Jan Kowalski",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.685,
+      "person": "dziewczyna of Tomasz Kościelniak",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Paweł Janicki",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.593,
+      "person": "Paweł Janicki",
+      "organization": "Gminnego Ośrodka Kultury",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.593,
+      "person": "Szymon Kubit",
+      "organization": "Gminnego Ośrodka Kultury",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.52,
+      "person": "teść of Tomasz Kościelniak",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Tomasza Kościelniaka"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Szymon Kubit"
+    },
+    {
+      "kind": "election_candidacy",
+      "confidence": 0.48,
+      "person": "Jan Żebrak"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.363,
+      "complainant": "Tomasza Kościelniaka",
+      "target": "Tomasza Kościelniaka",
+      "institution": "Urzędzie Stanu Cywilnego",
+      "context": "wójtem"
+    }
+  ]
+}
