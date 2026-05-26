@@ -58,6 +58,17 @@ ORGANIZATION_DESCRIPTOR_LEMMAS: Final[frozenset[str]] = frozenset(
     }
 )
 
+ORGANIZATION_SUFFIX_TOKENS: Final[frozenset[str]] = frozenset(
+    {
+        "OFE",
+        "S.A.",
+        "SA",
+        "SKA",
+        "Sp.",
+        "z.o.o.",
+    }
+)
+
 
 def is_role_title_lemma(lemma: str | None) -> bool:
     if not lemma:
@@ -69,3 +80,9 @@ def is_organization_descriptor_lemma(lemma: str | None) -> bool:
     if not lemma:
         return False
     return lemma.lower() in ORGANIZATION_DESCRIPTOR_LEMMAS
+
+
+def is_organization_suffix_token(text: str | None) -> bool:
+    if not text:
+        return False
+    return text in ORGANIZATION_SUFFIX_TOKENS

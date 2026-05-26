@@ -845,6 +845,11 @@ class WeakSyntacticBindingSignal(NegativeSignal):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ImplausiblePersonBindingSignal(NegativeSignal):
+    pass
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class AppointerContextSignal(NegativeSignal):
     role_lemma: str
 

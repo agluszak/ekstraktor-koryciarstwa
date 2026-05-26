@@ -132,7 +132,7 @@ class AntiCorruptionCandidateStage:
                     ):
                         continue
                     referral_emitted = True
-                    actors, target = self._select_actors_and_target(entities, institution)
+                    actors, targets = self._select_actors_and_targets(entities, institution)
                     institution_id = self._institution_entity_id(document, sentence, institution)
                     signals: list[Signal] = [
                         AntiCorruptionReferralLemmaSignal(
@@ -142,7 +142,7 @@ class AntiCorruptionCandidateStage:
                     ]
                     if actors:
                         signals.append(LocalActorSignal())
-                    if target is not None:
+                    if targets:
                         signals.append(LocalTargetSignal())
                     if institution_id is not None:
                         signals.append(LocalInstitutionSignal())
@@ -166,7 +166,7 @@ class AntiCorruptionCandidateStage:
                                 signals=(LocalActorSignal(),),
                             )
                         )
-                    if target is not None:
+                    for target in targets:
                         document.store.add_argument_binding(
                             ArgumentBindingCandidate(
                                 id=document.store.next_argument_binding_candidate_id(),
@@ -362,11 +362,11 @@ class AntiCorruptionCandidateStage:
     def _has_reporting_lemma(self, lemmas: frozenset[str]) -> bool:
         return bool(lemmas & self._reporting_lemmas)
 
-    def _select_actors_and_target(
+    def _select_actors_and_targets(
         self,
         entities: tuple[SentenceEntity, ...],
         institution: InstitutionMatch,
-    ) -> tuple[tuple[SentenceEntity, ...], SentenceEntity | None]:
+    ) -> tuple[tuple[SentenceEntity, ...], tuple[SentenceEntity, ...]]:
         actors: list[SentenceEntity] = []
         party_actor = self._nearest_preceding_entity(
             entities,
@@ -382,14 +382,15 @@ class AntiCorruptionCandidateStage:
         )
         if named_actor is not None and all(actor.id != named_actor.id for actor in actors):
             actors.append(named_actor)
-        target = self._nearest_following_entity(
-            entities,
-            institution.span.end_char,
-            kinds=frozenset({EntityKind.PERSON, EntityKind.ORGANIZATION}),
+        actor_ids = frozenset(actor.id for actor in actors)
+        targets = tuple(
+            entity
+            for entity in entities
+            if entity.kind in {EntityKind.PERSON, EntityKind.ORGANIZATION}
+            and entity.start_char >= institution.span.end_char
+            and entity.id not in actor_ids
         )
-        if target is not None and any(actor.id == target.id for actor in actors):
-            target = None
-        return tuple(actors), target
+        return tuple(actors), targets
 
     def _select_investigation_target(
         self,

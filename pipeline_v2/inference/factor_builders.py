@@ -34,6 +34,7 @@ from pipeline_v2.types import (
     EventRole,
     FactKind,
     GroundingKind,
+    ImplausiblePersonBindingSignal,
     LocalActorSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
@@ -168,6 +169,7 @@ class BindingSignalWeightPolicy:
                 WeakSyntacticBindingSignal()
                 | AppointerContextSignal()
                 | ControllerContextSignal()
+                | ImplausiblePersonBindingSignal()
                 | PartyOrganizationSignal()
                 | SelfTieContradictionSignal()
             ):
@@ -552,6 +554,13 @@ class FactInferenceGraphBuilder:
                     pass
 
             if is_compatible:
+                if self._has_implausible_person_signal(state.signals) and role_variable.role in {
+                    EventRole.EMPLOYEE,
+                    EventRole.PERSON,
+                    EventRole.SUBJECT,
+                    EventRole.OBJECT,
+                }:
+                    is_compatible = False
                 has_party_signal = self._has_party_organization_signal(state.signals)
                 if has_party_signal and role_variable.role in {
                     EventRole.WORKPLACE,
@@ -725,6 +734,15 @@ class FactInferenceGraphBuilder:
         for signal in signals:
             match signal:
                 case PartyOrganizationSignal():
+                    return True
+                case _:
+                    continue
+        return False
+
+    def _has_implausible_person_signal(self, signals: tuple[Signal, ...]) -> bool:
+        for signal in signals:
+            match signal:
+                case ImplausiblePersonBindingSignal():
                     return True
                 case _:
                     continue

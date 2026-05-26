@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
-from pipeline_v2.candidates import EntityFiller
+from pipeline_v2.candidates import ArgumentBindingCandidate, EntityFiller
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId
+from pipeline_v2.ids import DocumentId, EntityCandidateId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
@@ -167,6 +167,32 @@ def test_anti_corruption_stage_keeps_person_and_party_complainant_candidates() -
     )
 
 
+def test_anti_corruption_stage_keeps_competing_target_candidates() -> None:
+    text = "Radni PiS złożyli zawiadomienie do CBA w sprawie spółki Wodkan i Jana Nowaka."
+    document = run_anti_corruption_pipeline(
+        text,
+        (
+            organization_span(text, "CBA"),
+            organization_span(text, "Wodkan"),
+            person_span(text, "Jana Nowaka"),
+        ),
+    )
+
+    referral_event = next(
+        event
+        for event in document.store.event_candidates.values()
+        if event.kind is FactKind.ANTI_CORRUPTION_REFERRAL
+    )
+    target_hints = {
+        document.store.entity_candidates[entity_id].canonical_hint
+        for binding in document.store.argument_bindings_for_event(referral_event.id)
+        if binding.role is EventRole.TARGET
+        for entity_id in _entity_filler_ids(binding)
+    }
+
+    assert target_hints == {"Wodkan", "Jana Nowaka"}
+
+
 def test_anti_corruption_stage_emits_impersonal_referral_to_prosecutor() -> None:
     text = "Sprawę skierowano do prokuratury po kontroli w urzędzie."
     document = run_anti_corruption_pipeline(text)
@@ -204,6 +230,14 @@ def test_anti_corruption_stage_merges_repeated_referral_restatements() -> None:
     assert entity_hint_for_role(document, referral_records[0], "institution") == "CBA"
     assert "complainant" in argument_roles(referral_records[0])
     assert document.materialized_fact_alternatives[referral_records[0].id]
+
+
+def _entity_filler_ids(binding: ArgumentBindingCandidate) -> tuple[EntityCandidateId, ...]:
+    match binding.filler:
+        case EntityFiller(entity_id=entity_id):
+            return (entity_id,)
+        case _:
+            return ()
 
 
 def test_anti_corruption_stage_does_not_merge_distinct_referral_contexts() -> None:

@@ -24,6 +24,7 @@ from pipeline_v2.types import (
     EventRole,
     FactKind,
     GroundingKind,
+    ImplausiblePersonBindingSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
@@ -442,7 +443,12 @@ class GovernanceCandidateStage:
         filtered: list[Signal] = []
         for signal in signals:
             match signal:
-                case LocalPersonSignal() | WindowPersonSignal() | WeakSyntacticBindingSignal():
+                case (
+                    LocalPersonSignal()
+                    | WindowPersonSignal()
+                    | WeakSyntacticBindingSignal()
+                    | ImplausiblePersonBindingSignal()
+                ):
                     filtered.append(signal)
         return tuple(filtered)
 
@@ -988,10 +994,10 @@ class GovernanceCandidateStage:
 
         syntax = SyntaxView(document.store)
         for person, p_signals in people:
-            if self._is_implausible_person_candidate(document, person.id):
-                continue
-            person_is_window_only = person.id not in local_people_ids
             person_negative_signals: list[Signal] = []
+            if self._is_implausible_person_candidate(document, person.id):
+                person_negative_signals.append(ImplausiblePersonBindingSignal())
+            person_is_window_only = person.id not in local_people_ids
             # Exclude appointer (nominative subject in active sentence with appointment lemma)
             trigger_token = syntax.first_token_with_lemmas(sentence, self._appointment_lemmas)
             if trigger_token is not None and not person_is_window_only:

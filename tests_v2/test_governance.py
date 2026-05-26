@@ -32,6 +32,7 @@ from pipeline_v2.types import (
     EntityTag,
     EventRole,
     FactKind,
+    ImplausiblePersonBindingSignal,
     LocalOrganizationSignal,
     LocalPersonSignal,
     LocalRoleSignal,
@@ -574,6 +575,49 @@ def test_governance_stage_rejects_org_like_person_noise() -> None:
         if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
     }
     assert "Allianza OFE" not in governance_people
+    allianz_entity = next(
+        entity
+        for entity in document.store.entity_candidates.values()
+        if entity.canonical_hint == "Allianza OFE"
+    )
+    assert allianz_entity.kind is EntityKind.ORGANIZATION
+
+
+def test_governance_stage_keeps_implausible_person_candidate_as_suppressed_alternative() -> None:
+    text = "PAP Kowalski został powołany do rady nadzorczej PZU."
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="PAP Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("PAP Kowalski"), text.index("PAP Kowalski") + 12),
+            ),
+            NamedEntitySpan(
+                text="PZU",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("PZU"), text.index("PZU") + 3),
+            ),
+        ),
+    )
+
+    governance_people = {
+        entity_hint_for_role(document, record, "person")
+        for record in fact_records(document)
+        if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
+    }
+    assert "PAP Kowalski" not in governance_people
+    implausible_entity = next(
+        entity
+        for entity in document.store.entity_candidates.values()
+        if entity.canonical_hint == "PAP Kowalski"
+    )
+    assert any(
+        _binding_targets_entity(binding, implausible_entity.id)
+        and ImplausiblePersonBindingSignal() in binding.signals
+        for bindings in document.store.argument_bindings_by_event_id.values()
+        for binding in bindings
+    )
 
 
 def _has_entity_hint(

@@ -7,7 +7,11 @@ import spacy
 from spacy.language import Language
 
 from pipeline_v2.candidates import EntityCandidate, FullPersonNameKey
-from pipeline_v2.catalogues import is_organization_descriptor_lemma, is_role_title_lemma
+from pipeline_v2.catalogues import (
+    is_organization_descriptor_lemma,
+    is_organization_suffix_token,
+    is_role_title_lemma,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
     MentionId,
@@ -98,6 +102,8 @@ class NamedEntityCandidateStage:
                     sentence_id,
                     token_ids[0],
                 ):
+                    entity_kind = EntityKind.ORGANIZATION
+                elif self._has_organization_suffix_token(document, token_ids):
                     entity_kind = EntityKind.ORGANIZATION
                 elif len(token_ids) == 1 and is_media_outlet_name(entity_span.text):
                     entity_kind = EntityKind.ORGANIZATION
@@ -211,6 +217,16 @@ class NamedEntityCandidateStage:
             if is_organization_descriptor_lemma(previous_lemma):
                 return True
         return False
+
+    def _has_organization_suffix_token(
+        self,
+        document: ArticleDocument,
+        token_ids: tuple[TokenId, ...],
+    ) -> bool:
+        return any(
+            is_organization_suffix_token(document.store.tokens[token_id].text)
+            for token_id in token_ids
+        )
 
     def _split_person_title_prefix(
         self,
