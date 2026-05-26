@@ -1443,6 +1443,38 @@ class ResolutionInferenceGraphBuilder:
                 if left.kind is not right.kind:
                     continue
 
+                stable_strategy = self._stable_party_membership_strategy(
+                    left=left,
+                    right=right,
+                    same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+                )
+                if stable_strategy is not None:
+                    proposals.append(
+                        SameEventProposal(
+                            left_event_id=left_event_id,
+                            right_event_id=right_event_id,
+                            strategy=stable_strategy,
+                            fact_proposal=FactResolutionProposal(
+                                left_fact_id=fact_id_by_event_id[left_event_id],
+                                right_fact_id=fact_id_by_event_id[right_event_id],
+                                relation=ResolutionRelation.SAME_FACT,
+                                evidence_ids=(),
+                                retrieval_signals=(
+                                    DuplicateFactSignal(
+                                        strategy=stable_strategy,
+                                        fact_kind=left.kind,
+                                    ),
+                                ),
+                            ),
+                            linked_entity_pairs=self._party_membership_linked_entity_pairs(
+                                left,
+                                right,
+                                same_entity_variable_id_by_pair,
+                            ),
+                        )
+                    )
+                    continue
+
                 right_scope = self._event_scope(document, right_event_id)
                 right_idx = self._event_sentence_index(document, right_event_id)
 
@@ -1742,7 +1774,7 @@ class ResolutionInferenceGraphBuilder:
     ) -> FactResolutionStrategy | None:
         if left.entity_fillers == right.entity_fillers and left.text_fillers == right.text_fillers:
             return FactResolutionStrategy.EXACT_ARGUMENTS
-        if left.kind in {FactKind.PARTY_MEMBERSHIP, FactKind.POLITICAL_SUPPORT}:
+        if left.kind is FactKind.POLITICAL_SUPPORT:
             if left.text_fillers != right.text_fillers:
                 return None
             aligned = self._aligned_entity_pairs_with_resolution(
@@ -1806,6 +1838,169 @@ class ResolutionInferenceGraphBuilder:
                 return FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED
         return None
 
+    def _stable_party_membership_strategy(
+        self,
+        *,
+        left: _EventBindingView,
+        right: _EventBindingView,
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> FactResolutionStrategy | None:
+        if left.kind is not FactKind.PARTY_MEMBERSHIP:
+            return None
+        if not self._party_membership_statuses_compatible(left, right):
+            return None
+        if not self._party_membership_roles_align(left, right, same_entity_variable_id_by_pair):
+            return None
+        return FactResolutionStrategy.PARTY_MEMBERSHIP_RESTATEMENT
+
+    def _party_membership_statuses_compatible(
+        self,
+        left: _EventBindingView,
+        right: _EventBindingView,
+    ) -> bool:
+        left_statuses = left.text_fillers.get(FactArgumentRole.STATUS, frozenset())
+        right_statuses = right.text_fillers.get(FactArgumentRole.STATUS, frozenset())
+        if not left_statuses or not right_statuses:
+            return True
+        if left_statuses == right_statuses:
+            return True
+        compatible_pairs = frozenset(
+            {
+                frozenset({"unknown", "former"}),
+                frozenset({"unknown", "current"}),
+            }
+        )
+        return all(
+            frozenset((left_status, right_status)) in compatible_pairs
+            for left_status in left_statuses
+            for right_status in right_statuses
+        )
+
+    def _party_membership_roles_align(
+        self,
+        left: _EventBindingView,
+        right: _EventBindingView,
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> bool:
+        subject_pairs = self._linked_single_filler_pairs_with_resolution(
+            left_fillers=left.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset()),
+            right_fillers=right.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset()),
+            same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+        )
+        if (
+            left.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
+            != right.entity_fillers.get(FactArgumentRole.SUBJECT, frozenset())
+            and subject_pairs is None
+        ):
+            return False
+        object_pairs = self._linked_single_filler_pairs_with_resolution(
+            left_fillers=left.entity_fillers.get(FactArgumentRole.OBJECT, frozenset()),
+            right_fillers=right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset()),
+            same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+        )
+        return not (
+            left.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
+            != right.entity_fillers.get(FactArgumentRole.OBJECT, frozenset())
+            and object_pairs is None
+        )
+
+    def _party_membership_linked_entity_pairs(
+        self,
+        left: _EventBindingView,
+        right: _EventBindingView,
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> tuple[tuple[EntityCandidateId, EntityCandidateId], ...]:
+        linked_pairs: list[tuple[EntityCandidateId, EntityCandidateId]] = []
+        for role in (FactArgumentRole.SUBJECT, FactArgumentRole.OBJECT):
+            pairs = self._linked_single_filler_pairs_with_resolution(
+                left_fillers=left.entity_fillers.get(role, frozenset()),
+                right_fillers=right.entity_fillers.get(role, frozenset()),
+                same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+            )
+            if pairs is None:
+                continue
+            linked_pairs.extend(pairs)
+        return tuple(dict.fromkeys(linked_pairs))
+
+    def _linked_single_filler_pairs_with_resolution(
+        self,
+        *,
+        left_fillers: frozenset[EntityCandidateId],
+        right_fillers: frozenset[EntityCandidateId],
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> tuple[tuple[EntityCandidateId, EntityCandidateId], ...] | None:
+        if left_fillers == right_fillers:
+            return ()
+        direct_pair = self._aligned_single_filler_pair_with_resolution(
+            left_fillers=left_fillers,
+            right_fillers=right_fillers,
+            same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+        )
+        if direct_pair is not None:
+            return (direct_pair,)
+        if len(left_fillers) != 1 or len(right_fillers) != 1:
+            return None
+        left_entity_id = next(iter(left_fillers))
+        right_entity_id = next(iter(right_fillers))
+        bridge_entities = self._shared_resolution_neighbors(
+            left_entity_id=left_entity_id,
+            right_entity_id=right_entity_id,
+            same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
+        )
+        if not bridge_entities:
+            return None
+        bridge_entity_id: EntityCandidateId | None = None
+        for candidate_id in bridge_entities:
+            if bridge_entity_id is None or str(candidate_id) < str(bridge_entity_id):
+                bridge_entity_id = candidate_id
+        if bridge_entity_id is None:
+            return None
+        return (
+            self._entity_pair(left_entity_id, bridge_entity_id),
+            self._entity_pair(right_entity_id, bridge_entity_id),
+        )
+
+    def _shared_resolution_neighbors(
+        self,
+        *,
+        left_entity_id: EntityCandidateId,
+        right_entity_id: EntityCandidateId,
+        same_entity_variable_id_by_pair: dict[
+            tuple[EntityCandidateId, EntityCandidateId], InferenceVariableId
+        ],
+    ) -> frozenset[EntityCandidateId]:
+        left_neighbors = {
+            neighbor
+            for pair in same_entity_variable_id_by_pair
+            for neighbor in self._resolution_neighbors_for_pair(pair, left_entity_id)
+        }
+        right_neighbors = {
+            neighbor
+            for pair in same_entity_variable_id_by_pair
+            for neighbor in self._resolution_neighbors_for_pair(pair, right_entity_id)
+        }
+        return frozenset(left_neighbors & right_neighbors)
+
+    def _resolution_neighbors_for_pair(
+        self,
+        pair: tuple[EntityCandidateId, EntityCandidateId],
+        entity_id: EntityCandidateId,
+    ) -> tuple[EntityCandidateId, ...]:
+        left_entity_id, right_entity_id = pair
+        if left_entity_id == entity_id:
+            return (right_entity_id,)
+        if right_entity_id == entity_id:
+            return (left_entity_id,)
+        return ()
+
     def _linked_entity_pairs(
         self,
         left: _EventBindingView,
@@ -1841,7 +2036,10 @@ class ResolutionInferenceGraphBuilder:
                 same_entity_variable_id_by_pair=same_entity_variable_id_by_pair,
             )
             return (object_pair,) if object_pair is not None else ()
-        if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED:
+        if strategy in {
+            FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED,
+            FactResolutionStrategy.PARTY_MEMBERSHIP_RESTATEMENT,
+        }:
             if same_entity_variable_id_by_pair:
                 return self._aligned_entity_pairs_with_resolution(
                     left, right, same_entity_variable_id_by_pair
@@ -2042,8 +2240,9 @@ class ResolutionInferenceGraphBuilder:
     ) -> tuple[float, float]:
         if strategy is FactResolutionStrategy.INVERSE_CHILD_TIE:
             return (0.2, 0.8)
+        if strategy is FactResolutionStrategy.PARTY_MEMBERSHIP_RESTATEMENT:
+            return (0.15, 0.85)
         if strategy is FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED and fact_kind in {
-            FactKind.PARTY_MEMBERSHIP,
             FactKind.POLITICAL_SUPPORT,
         }:
             return (0.2, 0.8)
@@ -2209,6 +2408,7 @@ class ResolutionAssessmentMaterializer:
                 claim_threshold = 0.2
             elif proposal.strategy in {
                 FactResolutionStrategy.ENTITY_ALIGNMENT_RELAXED,
+                FactResolutionStrategy.PARTY_MEMBERSHIP_RESTATEMENT,
                 FactResolutionStrategy.TIE_CONTEXT_RELAXED,
             }:
                 claim_threshold = 0.3

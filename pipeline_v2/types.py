@@ -240,6 +240,7 @@ class SyntaxRelationClass(StrEnum):
 class FactResolutionStrategy(StrEnum):
     EXACT_ARGUMENTS = "exact_arguments"
     ENTITY_ALIGNMENT_RELAXED = "entity_alignment_relaxed"
+    PARTY_MEMBERSHIP_RESTATEMENT = "party_membership_restatement"
     GOVERNANCE_ROLE_RELAXED = "governance_role_relaxed"
     TIE_CONTEXT_RELAXED = "tie_context_relaxed"
     INVERSE_CHILD_TIE = "inverse_child_tie"

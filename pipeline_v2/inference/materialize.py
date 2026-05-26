@@ -90,7 +90,7 @@ class FactAssessmentMaterializer:
             scores[base_fact_id] = score
             alternatives_map[base_fact_id] = alts
 
-        projections = self._fact_projection_groups(document, scores)
+        projections = self._fact_projection_groups(document, records, scores)
         suppressed_ids = frozenset(
             alt_id for proj in projections for alt_id in proj.alternative_ids
         )
@@ -183,34 +183,104 @@ class FactAssessmentMaterializer:
     def _fact_projection_groups(
         self,
         document: ArticleDocument,
+        records: dict[FactCandidateId, FactCandidateRecord],
         scores: dict[FactCandidateId, float],
     ) -> tuple[_FactProjection, ...]:
+        parent: dict[FactCandidateId, FactCandidateId] = {}
+
+        def find(fact_id: FactCandidateId) -> FactCandidateId:
+            root = parent.get(fact_id, fact_id)
+            if root != fact_id:
+                root = find(root)
+                parent[fact_id] = root
+            return root
+
+        def union(left: FactCandidateId, right: FactCandidateId) -> FactCandidateId:
+            left_root = find(left)
+            right_root = find(right)
+            if left_root == right_root:
+                return left_root
+            if left_root <= right_root:
+                parent[right_root] = left_root
+                return left_root
+            parent[left_root] = right_root
+            return right_root
+
+        eligible_claims = [
+            claim
+            for claim in document.store.fact_resolution_claims.values()
+            if claim.left_fact_id in scores and claim.right_fact_id in scores
+        ]
+        for claim in eligible_claims:
+            union(claim.left_fact_id, claim.right_fact_id)
+
+        component_members: dict[FactCandidateId, list[FactCandidateId]] = {}
+        best_claim_by_component: dict[
+            FactCandidateId, tuple[ResolutionClaimId, ResolutionRelation, float]
+        ] = {}
+        for claim in eligible_claims:
+            root = find(claim.left_fact_id)
+            current = best_claim_by_component.get(root)
+            score = claim.assessment.score
+            if current is None or score > current[2]:
+                best_claim_by_component[root] = (claim.id, claim.relation, score)
+            for fact_id in (claim.left_fact_id, claim.right_fact_id):
+                component_members.setdefault(root, []).append(fact_id)
+
         projections: list[_FactProjection] = []
-        for claim in document.store.fact_resolution_claims.values():
-            left, right = claim.left_fact_id, claim.right_fact_id
-            left_score = scores.get(left)
-            right_score = scores.get(right)
-            if left_score is None or right_score is None:
+        for root, member_ids in component_members.items():
+            unique_members = tuple(dict.fromkeys(member_ids))
+            if len(unique_members) < 2:
                 continue
-            if left_score >= right_score:
-                projections.append(
-                    _FactProjection(
-                        primary_id=left,
-                        alternative_ids=(right,),
-                        claim_id=claim.id,
-                        relation=claim.relation,
-                    )
+            primary_id = max(
+                unique_members,
+                key=lambda fact_id: self._projection_priority(
+                    records=records,
+                    fact_id=fact_id,
+                    score=scores[fact_id],
+                ),
+            )
+            claim_id, relation, _ = best_claim_by_component[root]
+            alternative_ids = tuple(fact_id for fact_id in unique_members if fact_id != primary_id)
+            projections.append(
+                _FactProjection(
+                    primary_id=primary_id,
+                    alternative_ids=alternative_ids,
+                    claim_id=claim_id,
+                    relation=relation,
                 )
-            else:
-                projections.append(
-                    _FactProjection(
-                        primary_id=right,
-                        alternative_ids=(left,),
-                        claim_id=claim.id,
-                        relation=claim.relation,
-                    )
-                )
+            )
         return tuple(projections)
+
+    def _projection_priority(
+        self,
+        *,
+        records: dict[FactCandidateId, FactCandidateRecord],
+        fact_id: FactCandidateId,
+        score: float,
+    ) -> tuple[int, float, str]:
+        return (self._projection_specificity(records, fact_id), score, str(fact_id))
+
+    def _projection_specificity(
+        self,
+        records: dict[FactCandidateId, FactCandidateRecord],
+        fact_id: FactCandidateId,
+    ) -> int:
+        record = records.get(fact_id)
+        if record is None or record.kind is not FactKind.PARTY_MEMBERSHIP:
+            return 0
+        status = next(
+            (
+                argument.value
+                for argument in record.arguments
+                if isinstance(argument, TextFactArgument)
+                and argument.role is FactArgumentRole.STATUS
+            ),
+            None,
+        )
+        if status in {"former", "current"}:
+            return 1
+        return 0
 
     def _materialized_record(
         self,

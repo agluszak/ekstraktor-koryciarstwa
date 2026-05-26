@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pipeline_v2.candidates import (
     EntityCandidate,
     EntityResolutionProposal,
+    FullPersonNameKey,
 )
 from pipeline_v2.ids import EntityCandidateId
 from pipeline_v2.nlp import Sentence
@@ -140,6 +141,7 @@ class EntityCandidateRetriever:
         entity: EntityCandidate,
     ) -> tuple[EntityResolutionProposal, ...]:
         reuse_key = entity.reuse_key
+        full_name_keys = self._person_full_name_keys(entity)
         surname_base = entity.person_surname_base() or self._surname_base_for_surname_only_entity(
             entity
         )
@@ -149,12 +151,18 @@ class EntityCandidateRetriever:
             candidate_id = candidate.id
             if candidate_id == entity.id:
                 continue
+            candidate_full_name_keys = self._person_full_name_keys(candidate)
 
             # If both have different full names, do not propose merging them!
             if (
                 reuse_key is not None
                 and candidate.reuse_key is not None
                 and reuse_key.given_name_lemma != candidate.reuse_key.given_name_lemma
+                and (
+                    not full_name_keys
+                    or not candidate_full_name_keys
+                    or full_name_keys.isdisjoint(candidate_full_name_keys)
+                )
             ):
                 continue
 
@@ -164,6 +172,20 @@ class EntityCandidateRetriever:
                     self._build_proposal(entity, candidate, FullNameReuseMatchSignal())
                 )
                 continue
+
+            # 1b. Full-name lemma compatibility from mention tokens. This covers
+            # inflected forms where the preferred lemma is ambiguous and reuse_key
+            # was not recovered reliably enough at NER time.
+            if full_name_keys and candidate_full_name_keys:
+                if self._given_name_lemmas(full_name_keys).isdisjoint(
+                    self._given_name_lemmas(candidate_full_name_keys)
+                ):
+                    continue
+                if not full_name_keys.isdisjoint(candidate_full_name_keys):
+                    proposals.append(
+                        self._build_proposal(entity, candidate, FullNameReuseMatchSignal())
+                    )
+                    continue
 
             # 2. Surname base match
             candidate_surname_base = (
@@ -202,9 +224,6 @@ class EntityCandidateRetriever:
             if candidate.id == entity.id:
                 continue
             if self._normalized_canonical_hint(candidate) != normalized_hint:
-                continue
-            distance = self._minimum_paragraph_distance(entity, candidate)
-            if distance is None or distance > 5:
                 continue
             proposals.append(
                 self._build_proposal(
@@ -307,6 +326,63 @@ class EntityCandidateRetriever:
                 )
             )
         return tuple(proposals)
+
+    def _person_full_name_keys(self, entity: EntityCandidate) -> frozenset[FullPersonNameKey]:
+        keys: set[FullPersonNameKey] = set()
+        if entity.reuse_key is not None:
+            keys.add(entity.reuse_key)
+        for mention in self.store.candidate_mentions(entity.id):
+            tokens = self.store.tokens_for_mention(mention.id)
+            if len(tokens) < 2:
+                continue
+            given_name_lemmas = self._name_token_lemmas(tokens[0], label="imię")
+            surname_lemmas = self._name_token_lemmas(tokens[-1], label="nazwisko")
+            for given_name in given_name_lemmas:
+                for surname in surname_lemmas:
+                    keys.add(
+                        FullPersonNameKey(
+                            given_name_lemma=given_name,
+                            surname_base=surname,
+                        )
+                    )
+        return frozenset(keys)
+
+    def _given_name_lemmas(
+        self,
+        keys: frozenset[FullPersonNameKey],
+    ) -> frozenset[str]:
+        return frozenset(key.given_name_lemma for key in keys)
+
+    def _name_token_lemmas(self, token, *, label: str) -> tuple[str, ...]:
+        labeled = tuple(
+            dict.fromkeys(
+                analysis.lemma.casefold() for analysis in token.morph if label in analysis.labels
+            )
+        )
+        if labeled:
+            return labeled
+        substantive = tuple(
+            dict.fromkeys(
+                analysis.lemma.casefold() for analysis in token.morph if analysis.pos == "subst"
+            )
+        )
+        if substantive:
+            return substantive
+        ign_analyses = tuple(analysis for analysis in token.morph if analysis.pos == "ign")
+        if ign_analyses:
+            return self._unknown_name_surface_variants(token.text)
+        preferred = token.preferred_lemma()
+        if preferred is None:
+            return ()
+        return (preferred.casefold(),)
+
+    def _unknown_name_surface_variants(self, text: str) -> tuple[str, ...]:
+        normalized = text.casefold()
+        variants = {normalized}
+        for suffix in ("owi", "ami", "ach", "owie", "ów", "om", "em", "ie", "a", "u"):
+            if normalized.endswith(suffix) and len(normalized) > len(suffix) + 2:
+                variants.add(normalized[: -len(suffix)])
+        return tuple(sorted(variants))
 
     def _surname_base_for_surname_only_entity(self, entity: EntityCandidate) -> str | None:
         for mention in self.store.candidate_mentions(entity.id):

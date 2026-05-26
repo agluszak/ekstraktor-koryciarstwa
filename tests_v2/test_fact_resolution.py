@@ -37,12 +37,20 @@ from pipeline_v2.types import (
     LocalSubjectSignal,
     MentionKind,
     NamedKinshipLemmaSignal,
+    PartyMembershipStatus,
     ProxyFamilyEntitySignal,
     RelationshipDetail,
     RelationshipDetailSignal,
     ResolutionRelation,
 )
-from tests_v2.materialized import add_entity, add_event, bind_entity, bind_text, fact_records
+from tests_v2.materialized import (
+    add_entity,
+    add_event,
+    bind_entity,
+    bind_text,
+    fact_records,
+    text_argument,
+)
 
 
 def _test_assessment() -> Assessment:
@@ -476,9 +484,7 @@ def test_probabilistic_inference_keeps_governance_facts_separate_without_shared_
     assert document.store.fact_resolution_claims == {}
 
 
-def test_probabilistic_inference_suppresses_duplicate_party_memberships_with_same_party_identity() -> (
-    None
-):
+def test_distant_duplicate_party_memberships_collapse() -> None:
     document = _document()
     _add_sentence_evidence(
         document,
@@ -493,8 +499,8 @@ def test_probabilistic_inference_suppresses_duplicate_party_memberships_with_sam
         document,
         sentence_id=SentenceId("sentence-2"),
         evidence_id=EvidenceId("sentence-evidence-2"),
-        sentence_index=1,
-        paragraph_index=0,
+        sentence_index=4,
+        paragraph_index=2,
         text="Bykowski kojarzony z PO.",
         start_char=20,
     )
@@ -588,6 +594,14 @@ def test_probabilistic_inference_suppresses_duplicate_party_memberships_with_sam
         entity_id=EntityCandidateId("party-1"),
         evidence_id=EvidenceId("party-evidence-1"),
     )
+    _bind_text_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-1-status"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.STATUS,
+        value=PartyMembershipStatus.UNKNOWN.value,
+        evidence_id=EvidenceId("sentence-evidence-1"),
+    )
     _bind_entity_with_evidence(
         document,
         binding_id=ArgumentBindingCandidateId("binding-2-subject"),
@@ -604,6 +618,14 @@ def test_probabilistic_inference_suppresses_duplicate_party_memberships_with_sam
         entity_id=EntityCandidateId("party-2"),
         evidence_id=EvidenceId("party-evidence-2"),
     )
+    _bind_text_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("binding-2-status"),
+        event_id=EventCandidateId("event-2"),
+        role=EventRole.STATUS,
+        value=PartyMembershipStatus.UNKNOWN.value,
+        evidence_id=EvidenceId("sentence-evidence-2"),
+    )
 
     ProbabilisticInferenceStage().run(document)
 
@@ -613,6 +635,165 @@ def test_probabilistic_inference_suppresses_duplicate_party_memberships_with_sam
     assert len(records) == 1
     assert records[0].id in document.materialized_fact_alternatives
     assert len(document.materialized_fact_alternatives[records[0].id]) == 1
+
+
+def test_probabilistic_inference_prefers_explicit_party_membership_status_over_unknown() -> None:
+    document = _document()
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-1"),
+        evidence_id=EvidenceId("sentence-evidence-1"),
+        sentence_index=0,
+        paragraph_index=0,
+        text="Były polityk Lewicy Dominik Herberholz.",
+        start_char=0,
+    )
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-2"),
+        evidence_id=EvidenceId("sentence-evidence-2"),
+        sentence_index=5,
+        paragraph_index=3,
+        text="Dominik Herberholz z Lewicy.",
+        start_char=60,
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("person"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Dominik Herberholz",
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("party"),
+        kind=EntityKind.POLITICAL_PARTY,
+        canonical_hint="Lewica",
+    )
+    add_event(document, event_id=EventCandidateId("event-1"), kind=FactKind.PARTY_MEMBERSHIP)
+    add_event(document, event_id=EventCandidateId("event-2"), kind=FactKind.PARTY_MEMBERSHIP)
+    for event_id, evidence_id in (
+        (EventCandidateId("event-1"), EvidenceId("sentence-evidence-1")),
+        (EventCandidateId("event-2"), EvidenceId("sentence-evidence-2")),
+    ):
+        _bind_entity_with_evidence(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{event_id}-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            entity_id=EntityCandidateId("person"),
+            evidence_id=evidence_id,
+        )
+        _bind_entity_with_evidence(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{event_id}-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            entity_id=EntityCandidateId("party"),
+            evidence_id=evidence_id,
+        )
+    _bind_text_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("event-1-status"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.STATUS,
+        value=PartyMembershipStatus.FORMER.value,
+        evidence_id=EvidenceId("sentence-evidence-1"),
+    )
+    _bind_text_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("event-2-status"),
+        event_id=EventCandidateId("event-2"),
+        role=EventRole.STATUS,
+        value=PartyMembershipStatus.UNKNOWN.value,
+        evidence_id=EvidenceId("sentence-evidence-2"),
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    records = tuple(
+        record for record in fact_records(document) if record.kind is FactKind.PARTY_MEMBERSHIP
+    )
+    assert len(records) == 1
+    assert text_argument(records[0], "status") == PartyMembershipStatus.FORMER.value
+
+
+def test_probabilistic_inference_keeps_conflicting_party_membership_statuses_distinct() -> None:
+    document = _document()
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-1"),
+        evidence_id=EvidenceId("sentence-evidence-1"),
+        sentence_index=0,
+        paragraph_index=0,
+        text="Jan Kowalski to były polityk PO.",
+        start_char=0,
+    )
+    _add_sentence_evidence(
+        document,
+        sentence_id=SentenceId("sentence-2"),
+        evidence_id=EvidenceId("sentence-evidence-2"),
+        sentence_index=6,
+        paragraph_index=4,
+        text="Jan Kowalski jest politykiem PO.",
+        start_char=60,
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("person"),
+        kind=EntityKind.PERSON,
+        canonical_hint="Jan Kowalski",
+    )
+    add_entity(
+        document,
+        entity_id=EntityCandidateId("party"),
+        kind=EntityKind.POLITICAL_PARTY,
+        canonical_hint="Platforma Obywatelska",
+    )
+    add_event(document, event_id=EventCandidateId("event-1"), kind=FactKind.PARTY_MEMBERSHIP)
+    add_event(document, event_id=EventCandidateId("event-2"), kind=FactKind.PARTY_MEMBERSHIP)
+    for event_id, evidence_id in (
+        (EventCandidateId("event-1"), EvidenceId("sentence-evidence-1")),
+        (EventCandidateId("event-2"), EvidenceId("sentence-evidence-2")),
+    ):
+        _bind_entity_with_evidence(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{event_id}-subject"),
+            event_id=event_id,
+            role=EventRole.SUBJECT,
+            entity_id=EntityCandidateId("person"),
+            evidence_id=evidence_id,
+        )
+        _bind_entity_with_evidence(
+            document,
+            binding_id=ArgumentBindingCandidateId(f"{event_id}-object"),
+            event_id=event_id,
+            role=EventRole.OBJECT,
+            entity_id=EntityCandidateId("party"),
+            evidence_id=evidence_id,
+        )
+    _bind_text_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("event-1-status"),
+        event_id=EventCandidateId("event-1"),
+        role=EventRole.STATUS,
+        value=PartyMembershipStatus.FORMER.value,
+        evidence_id=EvidenceId("sentence-evidence-1"),
+    )
+    _bind_text_with_evidence(
+        document,
+        binding_id=ArgumentBindingCandidateId("event-2-status"),
+        event_id=EventCandidateId("event-2"),
+        role=EventRole.STATUS,
+        value=PartyMembershipStatus.CURRENT.value,
+        evidence_id=EvidenceId("sentence-evidence-2"),
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    records = tuple(
+        record for record in fact_records(document) if record.kind is FactKind.PARTY_MEMBERSHIP
+    )
+    assert len(records) == 2
 
 
 def test_probabilistic_inference_merges_proxy_and_named_ties_after_same_as_resolution() -> None:

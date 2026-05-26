@@ -9,6 +9,7 @@ from pipeline_v2.ids import (
     MentionId,
     ProducerId,
     SentenceId,
+    TokenId,
 )
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import (
@@ -16,9 +17,11 @@ from pipeline_v2.nlp import (
     Mention,
     MentionFactory,
     Morfeusz2MorphologyAdapter,
+    MorphAnalysis,
     ReferenceMention,
     Sentence,
     Span,
+    Token,
 )
 from pipeline_v2.producers import EvidenceSignalProducer, SimpleEntityCandidateProducer
 from pipeline_v2.retrieval import EntityCandidateRetriever
@@ -87,6 +90,47 @@ def _add_mention(
         )
     store.add_mention(mention)
     _ = start
+    return mention_id
+
+
+def _add_tokenized_mention(
+    store: ExtractionStore,
+    *,
+    sentence_id: SentenceId,
+    evidence_id: EvidenceId,
+    mention_id: MentionId,
+    tokens: tuple[tuple[str, tuple[MorphAnalysis, ...]], ...],
+) -> MentionId:
+    sentence = store.sentences[sentence_id]
+    offset = 0
+    token_ids: list[TokenId] = []
+    for index, (text, morph) in enumerate(tokens):
+        while offset < len(sentence.text) and sentence.text[offset] == " ":
+            offset += 1
+        start = offset
+        end = start + len(text)
+        token_id = TokenId(f"{sentence_id}:token-extra-{index}")
+        store.add_token(
+            Token(
+                id=token_id,
+                sentence_id=sentence_id,
+                text=text,
+                span=Span(start_char=start, end_char=end),
+                morph=morph,
+            )
+        )
+        token_ids.append(token_id)
+        offset = end
+    store.add_mention(
+        Mention(
+            id=mention_id,
+            text=" ".join(text for text, _ in tokens),
+            kind=MentionKind.NER,
+            evidence_id=evidence_id,
+            sentence_id=sentence_id,
+            token_ids=tuple(token_ids),
+        )
+    )
     return mention_id
 
 
@@ -224,6 +268,98 @@ def test_repeated_political_party_mentions_create_resolution_proposal() -> None:
     assert proposals[0].retrieval_signals == (
         CanonicalHintMatchSignal(hint="platforma obywatelska"),
     )
+
+
+def test_inflected_full_name_candidates_create_resolution_proposal_without_reuse_key() -> None:
+    store = ExtractionStore()
+    first_sentence = _add_sentence(store, "Dominika Herberholza skrytykowano.")
+    second_sentence = _add_sentence(store, "Dominik Herberholz odpowiedział.")
+    first_evidence_id = EvidenceId("evidence-inflected-1")
+    second_evidence_id = EvidenceId("evidence-inflected-2")
+    store.add_evidence(
+        EvidenceSpan(
+            id=first_evidence_id,
+            text="Dominika Herberholza",
+            span=Span(start_char=0, end_char=20),
+            sentence_id=first_sentence,
+            paragraph_index=0,
+            source=ProducerId("test"),
+        )
+    )
+    store.add_evidence(
+        EvidenceSpan(
+            id=second_evidence_id,
+            text="Dominik Herberholz",
+            span=Span(start_char=0, end_char=19),
+            sentence_id=second_sentence,
+            paragraph_index=1,
+            source=ProducerId("test"),
+        )
+    )
+    first_mention = _add_tokenized_mention(
+        store,
+        sentence_id=first_sentence,
+        evidence_id=first_evidence_id,
+        mention_id=MentionId("mention-inflected-1"),
+        tokens=(
+            (
+                "Dominika",
+                (
+                    MorphAnalysis(lemma="dominika", pos="subst", labels=("imię",)),
+                    MorphAnalysis(lemma="dominik", pos="subst", labels=("imię",)),
+                ),
+            ),
+            (
+                "Herberholza",
+                (MorphAnalysis(lemma="herberholza", pos="ign"),),
+            ),
+        ),
+    )
+    second_mention = _add_tokenized_mention(
+        store,
+        sentence_id=second_sentence,
+        evidence_id=second_evidence_id,
+        mention_id=MentionId("mention-inflected-2"),
+        tokens=(
+            (
+                "Dominik",
+                (MorphAnalysis(lemma="dominik", pos="subst", labels=("imię",)),),
+            ),
+            (
+                "Herberholz",
+                (MorphAnalysis(lemma="herberholz", pos="ign"),),
+            ),
+        ),
+    )
+
+    first_id = store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("person-1"),
+            kind=EntityKind.PERSON,
+            mention_ids=(first_mention,),
+            canonical_hint="Dominika Herberholza",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+    second_id = store.add_entity_candidate(
+        EntityCandidate(
+            id=EntityCandidateId("person-2"),
+            kind=EntityKind.PERSON,
+            mention_ids=(second_mention,),
+            canonical_hint="Dominik Herberholz",
+            grounding=GroundingKind.OBSERVED,
+            source=ProducerId("test"),
+        )
+    )
+
+    proposals = EntityCandidateRetriever(store).proposals_for_entity(
+        store.entity_candidates[second_id]
+    )
+
+    assert len(proposals) == 1
+    assert proposals[0].left_entity_id == second_id
+    assert proposals[0].right_entity_id == first_id
 
 
 def test_same_name_contrast_context_does_not_confirm_identity() -> None:
