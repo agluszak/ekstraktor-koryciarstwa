@@ -1,11 +1,8 @@
 # Repository Instructions
 
-This repository is the V2 implementation of a Polish public-interest extraction
-pipeline. The active code is `pipeline_v2/` and the active tests are `tests_v2/`.
-
-The legacy `pipeline/` and `tests/` trees are reference material only. Do not modify
-V1, do not run V1 tests as part of normal validation, and do not preserve backwards
-compatibility with V1 APIs.
+This repository is a Polish public-interest extraction pipeline for detecting
+nepotism, patronage, and public-money flows in news articles. The active code is
+`pipeline_v2/` and the active tests are `tests_v2/`.
 
 ## Operating Rules
 
@@ -32,15 +29,15 @@ uv run ruff check pipeline_v2 tests_v2 --fix
 uv run ruff format pipeline_v2 tests_v2
 uv run ruff check pipeline_v2 tests_v2
 uv run ty check
-uv run pytest -c pytest-v2.ini -q
-uv run extractor-v2 --input-dir inputs --glob "*.html" --output-dir output
-uv run extractor-v2 --html-path inputs/article.html --stdout
-uv run extractor-v2 --url https://example.com/article --stdout
+uv run pytest -q
+uv run extractor --input-dir inputs --glob "*.html" --output-dir output
+uv run extractor --html-path inputs/article.html --stdout
+uv run extractor --url https://example.com/article --stdout
 ```
 
 ## CLI Output Modes
 
-`extractor-v2` has two output modes:
+`extractor` has two output modes:
 
 **Slim (default)** — human-readable summary written to `<output-dir>/<doc-id>.json` or
 stdout with `--stdout`. Contains only:
@@ -75,7 +72,7 @@ Silent early collapse is not acceptable.
 
 ## Active Architecture
 
-V2 is an event-first, typed hypothesis graph with probabilistic inference.
+The pipeline is event-first, typed hypothesis graph with probabilistic inference.
 
 The active runtime is built in `pipeline_v2/runtime.py`. Stage order is explicit
 there and should remain explicit. A normal run is:
@@ -306,13 +303,12 @@ current report, especially:
 - `reports/expected_article_findings.md`
 - `reports/v2/probabilistic_inference_plan_2026-05-21.md`
 - `reports/v2/probabilistic_inference_review_notes_2026-05-21.md`
-- `reports/v2/v1_to_v2_architecture_2026-05-20.md`
 
 For article-specific work, follow this workflow:
 
 1. Read the article or fixture.
 2. Write down expected findings before running the pipeline.
-3. Run the smallest useful V2 pipeline/fixture check.
+3. Run the smallest useful pipeline/fixture check.
 4. Compare expected vs actual.
 5. Decide whether the gap belongs to preprocessing, relevance, NER, morphology,
    syntax, candidate production, retrieval, inference, materialization, or tests.
@@ -343,7 +339,6 @@ code should not.
 
 When reviewing or changing code, check for these regressions:
 
-- V1 code or V1 tests were modified.
 - Producers emit final facts instead of events and role bindings.
 - A producer silently chooses one best entity/organization/person when alternatives
   should remain visible.

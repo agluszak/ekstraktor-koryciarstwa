@@ -21,10 +21,10 @@ jobs:
         run: uv sync --frozen --dev
 
       - name: ruff format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check pipeline_v2 tests_v2
 
       - name: ruff lint
-        run: uv run ruff check .
+        run: uv run ruff check pipeline_v2 tests_v2
 
       - name: ty type check
         run: uv run ty check
@@ -54,33 +54,5 @@ jobs:
       - name: Set up ML models
         run: uv run python scripts/setup_models.py
 
-      - name: Run unit tests
-        run: uv run pytest tests/ --ignore=tests/integration -v
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          python-version-file: ".python-version"
-
-      - name: Install dependencies
-        run: uv sync --frozen --dev
-
-      - name: Cache ML models
-        uses: actions/cache@v4
-        with:
-          path: |
-            models/
-            ~/stanza_resources
-          key: ml-models-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ hashFiles('scripts/setup_models.py') }}
-
-      - name: Set up ML models
-        run: uv run python scripts/setup_models.py
-
-      - name: Run integration tests
-        run: uv run pytest tests/integration/ -v
+      - name: Run tests
+        run: uv run pytest -q

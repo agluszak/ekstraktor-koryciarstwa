@@ -1,70 +1,89 @@
 # Political Nepotism Extraction Pipeline
 
-This repository houses an information extraction pipeline ("ekstraktor-koryciarstwa") focused on analyzing Polish news articles. Its primary domain is monitoring "koryciarstwo" / public money extraction: nepotism, patronage, appointments to state-owned companies, and the flow of public funds.
+An information extraction pipeline ("ekstraktor-koryciarstwa") for analysing Polish
+news articles about "koryciarstwo" — public money extraction, nepotism, patronage,
+appointments to state-owned companies, and the flow of public funds.
+
+The pipeline is event-first: it produces typed hypothesis graphs with probabilistic
+inference, preserving competing candidates and posterior confidence scores rather than
+collapsing to a single answer early.
 
 ## Setup
-
-The project uses `uv` as the package manager and requires specific NLP models to be downloaded and patched before use.
 
 ```bash
 uv sync
 uv run python scripts/setup_models.py
 ```
 
-> **Important**: You must run `uv run python scripts/setup_models.py` in the current `.venv` before running the pipeline or the test suite. `uv sync` alone is not enough, as the pipeline depends on specific spaCy and Stanza models, as well as a patched coreference artifact.
+`uv sync` installs Python dependencies. `scripts/setup_models.py` downloads and patches
+the spaCy and Stanza models that the pipeline requires. Both steps are needed before
+running the pipeline or the test suite.
 
 ## Usage
 
-### Single File Processing
-
-To process a single local HTML file or download one directly from a URL:
+### Single file or URL
 
 ```bash
-uv run python main.py --html-path article.html --source-url https://example.com/article --stdout
+uv run extractor --html-path inputs/article.html --stdout
+uv run extractor --url https://example.com/article --stdout
 ```
 
-### Batch Processing
-
-For processing multiple articles efficiently (keeping NLP models loaded in a warm process), use the batch mode:
+### Batch processing
 
 ```bash
-uv run python main.py --input-dir inputs --glob "*.html" --output-dir output
+uv run extractor --input-dir inputs --glob "*.html" --output-dir output
 ```
 
-This will read all matching HTML files in `inputs/` and write `.json` extraction results to `output/`.
+Reads all matching HTML files from `inputs/` and writes `.json` results to `output/`.
 
-### Persistent Worker (stdin/stdout)
+### Output modes
 
-For repeated ad hoc requests from another application, use the persistent JSON-lines worker:
+**Slim (default)** — human-readable summary:
+- `title`, `url`, `relevant`, `relevance_score`
+- `facts`: list of materialized facts with resolved entity names and `confidence`
+
+**Debug (`--debug`)** — full graph JSON including sentences, tokens, morphology, evidence
+spans, inference marginals, resolution claims, and all internal IDs. Use this when
+debugging extraction or inference behaviour.
+
+Both modes work with all input sources. `--stdout` and `--output-dir` can be combined
+with either mode.
+
+## Development
+
+### Validation
 
 ```bash
-uv run python main.py --worker
+uv run ruff check pipeline_v2 tests_v2 --fix
+uv run ruff format pipeline_v2 tests_v2
+uv run ruff check pipeline_v2 tests_v2
+uv run ty check
+uv run pytest -q
 ```
 
-Send one JSON object per line on `stdin`, for example:
+### Architecture
 
-```json
-{"html_path":"inputs/article.html","source_url":"https://example.com/article"}
-```
+The pipeline stages run in this order (see `pipeline_v2/runtime.py`):
 
-## Integration Tests and Benchmarks
+1. HTML preprocessing
+2. Relevance filtering
+3. Sentence/token segmentation
+4. Morfeusz2 morphology
+5. Dependency parsing
+6. Named entity candidate production
+7. Domain event/binding candidate production
+8. Reference, coreference, proxy, and tie candidate production
+9. Optional semantic enrichment
+10. Probabilistic inference and materialized output projection
 
-The project includes an automated benchmark and integration test suite based on a manually curated set of expected findings (`reports/expected_article_findings.md`).
+### Reports and benchmarks
 
-To run the full suite, which automatically executes the pipeline in batch mode over all benchmark articles and validates the expected extractions:
+Development notes and benchmark results are in `reports/` and `reports/v2/`. Before
+significant extraction, inference, or architecture changes, read:
 
-```bash
-uv run pytest tests/test_benchmark.py -v -s
-```
+- `reports/expected_article_findings.md`
+- `reports/v2/probabilistic_inference_plan_2026-05-21.md`
 
-The test runner will evaluate whether the pipeline successfully identifies the required target entities and governance/compensation facts, logging soft warnings for currently unmet but desired extraction capabilities, while strictly failing on any regressions from established baselines.
-
-## Output Structure
-
-The pipeline generates structured JSON output for each document processed, containing:
-- Relevance decisions and scores
-- Extracted entities (People, Organizations, Roles, etc.)
-- Identified facts (Governance, Compensation, Funding, etc.)
-- Execution times for individual pipeline stages
-
-See `examples/example_output.json` for a complete reference.
+For article-specific work: read the article, write down expected findings, run the
+pipeline, compare, then locate the gap in preprocessing / relevance / NER / morphology /
+syntax / candidate production / retrieval / inference / materialization.

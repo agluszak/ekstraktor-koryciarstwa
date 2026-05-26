@@ -311,7 +311,7 @@ def test_governance_stage_emits_holding_for_role_first_persistence_clause() -> N
             NamedEntitySpan(
                 text="Henryk Wysogląd",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Henryk Wysogląd"), text.index("Henryk Wysogląd") + len("Henryk Wysogląd")),
+                span=Span(text.index("Henryk Wysogląd"), text.index("Henryk Wysogląd") + 15),
             ),
             NamedEntitySpan(
                 text="Aqua",
