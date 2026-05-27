@@ -5,14 +5,8 @@
   "relevance_score": 1.0,
   "facts": [
     {
-      "kind": "anti_corruption_referral",
-      "confidence": 0.711,
-      "complainant": "PIS",
-      "institution": "CBA"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.7,
+      "confidence": 0.741,
       "person": "Mirosław Luks",
       "organization": "Urzędu Miejskiego w Bytomiu",
       "role": "sekretarz",
@@ -20,21 +14,14 @@
     },
     {
       "kind": "anti_corruption_referral",
-      "confidence": 0.678,
+      "confidence": 0.711,
+      "complainant": "PIS",
       "institution": "CBA"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.651,
-      "person": "Macieja Bartkowa",
-      "organization": "spółek"
-    },
-    {
-      "kind": "public_contract",
-      "confidence": 0.649,
-      "counterparty": "Wnuk Consulting",
-      "contractor": "PEC",
-      "amount": "397 496,95 zł"
+      "kind": "anti_corruption_referral",
+      "confidence": 0.678,
+      "institution": "CBA"
     },
     {
       "kind": "kinship_tie",
@@ -44,25 +31,25 @@
       "relationship_detail": "spouse"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Macieja Bartkowa",
-      "object": "Mariuszem Wołoszem",
-      "context": "związany"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.597,
+      "confidence": 0.618,
       "person": "Wnuk Consulting",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.597,
+      "confidence": 0.618,
       "person": "Bartłomieja Wnuka",
       "role": "radny",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.615,
+      "subject": "Macieja Bartkowa",
+      "object": "Mariuszem Wołoszem",
+      "context": "związany"
     },
     {
       "kind": "anti_corruption_referral",
@@ -73,7 +60,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.566,
+      "confidence": 0.588,
       "person": "Macieja Bartkowa",
       "role": "radny",
       "role_domain": "political_office"
@@ -86,15 +73,25 @@
       "institution": "CBA"
     },
     {
+      "kind": "public_role_end",
+      "confidence": 0.545,
+      "person": "Mariuszem Wołoszem"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.545,
+      "person": "Waldemar Gawron"
+    },
+    {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Robert Rabus",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Mariusz Janas",
       "role": "radny",
       "role_domain": "political_office"
@@ -105,6 +102,13 @@
       "subject": "Bytomski",
       "object": "Bytomski",
       "context": "związany"
+    },
+    {
+      "kind": "public_contract",
+      "confidence": 0.477,
+      "counterparty": "PEC",
+      "contractor": "Wnuk Consulting",
+      "amount": "397 496,95 zł"
     }
   ]
 }

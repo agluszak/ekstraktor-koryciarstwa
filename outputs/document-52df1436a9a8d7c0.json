@@ -30,66 +30,61 @@
     {
       "kind": "party_membership",
       "confidence": 0.685,
-      "subject": "Grzegorz Schreiber",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "former"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
       "subject": "Iwonie Koperskiej",
       "object": "Prawo i Sprawiedliwość",
       "status": "unknown"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.661,
-      "person": "Grzegorz Schreiber",
-      "organization": "urzędzie"
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Grzegorz Schreiber",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "former"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.655,
+      "confidence": 0.675,
       "person": "Krzysztofa Sobolewskiego",
       "role": "rada nadzorczy",
       "role_domain": "supervisory_board"
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.655,
+      "confidence": 0.675,
       "person": "Krzysztofa Sobolewskiego",
       "role": "sekretarz",
       "role_domain": "administrative_office"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.642,
-      "person": "Krzysztofa Sobolewskiego",
-      "organization": "Spółka Lubelskie",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.642,
-      "person": "Sylwii Sobolewskiej",
-      "organization": "Spółka Lubelskie",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
       "kind": "compensation",
-      "confidence": 0.631,
+      "confidence": 0.657,
       "funder": "Przedsiębiorstwie Gospodarki Komunalnej w Kamieniu Pomorskim",
       "recipient": "Sylwii Sobolewskiej",
       "amount": "niemal pół miliona złotych"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.631,
+      "confidence": 0.651,
       "person": "Jarosława Kaczyńskiego",
       "role": "marszałek",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.638,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Orlenie",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.619,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Lubelskich Kolei",
+      "role": "rada nadzorczy",
+      "role_domain": "other_public_role"
     },
     {
       "kind": "personal_or_political_tie",
@@ -106,39 +101,8 @@
       "context": "współpracownik"
     },
     {
-      "kind": "public_role_end",
-      "confidence": 0.614,
-      "person": "Sylwii Sobolewskiej",
-      "organization": "Orlenie",
-      "role": "rada nadzorczy",
-      "role_domain": "supervisory_board",
-      "context": "Skarbu Państwa"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Krzysztofa Sobolewskiego",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Sylwii Sobolewskiej",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.593,
-      "person": "Sylwii Sobolewskiej",
-      "organization": "Lubelskich Kolei",
-      "role": "rada nadzorczy",
-      "role_domain": "other_public_role"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.584,
+      "confidence": 0.608,
       "person": "Paweł Majewski",
       "organization": "Lotosu",
       "role": "prezes",
@@ -146,15 +110,31 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.58,
+      "confidence": 0.607,
       "person": "Sylwii Sobolewskiej",
       "organization": "Przedsiębiorstwie Gospodarki Komunalnej w Kamieniu Pomorskim",
       "role": "rada nadzorczy",
       "role_domain": "supervisory_board"
     },
     {
+      "kind": "public_role_appointment",
+      "confidence": 0.601,
+      "person": "Krzysztofa Sobolewskiego",
+      "organization": "Spółka Lubelskie",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.601,
+      "person": "Sylwii Sobolewskiej",
+      "organization": "Spółka Lubelskie",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
       "kind": "public_role_holding",
-      "confidence": 0.564,
+      "confidence": 0.59,
       "person": "Jarosława Kaczyńskiego",
       "organization": "Skarbu Państwa",
       "role": "poseł",
@@ -163,7 +143,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.564,
+      "confidence": 0.59,
       "person": "Krzysztofa Sobolewskiego",
       "organization": "Skarbu Państwa",
       "role": "poseł",
@@ -171,14 +151,22 @@
       "context": "Skarbu Państwa"
     },
     {
+      "kind": "public_role_appointment",
+      "confidence": 0.571,
+      "person": "Łukasz Jakubowski",
+      "organization": "PKP CARGO",
+      "role": "członek zarząd",
+      "role_domain": "other_public_role"
+    },
+    {
       "kind": "asset_declaration",
-      "confidence": 0.548,
+      "confidence": 0.57,
       "person": "Sylwii Sobolewskiej",
       "amount": "niemal pół miliona złotych"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.529,
+      "confidence": 0.549,
       "person": "Krzysztofa Sobolewskiego",
       "organization": "Lubelskie Koleje",
       "role": "marszałek",
@@ -186,43 +174,57 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.529,
+      "confidence": 0.549,
       "person": "Sylwii Sobolewskiej",
       "organization": "Lubelskie Koleje",
       "role": "marszałek",
       "role_domain": "administrative_office"
     },
     {
+      "kind": "public_role_appointment",
+      "confidence": 0.548,
+      "person": "Sylwii Sobolewskiej",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.548,
+      "person": "Krzysztofa Sobolewskiego",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Łukasza Smółki",
       "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Krzysztofa Sobolewskiego",
-      "role": "poseł",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Stawiarski",
       "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Sylwii Sobolewskiej",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.483,
+      "confidence": 0.544,
+      "person": "Krzysztofa Sobolewskiego",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.499,
       "person": "Łukasza Smółki",
       "organization": "Lubelskich Kolei",
       "role": "rad nadzorczy",
@@ -230,7 +232,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.483,
+      "confidence": 0.499,
       "person": "Mariolę Duraj-Majdę",
       "organization": "Lubelskich Kolei",
       "role": "rad nadzorczy",
@@ -238,7 +240,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.483,
+      "confidence": 0.499,
       "person": "Sylwii Sobolewskiej",
       "organization": "Lubelskich Kolei",
       "role": "rad nadzorczy",
@@ -257,16 +259,8 @@
       "institution": "PiS"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.434,
-      "person": "Łukasz Jakubowski",
-      "organization": "PKP CARGO",
-      "role": "członek zarząd",
-      "role_domain": "other_public_role"
-    },
-    {
       "kind": "compensation",
-      "confidence": 0.282,
+      "confidence": 0.308,
       "funder": "Lubelskie Koleje",
       "amount": "2,3 tys. zł"
     }

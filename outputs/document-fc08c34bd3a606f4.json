@@ -5,6 +5,20 @@
   "relevance_score": 0.95,
   "facts": [
     {
+      "kind": "public_role_end",
+      "confidence": 0.727,
+      "person": "Marcina Kopanię",
+      "organization": "Miejskiego Przedsiębiorstwa Realizacji Inwestycji",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.713,
+      "person": "Bartosz Kopania",
+      "organization": "Totalizatora Sportowego"
+    },
+    {
       "kind": "kinship_tie",
       "confidence": 0.708,
       "subject": "Marcina Kopanię",
@@ -13,34 +27,12 @@
       "context": "brat"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.692,
-      "person": "Kopani",
-      "organization": "Polskiego Holdingu Nieruchomości"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.692,
-      "person": "Marcina Kopanię",
-      "organization": "PHN"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.692,
-      "person": "Malicki",
-      "organization": "Szpitala Bródnowskiego"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.692,
-      "person": "Roberta Kropiwnickiego",
-      "organization": "Totalizatora"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.687,
-      "person": "Bartosz Kopania",
-      "organization": "Totalizatora Sportowego"
+      "kind": "public_role_appointment",
+      "confidence": 0.708,
+      "person": "Wiesław Malicki",
+      "organization": "PHN",
+      "role": "prezes",
+      "role_domain": "public_company_management"
     },
     {
       "kind": "party_membership",
@@ -50,58 +42,17 @@
       "status": "unknown"
     },
     {
-      "kind": "public_role_end",
-      "confidence": 0.684,
-      "person": "Marcina Kopanię",
-      "organization": "Miejskiego Przedsiębiorstwa Realizacji Inwestycji",
-      "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
       "kind": "public_contract",
-      "confidence": 0.68,
+      "confidence": 0.683,
+      "counterparty": "Totalizatora Sportowego",
       "contractor": "Bartosz Kopania",
       "amount": "100 tys. zł"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.663,
-      "person": "Wiesław Malicki",
-      "organization": "PHN",
-      "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.659,
-      "person": "Krzysztofa Gołąba",
-      "organization": "PHN",
-      "role": "zarząd",
-      "role_domain": "public_company_management"
-    },
-    {
       "kind": "public_employment",
-      "confidence": 0.649,
+      "confidence": 0.625,
       "person": "Krzysztofa Gołąba",
       "organization": "warszawskiej"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.615,
-      "person": "Marcina Kopanię",
-      "organization": "Skarbu Państwa Polskim Holdingu Nieruchomości",
-      "role": "prezes",
-      "role_domain": "public_company_management",
-      "context": "Skarbu Państwa Polskim Holdingu Nieruchomości"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.615,
-      "person": "Rafała Trzaskowskiego",
-      "organization": "Skarbu Państwa Polskim Holdingu Nieruchomości",
-      "role": "prezes",
-      "role_domain": "public_company_management",
-      "context": "Skarbu Państwa Polskim Holdingu Nieruchomości"
     },
     {
       "kind": "personal_or_political_tie",
@@ -119,9 +70,49 @@
     },
     {
       "kind": "public_employment",
-      "confidence": 0.572,
+      "confidence": 0.609,
+      "person": "Malicki",
+      "organization": "Ministerstwo"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.603,
+      "person": "Krzysztofa Gołąba",
+      "organization": "PHN",
+      "role": "doradca",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.579,
       "person": "Przemysław Wipler",
       "organization": "Warszawy"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.546,
+      "person": "Marcina Kopanię",
+      "organization": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.542,
+      "person": "Kopani",
+      "organization": "Polskiego Holdingu Nieruchomości"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.541,
+      "person": "Marcina Kopanię",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.541,
+      "person": "Rafała Trzaskowskiego",
+      "role": "prezes",
+      "role_domain": "public_company_management"
     },
     {
       "kind": "personal_or_political_tie",

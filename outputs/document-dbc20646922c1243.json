@@ -13,6 +13,13 @@
       "context": "żona"
     },
     {
+      "kind": "public_employment",
+      "confidence": 0.702,
+      "person": "Jana Burego",
+      "organization": "Agencji Rynku Rolnego",
+      "role": "sekretarz"
+    },
+    {
       "kind": "kinship_tie",
       "confidence": 0.697,
       "subject": "brat of Jarosława Kalinowskiego",
@@ -44,25 +51,18 @@
       "status": "unknown"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.684,
-      "person": "Jana Burego",
-      "organization": "Agencji Rynku Rolnego",
-      "role": "sekretarz"
+      "kind": "public_role_appointment",
+      "confidence": 0.618,
+      "person": "Lucjan Ograsiński",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.637,
-      "person": "Jacek Śmietanko",
-      "organization": "Elewarru",
-      "role": "dyrektor",
-      "role_domain": "institution_management"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.626,
-      "person": "Adam Kalinowski",
-      "organization": "Elewarr"
+      "confidence": 0.618,
+      "person": "Mariusz Suchecki",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
     },
     {
       "kind": "personal_or_political_tie",
@@ -73,21 +73,28 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Mariusz Suchecki",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
+      "confidence": 0.561,
+      "person": "Jacek Śmietanko",
+      "organization": "Elewarru",
+      "role": "minister",
+      "role_domain": "institution_management"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Lucjan Ograsiński",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
+      "confidence": 0.551,
+      "person": "Adam Kalinowski",
+      "organization": "Zamojskich Zakładach Zbożowych",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.506,
+      "person": "Adam Kalinowski",
+      "organization": "Elewarr"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.476,
+      "confidence": 0.484,
       "person": "Paweł Bejda",
       "role": "rada nadzorczy",
       "role_domain": "other_public_role"

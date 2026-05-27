@@ -6,9 +6,33 @@
   "facts": [
     {
       "kind": "compensation",
-      "confidence": 0.734,
+      "confidence": 0.773,
       "funder": "Janczarek",
       "amount": "10 189,50 zł"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.749,
+      "person": "Łukasza Skokowskiego",
+      "organization": "Urzędu Miasta",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.749,
+      "person": "Magdaleny Skokowskiej",
+      "organization": "Urzędu Miasta",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.726,
+      "person": "Agnieszkę",
+      "organization": "MOPS",
+      "role": "burmistrz",
+      "role_domain": "political_office"
     },
     {
       "kind": "patronage_network_tie",
@@ -25,18 +49,48 @@
       "context": "mąż"
     },
     {
+      "kind": "public_role_appointment",
+      "confidence": 0.701,
+      "person": "Agnieszka Bebel",
+      "organization": "MOSiR"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.701,
+      "person": "Agnieszka Bebel",
+      "organization": "Miejskiego Ośrodka Pomocy Społecznej"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.701,
+      "person": "Magdaleny Skokowskiej",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.701,
+      "person": "Agnieszka Bebel",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.701,
+      "person": "Michała Stawiarskiego",
+      "organization": "MOSiR"
+    },
+    {
       "kind": "patronage_allegation",
       "confidence": 0.698,
       "complainant": "Agnieszka Bebel",
       "institution": "Miejskiego Ośrodka Pomocy Społecznej"
     },
     {
-      "kind": "public_role_appointment",
+      "kind": "public_role_holding",
       "confidence": 0.697,
-      "person": "Michała Stawiarskiego",
-      "organization": "MOSiR w Kraśniku",
-      "role": "dyrektor",
-      "role_domain": "institution_management"
+      "person": "Łukasza Skokowskiego",
+      "organization": "Urzędowi Miasta Kraśnik",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
     },
     {
       "kind": "party_membership",
@@ -53,107 +107,53 @@
       "status": "unknown"
     },
     {
+      "kind": "public_role_holding",
+      "confidence": 0.675,
+      "person": "Krzysztofa Starucha",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.675,
+      "person": "Magdaleny Skokowskiej",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.669,
+      "person": "Krzysztofa Starucha",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.651,
+      "person": "Agnieszka Bebel",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.651,
+      "person": "Agnieszka Bebel",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
       "kind": "public_employment",
-      "confidence": 0.679,
+      "confidence": 0.629,
       "person": "Magdaleny Skokowskiej",
       "organization": "Urzędu Miasta",
       "role": "sekretarz"
     },
     {
-      "kind": "public_role_end",
-      "confidence": 0.675,
-      "person": "Agnieszka Bebel",
-      "organization": "Miejskiego Ośrodka Pomocy Społecznej"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.675,
-      "person": "Magdaleny Skokowskiej",
-      "organization": "MOPS"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.675,
-      "person": "Agnieszka Bebel",
-      "organization": "MOPS"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.675,
-      "person": "Agnieszka Bebel",
-      "organization": "MOSiR"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.675,
+      "confidence": 0.627,
       "person": "Michała Stawiarskiego",
-      "organization": "MOSiR"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.665,
-      "person": "Łukasza Skokowskiego",
-      "organization": "Urzędu Miasta",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.665,
-      "person": "Magdaleny Skokowskiej",
-      "organization": "Urzędu Miasta",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.663,
-      "person": "Łukasza Skokowskiego",
-      "organization": "Urzędowi Miasta Kraśnik",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.655,
-      "person": "Krzysztofa Starucha",
-      "role": "burmistrz",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.655,
-      "person": "Magdaleny Skokowskiej",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.646,
-      "person": "Agnieszkę",
-      "organization": "MOPS",
-      "role": "burmistrz",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.642,
-      "person": "Krzysztofa Starucha",
-      "organization": "MOPS"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.631,
-      "person": "Agnieszka Bebel",
-      "role": "burmistrz",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.631,
-      "person": "Agnieszka Bebel",
-      "role": "burmistrz",
-      "role_domain": "political_office"
+      "organization": "MOSiR w Kraśniku",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
     },
     {
       "kind": "personal_or_political_tie",
@@ -170,30 +170,30 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Wojciechem Wilkiem",
-      "role": "burmistrz",
+      "confidence": 0.544,
+      "person": "Jarosław Stawiarski",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Piotra Janczarka",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Michała Stawiarskiego",
       "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Jarosław Stawiarski",
-      "role": "marszałek",
+      "confidence": 0.544,
+      "person": "Wojciechem Wilkiem",
+      "role": "burmistrz",
       "role_domain": "political_office"
     },
     {
@@ -204,15 +204,15 @@
     {
       "kind": "patronage_network_tie",
       "confidence": 0.438,
-      "subject": "Krzysztofa Starucha",
-      "object": "Agnieszka Bebel",
+      "subject": "Agnieszka Bebel",
+      "object": "Krzysztofa Starucha",
       "context": "burmistrzem"
     },
     {
       "kind": "patronage_allegation",
       "confidence": 0.429,
-      "complainant": "Krzysztofa Starucha",
-      "target": "Agnieszka Bebel",
+      "complainant": "Agnieszka Bebel",
+      "target": "Krzysztofa Starucha",
       "context": "burmistrzem"
     },
     {

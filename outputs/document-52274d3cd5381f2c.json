@@ -6,11 +6,24 @@
   "facts": [
     {
       "kind": "public_role_appointment",
-      "confidence": 0.718,
+      "confidence": 0.755,
       "person": "Marek Rząsowski",
       "organization": "AMW Rewita",
       "role": "rada nadzorczy",
       "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.716,
+      "person": "Marku",
+      "organization": "starostwu",
+      "role": "sekretarz"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.71,
+      "person": "Marku",
+      "organization": "starostwu"
     },
     {
       "kind": "kinship_tie",
@@ -21,6 +34,12 @@
       "context": "żona"
     },
     {
+      "kind": "compensation",
+      "confidence": 0.687,
+      "recipient": "Marek Rząsowski",
+      "amount": "24 tys. zł"
+    },
+    {
       "kind": "party_membership",
       "confidence": 0.685,
       "subject": "Marek Rząsowski",
@@ -28,20 +47,8 @@
       "status": "unknown"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.682,
-      "person": "Marku",
-      "organization": "starostwu"
-    },
-    {
-      "kind": "compensation",
-      "confidence": 0.66,
-      "recipient": "Marek Rząsowski",
-      "amount": "24 tys. zł"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Marek Rząsowski",
       "role": "radny",
       "role_domain": "political_office"

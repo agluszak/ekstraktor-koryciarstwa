@@ -6,7 +6,7 @@
   "facts": [
     {
       "kind": "public_role_holding",
-      "confidence": 0.684,
+      "confidence": 0.727,
       "person": "Jacka Sasina",
       "organization": "Portu Lotniczego Lublin",
       "role": "rada nadzorczy",
@@ -14,7 +14,7 @@
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.684,
+      "confidence": 0.727,
       "person": "Jacka Sasina",
       "organization": "Portu Lotniczego Lublin",
       "role": "rada nadzorczy",
@@ -22,14 +22,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.655,
-      "person": "Dariusza Stefaniuka",
-      "role": "rada nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.646,
+      "confidence": 0.68,
       "person": "Angelika Konaszczuk",
       "organization": "Portu Lotniczego w Lublinie",
       "role": "prezes",
@@ -37,7 +30,14 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.637,
+      "confidence": 0.675,
+      "person": "Dariusza Stefaniuka",
+      "role": "rada nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.666,
       "person": "Dariusza Stefaniuka",
       "organization": "Enea Połaniec",
       "role": "rada nadzorczy",
@@ -45,7 +45,7 @@
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.637,
+      "confidence": 0.666,
       "person": "Dariusza Stefaniuka",
       "organization": "Enea Połaniec",
       "role": "rada nadzorczy",
@@ -53,7 +53,7 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.624,
+      "confidence": 0.658,
       "person": "Dariusza Stefaniuka",
       "organization": "MBA",
       "role": "rada nadzorczy",
@@ -61,21 +61,21 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Dariusza Stefaniuka",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.492,
+      "confidence": 0.503,
       "person": "Angelika Konaszczuk",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.492,
+      "confidence": 0.503,
       "person": "Angelika Konaszczuk",
       "role": "poseł",
       "role_domain": "political_office"

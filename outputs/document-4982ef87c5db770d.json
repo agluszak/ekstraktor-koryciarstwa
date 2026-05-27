@@ -5,6 +5,14 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Beata Kozłowska",
+      "organization": "PZU",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
       "kind": "party_membership",
       "confidence": 0.685,
       "subject": "Wojciecha Olejniczaka",
@@ -12,23 +20,8 @@
       "status": "former"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.684,
-      "person": "Beata Kozłowska",
-      "organization": "PZU",
-      "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.658,
-      "person": "Paweł Górecki",
-      "organization": "PZU",
-      "context": "MAP"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.572,
+      "confidence": 0.61,
       "person": "Wojciecha Olejniczaka",
       "organization": "Skarbu Państwa",
       "role": "szef",
@@ -37,23 +30,21 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.553,
+      "confidence": 0.569,
       "person": "Andrzeja Jarczyka",
       "organization": "PZU"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.523,
+      "person": "Paweł Górecki",
+      "role_domain": "administrative_office",
+      "context": "MAP"
     },
     {
       "kind": "election_candidacy",
       "confidence": 0.48,
       "person": "Wojciecha Olejniczaka"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.261,
-      "person": "Marcina Kubiczy",
-      "organization": "PZU",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board",
-      "context": "Ministerstwo Aktywów Państwowych"
     }
   ]
 }

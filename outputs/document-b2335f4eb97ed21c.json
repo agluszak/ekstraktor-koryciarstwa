@@ -25,16 +25,68 @@
     },
     {
       "kind": "compensation",
-      "confidence": 0.708,
+      "confidence": 0.731,
       "funder": "WFOŚiGW",
       "amount": "kilkudziesięciu tysięcy złotych"
     },
     {
+      "kind": "public_role_appointment",
+      "confidence": 0.727,
+      "person": "Stanisława Mazura",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
       "kind": "public_role_holding",
-      "confidence": 0.704,
+      "confidence": 0.721,
       "person": "Pauliny Hennig-Kloski",
       "role": "minister",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.697,
+      "person": "Andrzeja Kloca",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.687,
+      "person": "Anna Glijer",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.687,
+      "person": "Michał Marciniak",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.687,
+      "person": "Lucjan Orgasiński",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.687,
+      "person": "Piotr Bogusz",
+      "organization": "NFOŚiGW",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role",
+      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
     },
     {
       "kind": "party_membership",
@@ -45,90 +97,53 @@
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.684,
+      "confidence": 0.677,
       "person": "Stanisława Mazura",
       "organization": "WFOŚiGW",
       "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.684,
-      "person": "Stanisława Mazura",
-      "organization": "WFOŚiGW w Lublinie",
-      "role": "prezes",
-      "role_domain": "public_company_management"
+      "role_domain": "political_office"
     },
     {
       "kind": "public_employment",
-      "confidence": 0.667,
+      "confidence": 0.67,
       "person": "Andrzeja Kloca",
       "organization": "Urzędzie Marszałkowskim Województwa Lubelskiego"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.658,
-      "person": "Anna Glijer",
-      "organization": "NFOŚiGW",
-      "role": "przewodniczący",
-      "role_domain": "other_public_role",
-      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.658,
-      "person": "Michał Marciniak",
-      "organization": "NFOŚiGW",
-      "role": "przewodniczący",
-      "role_domain": "other_public_role",
-      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.658,
-      "person": "Lucjan Orgasiński",
-      "organization": "NFOŚiGW",
-      "role": "przewodniczący",
-      "role_domain": "other_public_role",
-      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.658,
-      "person": "Piotr Bogusz",
-      "organization": "NFOŚiGW",
-      "role": "przewodniczący",
-      "role_domain": "other_public_role",
-      "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.655,
-      "person": "prezes",
-      "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
       "kind": "public_role_end",
-      "confidence": 0.653,
-      "person": "Annę Pokwapisz",
-      "organization": "WFOŚiGW w Lublinie",
-      "role": "wiceprezes",
-      "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.653,
+      "confidence": 0.665,
       "person": "Agnieszkę Kruk",
       "organization": "WFOŚiGW w Lublinie",
       "role": "prezes",
       "role_domain": "public_company_management"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.625,
-      "person": "Andrzeja Kloca",
+      "kind": "public_role_end",
+      "confidence": 0.665,
+      "person": "Annę Pokwapisz",
       "organization": "WFOŚiGW w Lublinie",
+      "role": "wiceprezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.619,
+      "person": "Stanisława Mazura",
+      "organization": "WFOŚiGW",
+      "role": "prezes",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.618,
+      "person": "Jerzy Szwaj",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.618,
+      "person": "Andrzeja Kloca",
       "role": "prezes",
       "role_domain": "public_company_management"
     },
@@ -140,30 +155,15 @@
       "context": "człowiek"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Jerzy Szwaj",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.597,
-      "person": "Andrzeja Kloca",
-      "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.593,
-      "person": "Stanisława Mazura",
-      "organization": "WFOŚiGW",
-      "role": "prezes",
+      "confidence": 0.581,
+      "person": "Jarosław Stawiarski",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.56,
+      "confidence": 0.573,
       "person": "Piotr Bogusz",
       "organization": "WFOŚiGW w Lublinie",
       "role": "przewodniczący",
@@ -171,31 +171,31 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.557,
-      "person": "Jarosław Stawiarski",
-      "role": "marszałek",
+      "confidence": 0.544,
+      "person": "Anna Glijer",
+      "role": "minister",
       "role_domain": "political_office"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.531,
-      "person": "Jarosław Stawiarski",
-      "organization": "WFOŚiGW w Lublinie",
-      "role": "zarząd",
-      "role_domain": "public_company_management"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Stanisława Mazura",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Anna Glijer",
-      "role": "minister",
+      "kind": "public_role_appointment",
+      "confidence": 0.505,
+      "person": "prezes",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.505,
+      "person": "Jarosław Stawiarski",
+      "organization": "WFOŚiGW w Lublinie",
+      "role": "zarząd",
       "role_domain": "political_office"
     },
     {

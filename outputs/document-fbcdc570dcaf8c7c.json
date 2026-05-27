@@ -12,11 +12,11 @@
       "status": "unknown"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Marek Papuga",
-      "object": "Sojusz Lewicy Demokratycznej",
-      "status": "unknown"
+      "kind": "compensation",
+      "confidence": 0.691,
+      "funder": "Wirtualnej Polski",
+      "recipient": "Krzysztof Izdebski",
+      "amount": "8 tys. zł"
     },
     {
       "kind": "party_membership",
@@ -33,24 +33,15 @@
       "status": "unknown"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.674,
-      "person": "Szymon Hołownia",
-      "organization": "Sejmie",
-      "role": "radzio nadzorczy",
-      "role_domain": "supervisory_board",
-      "context": "Skarbu Państwa"
-    },
-    {
-      "kind": "compensation",
-      "confidence": 0.652,
-      "funder": "Wirtualnej Polski",
-      "recipient": "Krzysztof Izdebski",
-      "amount": "8 tys. zł"
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marek Papuga",
+      "object": "Sojusz Lewicy Demokratycznej",
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.644,
+      "confidence": 0.678,
       "person": "Paweł Marciniak",
       "organization": "Sejmu",
       "role": "marszałek",
@@ -59,7 +50,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.644,
+      "confidence": 0.678,
       "person": "Szymon Hołownia",
       "organization": "Sejmu",
       "role": "marszałek",
@@ -68,11 +59,39 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.624,
+      "confidence": 0.658,
       "person": "Paweł Pudłowski",
       "organization": "Wirtualnej Polski",
       "role": "przewodniczący",
       "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.632,
+      "person": "Szymon Hołownia",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.619,
+      "person": "Szymon Hołownia",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.619,
+      "person": "Szymon Hołownia",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.618,
+      "person": "Krzysztofa Pałki",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board"
     },
     {
       "kind": "personal_or_political_tie",
@@ -82,43 +101,17 @@
       "context": "człowiek"
     },
     {
-      "kind": "public_role_end",
-      "confidence": 0.613,
-      "person": "Hołownia",
+      "kind": "public_role_appointment",
+      "confidence": 0.606,
+      "person": "Szymon Hołownia",
       "organization": "Sejmie",
+      "role": "marszałek",
+      "role_domain": "political_office",
       "context": "Skarbu Państwa"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.605,
-      "person": "Szymon Hołownia",
-      "role": "marszałek",
-      "role_domain": "political_office"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Krzysztofa Pałki",
-      "role": "radzio nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.597,
-      "person": "Szymon Hołownia",
-      "role": "radzio nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Szymon Hołownia",
-      "role": "radzio nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.567,
+      "confidence": 0.588,
       "person": "Mariola Rzepka",
       "organization": "Narodowy Funduszu Ochrony Środowiska i Gospodarki Wodnej",
       "role": "minister",
@@ -127,7 +120,7 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.567,
+      "confidence": 0.588,
       "person": "Paulinę Hennig-Kloskę",
       "organization": "Narodowy Funduszu Ochrony Środowiska i Gospodarki Wodnej",
       "role": "minister",
@@ -135,24 +128,32 @@
       "context": "Skarbu Państwa"
     },
     {
+      "kind": "public_role_end",
+      "confidence": 0.57,
+      "person": "Hołownia",
+      "organization": "Sejmie",
+      "role_domain": "political_office",
+      "context": "Skarbu Państwa"
+    },
+    {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Emilii Wasielewskiej",
       "role": "radna",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Olgierd Geblewicz",
-      "role": "marszałek",
+      "confidence": 0.544,
+      "person": "Paulinę Hennig-Kloskę",
+      "role": "minister",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Paulinę Hennig-Kloskę",
-      "role": "minister",
+      "confidence": 0.544,
+      "person": "Olgierd Geblewicz",
+      "role": "marszałek",
       "role_domain": "political_office"
     }
   ]

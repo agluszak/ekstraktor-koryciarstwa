@@ -5,35 +5,29 @@
   "relevance_score": 0.6,
   "facts": [
     {
-      "kind": "public_employment",
-      "confidence": 0.667,
-      "person": "Bogdana Klicha",
-      "organization": "Wojskowej Agencji Mieszkaniowej"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.639,
+      "confidence": 0.67,
       "person": "Marcin Dulian",
       "organization": "Grupy Hoteli",
       "role": "prezes",
       "role_domain": "public_company_management"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.633,
-      "person": "Jarosław Hodura",
-      "organization": "Hodura",
-      "role": "zarząd",
-      "role_domain": "public_company_management"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.632,
+      "confidence": 0.66,
       "person": "Krzysztof Kuczmański",
       "organization": "Przedsiębiorstwa Usług Hotelarskich i Turystycznych",
       "role": "prezes",
       "role_domain": "public_company_management",
       "context": "MON"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.659,
+      "person": "Jarosław Hodura",
+      "organization": "Grupy Hoteli WAM",
+      "role": "zarząd",
+      "role_domain": "public_company_management"
     },
     {
       "kind": "personal_or_political_tie",
@@ -44,10 +38,17 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Bogdana Klicha",
       "role": "minister",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.524,
+      "subject": "Marcin Dulian",
+      "object": "Bogdana Klicha",
+      "institution": "Grupy Hoteli"
     },
     {
       "kind": "patronage_allegation",
@@ -63,6 +64,12 @@
       "target": "Krzysztof Kuczmański",
       "institution": "MON",
       "context": "szefowi"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.425,
+      "person": "Bogdana Klicha",
+      "organization": "MON"
     }
   ]
 }

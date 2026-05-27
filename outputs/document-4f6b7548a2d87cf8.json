@@ -6,14 +6,7 @@
   "facts": [
     {
       "kind": "compensation",
-      "confidence": 0.714,
-      "funder": "KZN",
-      "recipient": "Łukasz Bałajewicz",
-      "amount": "31 tys. zł"
-    },
-    {
-      "kind": "compensation",
-      "confidence": 0.708,
+      "confidence": 0.731,
       "funder": "KZN",
       "amount": "11 tys. zł"
     },
@@ -24,28 +17,11 @@
       "amount": "10 tys. zł"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.684,
-      "person": "Szymona Hołowni",
-      "organization": "Sejmu",
-      "role": "przewodniczący",
-      "role_domain": "other_public_role"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.684,
-      "person": "Bartosz Wilk",
-      "organization": "Sejmu",
-      "role": "przewodniczący",
-      "role_domain": "other_public_role"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.667,
-      "person": "Katarzyna Pełczyńska-Nałęcz",
-      "organization": "KZN",
-      "role": "rado",
-      "role_domain": "other_public_role"
+      "kind": "compensation",
+      "confidence": 0.68,
+      "funder": "KZN",
+      "recipient": "Donalda Tuska",
+      "amount": "31 tys. zł"
     },
     {
       "kind": "kinship_tie",
@@ -55,17 +31,51 @@
       "relationship_detail": "spouse"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.642,
-      "person": "Michał Szymczyk",
-      "organization": "Polska"
+      "kind": "public_role_holding",
+      "confidence": 0.631,
+      "person": "Katarzyna Pełczyńska-Nałęcz",
+      "organization": "KZN",
+      "role": "rado",
+      "role_domain": "other_public_role",
+      "context": "Ministerstwo Funduszy i Polityki Regionalnej"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.636,
-      "person": "Prezes",
+      "confidence": 0.619,
+      "person": "Łukasz Bałajewicz",
       "organization": "KZN",
       "role": "prezes",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.619,
+      "person": "Filip Curyło",
+      "role": "radzio nadzorczy",
+      "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.618,
+      "person": "Filip Curyło",
+      "role": "rado",
+      "role_domain": "other_public_role"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.616,
+      "person": "Rafał Komarewicz",
+      "organization": "Skarbu Państwa",
+      "role": "zarząd",
+      "role_domain": "public_company_management",
+      "context": "Skarbu Państwa"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.616,
+      "person": "Szymona Hołowni",
+      "organization": "Skarbu Państwa",
+      "role": "zarząd",
       "role_domain": "public_company_management",
       "context": "Skarbu Państwa"
     },
@@ -84,56 +94,29 @@
       "context": "baron"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.6,
-      "person": "Gabriela Sowa",
-      "organization": "KZN"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.6,
-      "person": "Łukasz Bałajewicz",
-      "organization": "KZN"
+      "kind": "public_role_holding",
+      "confidence": 0.587,
+      "person": "Katarzyna Pełczyńska-Nałęcz",
+      "organization": "KZN",
+      "role": "prezes",
+      "role_domain": "public_company_management",
+      "context": "Ministerstwo Funduszy i Polityki Regionalnej"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Filip Curyło",
-      "role": "radzio nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.597,
-      "person": "Filip Curyło",
-      "role": "rado",
+      "confidence": 0.582,
+      "person": "Szymona Hołowni",
+      "organization": "Sejmu",
+      "role": "przewodniczący",
       "role_domain": "other_public_role"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.593,
-      "person": "Łukasz Bałajewicz",
-      "organization": "KZN",
-      "role": "prezes",
-      "role_domain": "institution_management"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.584,
-      "person": "Szymona Hołowni",
-      "organization": "Skarbu Państwa",
-      "role": "zarząd",
-      "role_domain": "public_company_management",
-      "context": "Skarbu Państwa"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.584,
-      "person": "Rafał Komarewicz",
-      "organization": "Skarbu Państwa",
-      "role": "zarząd",
-      "role_domain": "public_company_management",
-      "context": "Skarbu Państwa"
+      "confidence": 0.582,
+      "person": "Bartosz Wilk",
+      "organization": "Sejmu",
+      "role": "przewodniczący",
+      "role_domain": "other_public_role"
     },
     {
       "kind": "political_support",
@@ -142,24 +125,17 @@
       "object": "Michał Szymczyk"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.566,
-      "person": "Katarzyna Pełczyńska-Nałęcz",
+      "kind": "public_role_appointment",
+      "confidence": 0.57,
+      "person": "Prezes",
       "organization": "KZN",
       "role": "prezes",
       "role_domain": "public_company_management",
-      "context": "Ministerstwo Funduszy i Polityki Regionalnej"
+      "context": "Skarbu Państwa"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.535,
-      "person": "prezes",
-      "role": "radzio nadzorczy",
-      "role_domain": "other_public_role"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.535,
+      "confidence": 0.555,
       "person": "Sebastian Puchajda",
       "organization": "SIM",
       "role": "doradca",
@@ -167,7 +143,7 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.534,
+      "confidence": 0.555,
       "person": "Szymona Hołowni",
       "organization": "Sejmu",
       "role": "radzio nadzorczy",
@@ -175,7 +151,7 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.534,
+      "confidence": 0.555,
       "person": "Emil Rojek",
       "organization": "Sejmu",
       "role": "radzio nadzorczy",
@@ -183,7 +159,7 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.534,
+      "confidence": 0.555,
       "person": "Łukasz Bałajewicz",
       "organization": "Sejmu",
       "role": "radzio nadzorczy",
@@ -191,50 +167,43 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.533,
+      "confidence": 0.554,
       "person": "Emil Rojek",
       "organization": "RN KZN",
-      "role": "radzio nadzorczy",
+      "role": "minister",
       "role_domain": "other_public_role"
     },
     {
-      "kind": "patronage_network_tie",
-      "confidence": 0.524,
-      "subject": "Rafał Komarewicz",
-      "object": "Szymona Hołowni",
-      "institution": "„GP”"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Rafał Komarewicz",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Rafała Kukli",
-      "role": "burmistrz",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Szymona Hołowni",
       "role": "marszałek",
       "role_domain": "political_office"
     },
     {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Rafała Kukli",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
       "kind": "public_role_appointment",
-      "confidence": 0.519,
+      "confidence": 0.532,
       "person": "Pawła Śliza",
       "role": "radzio nadzorczy",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.519,
+      "confidence": 0.532,
       "person": "Filip Curyło",
       "role": "radzio nadzorczy",
       "role_domain": "political_office"
@@ -248,30 +217,24 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.499,
+      "confidence": 0.513,
       "person": "Szymona Hołowni",
       "role": "radzio nadzorczy",
       "role_domain": "public_company_management"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.499,
+      "confidence": 0.513,
       "person": "Emil Rojek",
       "role": "radzio nadzorczy",
       "role_domain": "public_company_management"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.499,
+      "confidence": 0.513,
       "person": "Łukasz Bałajewicz",
       "role": "radzio nadzorczy",
       "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.491,
-      "person": "Waldemar Buda",
-      "organization": "KZN"
     },
     {
       "kind": "election_candidacy",
@@ -289,6 +252,18 @@
       "complainant": "Bałajewicza",
       "target": "Bałajewicza",
       "context": "znajomy"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.443,
+      "person": "Waldemar Buda",
+      "organization": "KZN"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.346,
+      "person": "Rafała Kukli",
+      "organization": "KZN"
     }
   ]
 }

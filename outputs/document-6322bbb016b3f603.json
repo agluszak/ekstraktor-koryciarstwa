@@ -6,21 +6,23 @@
   "facts": [
     {
       "kind": "public_role_holding",
-      "confidence": 0.684,
+      "confidence": 0.727,
       "person": "Artur Biernat",
       "organization": "PKN Orlen",
       "role": "dyrektor",
       "role_domain": "institution_management"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.675,
-      "person": "Mirosław Milewski",
-      "organization": "Inwestycje Miejskie"
+      "kind": "public_role_end",
+      "confidence": 0.707,
+      "person": "Piotr Śladowski",
+      "organization": "Inwestycji Miejskich",
+      "role": "wiceprezes",
+      "role_domain": "public_company_management"
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.663,
+      "confidence": 0.707,
       "person": "Mariusz Stec",
       "organization": "Inwestycji Miejskich",
       "role": "prezes",
@@ -28,7 +30,13 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.56,
+      "confidence": 0.701,
+      "person": "Mirosław Milewski",
+      "organization": "Inwestycje Miejskie"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.582,
       "person": "Kamil Rybacki",
       "organization": "PKN Orlen",
       "role": "prezes",
@@ -36,7 +44,7 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.56,
+      "confidence": 0.582,
       "person": "Artur Biernat",
       "organization": "PKN Orlen",
       "role": "prezes",
@@ -44,19 +52,18 @@
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.493,
+      "confidence": 0.526,
       "person": "prezesa",
       "organization": "Urzędu Miasta",
       "role": "rada nadzorczy",
       "role_domain": "public_company_management"
     },
     {
-      "kind": "public_role_end",
-      "confidence": 0.431,
-      "person": "Piotr Śladowski",
-      "organization": "Inwestycji Miejskich",
-      "role": "wiceprezes",
-      "role_domain": "public_company_management"
+      "kind": "public_employment",
+      "confidence": 0.418,
+      "person": "Artur Biernat",
+      "organization": "Płocku",
+      "role": "dyrektor"
     }
   ]
 }

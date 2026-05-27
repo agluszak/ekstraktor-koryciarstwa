@@ -6,16 +6,42 @@
   "facts": [
     {
       "kind": "public_employment",
-      "confidence": 0.763,
-      "person": "Monika Jurek",
-      "organization": "Biurze Bezpieczeństwa Urzędu Marszałkowskiego Województwa Opolskiego"
-    },
-    {
-      "kind": "public_employment",
       "confidence": 0.756,
       "person": "Agnieszki Królikowskiej",
       "organization": "Generalnego Opolskiego Urzędu Wojewódzkiego",
       "role": "dyrektor"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.751,
+      "person": "Jarosław Draguć",
+      "organization": "Urzędu Wojewódzkiego",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.751,
+      "person": "Andrzej Buła",
+      "organization": "Urzędu Wojewódzkiego",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.742,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "Urzędu Wojewódzkiego",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.742,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "Generalnego Opolskiego Urzędu Wojewódzkiego",
+      "role": "dyrektor",
+      "role_domain": "institution_management"
     },
     {
       "kind": "kinship_tie",
@@ -26,38 +52,6 @@
       "context": "mąż"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.712,
-      "person": "Jarosław Draguć",
-      "organization": "Urzędu Wojewódzkiego",
-      "role": "marszałek",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.712,
-      "person": "Andrzej Buła",
-      "organization": "Urzędu Wojewódzkiego",
-      "role": "marszałek",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.701,
-      "person": "Agnieszki Królikowskiej",
-      "organization": "Urzędu Wojewódzkiego",
-      "role": "dyrektor",
-      "role_domain": "institution_management"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.701,
-      "person": "Agnieszki Królikowskiej",
-      "organization": "Generalnego Opolskiego Urzędu Wojewódzkiego",
-      "role": "dyrektor",
-      "role_domain": "institution_management"
-    },
-    {
       "kind": "kinship_tie",
       "confidence": 0.697,
       "subject": "Agnieszki Królikowskiej",
@@ -66,28 +60,8 @@
       "context": "partnerka"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.688,
-      "person": "Agnieszki Królikowskiej",
-      "organization": "województwa opolskiego"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.663,
-      "person": "Monika Jurek",
-      "organization": "OUW",
-      "role": "wojewoda",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.642,
-      "person": "Szymona Ogłazy",
-      "organization": "urzędzie"
-    },
-    {
       "kind": "public_role_holding",
-      "confidence": 0.639,
+      "confidence": 0.671,
       "person": "Agnieszki Królikowskiej",
       "organization": "OUW",
       "role": "dyrektor",
@@ -95,52 +69,58 @@
     },
     {
       "kind": "public_employment",
-      "confidence": 0.625,
+      "confidence": 0.645,
       "person": "Agnieszki Królikowskiej",
       "organization": "urzędu"
     },
     {
+      "kind": "public_employment",
+      "confidence": 0.64,
+      "person": "Agnieszki Królikowskiej",
+      "organization": "Urząd",
+      "role": "marszałek"
+    },
+    {
       "kind": "public_role_holding",
-      "confidence": 0.596,
+      "confidence": 0.618,
       "person": "Agnieszki Królikowskiej",
       "role": "wojewoda",
       "role_domain": "political_office"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.579,
+      "kind": "public_role_end",
+      "confidence": 0.589,
       "person": "Monika Jurek",
-      "organization": "OUW",
       "role": "wojewoda",
       "role_domain": "institution_management"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.557,
+      "confidence": 0.581,
       "person": "Szymona Ogłazy",
       "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Monika Jurek",
-      "role": "wojewoda",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
+      "confidence": 0.568,
       "person": "Jurek",
       "role": "wojewoda",
       "role_domain": "political_office"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.513,
-      "person": "Szymona Ogłazy",
-      "organization": "Urząd",
-      "role": "marszałek"
+      "kind": "public_role_holding",
+      "confidence": 0.568,
+      "person": "Monika Jurek",
+      "role": "wojewoda",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.547,
+      "person": "Monika Jurek",
+      "role": "wojewoda",
+      "role_domain": "institution_management"
     },
     {
       "kind": "patronage_allegation",

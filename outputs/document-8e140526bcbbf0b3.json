@@ -6,10 +6,17 @@
   "facts": [
     {
       "kind": "public_role_holding",
-      "confidence": 0.72,
+      "confidence": 0.739,
       "person": "Arturem Sosną",
       "role": "wójt",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.715,
+      "person": "Rafała Dobosza",
+      "organization": "samorządzie",
+      "role": "pomoc administracyjny"
     },
     {
       "kind": "kinship_tie",
@@ -28,19 +35,6 @@
       "context": "kuzyn"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.688,
-      "person": "Rafała Dobosza",
-      "organization": "gminy"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.67,
-      "person": "Rafała Dobosza",
-      "organization": "samorządzie",
-      "role": "pomoc administracyjny"
-    },
-    {
       "kind": "personal_or_political_tie",
       "confidence": 0.615,
       "subject": "Rafała Dobosza",
@@ -49,7 +43,7 @@
     },
     {
       "kind": "public_employment",
-      "confidence": 0.564,
+      "confidence": 0.528,
       "person": "Rafała Dobosza",
       "organization": "urzędzie"
     }

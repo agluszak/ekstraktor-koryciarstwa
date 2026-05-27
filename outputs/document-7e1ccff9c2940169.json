@@ -6,16 +6,53 @@
   "facts": [
     {
       "kind": "public_employment",
-      "confidence": 0.739,
+      "confidence": 0.764,
       "person": "syn of Jakub Mieszko",
       "organization": "unijnego"
     },
     {
+      "kind": "public_employment",
+      "confidence": 0.754,
+      "person": "mąż of Joanna Pszczółkowska",
+      "organization": "starostwu"
+    },
+    {
       "kind": "public_role_holding",
-      "confidence": 0.704,
+      "confidence": 0.727,
+      "person": "Anna Karaś",
+      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.727,
+      "person": "Joanna Pszczółkowska",
+      "organization": "Powiatowym Centrum Pomocy Rodzinie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.727,
+      "person": "mąż of Joanna Pszczółkowska",
+      "organization": "Powiatowym Centrum Pomocy Rodzinie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.721,
       "person": "Ciechanowski",
       "role": "starosta",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.709,
+      "person": "Joanna Pszczółkowska",
+      "organization": "unijnego",
+      "role": "sekretarz"
     },
     {
       "kind": "kinship_tie",
@@ -34,69 +71,38 @@
       "context": "syn"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.696,
-      "person": "mąż of Joanna Pszczółkowska",
-      "organization": "starostwu"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.684,
-      "person": "mąż of Joanna Pszczółkowska",
-      "organization": "Powiatowym Centrum Pomocy Rodzinie",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.684,
-      "person": "Anna Karaś",
-      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.684,
-      "person": "Joanna Pszczółkowska",
-      "organization": "Powiatowym Centrum Pomocy Rodzinie",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_employment",
-      "confidence": 0.678,
-      "person": "Joanna Pszczółkowska",
-      "organization": "unijnego",
-      "role": "sekretarz"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.655,
+      "confidence": 0.675,
       "person": "Jakub Mieszko",
       "role": "sekretarz",
       "role_domain": "administrative_office"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.655,
+      "confidence": 0.675,
       "person": "syn of Jakub Mieszko",
       "role": "sekretarz",
       "role_domain": "administrative_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.655,
+      "confidence": 0.675,
       "person": "Sławomir Morawski",
       "role": "starosta",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.655,
+      "confidence": 0.675,
       "person": "Joanna Pszczółkowska",
       "role": "sekretarz",
       "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_employment",
+      "confidence": 0.629,
+      "person": "syn of Roman",
+      "organization": "starostwo"
     },
     {
       "kind": "kinship_tie",
@@ -114,28 +120,23 @@
       "context": "posada"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.61,
-      "person": "Joanna Pszczółkowska",
-      "organization": "Powiatowym Centrum Pomocy Rodzinie"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.538,
+      "confidence": 0.561,
       "person": "Józef Borkowski",
       "role": "zarząd",
       "role_domain": "public_company_management"
     },
     {
-      "kind": "public_employment",
-      "confidence": 0.497,
-      "person": "syn of Roman",
-      "organization": "Tygodnika"
+      "kind": "patronage_network_tie",
+      "confidence": 0.448,
+      "subject": "Bartosz",
+      "object": "Joanna Pszczółkowska",
+      "context": "konkurs"
     },
     {
       "kind": "patronage_allegation",
       "confidence": 0.432,
-      "complainant": "Bartosz",
+      "complainant": "Joanna Pszczółkowska",
       "target": "Bartosz",
       "context": "konkurs"
     },

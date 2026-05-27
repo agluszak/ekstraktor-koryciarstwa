@@ -6,22 +6,15 @@
   "facts": [
     {
       "kind": "funding",
-      "confidence": 0.814,
+      "confidence": 0.841,
       "funder": "Narodowego Instytutu Wolności",
       "amount": "520 tys. zł"
     },
     {
       "kind": "public_contract",
-      "confidence": 0.785,
+      "confidence": 0.805,
       "counterparty": "Jastrzębska Spółka Węglowa",
       "amount": "200 tysięcy złotych"
-    },
-    {
-      "kind": "public_contract",
-      "confidence": 0.755,
-      "counterparty": "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Toruniu",
-      "contractor": "Lux Veritatis",
-      "amount": "300 tys. zł"
     },
     {
       "kind": "funding",
@@ -30,7 +23,7 @@
     },
     {
       "kind": "funding",
-      "confidence": 0.708,
+      "confidence": 0.731,
       "funder": "Fundacji Lux Veritatis",
       "amount": "5 mln zł"
     },
@@ -44,28 +37,28 @@
     },
     {
       "kind": "funding",
-      "confidence": 0.58,
+      "confidence": 0.626,
       "funder": "Lux Veritatis",
       "recipient": "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Toruniu",
       "amount": "300 tys. zł"
     },
     {
-      "kind": "funding",
-      "confidence": 0.552,
-      "funder": "Fundacja KGHM",
-      "recipient": "Rydzyka",
-      "amount": "200 tys. zł"
+      "kind": "public_contract",
+      "confidence": 0.62,
+      "counterparty": "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Toruniu",
+      "contractor": "Lux Veritatis",
+      "amount": "300 tys. zł"
     },
     {
       "kind": "funding",
-      "confidence": 0.545,
-      "funder": "Fundacji Lux Veritatis, że 100 tys. zł",
+      "confidence": 0.557,
+      "funder": "Fundacji Lux Veritatis",
       "recipient": "Jastrzębskie Zakłady Remontowe",
       "amount": "100 tys. zł"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.51,
+      "confidence": 0.526,
       "person": "Zbigniewa Ziobro",
       "organization": "WFOŚiGW w Toruniu",
       "role": "prezes",
@@ -73,7 +66,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.51,
+      "confidence": 0.526,
       "person": "Ireneusz Stachowiak",
       "organization": "WFOŚiGW w Toruniu",
       "role": "prezes",

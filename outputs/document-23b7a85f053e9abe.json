@@ -5,15 +5,8 @@
   "relevance_score": 0.97,
   "facts": [
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Andrzej Kloc",
-      "object": "Polskie Stronnictwo Ludowe",
-      "status": "unknown"
-    },
-    {
       "kind": "public_role_appointment",
-      "confidence": 0.645,
+      "confidence": 0.691,
       "person": "Andrzej Kloc",
       "organization": "Wojewódzkim Funduszem Ochrony Środowiska i Gospodarki Wodnej w Lublinie",
       "role": "rada nadzorczy",
@@ -21,11 +14,18 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.645,
+      "confidence": 0.691,
       "person": "Stanisław Mazur",
       "organization": "Wojewódzkim Funduszem Ochrony Środowiska i Gospodarki Wodnej w Lublinie",
       "role": "rada nadzorczy",
       "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Andrzej Kloc",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
     },
     {
       "kind": "patronage_allegation",

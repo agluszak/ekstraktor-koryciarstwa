@@ -5,6 +5,14 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "public_role_holding",
+      "confidence": 0.726,
+      "person": "Bolesław Piecha",
+      "organization": "Senatu",
+      "role": "senator",
+      "role_domain": "political_office"
+    },
+    {
       "kind": "party_membership",
       "confidence": 0.685,
       "subject": "Bolesław Piecha",
@@ -19,16 +27,8 @@
       "status": "unknown"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.684,
-      "person": "Bolesław Piecha",
-      "organization": "Senatu",
-      "role": "senator",
-      "role_domain": "political_office"
-    },
-    {
       "kind": "public_employment",
-      "confidence": 0.649,
+      "confidence": 0.678,
       "person": "Donalda Tuska",
       "organization": "Siemianowic Śląskich"
     },

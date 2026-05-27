@@ -6,17 +6,48 @@
   "facts": [
     {
       "kind": "public_employment",
-      "confidence": 0.756,
+      "confidence": 0.808,
       "person": "dziewczyna of Tomasz Kościelniak",
       "organization": "urzędzie",
       "role": "ekodoradca"
     },
     {
       "kind": "public_employment",
-      "confidence": 0.749,
+      "confidence": 0.743,
       "person": "teść of Tomasz Kościelniak",
       "organization": "Urzędzie Stanu Cywilnego",
       "role": "pracownik gospodarczy"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.737,
+      "person": "Tomasza Kościelniaka",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.737,
+      "person": "Jan Kowalski",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.737,
+      "person": "dziewczyna of Tomasz Kościelniak",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.721,
+      "person": "Tomasza Kościelniaka",
+      "role": "wójt",
+      "role_domain": "political_office"
     },
     {
       "kind": "kinship_tie",
@@ -27,43 +58,12 @@
       "context": "dziewczyna"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.704,
-      "person": "Tomasza Kościelniaka",
-      "role": "wójt",
-      "role_domain": "political_office"
-    },
-    {
       "kind": "kinship_tie",
       "confidence": 0.697,
       "subject": "teść of Tomasz Kościelniak",
       "object": "Tomasza Kościelniaka",
       "relationship_detail": "family",
       "context": "teść"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.685,
-      "person": "Tomasza Kościelniaka",
-      "organization": "Urzędzie Stanu Cywilnego",
-      "role": "wójt",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.685,
-      "person": "Jan Kowalski",
-      "organization": "Urzędzie Stanu Cywilnego",
-      "role": "wójt",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.685,
-      "person": "dziewczyna of Tomasz Kościelniak",
-      "organization": "Urzędzie Stanu Cywilnego",
-      "role": "wójt",
-      "role_domain": "political_office"
     },
     {
       "kind": "party_membership",
@@ -74,7 +74,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.593,
+      "confidence": 0.619,
       "person": "Paweł Janicki",
       "organization": "Gminnego Ośrodka Kultury",
       "role": "dyrektor",
@@ -82,7 +82,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.593,
+      "confidence": 0.619,
       "person": "Szymon Kubit",
       "organization": "Gminnego Ośrodka Kultury",
       "role": "dyrektor",
@@ -90,7 +90,7 @@
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "teść of Tomasz Kościelniak",
       "role": "wójt",
       "role_domain": "political_office"
@@ -109,6 +109,12 @@
       "kind": "election_candidacy",
       "confidence": 0.48,
       "person": "Jan Żebrak"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.454,
+      "person": "Tomasza Kościelniaka",
+      "role_domain": "institution_management"
     },
     {
       "kind": "patronage_allegation",

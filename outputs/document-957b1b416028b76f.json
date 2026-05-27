@@ -6,13 +6,13 @@
   "facts": [
     {
       "kind": "compensation",
-      "confidence": 0.734,
+      "confidence": 0.773,
       "funder": "Sejmu",
       "amount": "778 tys. zł"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.704,
+      "confidence": 0.721,
       "person": "niezawodowy",
       "role": "poseł",
       "role_domain": "political_office"
@@ -26,44 +26,36 @@
     },
     {
       "kind": "public_role_end",
-      "confidence": 0.638,
+      "confidence": 0.664,
       "person": "Lubczyk",
       "organization": "Sejmu"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Radosławie Lubczyku",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Katarzyna Karpa-Świderek",
-      "role": "marszałek",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.52,
+      "confidence": 0.544,
       "person": "Lubczyk",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.52,
-      "person": "Szymon Hołownia",
+      "confidence": 0.544,
+      "person": "Katarzyna Karpa-Świderek",
       "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
-      "confidence": 0.205,
-      "person": "polityk",
-      "organization": "Sejmu",
-      "role": "senator",
+      "confidence": 0.544,
+      "person": "Szymon Hołownia",
+      "role": "marszałek",
       "role_domain": "political_office"
     }
   ]

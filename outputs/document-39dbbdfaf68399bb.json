@@ -16,27 +16,33 @@
     },
     {
       "kind": "compensation",
-      "confidence": 0.708,
+      "confidence": 0.731,
       "funder": "Tramwajów Warszawskich",
       "amount": "35 tysięcy złotych"
     },
     {
       "kind": "compensation",
-      "confidence": 0.708,
+      "confidence": 0.731,
       "funder": "MPO",
       "amount": "29,4 tysiąca złotych"
     },
     {
       "kind": "compensation",
-      "confidence": 0.708,
+      "confidence": 0.731,
       "funder": "MPWiK",
       "amount": "420 tysięcy złotych"
     },
     {
       "kind": "compensation",
-      "confidence": 0.708,
+      "confidence": 0.731,
       "funder": "Miejskich Zakładach Autobusowych i Metrze Warszawskim",
       "amount": "30 tys. zł"
+    },
+    {
+      "kind": "compensation",
+      "confidence": 0.72,
+      "funder": "spółek transportowych",
+      "amount": "100 tys. zł"
     },
     {
       "kind": "compensation",
@@ -64,14 +70,8 @@
     },
     {
       "kind": "funding",
-      "confidence": 0.698,
+      "confidence": 0.696,
       "recipient": "spółek transportowych",
-      "amount": "100 tys. zł"
-    },
-    {
-      "kind": "compensation",
-      "confidence": 0.698,
-      "funder": "spółek transportowych",
       "amount": "100 tys. zł"
     }
   ]
