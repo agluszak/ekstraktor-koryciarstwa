@@ -107,12 +107,9 @@ class AntiCorruptionCandidateStage:
                 matched_investigation_lemmas and matched_control_request_lemmas
             ):
                 continue
-            evidence = EvidenceSpan(
-                id=document.store.next_evidence_id(),
-                text=sentence.text,
-                span=sentence.span,
-                sentence_id=sentence.id,
-                paragraph_index=sentence.paragraph_index,
+            evidence = EvidenceSpan.from_sentence(
+                evidence_id=document.store.next_evidence_id(),
+                sentence=sentence,
                 source=self.producer_id,
             )
             document.store.add_evidence(evidence)

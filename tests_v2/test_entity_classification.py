@@ -5,40 +5,20 @@ from typing import cast
 
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.entity_classification import LexicalEntityContextStage
-from pipeline_v2.ids import DocumentId
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.output import document_to_json
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import EntityTag, NerLabel
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 from tests_v2.materialized import span_of
-
-
-class StaticEntityProvider:
-    def __init__(self, entities: tuple[NamedEntitySpan, ...]) -> None:
-        self.entities = entities
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
 
 
 def run_entity_classification(
     text: str,
     entities: tuple[NamedEntitySpan, ...],
 ) -> ArticleDocument:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=(text,),
-    )
+    document = setup_base_test_document(text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,

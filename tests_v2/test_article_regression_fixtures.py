@@ -24,6 +24,7 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.stages import V2Pipeline
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import EntityTag, FactKind, GroundingKind, NerLabel
+from tests_v2.helpers import StaticEntityProvider
 from tests_v2.materialized import argument_roles, fact_records, span_of, text_argument
 
 
@@ -37,15 +38,6 @@ class StaticPreprocessor:
     def run(self, data: PipelineInput) -> ArticleDocument:
         _ = data
         return self.document
-
-
-@dataclass(frozen=True, slots=True)
-class StaticEntityProvider:
-    entities: tuple[NamedEntitySpan, ...]
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
 
 
 def person_span(text: str, name: str) -> NamedEntitySpan:

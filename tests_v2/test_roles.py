@@ -1,26 +1,15 @@
 from __future__ import annotations
 
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import DocumentId
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter
 from pipeline_v2.roles import RoleCandidateStage
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import EntityKind
+from tests_v2.helpers import setup_base_test_document
 
 
 def run_role_stage(text: str) -> ArticleDocument:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=(text,),
-    )
+    document = setup_base_test_document(text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     RoleCandidateStage(morphology).run(document)
     return document
 

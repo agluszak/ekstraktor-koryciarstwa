@@ -53,6 +53,7 @@ from pipeline_v2.types import (
     RelationshipDetail,
     SameNameContrastContextSignal,
 )
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 from tests_v2.materialized import (
     add_event,
     bind_entity,
@@ -62,15 +63,6 @@ from tests_v2.materialized import (
     span_of,
     text_argument,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class StaticEntityProvider:
-    entities: tuple[NamedEntitySpan, ...]
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,17 +78,8 @@ def build_document(
     text: str,
     entities: tuple[NamedEntitySpan, ...] = (),
 ) -> tuple[ArticleDocument, Morfeusz2MorphologyAdapter]:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=(text,),
-    )
+    document = setup_base_test_document(text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     if entities:
         NamedEntityCandidateStage(
             provider=StaticEntityProvider(entities),

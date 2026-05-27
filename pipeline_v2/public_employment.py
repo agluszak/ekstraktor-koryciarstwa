@@ -5,12 +5,13 @@ from dataclasses import dataclass
 from pipeline_v2.candidates import (
     EntityCandidate,
 )
+from pipeline_v2.catalogues import POLITICAL_PARTY_NAMES
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
+from pipeline_v2.event_frames import EventFrameBuilder, FrameArgumentRole
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span, Token
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
-from pipeline_v2.syntax_view import SyntaxView
 from pipeline_v2.types import (
     DependencyObjectSignal,
     DependencySubjectSignal,
@@ -98,24 +99,7 @@ class PublicEmploymentCandidateStage:
             "województwo",
         }
     )
-    _party_like_organization_names = frozenset(
-        {
-            "koalicja obywatelska",
-            "koalicji obywatelskiej",
-            "lewica",
-            "platforma obywatelska",
-            "platformy obywatelskiej",
-            "polska 2050",
-            "polskie stronnictwo ludowe",
-            "polskiego stronnictwa ludowego",
-            "prawo i sprawiedliwość",
-            "prawa i sprawiedliwości",
-            "pis",
-            "po",
-            "psl",
-            "razem",
-        }
-    )
+
     _supporting_lemmas = frozenset({"praca", "pracować", "stanowisko", "zostać"})
     _contract_form_lemmas = frozenset({"umowa", "zlecenie"})
     _workplace_preposition_lemmas = frozenset({"na", "w"})
@@ -190,12 +174,9 @@ class PublicEmploymentCandidateStage:
                 )
                 for role, signals in role_candidates
             )
-            evidence = EvidenceSpan(
-                id=document.store.next_evidence_id(),
-                text=sentence.text,
-                span=sentence.span,
-                sentence_id=sentence.id,
-                paragraph_index=sentence.paragraph_index,
+            evidence = EvidenceSpan.from_sentence(
+                evidence_id=document.store.next_evidence_id(),
+                sentence=sentence,
                 source=self.producer_id,
             )
             document.store.add_evidence(evidence)
@@ -300,8 +281,8 @@ class PublicEmploymentCandidateStage:
                 )
             )
 
-        syntax = SyntaxView(document.store)
-        trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
+        frame_builder = EventFrameBuilder(document.store)
+        frame = frame_builder.first_frame_for_lemmas(sentence, self._employment_lemmas)
         entities = retriever.entities_for_sentence(sentence)
         role_candidates = self._role_candidates(
             document,
@@ -334,23 +315,31 @@ class PublicEmploymentCandidateStage:
                     )
                 )
                 continue
-            relation = (
-                syntax.dependency_relation(
-                    sentence=sentence,
-                    trigger_token_id=trigger.id,
-                    entity_id=entity.id,
+            if frame is not None:
+                argument = next(
+                    (arg for arg in frame.arguments if arg.entity.id == entity.id),
+                    None,
                 )
-                if trigger is not None
-                else None
-            )
-            if relation is not None and syntax.is_subject_relation(relation):
-                if not syntax.is_passive_sentence(sentence, trigger.id if trigger else None):
-                    continue
-                candidates.append((entity, (DependencySubjectSignal(relation=relation),)))
-                continue
-            if relation is not None and syntax.is_object_relation(relation):
-                candidates.append((entity, (DependencyObjectSignal(relation=relation),)))
-                continue
+                if argument is not None and argument.role == FrameArgumentRole.SUBJECT:
+                    relation = frame_builder.syntax.dependency_relation(
+                        sentence=sentence,
+                        trigger_token_id=frame.trigger.id,
+                        entity_id=entity.id,
+                    )
+                    if relation is not None:
+                        if not frame_builder.syntax.is_passive_sentence(sentence, frame.trigger.id):
+                            continue
+                        candidates.append((entity, (DependencySubjectSignal(relation=relation),)))
+                        continue
+                elif argument is not None and argument.role == FrameArgumentRole.OBJECT:
+                    relation = frame_builder.syntax.dependency_relation(
+                        sentence=sentence,
+                        trigger_token_id=frame.trigger.id,
+                        entity_id=entity.id,
+                    )
+                    if relation is not None:
+                        candidates.append((entity, (DependencyObjectSignal(relation=relation),)))
+                        continue
             if self._has_collective_person_context(document, sentence):
                 continue
             if (
@@ -420,9 +409,9 @@ class PublicEmploymentCandidateStage:
         *,
         excluded_ids: frozenset[EntityCandidateId],
     ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
-        syntax = SyntaxView(document.store)
-        trigger = syntax.first_token_with_lemmas(sentence, self._employment_lemmas)
-        if trigger is None or syntax.is_passive_sentence(sentence, trigger.id):
+        frame_builder = EventFrameBuilder(document.store)
+        frame = frame_builder.first_frame_for_lemmas(sentence, self._employment_lemmas)
+        if frame is None or frame_builder.syntax.is_passive_sentence(sentence, frame.trigger.id):
             return ()
         candidates: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
         for entity in entities:
@@ -430,13 +419,15 @@ class PublicEmploymentCandidateStage:
                 continue
             if entity.id in excluded_ids:
                 continue
-            relation = syntax.dependency_relation(
-                sentence=sentence,
-                trigger_token_id=trigger.id,
-                entity_id=entity.id,
-            )
-            if relation is not None and syntax.is_subject_relation(relation):
-                candidates.append((entity, (DependencySubjectSignal(relation=relation),)))
+            argument = next((arg for arg in frame.arguments if arg.entity.id == entity.id), None)
+            if argument is not None and argument.role == FrameArgumentRole.SUBJECT:
+                relation = frame_builder.syntax.dependency_relation(
+                    sentence=sentence,
+                    trigger_token_id=frame.trigger.id,
+                    entity_id=entity.id,
+                )
+                if relation is not None:
+                    candidates.append((entity, (DependencySubjectSignal(relation=relation),)))
         return self._dedupe_entity_candidates(candidates)
 
     def _organization_candidates(
@@ -1305,7 +1296,7 @@ class PublicEmploymentCandidateStage:
     ) -> bool:
         candidate = document.store.entity_candidates[entity_id]
         canonical_hint = (candidate.canonical_hint or "").casefold()
-        if canonical_hint in self._party_like_organization_names:
+        if canonical_hint in POLITICAL_PARTY_NAMES:
             return True
         return self._overlaps_political_party(document, entity_id)
 

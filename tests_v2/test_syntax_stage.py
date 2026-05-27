@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from pipeline_v2.candidates import EntityCandidate
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import DocumentId, EntityCandidateId, EvidenceId, MentionId, ProducerId
@@ -23,15 +21,7 @@ from pipeline_v2.types import (
     MentionKind,
     SyntaxRelationClass,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class StaticDependencyProvider:
-    parsed: tuple[ParsedDependencySentence, ...]
-
-    def parse(self, text: str) -> tuple[ParsedDependencySentence, ...]:
-        _ = text
-        return self.parsed
+from tests_v2.helpers import StaticDependencyProvider
 
 
 def test_dependency_parse_stage_records_root_and_dependent_arcs() -> None:

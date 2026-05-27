@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
@@ -10,15 +8,7 @@ from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.retrieval import EntityCandidateRetriever
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import EntityKind, NerLabel
-
-
-@dataclass(frozen=True, slots=True)
-class StaticEntityProvider:
-    entities: tuple[NamedEntitySpan, ...]
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
+from tests_v2.helpers import StaticEntityProvider
 
 
 def test_named_entity_stage_emits_resolution_proposal_for_inflected_full_person_mentions() -> None:

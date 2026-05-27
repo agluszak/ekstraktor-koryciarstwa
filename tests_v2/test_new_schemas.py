@@ -17,25 +17,16 @@ from pipeline_v2.ids import (
     ProducerId,
 )
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import EntityKind, EventRole, FactKind, GroundingKind, NerLabel
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 from tests_v2.materialized import entity_hint_for_role, fact_records, span_of, text_argument
-
-
-class StaticEntityProvider:
-    def __init__(self, entities: tuple[NamedEntitySpan, ...]) -> None:
-        self.entities = entities
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        return self.entities
 
 
 def entity_span(text: str, name: str, label: NerLabel) -> NamedEntitySpan:
@@ -47,17 +38,8 @@ def entity_span(text: str, name: str, label: NerLabel) -> NamedEntitySpan:
 
 
 def run_pipeline(text: str, entities: tuple[NamedEntitySpan, ...] = ()) -> ArticleDocument:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=(text,),
-    )
+    document = setup_base_test_document(text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,

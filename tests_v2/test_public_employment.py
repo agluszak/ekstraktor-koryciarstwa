@@ -3,16 +3,13 @@ from __future__ import annotations
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.entity_classification import LexicalEntityContextStage
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.nominal_coreference import NominalKinshipCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
     EntityKind,
     FactKind,
@@ -25,6 +22,7 @@ from pipeline_v2.types import (
     NerLabel,
     PublicEmploymentLemmaSignal,
 )
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 from tests_v2.materialized import (
     argument_roles,
     entity_argument,
@@ -36,15 +34,6 @@ from tests_v2.materialized import (
 )
 
 
-class StaticEntityProvider:
-    def __init__(self, entities: tuple[NamedEntitySpan, ...]) -> None:
-        self.entities = entities
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
-
-
 def run_public_employment_stage(
     text: str,
     entities: tuple[NamedEntitySpan, ...],
@@ -53,17 +42,8 @@ def run_public_employment_stage(
     include_public_money: bool = False,
     include_nominal_kinship: bool = False,
 ) -> ArticleDocument:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=(text,),
-    )
+    document = setup_base_test_document(text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,

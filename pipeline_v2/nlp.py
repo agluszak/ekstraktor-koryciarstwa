@@ -107,6 +107,24 @@ class EvidenceSpan:
     source: ProducerId | None = None
     scope: EvidenceScope | None = None
 
+    @classmethod
+    def from_sentence(
+        cls,
+        *,
+        evidence_id: EvidenceId,
+        sentence: Sentence,
+        source: ProducerId,
+    ) -> EvidenceSpan:
+        return cls(
+            id=evidence_id,
+            text=sentence.text,
+            span=sentence.span,
+            sentence_id=sentence.id,
+            paragraph_index=sentence.paragraph_index,
+            source=source,
+            scope=sentence.scope,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Mention:

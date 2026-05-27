@@ -1,27 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import FactKind, NerLabel
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 from tests_v2.materialized import entity_hint_for_role, fact_records, span_of, text_argument
-
-
-@dataclass(frozen=True, slots=True)
-class StaticEntityProvider:
-    entities: tuple[NamedEntitySpan, ...]
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
 
 
 def person_span(text: str, name: str) -> NamedEntitySpan:
@@ -37,17 +24,8 @@ def build_article_excerpt(
     entities: tuple[NamedEntitySpan, ...],
 ) -> ArticleDocument:
     text = "\n\n".join(paragraphs)
-    document = ArticleDocument(
-        document_id=DocumentId("article-doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=paragraphs,
-    )
+    document = setup_base_test_document(text, paragraphs=paragraphs)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,

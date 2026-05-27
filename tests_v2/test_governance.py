@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityFactArgument,
@@ -41,6 +39,11 @@ from pipeline_v2.types import (
     WeakSyntacticBindingSignal,
     WindowOrganizationSignal,
 )
+from tests_v2.helpers import (
+    StaticDependencyProvider,
+    StaticEntityProvider,
+    setup_base_test_document,
+)
 from tests_v2.materialized import (
     argument_roles,
     entity_hint_for_role,
@@ -52,41 +55,13 @@ from tests_v2.materialized import (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class StaticDependencyProvider:
-    parsed: tuple[ParsedDependencySentence, ...]
-
-    def parse(self, text: str) -> tuple[ParsedDependencySentence, ...]:
-        _ = text
-        return self.parsed
-
-
-class StaticEntityProvider:
-    def __init__(self, entities: tuple[NamedEntitySpan, ...]) -> None:
-        self.entities = entities
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
-
-
 def run_governance_stage(
     text: str,
     entities: tuple[NamedEntitySpan, ...],
     paragraphs: tuple[str, ...] | None = None,
 ) -> ArticleDocument:
-    actual_paragraphs = paragraphs or (text,)
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=actual_paragraphs,
-    )
+    document = setup_base_test_document(text, paragraphs)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
@@ -103,18 +78,8 @@ def run_governance_producer_stage(
     entities: tuple[NamedEntitySpan, ...],
     paragraphs: tuple[str, ...] | None = None,
 ) -> ArticleDocument:
-    actual_paragraphs = paragraphs or (text,)
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=actual_paragraphs,
-    )
+    document = setup_base_test_document(text, paragraphs)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,

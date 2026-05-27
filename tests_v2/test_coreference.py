@@ -5,23 +5,11 @@ from unittest.mock import MagicMock, patch
 
 from pipeline_v2.coreference import CoreferenceReferenceStage, LightReferenceStage
 from pipeline_v2.coreference_provider import StanzaCoreferenceProvider
-from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import CoreferenceSpanLink, Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import NerLabel, ReferenceKind
-
-
-@dataclass(frozen=True, slots=True)
-class StaticEntityProvider:
-    entities: tuple[NamedEntitySpan, ...]
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,17 +23,8 @@ class StaticCoreferenceProvider:
 
 def test_coreference_stage_proposes_reference_resolution_without_merging_entities() -> None:
     cleaned_text = "Jan Kowalski został burmistrzem. Jego żona pracuje w urzędzie."
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=cleaned_text,
-        paragraphs=("Jan Kowalski został burmistrzem. Jego żona pracuje w urzędzie.",),
-    )
+    document = setup_base_test_document(cleaned_text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     antecedent_start = cleaned_text.index("Jan Kowalski")
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(
@@ -90,17 +69,8 @@ def test_coreference_stage_proposes_reference_resolution_without_merging_entitie
 
 def test_light_reference_stage_emits_pronoun_reference_candidates_without_merging() -> None:
     cleaned_text = "Jan Kowalski został burmistrzem. Jego żona pracuje w urzędzie."
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=cleaned_text,
-        paragraphs=("Jan Kowalski został burmistrzem. Jego żona pracuje w urzędzie.",),
-    )
+    document = setup_base_test_document(cleaned_text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     antecedent_start = cleaned_text.index("Jan Kowalski")
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(

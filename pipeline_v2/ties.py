@@ -6,6 +6,7 @@ from pipeline_v2.binding_emission import (
     EntityBindingGroup,
     emit_entity_binding_groups,
 )
+from pipeline_v2.catalogues import FAMILY_RELATION_DETAILS
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, ProducerId
@@ -40,25 +41,6 @@ class _ComplaintParticipant:
 class PersonalTieCandidateStage:
     producer_id = ProducerId("personal_tie_candidate_stage_v2")
 
-    _family_details_by_lemma = {
-        "brat": RelationshipDetail.SIBLING,
-        "córka": RelationshipDetail.CHILD,
-        "dziewczyna": RelationshipDetail.SPOUSE,
-        "kuzyn": RelationshipDetail.FAMILY,
-        "kuzynka": RelationshipDetail.FAMILY,
-        "matka": RelationshipDetail.PARENT,
-        "mąż": RelationshipDetail.SPOUSE,
-        "narzeczona": RelationshipDetail.SPOUSE,
-        "narzeczony": RelationshipDetail.SPOUSE,
-        "ojciec": RelationshipDetail.PARENT,
-        "partner": RelationshipDetail.SPOUSE,
-        "partnerka": RelationshipDetail.SPOUSE,
-        "siostra": RelationshipDetail.SIBLING,
-        "syn": RelationshipDetail.CHILD,
-        "teść": RelationshipDetail.FAMILY,
-        "teściowa": RelationshipDetail.FAMILY,
-        "żona": RelationshipDetail.SPOUSE,
-    }
     _possessive_determiners = frozenset(
         {
             "mój",
@@ -304,12 +286,9 @@ class PersonalTieCandidateStage:
                 break
 
         if not evidence_ids:
-            sentence_evidence = EvidenceSpan(
-                id=document.store.next_evidence_id(),
-                text=sentence.text,
-                span=sentence.span,
-                sentence_id=sentence.id,
-                paragraph_index=sentence.paragraph_index,
+            sentence_evidence = EvidenceSpan.from_sentence(
+                evidence_id=document.store.next_evidence_id(),
+                sentence=sentence,
                 source=self.producer_id,
             )
             document.store.add_evidence(sentence_evidence)
@@ -376,12 +355,9 @@ class PersonalTieCandidateStage:
         context_entities: tuple[SentenceEntity, ...],
         complaint_lemma: str,
     ) -> None:
-        sentence_evidence = EvidenceSpan(
-            id=document.store.next_evidence_id(),
-            text=sentence.text,
-            span=sentence.span,
-            sentence_id=sentence.id,
-            paragraph_index=sentence.paragraph_index,
+        sentence_evidence = EvidenceSpan.from_sentence(
+            evidence_id=document.store.next_evidence_id(),
+            sentence=sentence,
             source=self.producer_id,
         )
         document.store.add_evidence(sentence_evidence)
@@ -809,7 +785,7 @@ class PersonalTieCandidateStage:
     ) -> bool:
         if not (lemmas & self._possessive_determiners):
             return False
-        kinship_lemmas = frozenset(self._family_details_by_lemma)
+        kinship_lemmas = frozenset(FAMILY_RELATION_DETAILS)
         tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
         for i, token in enumerate(tokens):
             token_lemmas = {a.lemma for a in token.morph}
@@ -822,7 +798,7 @@ class PersonalTieCandidateStage:
         return False
 
     def _family_detail(self, lemmas: frozenset[str]) -> RelationshipDetail | None:
-        for lemma, relationship_detail in self._family_details_by_lemma.items():
+        for lemma, relationship_detail in FAMILY_RELATION_DETAILS.items():
             if lemma in lemmas:
                 return relationship_detail
         return None
@@ -911,12 +887,9 @@ class PersonalTieCandidateStage:
                 break
 
         if not evidence_ids:
-            sentence_evidence = EvidenceSpan(
-                id=document.store.next_evidence_id(),
-                text=sentence.text,
-                span=sentence.span,
-                sentence_id=sentence.id,
-                paragraph_index=sentence.paragraph_index,
+            sentence_evidence = EvidenceSpan.from_sentence(
+                evidence_id=document.store.next_evidence_id(),
+                sentence=sentence,
                 source=self.producer_id,
             )
             document.store.add_evidence(sentence_evidence)

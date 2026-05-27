@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pipeline_v2.candidates import (
     EntityCandidate,
 )
+from pipeline_v2.catalogues import FAMILY_RELATION_DETAILS
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, ProducerId, TokenId
@@ -20,7 +21,6 @@ from pipeline_v2.types import (
     NegativePossessorSignal,
     NominalKinshipSignal,
     ReferenceKind,
-    RelationshipDetail,
     Signal,
     StrongPossessorSignal,
     SyntaxPossessorSignal,
@@ -37,26 +37,6 @@ class PossessorCandidate:
 class NominalKinshipCandidateStage:
     producer_id = ProducerId("nominal_kinship_candidate_stage_v2")
 
-    _family_details_by_lemma = {
-        "brat": RelationshipDetail.SIBLING,
-        "córka": RelationshipDetail.CHILD,
-        "dziewczyna": RelationshipDetail.SPOUSE,
-        "kuzyn": RelationshipDetail.FAMILY,
-        "kuzynka": RelationshipDetail.FAMILY,
-        "matka": RelationshipDetail.PARENT,
-        "mąż": RelationshipDetail.SPOUSE,
-        "narzeczona": RelationshipDetail.SPOUSE,
-        "narzeczony": RelationshipDetail.SPOUSE,
-        "ojciec": RelationshipDetail.PARENT,
-        "partner": RelationshipDetail.SPOUSE,
-        "partnerka": RelationshipDetail.SPOUSE,
-        "siostra": RelationshipDetail.SIBLING,
-        "syn": RelationshipDetail.CHILD,
-        "teść": RelationshipDetail.FAMILY,
-        "teściowa": RelationshipDetail.FAMILY,
-        "żona": RelationshipDetail.SPOUSE,
-    }
-
     _possessive_pronouns = frozenset({"jego", "jej", "ich", "swój"})
 
     def name(self) -> str:
@@ -68,7 +48,7 @@ class NominalKinshipCandidateStage:
             for token_id in sentence.token_ids:
                 token = document.store.tokens[token_id]
                 for analysis in token.morph:
-                    if analysis.lemma in self._family_details_by_lemma:
+                    if analysis.lemma in FAMILY_RELATION_DETAILS:
                         self._process_kinship_token(
                             document,
                             sentence,
@@ -116,7 +96,7 @@ class NominalKinshipCandidateStage:
                 retriever,
             )
 
-        relationship_detail = self._family_details_by_lemma[lemma]
+        relationship_detail = FAMILY_RELATION_DETAILS[lemma]
 
         evidence = EvidenceSpan(
             id=document.store.next_evidence_id(),

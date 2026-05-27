@@ -4,15 +4,14 @@ from pipeline_v2.anti_corruption import AntiCorruptionCandidateStage
 from pipeline_v2.candidates import ArgumentBindingCandidate, EntityFiller
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.governance import GovernanceCandidateStage
-from pipeline_v2.ids import DocumentId, EntityCandidateId
+from pipeline_v2.ids import EntityCandidateId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import EntityKind, EventRole, FactKind, NerLabel
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 from tests_v2.materialized import (
     argument_roles,
     entity_argument,
@@ -25,32 +24,14 @@ from tests_v2.materialized import (
 )
 
 
-class StaticEntityProvider:
-    def __init__(self, entities: tuple[NamedEntitySpan, ...]) -> None:
-        self.entities = entities
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
-
-
 def run_anti_corruption_pipeline(
     text: str,
     entities: tuple[NamedEntitySpan, ...] = (),
     *,
     include_governance: bool = False,
 ) -> ArticleDocument:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=(text,),
-    )
+    document = setup_base_test_document(text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,

@@ -4,15 +4,13 @@ from dataclasses import dataclass
 
 from pipeline_v2.coreference import CoreferenceReferenceStage
 from pipeline_v2.document import ArticleDocument
-from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
-from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
 from pipeline_v2.nlp import CoreferenceSpanLink, Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
 from pipeline_v2.proxy import FamilyProxyCandidateStage
-from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import FactKind, NerLabel, ReferenceKind, RelationshipDetail
+from tests_v2.helpers import StaticEntityProvider, setup_base_test_document
 from tests_v2.materialized import (
     entity_hint_for_role,
     fact_records,
@@ -20,15 +18,6 @@ from tests_v2.materialized import (
     span_of,
     text_argument,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class StaticEntityProvider:
-    entities: tuple[NamedEntitySpan, ...]
-
-    def find_entities(self, text: str) -> tuple[NamedEntitySpan, ...]:
-        _ = text
-        return self.entities
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,17 +33,8 @@ def build_document(
     text: str,
     entities: tuple[NamedEntitySpan, ...],
 ) -> tuple[ArticleDocument, Morfeusz2MorphologyAdapter]:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text=text,
-        paragraphs=(text,),
-    )
+    document = setup_base_test_document(text)
     morphology = Morfeusz2MorphologyAdapter()
-    ParagraphSentenceSegmenter().run(document)
-    MorfeuszMorphologyStage(morphology).run(document)
     NamedEntityCandidateStage(
         provider=StaticEntityProvider(entities),
         morphology=morphology,
@@ -401,7 +381,9 @@ def test_personal_tie_stage_does_not_emit_kinship_tie_for_possessive_pronoun_phr
     ProbabilisticInferenceStage().run(document)
 
     kinship_records = [r for r in fact_records(document) if r.kind is FactKind.KINSHIP_TIE]
-    assert kinship_records == [], "possessive 'moja żona' should not trigger cross-window kinship tie"
+    assert kinship_records == [], (
+        "possessive 'moja żona' should not trigger cross-window kinship tie"
+    )
 
 
 def test_patronage_complaint_ignores_single_weak_person_without_institution() -> None:

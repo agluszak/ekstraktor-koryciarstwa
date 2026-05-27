@@ -5,10 +5,10 @@ import re
 from pipeline_v2.candidates import (
     EntityCandidate,
 )
+from pipeline_v2.catalogues import POLITICAL_PARTY_NAMES
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter, EmittedEvent
 from pipeline_v2.event_frames import EventFrameBuilder, FrameArgument, FrameArgumentRole
-from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
     EntityCandidateId,
     EvidenceId,
@@ -141,12 +141,9 @@ class PublicMoneyCandidateStage:
             if amount_texts:
                 kinds = self._candidate_kinds(document, sentence)
                 if kinds:
-                    evidence = EvidenceSpan(
-                        id=document.store.next_evidence_id(),
-                        text=sentence.text,
-                        span=sentence.span,
-                        sentence_id=sentence.id,
-                        paragraph_index=sentence.paragraph_index,
+                    evidence = EvidenceSpan.from_sentence(
+                        evidence_id=document.store.next_evidence_id(),
+                        sentence=sentence,
                         source=self.producer_id,
                     )
                     document.store.add_evidence(evidence)
@@ -1022,7 +1019,7 @@ class PublicMoneyCandidateStage:
     def _is_party_like_organization(
         self, document: ArticleDocument, candidate_id: EntityCandidateId
     ) -> bool:
-        party_names = GovernanceCandidateStage._party_like_organization_names
+        party_names = POLITICAL_PARTY_NAMES
         candidate = document.store.entity_candidates[candidate_id]
         canonical_hint = (candidate.canonical_hint or "").casefold()
 
@@ -1246,12 +1243,9 @@ class PublicMoneyCandidateStage:
         *,
         signals: tuple[Signal, ...],
     ) -> tuple[DomainEventEmitter, EmittedEvent, EvidenceId]:
-        evidence = EvidenceSpan(
-            id=document.store.next_evidence_id(),
-            text=sentence.text,
-            span=sentence.span,
-            sentence_id=sentence.id,
-            paragraph_index=sentence.paragraph_index,
+        evidence = EvidenceSpan.from_sentence(
+            evidence_id=document.store.next_evidence_id(),
+            sentence=sentence,
             source=self.producer_id,
         )
         document.store.add_evidence(evidence)

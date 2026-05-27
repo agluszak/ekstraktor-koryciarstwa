@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from functools import reduce
 from operator import mul
 
-from pipeline_v2.ids import InferenceFactorId, InferenceVariableId
+from pipeline_v2.ids import InferenceVariableId
 from pipeline_v2.inference.backend import InferenceBackend
+from pipeline_v2.inference.components import InferenceComponentBuilder
 from pipeline_v2.inference.graph_spec import (
     InferenceDiagnostic,
     InferenceFactor,
@@ -236,43 +237,14 @@ class PgmpyInferenceBackend(InferenceBackend):
         )
 
     def _components(self, spec: InferenceGraphSpec) -> tuple["_InferenceComponent", ...]:
-        variables_by_id = {variable.id: variable for variable in spec.variables}
-        factors_by_id = {factor.id: factor for factor in spec.factors}
-        variable_to_factor_ids: dict[InferenceVariableId, set[InferenceFactorId]] = {
-            variable.id: set() for variable in spec.variables
-        }
-        factor_to_variable_ids: dict[InferenceFactorId, set[InferenceVariableId]] = {}
-        for factor in spec.factors:
-            factor_to_variable_ids[factor.id] = set(factor.variable_ids)
-            for variable_id in factor.variable_ids:
-                variable_to_factor_ids.setdefault(variable_id, set()).add(factor.id)
-
-        remaining = set(variables_by_id)
-        components: list[_InferenceComponent] = []
-        while remaining:
-            start = remaining.pop()
-            component_variable_ids = {start}
-            component_factor_ids: set[InferenceFactorId] = set()
-            queue = [start]
-            while queue:
-                variable_id = queue.pop()
-                for factor_id in variable_to_factor_ids.get(variable_id, set()):
-                    component_factor_ids.add(factor_id)
-                    for neighbor_id in factor_to_variable_ids.get(factor_id, set()):
-                        if neighbor_id in component_variable_ids:
-                            continue
-                        component_variable_ids.add(neighbor_id)
-                        remaining.discard(neighbor_id)
-                        queue.append(neighbor_id)
-            components.append(
-                _InferenceComponent(
-                    variables=tuple(
-                        variables_by_id[variable_id] for variable_id in component_variable_ids
-                    ),
-                    factors=tuple(factors_by_id[factor_id] for factor_id in component_factor_ids),
-                )
+        built = InferenceComponentBuilder().build(spec)
+        return tuple(
+            _InferenceComponent(
+                variables=comp.spec.variables,
+                factors=comp.spec.factors,
             )
-        return tuple(components)
+            for comp in built.components
+        )
 
 
 @dataclass(frozen=True, slots=True)
