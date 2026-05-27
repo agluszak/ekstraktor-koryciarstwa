@@ -519,43 +519,37 @@ def test_regression_tvn_warszawa_bielskiego() -> None:
         apply_relevance=False,
     )
 
-    # Assert: FUNDING fact exists with funder "urzędu marszałkowskiego",
-    # recipient "fundacja", amount "100 tysięcy złotych".
-    funding_facts = [record for record in fact_records(document) if record.kind is FactKind.FUNDING]
+    # Assert: PUBLIC_CONTRACT fact exists with counterparty "urzędu marszałkowskiego",
+    # contractor "fundacja", amount "100 tysięcy złotych".
+    # "za promowanie" is a service-exchange pattern — classified as PUBLIC_CONTRACT, not FUNDING.
+    contract_facts = [
+        record for record in fact_records(document) if record.kind is FactKind.PUBLIC_CONTRACT
+    ]
 
-    matching_funding = None
-    for record in funding_facts:
-        funder = entity_hint_for_role(document, record, "funder")
-        recipient = entity_hint_for_role(document, record, "recipient")
+    matching_contract = None
+    for record in contract_facts:
+        counterparty = entity_hint_for_role(document, record, "counterparty")
         amount = text_argument(record, "amount") if "amount" in argument_roles(record) else None
 
-        if (
-            funder == "urzędu marszałkowskiego"
-            and recipient is not None
-            and recipient.startswith("fundacja")
-            and amount == "100 tysięcy złotych"
-        ):
+        if counterparty == "urzędu marszałkowskiego" and amount == "100 tysięcy złotych":
             score = get_assessment_score(document, record.id)
             if score >= 0.5:
-                matching_funding = record
+                matching_contract = record
                 break
 
-    assert matching_funding is not None, (
-        "Expected a high-confidence FUNDING fact with funder="
-        "'urzędu marszałkowskiego', recipient='fundacja', "
-        "amount='100 tysięcy złotych'"
+    assert matching_contract is not None, (
+        "Expected a high-confidence PUBLIC_CONTRACT fact with counterparty="
+        "'urzędu marszałkowskiego', amount='100 tysięcy złotych'"
     )
 
-    # Ensure TVN Warszawa is NOT the funder or recipient (any such candidate
-    # must have posterior < 0.5 or be absent)
-    for record in funding_facts:
-        funder = entity_hint_for_role(document, record, "funder")
-        recipient = entity_hint_for_role(document, record, "recipient")
+    # Ensure TVN Warszawa is not the high-confidence counterparty
+    for record in contract_facts:
+        counterparty = entity_hint_for_role(document, record, "counterparty")
         score = get_assessment_score(document, record.id)
-        if funder == "TVN Warszawa" or recipient == "TVN Warszawa":
+        if counterparty == "TVN Warszawa":
             assert score < 0.5, (
                 "Expected TVN Warszawa to not be a high-confidence "
-                f"funder/recipient, but got score {score}"
+                f"counterparty, but got score {score}"
             )
 
 

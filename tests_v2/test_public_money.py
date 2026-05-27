@@ -261,16 +261,17 @@ def test_public_money_stage_infers_local_organization_phrases_when_ner_misses_pa
 
     record = first_fact_record(document)
 
-    assert record.kind is FactKind.FUNDING
-    assert entity_hint_for_role(document, record, "funder") == "urzędu marszałkowskiego"
-    assert entity_hint_for_role(document, record, "recipient") == (
+    # "za promowanie" is a service-exchange pattern → PUBLIC_CONTRACT wins over FUNDING
+    assert record.kind is FactKind.PUBLIC_CONTRACT
+    assert entity_hint_for_role(document, record, "counterparty") == "urzędu marszałkowskiego"
+    assert entity_hint_for_role(document, record, "contractor") == (
         "Fundacja założona przez dyrektora warszawskiego pogotowia ratunkowego Karola Bielskiego"
     )
     assert text_argument(record, "amount") == "100 tysięcy złotych"
-    funder = document.store.entity_candidates[entity_argument(record, "funder")]
-    assert funder.grounding.value == "inferred"
-    recipient = document.store.entity_candidates[entity_argument(record, "recipient")]
-    assert recipient.grounding.value == "inferred"
+    counterparty = document.store.entity_candidates[entity_argument(record, "counterparty")]
+    assert counterparty.grounding.value == "inferred"
+    contractor = document.store.entity_candidates[entity_argument(record, "contractor")]
+    assert contractor.grounding.value == "inferred"
 
 
 def test_public_money_stage_overproduces_mixed_service_and_grant_shapes() -> None:
@@ -496,3 +497,26 @@ def test_public_money_stage_does_not_flag_thousands_amount_as_micro() -> None:
     assert record.kind is FactKind.PUBLIC_CONTRACT
     assert text_argument(record, "amount") == "253 tys. zł"
     assert not any(isinstance(s, MicroAmountSignal) for s in record.signals)
+
+
+def test_public_money_stage_classifies_za_gerund_payment_as_contract() -> None:
+    text = (
+        "Fundacja Bielskiego otrzymała 100 tysięcy złotych z urzędu marszałkowskiego "
+        "za wyświetlanie logo urzędu."
+    )
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="Fundacja Bielskiego",
+                label=NerLabel.ORGANIZATION,
+                span=span_of(text, "Fundacja Bielskiego"),
+            ),
+        ),
+    )
+
+    kinds = {record.kind for record in fact_records(document)}
+    assert FactKind.PUBLIC_CONTRACT in kinds
+    contract = next(r for r in fact_records(document) if r.kind is FactKind.PUBLIC_CONTRACT)
+    assert ServiceTransactionSignal() in contract.signals
+    assert text_argument(contract, "amount") == "100 tysięcy złotych"

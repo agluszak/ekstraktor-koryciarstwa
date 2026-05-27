@@ -7,7 +7,7 @@ from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId, TokenId
 from pipeline_v2.nlp import EvidenceSpan, Sentence, Span, Token
-from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
+from pipeline_v2.retrieval import SentenceEntityRetriever
 from pipeline_v2.types import (
     AntiCorruptionInvestigationLemmaSignal,
     AntiCorruptionReferralLemmaSignal,
@@ -54,6 +54,7 @@ class AntiCorruptionCandidateStage:
             "postępowanie",
             "śledztwo",
             "wszcząć",
+            "zatrzymać",
         }
     )
     _control_request_lemmas = frozenset(
@@ -332,8 +333,6 @@ class AntiCorruptionCandidateStage:
 
     def _has_reporting_lemma(self, lemmas: frozenset[str]) -> bool:
         return bool(lemmas & self._reporting_lemmas)
-
-
 
     def _institution_entity_id(
         self,

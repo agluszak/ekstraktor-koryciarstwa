@@ -163,7 +163,11 @@ class PublicMoneyCandidateStage:
                             *signals,
                         ]
 
-                        if kind in {FactKind.COMPENSATION, FactKind.PUBLIC_CONTRACT, FactKind.FUNDING}:
+                        if kind in {
+                            FactKind.COMPENSATION,
+                            FactKind.PUBLIC_CONTRACT,
+                            FactKind.FUNDING,
+                        }:
                             micro = self._micro_amount_signal(amount_texts[0])
                             if micro is not None:
                                 event_signals.append(micro)
@@ -318,6 +322,21 @@ class PublicMoneyCandidateStage:
             return True
         return False
 
+    def _has_service_exchange_preposition(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> bool:
+        """Detect 'za [gerund]' — payment in exchange for a service."""
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        for i, token in enumerate(tokens):
+            if not any(a.lemma == "za" for a in token.morph):
+                continue
+            for j in range(i + 1, min(i + 4, len(tokens))):
+                if any(a.pos == "ger" for a in tokens[j].morph):
+                    return True
+        return False
+
     def _candidate_kinds(
         self,
         document: ArticleDocument,
@@ -325,19 +344,23 @@ class PublicMoneyCandidateStage:
     ) -> tuple[tuple[FactKind, tuple[Signal, ...]], ...]:
         lemmas = self._sentence_lemmas(document, sentence)
         has_funding = bool(self._funding_lemmas & lemmas)
-        has_service_shape = bool(self._service_transaction_lemmas & lemmas)
+        has_service_lexical = bool(self._service_transaction_lemmas & lemmas)
+        has_service_gerund = has_funding and self._has_service_exchange_preposition(
+            document, sentence
+        )
+        has_service_shape = has_service_lexical or has_service_gerund
         has_contract_document = bool(self._contract_document_lemmas & lemmas)
         has_grant_shape = bool(self._grant_transaction_lemmas & lemmas)
         has_contract = bool(self._contract_lemmas & lemmas) or has_service_shape
         has_compensation = bool(self._compensation_lemmas & lemmas)
         kinds = []
-        if has_funding:
+        if has_funding and not has_service_gerund:
             signals: list[Signal] = [
                 FundingLemmaSignal(lemma=self._matched_detail(lemmas, self._funding_lemmas))
             ]
             if has_grant_shape:
                 signals.append(GrantTransactionSignal())
-            if has_service_shape:
+            if has_service_lexical:
                 signals.append(ServiceTransactionSignal())
             kinds.append(
                 (
@@ -347,6 +370,8 @@ class PublicMoneyCandidateStage:
             )
         if has_contract:
             contract_vocab = self._contract_lemmas | self._service_transaction_lemmas
+            if has_funding and not (contract_vocab & lemmas):
+                contract_vocab = contract_vocab | self._funding_lemmas
             signals = [
                 PublicContractLemmaSignal(lemma=self._matched_detail(lemmas, contract_vocab))
             ]
@@ -483,7 +508,13 @@ class PublicMoneyCandidateStage:
         )
         people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
         if kind == FactKind.PUBLIC_CONTRACT:
-            return self._select_contract_parties(document, sentence, organizations, people)
+            return self._select_contract_parties(
+                document,
+                sentence,
+                organizations,
+                people,
+                lemmas=self._sentence_lemmas(document, sentence),
+            )
         if kind == FactKind.FUNDING:
             return self._select_funding_parties(
                 document,
@@ -499,6 +530,8 @@ class PublicMoneyCandidateStage:
         sentence: Sentence,
         organizations: tuple[SentenceEntity, ...],
         people: tuple[SentenceEntity, ...],
+        *,
+        lemmas: frozenset[str] | None = None,
     ) -> tuple[
         tuple[
             EntityCandidateId | None,
@@ -563,6 +596,36 @@ class PublicMoneyCandidateStage:
                     is_source_role=False,
                 )
                 combinations.append((None, (), person.id, target_sigs))
+        if lemmas is not None and not organizations:
+            inferred_counterparty_id = self._infer_source_organization(document, sentence)
+            inferred_contractor_id = self._infer_recipient_organization(
+                document, sentence, lemmas=lemmas
+            )
+            if inferred_counterparty_id is not None or inferred_contractor_id is not None:
+                counterparty_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    inferred_counterparty_id,
+                    None,
+                    (LocalPhraseFunderSignal(),) if inferred_counterparty_id is not None else (),
+                    is_source_role=True,
+                )
+                contractor_sigs = self._build_signals_for_role(
+                    document,
+                    sentence,
+                    inferred_contractor_id,
+                    None,
+                    (LocalPhraseRecipientSignal(),) if inferred_contractor_id is not None else (),
+                    is_source_role=False,
+                )
+                combinations.append(
+                    (
+                        inferred_counterparty_id,
+                        counterparty_sigs,
+                        inferred_contractor_id,
+                        contractor_sigs,
+                    )
+                )
         return tuple(combinations) if combinations else ((None, (), None, ()),)
 
     def _person_contract_recipients(

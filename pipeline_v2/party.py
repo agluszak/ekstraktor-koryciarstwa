@@ -211,12 +211,11 @@ class PartyCandidateStage:
         )
         retriever = SentenceEntityRetriever(document.store)
         people = tuple(
-            entity for entity in retriever.entities_for_sentence_window(
-                sentence, before=1, after=0
-            ) 
+            entity
+            for entity in retriever.entities_for_sentence_window(sentence, before=1, after=0)
             if entity.kind == EntityKind.PERSON
         )
-        
+
         if not self._has_support_context(document, sentence, match):
             document.store.add_evidence(evidence)
             for person in people:
@@ -239,10 +238,10 @@ class PartyCandidateStage:
                 )
 
                 person_signals: list[Signal] = []
-                
+
                 if match.is_embedded:
                     person_signals.append(EmbeddedInOrganizationNameSignal())
-                    
+
                 has_strong_link = False
                 if self._has_profile_context(document, sentence, match):
                     attached = self._attached_profile_person(document, sentence, people, match)
@@ -252,10 +251,10 @@ class PartyCandidateStage:
                 elif self._is_directly_attached(document, sentence, person, match):
                     person_signals.append(DirectPrepositionalAttachmentSignal())
                     has_strong_link = True
-                    
+
                 if not has_strong_link:
                     person_signals.append(WeakSyntacticBindingSignal(reason="no direct attachment"))
-                
+
                 evidence_for_person = document.store.evidence_for_entity(person.id)
                 distance = 0
                 if evidence_for_person and evidence_for_person[0].sentence_id is not None:
@@ -336,12 +335,16 @@ class PartyCandidateStage:
             token_ids = self._tokens_between(
                 document, sentence, match.span.end_char, person.start_char
             )
-            if len(token_ids) <= 3 and not any(
-                document.store.tokens[token_id].text in {",", ".", ";", ":"}
-                for token_id in token_ids
-            ) and not any(
-                document.store.tokens[token_id].text.casefold() in {"i", "oraz"}
-                for token_id in token_ids
+            if (
+                len(token_ids) <= 3
+                and not any(
+                    document.store.tokens[token_id].text in {",", ".", ";", ":"}
+                    for token_id in token_ids
+                )
+                and not any(
+                    document.store.tokens[token_id].text.casefold() in {"i", "oraz"}
+                    for token_id in token_ids
+                )
             ):
                 return True
         return False
@@ -390,8 +393,7 @@ class PartyCandidateStage:
             if len(token_ids) > 5:
                 return None
             if any(
-                document.store.tokens[token_id].text in {".", ";", ":"}
-                for token_id in token_ids
+                document.store.tokens[token_id].text in {".", ";", ":"} for token_id in token_ids
             ):
                 return None
             if any(

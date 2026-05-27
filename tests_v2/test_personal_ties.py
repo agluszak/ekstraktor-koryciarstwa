@@ -195,6 +195,42 @@ def test_personal_tie_stage_does_not_emit_patronage_tie_for_person_and_organizat
     assert fact_records(document) == ()
 
 
+def test_personal_tie_stage_does_not_expand_czlowiek_into_window_people() -> None:
+    text = (
+        "Stanisław Mazur i Andrzej Kloc będą kierować funduszem. "
+        "W radzie ostał się jeszcze człowiek z poprzedniego nadania — Jerzy Szwaj."
+    )
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Stanisław Mazur"),
+            person_span(text, "Andrzej Kloc"),
+            person_span(text, "Jerzy Szwaj"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    personal_ties = [
+        r for r in fact_records(document) if r.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    # "człowiek" in second sentence should not pull in Mazur/Kloc from first sentence via window
+    assert not any(
+        {
+            entity_hint_for_role(document, r, "subject"),
+            entity_hint_for_role(document, r, "object"),
+        }
+        == {"Stanisław Mazur", "Jerzy Szwaj"}
+        or {
+            entity_hint_for_role(document, r, "subject"),
+            entity_hint_for_role(document, r, "object"),
+        }
+        == {"Andrzej Kloc", "Jerzy Szwaj"}
+        for r in personal_ties
+    )
+
+
 def test_personal_tie_stage_uses_previous_sentence_person_for_collaborator_tie() -> None:
     text = (
         "Jarosław Hodura od grudnia jest prezesem Grupy Hoteli WAM. "

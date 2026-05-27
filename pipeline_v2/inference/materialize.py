@@ -504,12 +504,19 @@ class FactAssessmentMaterializer:
                             right_mention = document.store.mentions.get(right_entity.mention_ids[0])
                             if right_mention is not None:
                                 right_hint = right_mention.text.casefold()
-                        if left_hint and left_hint == right_hint and constraint.same_canonical_hint_penalty is not None:
+                        if (
+                            left_hint
+                            and left_hint == right_hint
+                            and constraint.same_canonical_hint_penalty is not None
+                        ):
                             return None
                 case (TextFiller(value=left_val), TextFiller(value=right_val)):
                     if left_val.casefold() == right_val.casefold():
                         return None
-                case (EntityFiller(entity_id=ent_id), TextFiller(value=text_val)) | (TextFiller(value=text_val), EntityFiller(entity_id=ent_id)):
+                case (EntityFiller(entity_id=ent_id), TextFiller(value=text_val)) | (
+                    TextFiller(value=text_val),
+                    EntityFiller(entity_id=ent_id),
+                ):
                     entity = document.store.entity_candidates.get(ent_id)
                     if entity is not None:
                         ent_hint = (entity.canonical_hint or "").casefold()
@@ -517,7 +524,10 @@ class FactAssessmentMaterializer:
                             ent_mention = document.store.mentions.get(entity.mention_ids[0])
                             if ent_mention is not None:
                                 ent_hint = ent_mention.text.casefold()
-                        if ent_hint == text_val.casefold() and constraint.same_canonical_hint_penalty is not None:
+                        if (
+                            ent_hint == text_val.casefold()
+                            and constraint.same_canonical_hint_penalty is not None
+                        ):
                             return None
         base_record = self._record_from_selection(
             store=document.store,

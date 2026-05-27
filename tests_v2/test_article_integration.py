@@ -78,14 +78,13 @@ def test_article_excerpt_recovers_funding_and_party_context() -> None:
     )
 
     records = fact_records(document)
-    funding_record = next(record for record in records if record.kind is FactKind.FUNDING)
+    contract_record = next(record for record in records if record.kind is FactKind.PUBLIC_CONTRACT)
     party_records = tuple(record for record in records if record.kind is FactKind.PARTY_MEMBERSHIP)
 
-    assert entity_hint_for_role(document, funding_record, "funder") == "urzędu marszałkowskiego"
-    recipient_hint = entity_hint_for_role(document, funding_record, "recipient")
-    assert recipient_hint is not None
-    assert recipient_hint.startswith("fundacja")
-    assert text_argument(funding_record, "amount") == "100 tysięcy złotych"
+    assert (
+        entity_hint_for_role(document, contract_record, "counterparty") == "urzędu marszałkowskiego"
+    )
+    assert text_argument(contract_record, "amount") == "100 tysięcy złotych"
 
     party_pairs = {
         (

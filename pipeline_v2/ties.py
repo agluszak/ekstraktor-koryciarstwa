@@ -8,7 +8,7 @@ from pipeline_v2.binding_emission import (
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
-from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId
+from pipeline_v2.ids import EntityCandidateId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
@@ -92,7 +92,6 @@ class PersonalTieCandidateStage:
     )
     _collaborator_tie_lemmas = frozenset(
         {
-            "człowiek",
             "powiązać",
             "przyjaciel",
             "współpracownik",
@@ -278,7 +277,6 @@ class PersonalTieCandidateStage:
             )
             document.store.add_evidence(sentence_evidence)
             evidence_ids = (sentence_evidence.id,)
-
 
         emitter = DomainEventEmitter(document, self.producer_id)
 
@@ -646,7 +644,8 @@ class PersonalTieCandidateStage:
             for token_id in sentence.token_ids
             for token in [document.store.tokens[token_id]]
             if any(
-                analysis.lemma in self._complaint_verbs or analysis.lemma == "pisać" for analysis in token.morph
+                analysis.lemma in self._complaint_verbs or analysis.lemma == "pisać"
+                for analysis in token.morph
             )
         ]
         if not cue_spans:
@@ -757,7 +756,6 @@ class PersonalTieCandidateStage:
             "znajomy",
             "powiązać",
             "związany",
-            "człowiek",
         )
         for lemma in collaborator_preference:
             if lemma in self._collaborator_tie_lemmas:
