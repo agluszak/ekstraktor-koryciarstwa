@@ -53,6 +53,14 @@
     {
       "kind": "kinship_tie",
       "confidence": 0.697,
+      "subject": "Marta Giermasińska",
+      "object": "Dariusza Klimczaka",
+      "relationship_detail": "spouse",
+      "context": "narzeczony"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
       "subject": "Miłosz Wojnarowski",
       "object": "Konrada Wojnarowskiego",
       "relationship_detail": "sibling",
@@ -75,40 +83,25 @@
       "context": "brat"
     },
     {
-      "kind": "kinship_tie",
+      "kind": "personal_or_political_tie",
       "confidence": 0.697,
-      "subject": "Marta Giermasińska",
-      "object": "Dariusza Klimczaka",
-      "relationship_detail": "spouse",
-      "context": "narzeczony"
+      "subject": "Jażdżyku",
+      "object": "Marta Giermasińska",
+      "context": "powiązać"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Andrzej Melon",
+      "object": "Krzysztof Jażdżyk",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
       "subject": "Jolantę Sobczyk",
-      "object": "Trzecia Droga",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Andrzeja Grzyba",
-      "object": "Polskie Stronnictwo Ludowe",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Jan Grabiec",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Romana Smogorzewskiego",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
+      "object": "Dariusza Klimczaka",
+      "context": "znajomy"
     },
     {
       "kind": "public_role_holding",
@@ -201,7 +194,7 @@
     {
       "kind": "kinship_tie",
       "confidence": 0.647,
-      "subject": "Krzysztof Jażdżyk",
+      "subject": "Jażdżyku",
       "object": "Dariusza Klimczaka",
       "relationship_detail": "spouse"
     },
@@ -230,24 +223,37 @@
     },
     {
       "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Krzysztof Jażdżyk",
-      "object": "Marta Giermasińska",
-      "context": "powiązać"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Andrzej Melon",
-      "object": "Krzysztof Jażdżyk",
+      "confidence": 0.579,
+      "subject": "Wojnarowskich",
+      "object": "Wojnarowskim",
       "context": "związany"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
+      "kind": "political_support",
+      "confidence": 0.575,
+      "subject": "Polskie Stronnictwo Ludowe",
+      "object": "Jolantę Sobczyk"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Andrzeja Grzyba",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
       "subject": "Jolantę Sobczyk",
-      "object": "Dariusza Klimczaka",
-      "context": "znajomy"
+      "object": "Trzecia Droga",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Jan Grabiec",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
     },
     {
       "kind": "public_role_end",
@@ -257,7 +263,7 @@
     {
       "kind": "public_role_end",
       "confidence": 0.544,
-      "person": "Krzysztof Jażdżyk"
+      "person": "Jażdżyku"
     },
     {
       "kind": "public_role_appointment",
@@ -281,23 +287,16 @@
     {
       "kind": "patronage_network_tie",
       "confidence": 0.524,
-      "subject": "Jolantę Sobczyk",
-      "object": "Dariusza Klimczaka",
+      "subject": "Dariusza Klimczaka",
+      "object": "Jolantę Sobczyk",
       "institution": "PKP"
     },
     {
       "kind": "patronage_allegation",
       "confidence": 0.515,
       "complainant": "Jolantę Sobczyk",
-      "target": "Jolantę Sobczyk",
+      "target": "Dariusza Klimczaka",
       "institution": "PKP"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.489,
-      "subject": "Wojnarowskich",
-      "object": "Wojnarowskim",
-      "context": "związany"
     },
     {
       "kind": "election_candidacy",
@@ -317,23 +316,10 @@
       "role_domain": "administrative_office"
     },
     {
-      "kind": "patronage_allegation",
-      "confidence": 0.46,
-      "complainant": "Adama Struzika",
-      "target": "Adama Struzika",
-      "institution": "Departamentu Zdrowia i Polityki Społecznej w mazowieckim"
-    },
-    {
       "kind": "public_role_end",
       "confidence": 0.455,
       "person": "Jan Grabiec",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "compensation",
-      "confidence": 0.277,
-      "funder": "PKP",
-      "amount": "3,7 tys. zł"
     }
   ]
 }

@@ -17,6 +17,14 @@
       "organization": "starostwu"
     },
     {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Anna Karaś",
+      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
       "kind": "public_role_appointment",
       "confidence": 0.727,
       "person": "Joanna Pszczółkowska",
@@ -29,14 +37,6 @@
       "confidence": 0.727,
       "person": "mąż of Joanna Pszczółkowska",
       "organization": "Powiatowym Centrum Pomocy Rodzinie",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
-      "person": "Anna Karaś",
-      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
       "role": "sekretarz",
       "role_domain": "administrative_office"
     },
@@ -69,6 +69,13 @@
       "object": "Roman",
       "relationship_detail": "child",
       "context": "syn"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "mąż of Joanna Pszczółkowska",
+      "object": "Joanna Pszczółkowska",
+      "context": "posada"
     },
     {
       "kind": "public_role_appointment",
@@ -113,13 +120,6 @@
       "context": "syn"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "mąż of Joanna Pszczółkowska",
-      "object": "Joanna Pszczółkowska",
-      "context": "posada"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.561,
       "person": "Józef Borkowski",
@@ -136,16 +136,16 @@
     {
       "kind": "patronage_network_tie",
       "confidence": 0.395,
-      "subject": "Joanna Pszczółkowska",
-      "object": "mąż of Joanna Pszczółkowska",
+      "subject": "mąż of Joanna Pszczółkowska",
+      "object": "Joanna Pszczółkowska",
       "institution": "starostwu",
       "context": "sekretarzem"
     },
     {
       "kind": "patronage_allegation",
       "confidence": 0.39,
-      "complainant": "mąż of Joanna Pszczółkowska",
-      "target": "Joanna Pszczółkowska",
+      "complainant": "Joanna Pszczółkowska",
+      "target": "mąż of Joanna Pszczółkowska",
       "institution": "starostwu",
       "context": "sekretarzem"
     }

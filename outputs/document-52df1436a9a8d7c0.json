@@ -6,10 +6,17 @@
   "facts": [
     {
       "kind": "party_membership",
-      "confidence": 0.754,
+      "confidence": 0.807,
       "subject": "Krzysztofa Sobolewskiego",
       "object": "Prawo i Sprawiedliwość",
       "status": "former"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.796,
+      "subject": "Jarosława Kaczyńskiego",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
     },
     {
       "kind": "kinship_tie",
@@ -28,18 +35,46 @@
       "context": "żona"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Grzegorz Schreiber",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "former"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Krzysztofa Sobolewskiego",
+      "object": "Mateuszem Morawieckim",
+      "context": "człowiek"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Iwonie Koperskiej",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "unknown"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Stawiarski",
+      "object": "Morawieckiego",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Mateuszem Morawieckim",
+      "object": "Stawiarski",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Krzysztofa Sobolewskiego",
+      "object": "Morawieckiego",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Krzysztofa Sobolewskiego",
+      "object": "Stawiarski",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Krzysztofa Sobolewskiego",
+      "object": "Jarosława Kaczyńskiego",
+      "context": "współpracownik"
     },
     {
       "kind": "public_role_holding",
@@ -85,20 +120,6 @@
       "organization": "Lubelskich Kolei",
       "role": "rada nadzorczy",
       "role_domain": "other_public_role"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Mateuszem Morawieckim",
-      "object": "Krzysztofa Sobolewskiego",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Krzysztofa Sobolewskiego",
-      "object": "Jarosława Kaczyńskiego",
-      "context": "współpracownik"
     },
     {
       "kind": "public_role_appointment",
@@ -165,6 +186,28 @@
       "amount": "niemal pół miliona złotych"
     },
     {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Grzegorz Schreiber",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "former"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.562,
+      "subject": "Mateuszem Morawieckim",
+      "object": "Morawieckiego",
+      "context": "człowiek"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.549,
+      "person": "Krzysztofa Sobolewskiego",
+      "organization": "Lubelskie Koleje",
+      "role": "marszałek",
+      "role_domain": "administrative_office"
+    },
+    {
       "kind": "public_role_appointment",
       "confidence": 0.549,
       "person": "Sylwii Sobolewskiej",
@@ -174,23 +217,15 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.549,
-      "person": "Krzysztofa Sobolewskiego",
-      "organization": "Lubelskie Koleje",
-      "role": "marszałek",
-      "role_domain": "administrative_office"
-    },
-    {
-      "kind": "public_role_appointment",
       "confidence": 0.548,
-      "person": "Krzysztofa Sobolewskiego",
+      "person": "Sylwii Sobolewskiej",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_appointment",
       "confidence": 0.548,
-      "person": "Sylwii Sobolewskiej",
+      "person": "Krzysztofa Sobolewskiego",
       "role": "poseł",
       "role_domain": "political_office"
     },
@@ -211,16 +246,30 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Sylwii Sobolewskiej",
-      "role": "poseł",
+      "person": "Stawiarski",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stawiarski",
-      "role": "marszałek",
+      "person": "Sylwii Sobolewskiej",
+      "role": "poseł",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.534,
+      "subject": "Paweł Majewski",
+      "object": "Iwonie Koperskiej",
+      "institution": "PiS"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.525,
+      "complainant": "Paweł Majewski",
+      "target": "Iwonie Koperskiej",
+      "institution": "PiS"
     },
     {
       "kind": "public_role_holding",
@@ -250,19 +299,6 @@
       "kind": "election_candidacy",
       "confidence": 0.48,
       "person": "Przemysław Czarnek"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.464,
-      "complainant": "Iwonie Koperskiej",
-      "target": "Iwonie Koperskiej",
-      "institution": "PiS"
-    },
-    {
-      "kind": "compensation",
-      "confidence": 0.308,
-      "funder": "Lubelskie Koleje",
-      "amount": "2,3 tys. zł"
     }
   ]
 }

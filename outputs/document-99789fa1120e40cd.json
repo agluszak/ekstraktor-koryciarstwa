@@ -5,6 +5,11 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "anti_corruption_referral",
+      "confidence": 0.786,
+      "institution": "CBA"
+    },
+    {
       "kind": "public_role_appointment",
       "confidence": 0.741,
       "person": "Mirosław Luks",
@@ -13,15 +18,18 @@
       "role_domain": "administrative_office"
     },
     {
-      "kind": "anti_corruption_referral",
-      "confidence": 0.711,
-      "complainant": "PIS",
-      "institution": "CBA"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.701,
+      "subject": "Bytomski",
+      "object": "Bytomski",
+      "context": "związany"
     },
     {
-      "kind": "anti_corruption_referral",
-      "confidence": 0.678,
-      "institution": "CBA"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Macieja Bartkowa",
+      "object": "Mariuszem Wołoszem",
+      "context": "związany"
     },
     {
       "kind": "kinship_tie",
@@ -33,30 +41,16 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.618,
-      "person": "Wnuk Consulting",
+      "person": "Bartłomieja Wnuka",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.618,
-      "person": "Bartłomieja Wnuka",
+      "person": "Wnuk Consulting",
       "role": "radny",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Macieja Bartkowa",
-      "object": "Mariuszem Wołoszem",
-      "context": "związany"
-    },
-    {
-      "kind": "anti_corruption_referral",
-      "confidence": 0.591,
-      "complainant": "Prawo i Sprawiedliwość",
-      "institution": "CBA",
-      "context": "w sprawie złożenia zawiadomienia do CBA, choć z pewnymi perturbacjami, finalnie doszła do skutku"
     },
     {
       "kind": "public_role_holding",
@@ -64,13 +58,6 @@
       "person": "Macieja Bartkowa",
       "role": "radny",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "anti_corruption_referral",
-      "confidence": 0.549,
-      "complainant": "Macieja Bartkowa",
-      "target": "Przedsiębiorstwie Energetyki Cieplnej Sp.",
-      "institution": "CBA"
     },
     {
       "kind": "public_role_end",
@@ -95,13 +82,6 @@
       "person": "Mariusz Janas",
       "role": "radny",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.489,
-      "subject": "Bytomski",
-      "object": "Bytomski",
-      "context": "związany"
     },
     {
       "kind": "public_contract",

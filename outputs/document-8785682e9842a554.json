@@ -5,6 +5,13 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "party_membership",
+      "confidence": 0.748,
+      "subject": "Adam Struzik",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
+    },
+    {
       "kind": "public_role_holding",
       "confidence": 0.721,
       "person": "Adam Struzik",
@@ -20,14 +27,7 @@
     },
     {
       "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Adam Struzik",
-      "object": "Polskie Stronnictwo Ludowe",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
+      "confidence": 0.659,
       "subject": "Marcelina Zawisza",
       "object": "Razem",
       "status": "unknown"

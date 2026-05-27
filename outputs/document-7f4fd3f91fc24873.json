@@ -5,6 +5,13 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "party_membership",
+      "confidence": 0.754,
+      "subject": "Doroda Połedniok",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
       "kind": "public_role_holding",
       "confidence": 0.726,
       "person": "Bolesław Piecha",
@@ -13,24 +20,24 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
       "subject": "Doroda Połedniok",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Bolesław Piecha",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "unknown"
+      "object": "Jacek Guzy",
+      "context": "człowiek"
     },
     {
       "kind": "public_employment",
       "confidence": 0.678,
       "person": "Donalda Tuska",
       "organization": "Siemianowic Śląskich"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Bolesław Piecha",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
     },
     {
       "kind": "election_candidacy",

@@ -11,16 +11,9 @@
     },
     {
       "kind": "party_membership",
-      "confidence": 0.754,
-      "subject": "Andrzeja Kloca",
-      "object": "Polskie Stronnictwo Ludowe",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.754,
-      "subject": "Stanisława Mazura",
-      "object": "Lewica",
+      "confidence": 0.744,
+      "subject": "Jerzy Szwaj",
+      "object": "Prawo i Sprawiedliwość",
       "status": "unknown"
     },
     {
@@ -51,6 +44,167 @@
       "organization": "WFOŚiGW w Lublinie",
       "role": "prezes",
       "role_domain": "public_company_management"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Lucjan Orgasiński",
+      "object": "Annę Pokwapisz",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Agnieszkę Kruk",
+      "object": "Annę Pokwapisz",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Jerzy Szwaj",
+      "object": "Annę Pokwapisz",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Jerzy Szwaj",
+      "object": "Agnieszkę Kruk",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Anna Glijer",
+      "object": "Annę Pokwapisz",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Anna Glijer",
+      "object": "Agnieszkę Kruk",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Anna Glijer",
+      "object": "Jerzy Szwaj",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Michał Marciniak",
+      "object": "Annę Pokwapisz",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Michał Marciniak",
+      "object": "Agnieszkę Kruk",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Michał Marciniak",
+      "object": "Jerzy Szwaj",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Michał Marciniak",
+      "object": "Anna Glijer",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Lucjan Orgasiński",
+      "object": "Agnieszkę Kruk",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Lucjan Orgasiński",
+      "object": "Jerzy Szwaj",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Lucjan Orgasiński",
+      "object": "Anna Glijer",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Lucjan Orgasiński",
+      "object": "Michał Marciniak",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Piotr Bogusz",
+      "object": "Annę Pokwapisz",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Piotr Bogusz",
+      "object": "Agnieszkę Kruk",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Piotr Bogusz",
+      "object": "Jerzy Szwaj",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Piotr Bogusz",
+      "object": "Anna Glijer",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Piotr Bogusz",
+      "object": "Michał Marciniak",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Piotr Bogusz",
+      "object": "Lucjan Orgasiński",
+      "context": "człowiek"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.691,
+      "subject": "Stanisława Mazura",
+      "object": "Lewica",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.691,
+      "subject": "Andrzeja Kloca",
+      "object": "Polskie Stronnictwo Ludowe",
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
@@ -87,13 +241,6 @@
       "role": "przewodniczący",
       "role_domain": "other_public_role",
       "context": "Departamencie Funduszy Europejskich Ministerstwa Klimatu"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Grzegorzem Czelejem",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "unknown"
     },
     {
       "kind": "public_role_end",
@@ -148,13 +295,6 @@
       "role_domain": "public_company_management"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Jerzy Szwaj",
-      "object": "Anna Glijer",
-      "context": "człowiek"
-    },
-    {
       "kind": "public_role_holding",
       "confidence": 0.581,
       "person": "Jarosław Stawiarski",
@@ -168,6 +308,13 @@
       "organization": "WFOŚiGW w Lublinie",
       "role": "przewodniczący",
       "role_domain": "other_public_role"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Grzegorzem Czelejem",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",

@@ -14,7 +14,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.751,
-      "person": "Jarosław Draguć",
+      "person": "Andrzej Buła",
       "organization": "Urzędu Wojewódzkiego",
       "role": "marszałek",
       "role_domain": "political_office"
@@ -22,7 +22,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.751,
-      "person": "Andrzej Buła",
+      "person": "Jarosław Draguć",
       "organization": "Urzędu Wojewódzkiego",
       "role": "marszałek",
       "role_domain": "political_office"
@@ -104,14 +104,14 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.568,
-      "person": "Jurek",
+      "person": "Monika Jurek",
       "role": "wojewoda",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.568,
-      "person": "Monika Jurek",
+      "person": "Jurek",
       "role": "wojewoda",
       "role_domain": "political_office"
     },
@@ -121,14 +121,6 @@
       "person": "Monika Jurek",
       "role": "wojewoda",
       "role_domain": "institution_management"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.444,
-      "complainant": "Monika Jurek",
-      "target": "Monika Jurek",
-      "institution": "Generalnego Urzędu",
-      "context": "Dyrektora"
     }
   ]
 }

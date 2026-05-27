@@ -6,10 +6,24 @@
   "facts": [
     {
       "kind": "party_membership",
-      "confidence": 0.754,
+      "confidence": 0.788,
       "subject": "Szymon Hołownia",
       "object": "Polska 2050",
       "status": "unknown"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Paweł Marciniak",
+      "object": "Szymon Hołownia",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Szymon Hołownia",
+      "object": "Paweł Marciniak",
+      "context": "człowiek"
     },
     {
       "kind": "compensation",
@@ -17,27 +31,6 @@
       "funder": "Wirtualnej Polski",
       "recipient": "Krzysztof Izdebski",
       "amount": "8 tys. zł"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Ewy Patalas",
-      "object": "Polska 2050",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Marek Papuga",
-      "object": "Sojusz Lewicy Demokratycznej",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Marek Papuga",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
@@ -94,13 +87,6 @@
       "role_domain": "supervisory_board"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Paweł Marciniak",
-      "object": "Szymon Hołownia",
-      "context": "człowiek"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.606,
       "person": "Szymon Hołownia",
@@ -130,16 +116,30 @@
     {
       "kind": "public_role_end",
       "confidence": 0.57,
-      "person": "Hołownia",
+      "person": "Szymon Hołownia",
       "organization": "Sejmie",
       "role_domain": "political_office",
       "context": "Skarbu Państwa"
     },
     {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Ewy Patalas",
+      "object": "Polska 2050",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Marek Papuga",
+      "object": "Sojusz Lewicy Demokratycznej",
+      "status": "unknown"
+    },
+    {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Emilii Wasielewskiej",
-      "role": "radna",
+      "person": "Olgierd Geblewicz",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
@@ -152,8 +152,8 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Olgierd Geblewicz",
-      "role": "marszałek",
+      "person": "Emilii Wasielewskiej",
+      "role": "radna",
       "role_domain": "political_office"
     }
   ]

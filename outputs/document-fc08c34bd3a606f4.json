@@ -35,11 +35,32 @@
       "role_domain": "public_company_management"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Marcina Kopanię",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Szymon Gawryszczak",
+      "object": "Roberta Kropiwnickiego",
+      "context": "znajomy"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Rafała Trzaskowskiego",
+      "object": "Magdalenie Biejat",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Przemysław Wipler",
+      "object": "Magdalenie Biejat",
+      "context": "człowiek"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Przemysław Wipler",
+      "object": "Rafała Trzaskowskiego",
+      "context": "człowiek"
     },
     {
       "kind": "public_contract",
@@ -53,20 +74,6 @@
       "confidence": 0.625,
       "person": "Krzysztofa Gołąba",
       "organization": "warszawskiej"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Szymon Gawryszczak",
-      "object": "Roberta Kropiwnickiego",
-      "context": "znajomy"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Rafała Trzaskowskiego",
-      "object": "Magdalenie Biejat",
-      "context": "człowiek"
     },
     {
       "kind": "public_employment",
@@ -87,6 +94,13 @@
       "confidence": 0.579,
       "person": "Przemysław Wipler",
       "organization": "Warszawy"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.579,
+      "subject": "Wiesław Malicki",
+      "object": "Malicki",
+      "context": "współpracownik"
     },
     {
       "kind": "public_employment",
@@ -113,20 +127,6 @@
       "person": "Rafała Trzaskowskiego",
       "role": "prezes",
       "role_domain": "public_company_management"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.489,
-      "subject": "Wiesław Malicki",
-      "object": "Malicki",
-      "context": "współpracownik"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.412,
-      "complainant": "Szymon Gawryszczak",
-      "target": "Szymon Gawryszczak",
-      "institution": "Totalizatora"
     }
   ]
 }

@@ -17,6 +17,90 @@
       "amount": "10 tys. zł"
     },
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Waldemar Buda",
+      "object": "Gabriela Sowa",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Bałajewicza",
+      "object": "Rafała Kukli",
+      "context": "znajomy"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Michał Szymczyk",
+      "object": "Bałajewicza",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Emil Rojek",
+      "object": "Szymona Hołowni",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Łukasz Bałajewicz",
+      "object": "Szymona Hołowni",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Łukasz Bałajewicz",
+      "object": "Emil Rojek",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Szymona Hołowni",
+      "object": "Emil Rojek",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Szymona Hołowni",
+      "object": "Łukasz Bałajewicz",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Bartosz Wilk",
+      "object": "Szymona Hołowni",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Bartosz Wilk",
+      "object": "Emil Rojek",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Bartosz Wilk",
+      "object": "Łukasz Bałajewicz",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Rafał Komarewicz",
+      "object": "Szymona Hołowni",
+      "context": "baron"
+    },
+    {
       "kind": "compensation",
       "confidence": 0.68,
       "funder": "KZN",
@@ -64,7 +148,7 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.616,
-      "person": "Rafał Komarewicz",
+      "person": "Szymona Hołowni",
       "organization": "Skarbu Państwa",
       "role": "zarząd",
       "role_domain": "public_company_management",
@@ -73,25 +157,11 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.616,
-      "person": "Szymona Hołowni",
+      "person": "Rafał Komarewicz",
       "organization": "Skarbu Państwa",
       "role": "zarząd",
       "role_domain": "public_company_management",
       "context": "Skarbu Państwa"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Gabriela Sowa",
-      "object": "Waldemar Buda",
-      "context": "związany"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Rafał Komarewicz",
-      "object": "Szymona Hołowni",
-      "context": "baron"
     },
     {
       "kind": "public_role_holding",
@@ -176,13 +246,6 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Rafał Komarewicz",
-      "role": "poseł",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
       "person": "Rafała Kukli",
       "role": "burmistrz",
       "role_domain": "political_office"
@@ -192,6 +255,13 @@
       "confidence": 0.544,
       "person": "Szymona Hołowni",
       "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Rafał Komarewicz",
+      "role": "poseł",
       "role_domain": "political_office"
     },
     {
@@ -207,20 +277,6 @@
       "person": "Filip Curyło",
       "role": "radzio nadzorczy",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "patronage_network_tie",
-      "confidence": 0.524,
-      "subject": "Rafał Komarewicz",
-      "object": "Szymona Hołowni",
-      "institution": "„GP”"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.515,
-      "complainant": "Rafał Komarewicz",
-      "target": "Rafał Komarewicz",
-      "institution": "„GP”"
     },
     {
       "kind": "public_role_appointment",
@@ -252,13 +308,6 @@
       "kind": "election_candidacy",
       "confidence": 0.48,
       "person": "Michał Szymczyk"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.461,
-      "complainant": "Bałajewicza",
-      "target": "Bałajewicza",
-      "context": "znajomy"
     },
     {
       "kind": "public_employment",

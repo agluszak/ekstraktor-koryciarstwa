@@ -34,6 +34,13 @@
       "context": "żona"
     },
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Marek Rząsowski",
+      "object": "Jacka Łęskiego",
+      "context": "związany"
+    },
+    {
       "kind": "compensation",
       "confidence": 0.687,
       "recipient": "Marek Rząsowski",
@@ -41,7 +48,7 @@
     },
     {
       "kind": "party_membership",
-      "confidence": 0.685,
+      "confidence": 0.666,
       "subject": "Marek Rząsowski",
       "object": "Platforma Obywatelska",
       "status": "unknown"

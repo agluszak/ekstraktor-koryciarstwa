@@ -5,6 +5,13 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "party_membership",
+      "confidence": 0.755,
+      "subject": "Stanisława Gawłowskiego",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
       "kind": "compensation",
       "confidence": 0.731,
       "funder": "Totalizatora Sportowego",
@@ -104,53 +111,25 @@
       "role_domain": "institution_management"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Marcin Posadzy",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "unknown"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Wilczyński",
+      "object": "Sebastian Nowaczkiewicz",
+      "context": "powiązać"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Sławomir Rybicki",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Magdalena Sekuła",
+      "object": "Adamem Sekułą",
+      "context": "związany"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
       "subject": "Stanisława Gawłowskiego",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Remigiuszowi Zagórskiemu",
-      "object": "Lewica",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Tomasz Lutak",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "former"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Sławomir Czwal",
-      "object": "Koalicja Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Karol Wilczyński",
-      "object": "Koalicja Obywatelska",
-      "status": "unknown"
+      "object": "Adamem Sekułą",
+      "context": "znajomy"
     },
     {
       "kind": "public_employment",
@@ -210,14 +189,14 @@
       "kind": "public_role_holding",
       "confidence": 0.63,
       "person": "Stanisława Gawłowskiego",
-      "role": "minister",
+      "role": "senator",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.63,
       "person": "Stanisława Gawłowskiego",
-      "role": "senator",
+      "role": "minister",
       "role_domain": "political_office"
     },
     {
@@ -245,13 +224,6 @@
       "role_domain": "institution_management"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Magdalena Sekuła",
-      "object": "Adamem Sekułą",
-      "context": "związany"
-    },
-    {
       "kind": "public_role_holding",
       "confidence": 0.599,
       "person": "Stanisława Gawłowskiego",
@@ -266,6 +238,61 @@
       "organization": "Totalizatorze Sportowym",
       "role": "poseł",
       "role_domain": "other_public_role"
+    },
+    {
+      "kind": "political_support",
+      "confidence": 0.575,
+      "subject": "Koalicja Obywatelska",
+      "object": "Sławomir Czwal"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Remigiuszowi Zagórskiemu",
+      "object": "Lewica",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Sławomir Czwal",
+      "object": "Koalicja Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Sławomir Rybicki",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Marcin Posadzy",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Tomasz Lutak",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "former"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Karol Wilczyński",
+      "object": "Koalicja Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.562,
+      "subject": "Karol Wilczyński",
+      "object": "Wilczyński",
+      "context": "związany"
     },
     {
       "kind": "public_role_holding",
@@ -320,20 +347,10 @@
       "role_domain": "institution_management"
     },
     {
-      "kind": "patronage_allegation",
-      "confidence": 0.444,
-      "complainant": "partner of Donaldem Tuskiem",
-      "target": "partner of Donaldem Tuskiem",
-      "institution": "Platformy Obywatelskiej",
-      "context": "Platformy Obywatelskiej"
-    },
-    {
       "kind": "kinship_tie",
-      "confidence": 0.274,
+      "confidence": 0.268,
       "subject": "partner of Donaldem Tuskiem",
-      "object": "Stanisława Gawłowskiego",
-      "relationship_detail": "spouse",
-      "context": "partner"
+      "object": "Stanisława Gawłowskiego"
     }
   ]
 }

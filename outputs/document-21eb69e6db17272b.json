@@ -79,14 +79,6 @@
       "person": "Angelika Konaszczuk",
       "role": "poseł",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.448,
-      "complainant": "Dariusza Stefaniuka",
-      "target": "Dariusza Stefaniuka",
-      "institution": "spółkach",
-      "context": "spółkach"
     }
   ]
 }

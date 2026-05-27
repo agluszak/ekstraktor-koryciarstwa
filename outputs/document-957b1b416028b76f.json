@@ -18,29 +18,22 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Anna-Maria Żukowska",
-      "object": "Lewica",
-      "status": "unknown"
-    },
-    {
       "kind": "public_role_end",
       "confidence": 0.664,
       "person": "Lubczyk",
       "organization": "Sejmu"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Radosławie Lubczyku",
-      "role": "poseł",
-      "role_domain": "political_office"
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Anna-Maria Żukowska",
+      "object": "Lewica",
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Lubczyk",
+      "person": "Radosławie Lubczyku",
       "role": "poseł",
       "role_domain": "political_office"
     },
@@ -56,6 +49,13 @@
       "confidence": 0.544,
       "person": "Szymon Hołownia",
       "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Lubczyk",
+      "role": "poseł",
       "role_domain": "political_office"
     }
   ]

@@ -5,6 +5,13 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.743,
+      "subject": "Lucjan Ograsiński",
+      "object": "Mariusz Suchecki",
+      "context": "związany"
+    },
+    {
       "kind": "kinship_tie",
       "confidence": 0.708,
       "subject": "Urszula Bury",
@@ -18,14 +25,6 @@
       "person": "Jana Burego",
       "organization": "Agencji Rynku Rolnego",
       "role": "sekretarz"
-    },
-    {
-      "kind": "kinship_tie",
-      "confidence": 0.697,
-      "subject": "brat of Jarosława Kalinowskiego",
-      "object": "Jarosława Kalinowskiego",
-      "relationship_detail": "sibling",
-      "context": "brat"
     },
     {
       "kind": "kinship_tie",
@@ -44,18 +43,54 @@
       "context": "brat"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
+      "subject": "brat of Jarosława Kalinowskiego",
+      "object": "Jarosława Kalinowskiego",
+      "relationship_detail": "sibling",
+      "context": "brat"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Urszula Bury",
+      "object": "Jana Burego",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Mariusz Suchecki",
+      "object": "Jana Burego",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Mariusz Suchecki",
+      "object": "Urszula Bury",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Lucjan Ograsiński",
+      "object": "Jana Burego",
+      "context": "związany"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Lucjan Ograsiński",
+      "object": "Urszula Bury",
+      "context": "związany"
+    },
+    {
       "kind": "party_membership",
-      "confidence": 0.685,
+      "confidence": 0.67,
       "subject": "Lucjan Ograsiński",
       "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.618,
-      "person": "Lucjan Ograsiński",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
     },
     {
       "kind": "public_role_appointment",
@@ -65,11 +100,11 @@
       "role_domain": "supervisory_board"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Lucjan Ograsiński",
-      "object": "Mariusz Suchecki",
-      "context": "związany"
+      "kind": "public_role_appointment",
+      "confidence": 0.618,
+      "person": "Lucjan Ograsiński",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
     },
     {
       "kind": "public_role_appointment",

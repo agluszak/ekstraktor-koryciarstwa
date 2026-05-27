@@ -5,6 +5,13 @@
   "relevance_score": 1.0,
   "facts": [
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "A.",
+      "object": "Góralczyk",
+      "context": "związany"
+    },
+    {
       "kind": "public_role_holding",
       "confidence": 0.675,
       "person": "Przemysław Pacia",
@@ -17,13 +24,6 @@
       "person": "Przemysław Pacia",
       "role": "prezes",
       "role_domain": "public_company_management"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Góralczyk",
-      "object": "A.",
-      "context": "związany"
     },
     {
       "kind": "public_role_appointment",
@@ -44,10 +44,10 @@
       "context": "Skarbu Państwa"
     },
     {
-      "kind": "patronage_allegation",
-      "confidence": 0.382,
-      "complainant": "A.",
-      "target": "A.",
+      "kind": "patronage_network_tie",
+      "confidence": 0.393,
+      "subject": "Góralczyk",
+      "object": "A.",
       "context": "Radna"
     }
   ]

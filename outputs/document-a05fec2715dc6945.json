@@ -51,6 +51,18 @@
     {
       "kind": "public_role_end",
       "confidence": 0.701,
+      "person": "Magdaleny Skokowskiej",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.701,
+      "person": "Agnieszka Bebel",
+      "organization": "Miejskiego Ośrodka Pomocy Społecznej"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.701,
       "person": "Agnieszka Bebel",
       "organization": "MOPS"
     },
@@ -67,18 +79,6 @@
       "organization": "MOSiR"
     },
     {
-      "kind": "public_role_end",
-      "confidence": 0.701,
-      "person": "Agnieszka Bebel",
-      "organization": "Miejskiego Ośrodka Pomocy Społecznej"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.701,
-      "person": "Magdaleny Skokowskiej",
-      "organization": "MOPS"
-    },
-    {
       "kind": "patronage_allegation",
       "confidence": 0.698,
       "complainant": "Agnieszka Bebel",
@@ -93,18 +93,11 @@
       "role_domain": "administrative_office"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Wojciechem Wilkiem",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Wojciechem Wilkiem",
-      "object": "Razem",
-      "status": "unknown"
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Krzysztofa Starucha",
+      "object": "Agnieszka Bebel",
+      "context": "rozdawać"
     },
     {
       "kind": "public_role_holding",
@@ -156,24 +149,17 @@
       "role_domain": "institution_management"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.615,
-      "subject": "Krzysztofa Starucha",
-      "object": "Agnieszka Bebel",
-      "context": "rozdawać"
-    },
-    {
       "kind": "political_support",
       "confidence": 0.575,
       "subject": "Prawo i Sprawiedliwość",
       "object": "Krzysztofa Starucha"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Jarosław Stawiarski",
-      "role": "marszałek",
-      "role_domain": "political_office"
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Wojciechem Wilkiem",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
@@ -192,6 +178,13 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
+      "person": "Jarosław Stawiarski",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
       "person": "Michała Stawiarskiego",
       "role": "marszałek",
       "role_domain": "political_office"
@@ -200,20 +193,6 @@
       "kind": "election_candidacy",
       "confidence": 0.48,
       "person": "Krzysztofa Starucha"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.429,
-      "complainant": "Krzysztofa Starucha",
-      "target": "Krzysztofa Starucha",
-      "context": "burmistrzem"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.428,
-      "complainant": "Wojciechem Wilkiem",
-      "target": "Wojciechem Wilkiem",
-      "context": "Razem"
     }
   ]
 }

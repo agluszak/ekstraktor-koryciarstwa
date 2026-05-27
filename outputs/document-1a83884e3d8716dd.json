@@ -21,14 +21,6 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.737,
-      "person": "Tomasza Kościelniaka",
-      "organization": "Urzędzie Stanu Cywilnego",
-      "role": "wójt",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.737,
       "person": "Jan Kowalski",
       "organization": "Urzędzie Stanu Cywilnego",
       "role": "wójt",
@@ -38,6 +30,14 @@
       "kind": "public_role_holding",
       "confidence": 0.737,
       "person": "dziewczyna of Tomasz Kościelniak",
+      "organization": "Urzędzie Stanu Cywilnego",
+      "role": "wójt",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.737,
+      "person": "Tomasza Kościelniaka",
       "organization": "Urzędzie Stanu Cywilnego",
       "role": "wójt",
       "role_domain": "political_office"
@@ -66,13 +66,6 @@
       "context": "teść"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Paweł Janicki",
-      "object": "Prawo i Sprawiedliwość",
-      "status": "unknown"
-    },
-    {
       "kind": "public_role_holding",
       "confidence": 0.619,
       "person": "Paweł Janicki",
@@ -87,6 +80,13 @@
       "organization": "Gminnego Ośrodka Kultury",
       "role": "dyrektor",
       "role_domain": "institution_management"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Paweł Janicki",
+      "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
@@ -115,14 +115,6 @@
       "confidence": 0.454,
       "person": "Tomasza Kościelniaka",
       "role_domain": "institution_management"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.363,
-      "complainant": "Tomasza Kościelniaka",
-      "target": "Tomasza Kościelniaka",
-      "institution": "Urzędzie Stanu Cywilnego",
-      "context": "wójtem"
     }
   ]
 }
