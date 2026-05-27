@@ -14,7 +14,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.751,
-      "person": "Andrzej Buła",
+      "person": "Jarosław Draguć",
       "organization": "Urzędu Wojewódzkiego",
       "role": "marszałek",
       "role_domain": "political_office"
@@ -22,7 +22,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.751,
-      "person": "Jarosław Draguć",
+      "person": "Andrzej Buła",
       "organization": "Urzędu Wojewódzkiego",
       "role": "marszałek",
       "role_domain": "political_office"

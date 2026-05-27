@@ -38,41 +38,6 @@
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
       "subject": "Krzysztofa Sobolewskiego",
-      "object": "Mateuszem Morawieckim",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Stawiarski",
-      "object": "Morawieckiego",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Mateuszem Morawieckim",
-      "object": "Stawiarski",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Krzysztofa Sobolewskiego",
-      "object": "Morawieckiego",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Krzysztofa Sobolewskiego",
-      "object": "Stawiarski",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Krzysztofa Sobolewskiego",
       "object": "Jarosława Kaczyńskiego",
       "context": "współpracownik"
     },
@@ -193,13 +158,6 @@
       "status": "former"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.562,
-      "subject": "Mateuszem Morawieckim",
-      "object": "Morawieckiego",
-      "context": "człowiek"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.549,
       "person": "Krzysztofa Sobolewskiego",
@@ -246,15 +204,15 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stawiarski",
-      "role": "marszałek",
+      "person": "Sylwii Sobolewskiej",
+      "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Sylwii Sobolewskiej",
-      "role": "poseł",
+      "person": "Stawiarski",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {

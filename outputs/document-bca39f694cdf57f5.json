@@ -42,13 +42,6 @@
       "role": "prezes",
       "role_domain": "public_company_management",
       "context": "Skarbu Państwa"
-    },
-    {
-      "kind": "patronage_network_tie",
-      "confidence": 0.393,
-      "subject": "Góralczyk",
-      "object": "A.",
-      "context": "Radna"
     }
   ]
 }

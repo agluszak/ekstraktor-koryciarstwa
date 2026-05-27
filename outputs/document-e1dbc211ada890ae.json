@@ -65,6 +65,13 @@
       "role_domain": "political_office"
     },
     {
+      "kind": "patronage_network_tie",
+      "confidence": 0.524,
+      "subject": "Marcin Dulian",
+      "object": "Bogdana Klicha",
+      "institution": "Grupy Hoteli"
+    },
+    {
       "kind": "public_employment",
       "confidence": 0.425,
       "person": "Bogdana Klicha",

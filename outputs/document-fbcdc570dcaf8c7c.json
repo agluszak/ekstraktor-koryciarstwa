@@ -12,20 +12,6 @@
       "status": "unknown"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Paweł Marciniak",
-      "object": "Szymon Hołownia",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Szymon Hołownia",
-      "object": "Paweł Marciniak",
-      "context": "człowiek"
-    },
-    {
       "kind": "compensation",
       "confidence": 0.691,
       "funder": "Wirtualnej Polski",
@@ -66,14 +52,14 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "public_role_end",
+      "kind": "public_role_appointment",
       "confidence": 0.619,
       "person": "Szymon Hołownia",
       "role": "radzio nadzorczy",
       "role_domain": "supervisory_board"
     },
     {
-      "kind": "public_role_appointment",
+      "kind": "public_role_end",
       "confidence": 0.619,
       "person": "Szymon Hołownia",
       "role": "radzio nadzorczy",

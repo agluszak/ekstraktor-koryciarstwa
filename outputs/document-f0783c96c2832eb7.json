@@ -237,15 +237,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Andrzeja Grzyba",
-      "object": "Polskie Stronnictwo Ludowe",
+      "subject": "Jolantę Sobczyk",
+      "object": "Trzecia Droga",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Jolantę Sobczyk",
-      "object": "Trzecia Droga",
+      "subject": "Andrzeja Grzyba",
+      "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
     },
     {
@@ -287,8 +287,8 @@
     {
       "kind": "patronage_network_tie",
       "confidence": 0.524,
-      "subject": "Dariusza Klimczaka",
-      "object": "Jolantę Sobczyk",
+      "subject": "Jolantę Sobczyk",
+      "object": "Dariusza Klimczaka",
       "institution": "PKP"
     },
     {

@@ -5,13 +5,6 @@
   "relevance_score": 0.97,
   "facts": [
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Stanisław Mazur",
-      "object": "Andrzej Kloc",
-      "context": "człowiek"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.691,
       "person": "Andrzej Kloc",
@@ -33,6 +26,13 @@
       "subject": "Andrzej Kloc",
       "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.417,
+      "subject": "Stanisław Mazur",
+      "object": "Andrzej Kloc",
+      "context": "radę nadzorczą"
     },
     {
       "kind": "patronage_allegation",

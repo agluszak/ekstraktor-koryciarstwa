@@ -58,12 +58,6 @@
       "kind": "public_role_end",
       "confidence": 0.701,
       "person": "Agnieszka Bebel",
-      "organization": "Miejskiego Ośrodka Pomocy Społecznej"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.701,
-      "person": "Agnieszka Bebel",
       "organization": "MOPS"
     },
     {
@@ -77,6 +71,12 @@
       "confidence": 0.701,
       "person": "Michała Stawiarskiego",
       "organization": "MOSiR"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.701,
+      "person": "Agnieszka Bebel",
+      "organization": "Miejskiego Ośrodka Pomocy Społecznej"
     },
     {
       "kind": "patronage_allegation",
@@ -164,15 +164,15 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Wojciechem Wilkiem",
-      "role": "burmistrz",
+      "person": "Piotra Janczarka",
+      "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Piotra Janczarka",
-      "role": "radny",
+      "person": "Michała Stawiarskiego",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
@@ -185,8 +185,8 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Michała Stawiarskiego",
-      "role": "marszałek",
+      "person": "Wojciechem Wilkiem",
+      "role": "burmistrz",
       "role_domain": "political_office"
     },
     {

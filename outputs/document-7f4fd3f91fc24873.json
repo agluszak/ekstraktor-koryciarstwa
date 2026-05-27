@@ -20,13 +20,6 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Doroda Połedniok",
-      "object": "Jacek Guzy",
-      "context": "człowiek"
-    },
-    {
       "kind": "public_employment",
       "confidence": 0.678,
       "person": "Donalda Tuska",

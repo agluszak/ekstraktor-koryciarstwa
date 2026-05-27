@@ -42,27 +42,6 @@
       "context": "znajomy"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Rafała Trzaskowskiego",
-      "object": "Magdalenie Biejat",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Przemysław Wipler",
-      "object": "Magdalenie Biejat",
-      "context": "człowiek"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Przemysław Wipler",
-      "object": "Rafała Trzaskowskiego",
-      "context": "człowiek"
-    },
-    {
       "kind": "public_contract",
       "confidence": 0.683,
       "counterparty": "Totalizatora Sportowego",

@@ -127,27 +127,11 @@
       "role_domain": "public_company_management"
     },
     {
-      "kind": "patronage_allegation",
-      "confidence": 0.432,
-      "complainant": "Bartosz",
-      "target": "Joanna Pszczółkowska",
-      "context": "konkurs"
-    },
-    {
       "kind": "patronage_network_tie",
-      "confidence": 0.395,
-      "subject": "mąż of Joanna Pszczółkowska",
-      "object": "Joanna Pszczółkowska",
-      "institution": "starostwu",
-      "context": "sekretarzem"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.39,
-      "complainant": "Joanna Pszczółkowska",
-      "target": "mąż of Joanna Pszczółkowska",
-      "institution": "starostwu",
-      "context": "sekretarzem"
+      "confidence": 0.448,
+      "subject": "Joanna Pszczółkowska",
+      "object": "Bartosz",
+      "context": "konkurs"
     }
   ]
 }

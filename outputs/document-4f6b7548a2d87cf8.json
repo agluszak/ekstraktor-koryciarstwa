@@ -19,6 +19,13 @@
     {
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
+      "subject": "Bartosz Wilk",
+      "object": "Szymona Hołowni",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
       "subject": "Waldemar Buda",
       "object": "Gabriela Sowa",
       "context": "związany"
@@ -70,13 +77,6 @@
       "confidence": 0.697,
       "subject": "Szymona Hołowni",
       "object": "Łukasz Bałajewicz",
-      "context": "powiązać"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Bartosz Wilk",
-      "object": "Szymona Hołowni",
       "context": "powiązać"
     },
     {
@@ -277,6 +277,20 @@
       "person": "Filip Curyło",
       "role": "radzio nadzorczy",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.524,
+      "subject": "Szymona Hołowni",
+      "object": "Rafał Komarewicz",
+      "institution": "„GP”"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.515,
+      "complainant": "Szymona Hołowni",
+      "target": "Rafał Komarewicz",
+      "institution": "„GP”"
     },
     {
       "kind": "public_role_appointment",

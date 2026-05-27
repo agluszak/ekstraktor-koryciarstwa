@@ -33,7 +33,21 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
+      "person": "Szymon Hołownia",
+      "role": "marszałek",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
       "person": "Radosławie Lubczyku",
+      "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Lubczyk",
       "role": "poseł",
       "role_domain": "political_office"
     },
@@ -42,20 +56,6 @@
       "confidence": 0.544,
       "person": "Katarzyna Karpa-Świderek",
       "role": "marszałek",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Szymon Hołownia",
-      "role": "marszałek",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Lubczyk",
-      "role": "poseł",
       "role_domain": "political_office"
     }
   ]

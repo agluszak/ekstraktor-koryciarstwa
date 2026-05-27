@@ -72,20 +72,6 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stanisława Gawłowskiego",
-      "role": "senator",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Sławomira Nitrasa",
-      "role": "minister",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
       "person": "Jakub Jaworowski",
       "role": "minister",
       "role_domain": "political_office"
@@ -94,6 +80,20 @@
       "kind": "public_role_holding",
       "confidence": 0.544,
       "person": "Borys Budka",
+      "role": "minister",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Stanisława Gawłowskiego",
+      "role": "senator",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Sławomira Nitrasa",
       "role": "minister",
       "role_domain": "political_office"
     },

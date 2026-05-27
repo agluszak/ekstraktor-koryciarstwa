@@ -19,10 +19,10 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "funding",
-      "confidence": 0.715,
-      "funder": "urzędu marszałkowskiego",
-      "recipient": "fundacja założona przez dyrektora warszawskiego pogotowia ratunkowego Karola Bielskiego",
+      "kind": "public_contract",
+      "confidence": 0.671,
+      "counterparty": "urzędu marszałkowskiego",
+      "contractor": "Artur Węgrzynowicz",
       "amount": "100 tysięcy złotych"
     },
     {
