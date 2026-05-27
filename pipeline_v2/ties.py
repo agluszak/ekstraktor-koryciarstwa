@@ -62,7 +62,6 @@ class PersonalTieCandidateStage:
     _patronage_lemmas = frozenset(
         {
             "baron",
-            "człowiek",
             "kolesiostwo",
             "konkurs",
             "polecenie",
@@ -88,7 +87,6 @@ class PersonalTieCandidateStage:
         "współpracownik",
         "znajomy",
         "związany",
-        "człowiek",
     )
     _collaborator_tie_lemmas = frozenset(
         {
@@ -155,6 +153,9 @@ class PersonalTieCandidateStage:
                 )
                 continue
             collaborator_lemma = self._collaborator_tie_detail(lemmas)
+            if collaborator_lemma is None and "człowiek" in lemmas:
+                if self._has_genitive_entity_adjacent(document, sentence, "człowiek", entities):
+                    collaborator_lemma = "człowiek"
             if collaborator_lemma is not None:
                 collaborator_participants = self._explicit_tie_participants(
                     document=document,
@@ -736,6 +737,33 @@ class PersonalTieCandidateStage:
             for analysis in token.morph:
                 lemmas.add(analysis.lemma)
         return frozenset(lemmas)
+
+    def _has_genitive_entity_adjacent(
+        self,
+        document: ArticleDocument,
+        sentence,
+        trigger_lemma: str,
+        entities: tuple[SentenceEntity, ...],
+    ) -> bool:
+        person_party_spans = [
+            (entity.start_char, entity.end_char)
+            for entity in entities
+            if entity.kind in {EntityKind.PERSON, EntityKind.POLITICAL_PARTY}
+        ]
+        if not person_party_spans:
+            return False
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        for i, token in enumerate(tokens):
+            if not any(a.lemma == trigger_lemma for a in token.morph):
+                continue
+            for j in range(i + 1, min(i + 4, len(tokens))):
+                t = tokens[j]
+                if not any(a.case == "gen" for a in t.morph):
+                    continue
+                for start, end in person_party_spans:
+                    if t.span.start_char < end and t.span.end_char > start:
+                        return True
+        return False
 
     def _family_detail(self, lemmas: frozenset[str]) -> RelationshipDetail | None:
         for lemma, relationship_detail in self._family_details_by_lemma.items():

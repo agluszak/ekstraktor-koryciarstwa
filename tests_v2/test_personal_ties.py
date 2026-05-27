@@ -264,6 +264,58 @@ def test_personal_tie_stage_uses_previous_sentence_person_for_collaborator_tie()
     )
 
 
+def test_personal_tie_stage_emits_tie_for_czlowiek_with_genitive_person() -> None:
+    text = "Jan Kowalski to człowiek Tuska."
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Jan Kowalski"),
+            person_span(text, "Tuska"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    personal_ties = [
+        r for r in fact_records(document) if r.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert any(
+        {
+            entity_hint_for_role(document, r, "subject"),
+            entity_hint_for_role(document, r, "object"),
+        }
+        == {"Jan Kowalski", "Tuska"}
+        for r in personal_ties
+    )
+
+
+def test_personal_tie_stage_does_not_emit_tie_for_czlowiek_honoru() -> None:
+    text = "Jan Kowalski to człowiek honoru, który narzeka na Tuska."
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Jan Kowalski"),
+            person_span(text, "Tuska"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    personal_ties = [
+        r for r in fact_records(document) if r.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert not any(
+        {
+            entity_hint_for_role(document, r, "subject"),
+            entity_hint_for_role(document, r, "object"),
+        }
+        == {"Jan Kowalski", "Tuska"}
+        for r in personal_ties
+    )
+
+
 def test_patronage_complaint_uses_adjacent_sentence_people_and_keeps_evidence() -> None:
     text = (
         "W mieście trwa kolesiostwo i rozdawanie posad. "
