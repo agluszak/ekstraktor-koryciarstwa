@@ -38,6 +38,7 @@ from pipeline_v2.types import (
     LocalRoleSignal,
     NerLabel,
     PartyOrganizationSignal,
+    WeakSyntacticBindingSignal,
     WindowOrganizationSignal,
 )
 from tests_v2.materialized import (
@@ -92,6 +93,33 @@ def run_governance_stage(
     RoleCandidateStage(morphology).run(document)
     GovernanceCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
+    return document
+
+
+def run_governance_producer_stage(
+    text: str,
+    entities: tuple[NamedEntitySpan, ...],
+    paragraphs: tuple[str, ...] | None = None,
+) -> ArticleDocument:
+    actual_paragraphs = paragraphs or (text,)
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=actual_paragraphs,
+    )
+    morphology = Morfeusz2MorphologyAdapter()
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(entities),
+        morphology=morphology,
+    ).run(document)
+    LexicalEntityContextStage().run(document)
+    RoleCandidateStage(morphology).run(document)
+    GovernanceCandidateStage().run(document)
     return document
 
 
@@ -764,6 +792,67 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
     )
 
     assert bad_assessment.score < 0.5
+
+
+def test_governance_stage_keeps_weak_window_alternatives_before_inference() -> None:
+    first = "Dyrektorem Gminnego Ośrodka Kultury był Szymon Kubit."
+    second = "Tomasz Kościelniak został wybrany w drugiej turze."
+    text = f"{first} {second}"
+    document = run_governance_producer_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Gminnego Ośrodka Kultury",
+                label=NerLabel.ORGANIZATION,
+                span=Span(
+                    text.index("Gminnego Ośrodka Kultury"),
+                    text.index("Gminnego Ośrodka Kultury") + len("Gminnego Ośrodka Kultury"),
+                ),
+            ),
+            NamedEntitySpan(
+                text="Szymon Kubit",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Szymon Kubit"), text.index("Szymon Kubit") + 12),
+            ),
+            NamedEntitySpan(
+                text="Tomasz Kościelniak",
+                label=NerLabel.PERSON,
+                span=Span(
+                    text.index("Tomasz Kościelniak"),
+                    text.index("Tomasz Kościelniak") + len("Tomasz Kościelniak"),
+                ),
+            ),
+        ),
+    )
+
+    appointment_events = tuple(
+        event
+        for event in document.store.event_candidates.values()
+        if event.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
+    )
+    assert appointment_events
+
+    def _has_weak_window_binding(role: EventRole, hint: str) -> bool:
+        for event in appointment_events:
+            for binding in document.store.argument_bindings_for_event(event.id):
+                if binding.role is not role:
+                    continue
+                match binding.filler:
+                    case EntityFiller(entity_id=entity_id):
+                        if document.store.entity_candidates[entity_id].canonical_hint != hint:
+                            continue
+                        for signal in binding.signals:
+                            match signal:
+                                case WeakSyntacticBindingSignal():
+                                    return True
+                                case _:
+                                    continue
+                    case _:
+                        continue
+        return False
+
+    assert _has_weak_window_binding(EventRole.ORGANIZATION, "Gminnego Ośrodka Kultury")
+    assert _has_weak_window_binding(EventRole.ROLE, "Dyrektorem")
 
 
 def test_governance_stage_rejects_org_like_person_noise() -> None:

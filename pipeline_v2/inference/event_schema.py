@@ -76,6 +76,7 @@ _SOFT_DISTINCT = 0.02
 
 _PUBLIC_ROLE_SPECS = (
     RoleSpec(EventRole.PERSON, FactArgumentRole.PERSON, _PERSON, required=True),
+    RoleSpec(EventRole.ACTOR, FactArgumentRole.ACTOR, _PERSON),
     RoleSpec(EventRole.ORGANIZATION, FactArgumentRole.ORGANIZATION, _ORG),
     RoleSpec(EventRole.ROLE, FactArgumentRole.ROLE, _ROLE),
     RoleSpec(EventRole.ROLE_DOMAIN, FactArgumentRole.ROLE_DOMAIN, _ANY_ENTITY),
@@ -87,14 +88,41 @@ EVENT_SCHEMAS: dict[FactKind, EventSchema] = {
     FactKind.PUBLIC_ROLE_APPOINTMENT: EventSchema(
         fact_kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
         roles=_PUBLIC_ROLE_SPECS,
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.PERSON,
+                right_role=EventRole.ACTOR,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.PUBLIC_ROLE_HOLDING: EventSchema(
         fact_kind=FactKind.PUBLIC_ROLE_HOLDING,
         roles=_PUBLIC_ROLE_SPECS,
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.PERSON,
+                right_role=EventRole.ACTOR,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.PUBLIC_ROLE_END: EventSchema(
         fact_kind=FactKind.PUBLIC_ROLE_END,
         roles=_PUBLIC_ROLE_SPECS,
+        distinct_role_constraints=(
+            DistinctRoleConstraint(
+                left_role=EventRole.PERSON,
+                right_role=EventRole.ACTOR,
+                same_candidate_penalty=_SELF_TIE_DIRECT,
+                resolution_penalty=_SELF_TIE_RESOLUTION,
+                same_canonical_hint_penalty=_SOFT_DISTINCT,
+            ),
+        ),
     ),
     FactKind.PUBLIC_EMPLOYMENT: EventSchema(
         fact_kind=FactKind.PUBLIC_EMPLOYMENT,

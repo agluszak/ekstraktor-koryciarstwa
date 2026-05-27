@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
+    Assessment,
     EntityCandidate,
     EntityFactArgument,
     EntityFiller,
+    EntityResolutionClaim,
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
@@ -13,6 +15,8 @@ from pipeline_v2.ids import (
     EntityCandidateId,
     EventCandidateId,
     ProducerId,
+    ResolutionClaimId,
+    ScorerId,
 )
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.types import (
@@ -22,6 +26,7 @@ from pipeline_v2.types import (
     FactKind,
     GroundingKind,
     PublicEmploymentLemmaSignal,
+    ResolutionRelation,
     WeakSyntacticBindingSignal,
 )
 
@@ -73,6 +78,53 @@ def test_weak_required_role_binding_lowers_materialized_public_employment_score(
         weak_document,
         FactKind.PUBLIC_EMPLOYMENT,
     )
+
+
+def test_inference_prefers_distinct_object_when_other_object_resolves_to_subject() -> None:
+    document = _document()
+    subject_id = _entity(document, "subject", EntityKind.PERSON, "Jan Kowalski")
+    alias_id = _entity(document, "alias", EntityKind.PERSON, "J. Kowalski")
+    other_id = _entity(document, "other", EntityKind.PERSON, "Piotr Nowak")
+    event_id = EventCandidateId("tie-event")
+    document.store.add_event_candidate(_event(event_id, FactKind.PERSONAL_OR_POLITICAL_TIE))
+    _binding(document, event_id, EventRole.SUBJECT, subject_id)
+    _binding(document, event_id, EventRole.OBJECT, alias_id)
+    _binding(document, event_id, EventRole.OBJECT, other_id)
+    document.store.add_resolution_claim(
+        EntityResolutionClaim(
+            id=ResolutionClaimId("resolution-0"),
+            left_entity_id=subject_id,
+            right_entity_id=alias_id,
+            relation=ResolutionRelation.SAME_AS,
+            evidence_ids=(),
+            assessment=Assessment(
+                score=0.95,
+                positive_signals=(),
+                negative_signals=(),
+                scorer_id=ScorerId("test"),
+            ),
+            source=ProducerId("test"),
+        )
+    )
+
+    ProbabilisticInferenceStage().run(document)
+
+    tie_facts = [
+        record
+        for record in document.materialized_fact_records
+        if record.kind is FactKind.PERSONAL_OR_POLITICAL_TIE
+    ]
+    assert tie_facts
+    object_arguments: set[EntityCandidateId] = set()
+    for record in tie_facts:
+        for argument in record.arguments:
+            match argument:
+                case EntityFactArgument(role=FactArgumentRole.OBJECT, entity_id=entity_id):
+                    object_arguments.add(entity_id)
+                case _:
+                    continue
+    assert other_id in object_arguments
+    assert alias_id not in object_arguments
 
 
 def _employment_document(*, employee_signals) -> ArticleDocument:

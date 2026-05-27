@@ -768,6 +768,11 @@ class FactInferenceGraphBuilder:
                     return constraint.same_candidate_penalty
             case _:
                 return 1.0
+        if resolve_entity_id(document.store, left_entity_id) == resolve_entity_id(
+            document.store,
+            right_entity_id,
+        ):
+            return constraint.resolution_penalty
         if constraint.same_canonical_hint_penalty is None:
             return 1.0
         left = document.store.entity_candidates.get(left_entity_id)

@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pipeline_v2.binding_emission import (
+    EntityBindingGroup,
+    emit_entity_binding_groups,
+    merge_binding_signals,
+)
 from pipeline_v2.candidates import (
     EntityCandidate,
 )
@@ -273,7 +278,7 @@ class GovernanceCandidateStage:
                     admitted_people = tuple(
                         (
                             pid,
-                            self._merge_binding_signals(
+                            merge_binding_signals(
                                 sigs,
                                 (
                                     WeakSyntacticBindingSignal(
@@ -290,7 +295,6 @@ class GovernanceCandidateStage:
                         for pid, sigs in admitted_people
                     )
 
-                # Appointment requires at least an org or a role.
                 if (
                     kind == FactKind.PUBLIC_ROLE_APPOINTMENT
                     and not candidates.organizations
@@ -298,56 +302,67 @@ class GovernanceCandidateStage:
                 ):
                     continue
 
-                # Actors (appointers) are shared across all per-person events.
                 actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                 for entity_id, p_sigs in admitted_people:
                     if self._signals_include_active_subject_context(p_sigs):
-                        actor_bindings[entity_id] = self._merge_binding_signals(
+                        actor_bindings[entity_id] = merge_binding_signals(
                             actor_bindings.get(entity_id, ()),
                             self._actor_binding_signals(p_sigs),
                         )
 
-                # One event per non-actor admitted person.
                 for person_id, person_sigs in admitted_people:
                     if self._signals_include_active_subject_context(person_sigs):
                         continue
 
-                    person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {
-                        person_id: self._person_binding_signals(person_sigs),
-                    }
-                    if not person_bindings[person_id]:
+                    person_bindings = ((person_id, self._person_binding_signals(person_sigs)),)
+                    if not person_bindings[0][1]:
                         continue
 
-                    # Organizations filtered per this person.
-                    org_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                    context_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                    for org_id, org_signals in self._annotate_orgs_for_person(
-                        document, sentence, person_id, candidates.organizations
-                    ):
-                        org_sigs = self._organization_binding_signals(org_signals)
-                        if not org_sigs:
-                            continue
-                        org_bindings[org_id] = org_sigs
+                    org_bindings = tuple(
+                        (
+                            org_id,
+                            self._organization_binding_signals(org_signals),
+                        )
+                        for org_id, org_signals in self._annotate_orgs_for_person(
+                            document,
+                            sentence,
+                            person_id,
+                            candidates.organizations,
+                        )
+                    )
+                    context_bindings = tuple(
+                        (org_id, org_signals)
+                        for org_id, org_signals in org_bindings
                         if entity_has_lexical_context_proposal(
-                            document, org_id, EntityTag.GENERIC_OWNER
-                        ) or entity_has_lexical_context_proposal(
-                            document, org_id, EntityTag.GOVERNING_BODY
-                        ):
-                            context_bindings[org_id] = org_sigs
+                            document,
+                            org_id,
+                            EntityTag.GENERIC_OWNER,
+                        )
+                        or entity_has_lexical_context_proposal(
+                            document,
+                            org_id,
+                            EntityTag.GOVERNING_BODY,
+                        )
+                    )
 
-                    # Roles filtered per this person (and per kind for ROLE_END).
                     person_compatible_roles = self._annotate_roles_for_person(
-                        document, sentence, person_id, candidates.roles
+                        document,
+                        sentence,
+                        person_id,
+                        candidates.roles,
                     )
                     if kind == FactKind.PUBLIC_ROLE_END:
                         person_compatible_roles = self._annotate_roles_for_exit_kind(
-                            document, sentence, [person_id], person_compatible_roles
+                            document,
+                            sentence,
+                            [person_id],
+                            person_compatible_roles,
                         )
                     if kind == FactKind.PUBLIC_ROLE_HOLDING:
                         person_compatible_roles = tuple(
                             (
                                 role_id,
-                                self._merge_binding_signals(
+                                merge_binding_signals(
                                     role_signals,
                                     (
                                         WeakSyntacticBindingSignal(
@@ -355,18 +370,22 @@ class GovernanceCandidateStage:
                                         ),
                                     )
                                     if self._is_descriptor_role_self_pair(
-                                        document, person_id, role_id
+                                        document,
+                                        person_id,
+                                        role_id,
                                     )
                                     else (),
                                 ),
                             )
                             for role_id, role_signals in person_compatible_roles
                         )
-                    role_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                    for role_id, role_signals in person_compatible_roles:
-                        role_sigs = self._role_binding_signals(role_signals)
-                        if role_sigs:
-                            role_bindings[role_id] = role_sigs
+                    role_bindings = tuple(
+                        (
+                            role_id,
+                            self._role_binding_signals(role_signals),
+                        )
+                        for role_id, role_signals in person_compatible_roles
+                    )
 
                     emitter = DomainEventEmitter(document, self.producer_id)
                     event = emitter.event(
@@ -375,51 +394,26 @@ class GovernanceCandidateStage:
                         evidence_ids=(evidence.id,),
                         signals=kind_signals,
                     )
-                    self._add_governance_bindings(
-                        document=document,
+                    emit_entity_binding_groups(
                         emitter=emitter,
                         event=event,
-                        role=EventRole.PERSON,
-                        bindings=person_bindings,
                         evidence_id=evidence.id,
-                    )
-                    self._add_governance_bindings(
-                        document=document,
-                        emitter=emitter,
-                        event=event,
-                        role=EventRole.ACTOR,
-                        bindings=actor_bindings,
-                        evidence_id=evidence.id,
-                    )
-                    self._add_governance_bindings(
-                        document=document,
-                        emitter=emitter,
-                        event=event,
-                        role=EventRole.ORGANIZATION,
-                        bindings=org_bindings,
-                        evidence_id=evidence.id,
+                        groups=(
+                            EntityBindingGroup(EventRole.PERSON, person_bindings),
+                            EntityBindingGroup(
+                                EventRole.ACTOR,
+                                tuple(actor_bindings.items()),
+                            ),
+                            EntityBindingGroup(EventRole.ORGANIZATION, org_bindings),
+                            EntityBindingGroup(EventRole.CONTEXT, context_bindings),
+                            EntityBindingGroup(EventRole.ROLE, role_bindings),
+                        ),
                     )
                     self._add_role_domain_bindings(
                         document=document,
                         emitter=emitter,
                         event=event,
-                        role_bindings=role_bindings,
-                        evidence_id=evidence.id,
-                    )
-                    self._add_governance_bindings(
-                        document=document,
-                        emitter=emitter,
-                        event=event,
-                        role=EventRole.CONTEXT,
-                        bindings=context_bindings,
-                        evidence_id=evidence.id,
-                    )
-                    self._add_governance_bindings(
-                        document=document,
-                        emitter=emitter,
-                        event=event,
-                        role=EventRole.ROLE,
-                        bindings=role_bindings,
+                        role_bindings=dict(role_bindings),
                         evidence_id=evidence.id,
                     )
         return document
@@ -1110,7 +1104,7 @@ class GovernanceCandidateStage:
         existing: tuple[Signal, ...],
         new: tuple[Signal, ...],
     ) -> tuple[Signal, ...]:
-        return tuple(dict.fromkeys([*existing, *new]))
+        return merge_binding_signals(existing, new)
 
     def _candidate_kinds(
         self,

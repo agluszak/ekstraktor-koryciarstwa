@@ -15,6 +15,7 @@ from pipeline_v2.types import (
     ContractDocumentSignal,
     ContractorSignal,
     DirectPrepositionalAttachmentSignal,
+    EventRole,
     FactArgumentRole,
     FactKind,
     FundingLemmaSignal,
@@ -91,6 +92,30 @@ def run_public_money_stage_with_entities(
     LexicalEntityContextStage().run(document)
     PublicMoneyCandidateStage().run(document)
     ProbabilisticInferenceStage().run(document)
+    return document
+
+
+def run_public_money_producer_stage_with_entities(
+    text: str,
+    entities: tuple[NamedEntitySpan, ...],
+) -> ArticleDocument:
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=text,
+        paragraphs=(text,),
+    )
+    morphology = Morfeusz2MorphologyAdapter()
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage(morphology).run(document)
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(entities),
+        morphology=morphology,
+    ).run(document)
+    LexicalEntityContextStage().run(document)
+    PublicMoneyCandidateStage().run(document)
     return document
 
 
@@ -197,6 +222,31 @@ def test_public_money_stage_marks_single_receiving_organization_as_recipient() -
     assert record.kind is FactKind.FUNDING
     assert entity_hint_for_role(document, record, "recipient") == "Fundacja Alfa"
     assert text_argument(record, "amount") == "100 tys. zł"
+
+
+def test_public_money_stage_emits_partial_ownership_event_before_inference() -> None:
+    text = "Jan Kowalski posiada udziały warte 10 tys. zł."
+    document = run_public_money_producer_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="Jan Kowalski",
+                label=NerLabel.PERSON,
+                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+            ),
+        ),
+    )
+
+    ownership_events = tuple(
+        event
+        for event in document.store.event_candidates.values()
+        if event.kind is FactKind.CORPORATE_OWNERSHIP
+    )
+    assert ownership_events
+    bindings = document.store.argument_bindings_for_event(ownership_events[0].id)
+    assert any(binding.role is EventRole.SUBJECT for binding in bindings)
+    assert any(binding.role is EventRole.AMOUNT for binding in bindings)
+    assert not any(binding.role is EventRole.OBJECT for binding in bindings)
 
 
 def test_public_money_stage_infers_local_organization_phrases_when_ner_misses_parties() -> None:

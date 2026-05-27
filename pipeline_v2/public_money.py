@@ -1057,7 +1057,7 @@ class PublicMoneyCandidateStage:
                     roles=frozenset({FrameArgumentRole.SUBJECT, FrameArgumentRole.OTHER}),
                 )
                 recipients = frame.entities(EntityKind.POLITICAL_PARTY, before_trigger=False)
-                if funders and recipients:
+                if funders or recipients:
                     emitter, event, evidence_id = self._add_sentence_event(
                         document,
                         sentence,
@@ -1117,7 +1117,7 @@ class PublicMoneyCandidateStage:
                     before_trigger=False,
                     prepositions=frozenset({"w", "we"}),
                 ) or frame.entities(EntityKind.ORGANIZATION, before_trigger=False)
-                if subjects and objects:
+                if subjects or objects:
                     emitter, event, evidence_id = self._add_sentence_event(
                         document,
                         sentence,
