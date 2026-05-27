@@ -125,6 +125,21 @@
       "person": "Józef Borkowski",
       "role": "zarząd",
       "role_domain": "public_company_management"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.432,
+      "complainant": "Joanna Pszczółkowska",
+      "target": "Bartosz",
+      "context": "konkurs"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.39,
+      "complainant": "mąż of Joanna Pszczółkowska",
+      "target": "Joanna Pszczółkowska",
+      "institution": "starostwu",
+      "context": "sekretarzem"
     }
   ]
 }

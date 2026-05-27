@@ -20,14 +20,6 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.727,
-      "person": "Szymon Osowski",
-      "organization": "Sieci Obywatelskiej Watchdog Polska",
-      "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
       "person": "Bartosz Piech",
       "organization": "Totalizatora Sportowego w Lublinie",
       "role": "szef",
@@ -48,6 +40,14 @@
       "organization": "Totalizatora",
       "role": "dyrektor",
       "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Szymon Osowski",
+      "organization": "Sieci Obywatelskiej Watchdog Polska",
+      "role": "prezes",
+      "role_domain": "public_company_management"
     },
     {
       "kind": "public_role_holding",
@@ -278,20 +278,6 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Sławomir Czwal",
-      "object": "Koalicja Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.563,
-      "subject": "Karol Wilczyński",
-      "object": "Koalicja Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.563,
       "subject": "Marcin Posadzy",
       "object": "Prawo i Sprawiedliwość",
       "status": "unknown"
@@ -311,6 +297,20 @@
       "status": "former"
     },
     {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Sławomir Czwal",
+      "object": "Koalicja Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Karol Wilczyński",
+      "object": "Koalicja Obywatelska",
+      "status": "unknown"
+    },
+    {
       "kind": "personal_or_political_tie",
       "confidence": 0.562,
       "subject": "Karol Wilczyński",
@@ -320,14 +320,14 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Jacek Karnowski",
+      "person": "Sławomira Nitrasa",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Sławomira Nitrasa",
+      "person": "Jacek Karnowski",
       "role": "poseł",
       "role_domain": "political_office"
     },

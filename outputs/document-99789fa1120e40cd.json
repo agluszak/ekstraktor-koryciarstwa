@@ -72,21 +72,21 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Robert Rabus",
+      "person": "Mariusz Janas",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Mariusz Janas",
+      "person": "Robert Rabus",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_contract",
       "confidence": 0.477,
-      "counterparty": "BPK",
+      "counterparty": "PEC",
       "contractor": "Wnuk Consulting",
       "amount": "397 496,95 zł"
     }

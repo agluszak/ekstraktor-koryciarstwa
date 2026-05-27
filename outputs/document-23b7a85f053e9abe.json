@@ -26,6 +26,13 @@
       "subject": "Andrzej Kloc",
       "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.404,
+      "complainant": "Stanisław Mazur",
+      "target": "Andrzej Kloc",
+      "context": "radę nadzorczą"
     }
   ]
 }

@@ -51,8 +51,20 @@
     {
       "kind": "public_role_end",
       "confidence": 0.701,
+      "person": "Magdaleny Skokowskiej",
+      "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.701,
       "person": "Agnieszka Bebel",
       "organization": "MOPS"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.701,
+      "person": "Agnieszka Bebel",
+      "organization": "MOSiR"
     },
     {
       "kind": "public_role_appointment",
@@ -65,18 +77,6 @@
       "confidence": 0.701,
       "person": "Agnieszka Bebel",
       "organization": "Miejskiego Ośrodka Pomocy Społecznej"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.701,
-      "person": "Magdaleny Skokowskiej",
-      "organization": "MOPS"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.701,
-      "person": "Agnieszka Bebel",
-      "organization": "MOSiR"
     },
     {
       "kind": "patronage_allegation",
@@ -202,10 +202,10 @@
       "person": "Krzysztofa Starucha"
     },
     {
-      "kind": "patronage_allegation",
-      "confidence": 0.429,
-      "complainant": "Agnieszka Bebel",
-      "target": "Krzysztofa Starucha",
+      "kind": "patronage_network_tie",
+      "confidence": 0.438,
+      "subject": "Agnieszka Bebel",
+      "object": "Krzysztofa Starucha",
       "context": "burmistrzem"
     }
   ]

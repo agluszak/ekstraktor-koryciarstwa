@@ -59,14 +59,14 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "public_role_appointment",
+      "kind": "public_role_end",
       "confidence": 0.619,
       "person": "Szymon Hołownia",
       "role": "radzio nadzorczy",
       "role_domain": "supervisory_board"
     },
     {
-      "kind": "public_role_end",
+      "kind": "public_role_appointment",
       "confidence": 0.619,
       "person": "Szymon Hołownia",
       "role": "radzio nadzorczy",
@@ -117,16 +117,23 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Marek Papuga",
-      "object": "Sojusz Lewicy Demokratycznej",
+      "subject": "Ewy Patalas",
+      "object": "Polska 2050",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Ewy Patalas",
-      "object": "Polska 2050",
+      "subject": "Marek Papuga",
+      "object": "Sojusz Lewicy Demokratycznej",
       "status": "unknown"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Olgierd Geblewicz",
+      "role": "marszałek",
+      "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
@@ -140,13 +147,6 @@
       "confidence": 0.544,
       "person": "Emilii Wasielewskiej",
       "role": "radna",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Olgierd Geblewicz",
-      "role": "marszałek",
       "role_domain": "political_office"
     }
   ]

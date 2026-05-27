@@ -11,20 +11,20 @@
       "amount": "53 mln zł"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
-      "person": "Dariusza Klimczaka",
-      "organization": "PKP",
-      "role": "minister",
-      "role_domain": "political_office"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.727,
       "person": "Miłosz Wojnarowski",
       "organization": "Natura Tour",
       "role": "rad nadzorczy",
       "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Dariusza Klimczaka",
+      "organization": "PKP",
+      "role": "minister",
+      "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
@@ -157,7 +157,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.656,
-      "person": "Jolantę Sobczyk",
+      "person": "Piotra Smogorzewskiego",
       "organization": "Natura Tour",
       "role": "prezes",
       "role_domain": "public_company_management"
@@ -165,7 +165,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.656,
-      "person": "Piotra Smogorzewskiego",
+      "person": "Jolantę Sobczyk",
       "organization": "Natura Tour",
       "role": "prezes",
       "role_domain": "public_company_management"
@@ -244,15 +244,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Andrzeja Grzyba",
-      "object": "Polskie Stronnictwo Ludowe",
+      "subject": "Jolantę Sobczyk",
+      "object": "Trzecia Droga",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Jolantę Sobczyk",
-      "object": "Trzecia Droga",
+      "subject": "Andrzeja Grzyba",
+      "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
     },
     {
@@ -268,14 +268,14 @@
       "person": "Dariusza Klimczaka"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.544,
-      "person": "Wojciechem Brzeskim"
-    },
-    {
       "kind": "public_role_end",
       "confidence": 0.544,
       "person": "Jażdżyku"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.544,
+      "person": "Wojciechem Brzeskim"
     },
     {
       "kind": "public_role_holding",
@@ -290,20 +290,6 @@
       "person": "Jolantę Sobczyk",
       "role": "minister",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "patronage_network_tie",
-      "confidence": 0.524,
-      "subject": "Jolantę Sobczyk",
-      "object": "Dariusza Klimczaka",
-      "institution": "PKP"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.515,
-      "complainant": "Jolantę Sobczyk",
-      "target": "Dariusza Klimczaka",
-      "institution": "PKP"
     },
     {
       "kind": "election_candidacy",
