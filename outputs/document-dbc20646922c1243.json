@@ -14,6 +14,14 @@
     {
       "kind": "kinship_tie",
       "confidence": 0.708,
+      "subject": "Eugeniusza Kłopotka",
+      "object": "Stanisława Żelichowskiego",
+      "relationship_detail": "child",
+      "context": "syn"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
       "subject": "Urszula Bury",
       "object": "Jana Burego",
       "relationship_detail": "spouse",
@@ -25,14 +33,6 @@
       "person": "Jana Burego",
       "organization": "Agencji Rynku Rolnego",
       "role": "sekretarz"
-    },
-    {
-      "kind": "kinship_tie",
-      "confidence": 0.697,
-      "subject": "Eugeniusza Kłopotka",
-      "object": "Stanisława Żelichowskiego",
-      "relationship_detail": "child",
-      "context": "syn"
     },
     {
       "kind": "kinship_tie",
@@ -94,10 +94,11 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.618,
-      "person": "Lucjan Ograsiński",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
+      "confidence": 0.619,
+      "person": "Jacek Śmietanko",
+      "organization": "Ambasadzie Polski",
+      "role": "minister",
+      "role_domain": "institution_management"
     },
     {
       "kind": "public_role_appointment",
@@ -108,11 +109,10 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.561,
-      "person": "Jacek Śmietanko",
-      "organization": "Elewarru",
-      "role": "minister",
-      "role_domain": "institution_management"
+      "confidence": 0.618,
+      "person": "Lucjan Ograsiński",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
     },
     {
       "kind": "public_role_appointment",
@@ -120,6 +120,11 @@
       "person": "Adam Kalinowski",
       "organization": "Zamojskich Zakładach Zbożowych",
       "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.544,
+      "person": "polityka"
     },
     {
       "kind": "public_employment",

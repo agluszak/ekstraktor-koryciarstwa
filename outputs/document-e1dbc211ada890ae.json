@@ -65,10 +65,10 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "patronage_network_tie",
-      "confidence": 0.524,
-      "subject": "Marcin Dulian",
-      "object": "Bogdana Klicha",
+      "kind": "patronage_allegation",
+      "confidence": 0.515,
+      "complainant": "Bogdana Klicha",
+      "target": "Marcin Dulian",
       "institution": "Grupy Hoteli"
     },
     {

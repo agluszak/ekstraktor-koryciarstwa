@@ -36,17 +36,17 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.582,
+      "confidence": 0.572,
       "person": "Kamil Rybacki",
-      "organization": "PKN Orlen",
+      "organization": "Inwestycji Miejskich",
       "role": "prezes",
       "role_domain": "institution_management"
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.582,
+      "confidence": 0.572,
       "person": "Artur Biernat",
-      "organization": "PKN Orlen",
+      "organization": "Inwestycji Miejskich",
       "role": "prezes",
       "role_domain": "institution_management"
     },

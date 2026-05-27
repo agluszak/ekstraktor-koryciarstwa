@@ -45,6 +45,13 @@
       "role_domain": "other_public_role"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Paweł Pudłowski",
+      "object": "Olgierd Geblewicz",
+      "relationship_detail": "sibling"
+    },
+    {
       "kind": "public_role_holding",
       "confidence": 0.632,
       "person": "Szymon Hołownia",
@@ -110,23 +117,16 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Ewy Patalas",
-      "object": "Polska 2050",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.563,
       "subject": "Marek Papuga",
       "object": "Sojusz Lewicy Demokratycznej",
       "status": "unknown"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Olgierd Geblewicz",
-      "role": "marszałek",
-      "role_domain": "political_office"
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Ewy Patalas",
+      "object": "Polska 2050",
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
@@ -140,6 +140,13 @@
       "confidence": 0.544,
       "person": "Emilii Wasielewskiej",
       "role": "radna",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Olgierd Geblewicz",
+      "role": "marszałek",
       "role_domain": "political_office"
     }
   ]

@@ -125,13 +125,6 @@
       "person": "Józef Borkowski",
       "role": "zarząd",
       "role_domain": "public_company_management"
-    },
-    {
-      "kind": "patronage_network_tie",
-      "confidence": 0.448,
-      "subject": "Joanna Pszczółkowska",
-      "object": "Bartosz",
-      "context": "konkurs"
     }
   ]
 }

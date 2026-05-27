@@ -19,13 +19,6 @@
     {
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
-      "subject": "Bartosz Wilk",
-      "object": "Szymona Hołowni",
-      "context": "powiązać"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
       "subject": "Waldemar Buda",
       "object": "Gabriela Sowa",
       "context": "związany"
@@ -77,6 +70,13 @@
       "confidence": 0.697,
       "subject": "Szymona Hołowni",
       "object": "Łukasz Bałajewicz",
+      "context": "powiązać"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Bartosz Wilk",
+      "object": "Szymona Hołowni",
       "context": "powiązać"
     },
     {
@@ -246,13 +246,6 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Rafała Kukli",
-      "role": "burmistrz",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
       "person": "Szymona Hołowni",
       "role": "marszałek",
       "role_domain": "political_office"
@@ -262,6 +255,13 @@
       "confidence": 0.544,
       "person": "Rafał Komarewicz",
       "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Rafała Kukli",
+      "role": "burmistrz",
       "role_domain": "political_office"
     },
     {
@@ -281,15 +281,8 @@
     {
       "kind": "patronage_network_tie",
       "confidence": 0.524,
-      "subject": "Szymona Hołowni",
-      "object": "Rafał Komarewicz",
-      "institution": "„GP”"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.515,
-      "complainant": "Szymona Hołowni",
-      "target": "Rafał Komarewicz",
+      "subject": "Rafał Komarewicz",
+      "object": "Szymona Hołowni",
       "institution": "„GP”"
     },
     {

@@ -5,13 +5,6 @@
   "relevance_score": 1.0,
   "facts": [
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "A.",
-      "object": "Góralczyk",
-      "context": "związany"
-    },
-    {
       "kind": "public_role_holding",
       "confidence": 0.675,
       "person": "Przemysław Pacia",
@@ -27,17 +20,8 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "Góralczyk",
-      "organization": "Kościelnej Wsi",
-      "role": "prezes",
-      "role_domain": "public_company_management",
-      "context": "Skarbu Państwa"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.597,
-      "person": "A.",
+      "confidence": 0.599,
+      "person": "A. Góralczyk",
       "organization": "Kościelnej Wsi",
       "role": "prezes",
       "role_domain": "public_company_management",

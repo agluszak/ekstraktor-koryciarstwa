@@ -68,6 +68,13 @@
       "role_domain": "institution_management"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Szymona Ogłazy",
+      "object": "Dariusz Jurek",
+      "relationship_detail": "spouse"
+    },
+    {
       "kind": "public_employment",
       "confidence": 0.645,
       "person": "Agnieszki Królikowskiej",

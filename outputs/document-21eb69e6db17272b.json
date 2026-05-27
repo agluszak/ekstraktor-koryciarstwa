@@ -21,6 +21,21 @@
       "role_domain": "supervisory_board"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.708,
+      "subject": "Renata Stefaniuk",
+      "object": "Dariusza Stefaniuka",
+      "relationship_detail": "spouse",
+      "context": "żona"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Renata Stefaniuk",
+      "object": "Dariusza Stefaniuka",
+      "context": "znajomy"
+    },
+    {
       "kind": "public_role_holding",
       "confidence": 0.68,
       "person": "Angelika Konaszczuk",

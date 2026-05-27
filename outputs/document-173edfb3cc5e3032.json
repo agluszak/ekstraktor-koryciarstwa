@@ -36,6 +36,27 @@
       "context": "córka"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Ireneusz Stachowiak",
+      "object": "Zbigniewa Ziobro",
+      "relationship_detail": "parent"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Rydzykowi",
+      "object": "Mateusz Morawiecki",
+      "relationship_detail": "parent"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Yad Vashem",
+      "object": "Rydzykowi",
+      "relationship_detail": "parent"
+    },
+    {
       "kind": "funding",
       "confidence": 0.626,
       "funder": "Lux Veritatis",

@@ -21,18 +21,26 @@
     {
       "kind": "kinship_tie",
       "confidence": 0.708,
-      "subject": "Sylwii Sobolewskiej",
+      "subject": "Przemysław Czarnek",
       "object": "Krzysztofa Sobolewskiego",
       "relationship_detail": "spouse",
       "context": "żona"
     },
     {
       "kind": "kinship_tie",
-      "confidence": 0.697,
-      "subject": "Przemysław Czarnek",
+      "confidence": 0.708,
+      "subject": "Sylwii Sobolewskiej",
       "object": "Krzysztofa Sobolewskiego",
       "relationship_detail": "spouse",
       "context": "żona"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.705,
+      "person": "Paweł Majewski",
+      "organization": "Lubelskiego Centrum Nieruchomości",
+      "role": "prezes",
+      "role_domain": "public_company_management"
     },
     {
       "kind": "personal_or_political_tie",
@@ -70,6 +78,20 @@
       "role_domain": "political_office"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Sylwii Sobolewskiej",
+      "object": "Mariolę Duraj-Majdę",
+      "relationship_detail": "child"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Krzysztofa Sobolewskiego",
+      "object": "Jarosława Kaczyńskiego",
+      "relationship_detail": "spouse"
+    },
+    {
       "kind": "public_role_end",
       "confidence": 0.638,
       "person": "Sylwii Sobolewskiej",
@@ -88,11 +110,11 @@
     },
     {
       "kind": "public_role_appointment",
-      "confidence": 0.608,
-      "person": "Paweł Majewski",
-      "organization": "Lotosu",
-      "role": "prezes",
-      "role_domain": "public_company_management"
+      "confidence": 0.607,
+      "person": "Łukasz Jakubowski",
+      "organization": "Lubelskich Kolei",
+      "role": "członek zarząd",
+      "role_domain": "other_public_role"
     },
     {
       "kind": "public_role_appointment",
@@ -137,14 +159,6 @@
       "context": "Skarbu Państwa"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.571,
-      "person": "Łukasz Jakubowski",
-      "organization": "PKP CARGO",
-      "role": "członek zarząd",
-      "role_domain": "other_public_role"
-    },
-    {
       "kind": "asset_declaration",
       "confidence": 0.57,
       "person": "Sylwii Sobolewskiej",
@@ -176,14 +190,14 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.548,
-      "person": "Sylwii Sobolewskiej",
+      "person": "Krzysztofa Sobolewskiego",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_appointment",
       "confidence": 0.548,
-      "person": "Krzysztofa Sobolewskiego",
+      "person": "Sylwii Sobolewskiej",
       "role": "poseł",
       "role_domain": "political_office"
     },
@@ -204,15 +218,15 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Sylwii Sobolewskiej",
-      "role": "poseł",
+      "person": "Stawiarski",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stawiarski",
-      "role": "marszałek",
+      "person": "Sylwii Sobolewskiej",
+      "role": "poseł",
       "role_domain": "political_office"
     },
     {

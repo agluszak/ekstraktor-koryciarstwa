@@ -6,7 +6,7 @@
   "facts": [
     {
       "kind": "party_membership",
-      "confidence": 0.755,
+      "confidence": 0.749,
       "subject": "Stanisława Gawłowskiego",
       "object": "Platforma Obywatelska",
       "status": "unknown"
@@ -125,13 +125,6 @@
       "context": "związany"
     },
     {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Stanisława Gawłowskiego",
-      "object": "Adamem Sekułą",
-      "context": "znajomy"
-    },
-    {
       "kind": "public_employment",
       "confidence": 0.677,
       "person": "Sławomir Czwal",
@@ -167,9 +160,30 @@
       "role_domain": "political_office"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.669,
+      "subject": "Adamem Sekułą",
+      "object": "Magdalena Sekuła",
+      "relationship_detail": "spouse"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.666,
+      "subject": "Sławomira Nitrasa",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
       "kind": "public_role_end",
       "confidence": 0.649,
       "person": "Sławomir Czwal"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.647,
+      "subject": "Donaldem Tuskiem",
+      "object": "Adamem Sekułą",
+      "relationship_detail": "spouse"
     },
     {
       "kind": "compensation",
@@ -188,21 +202,30 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.63,
-      "person": "Stanisława Gawłowskiego",
+      "person": "Sławomira Nitrasa",
       "role": "senator",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.63,
-      "person": "Stanisława Gawłowskiego",
+      "person": "Sławomira Nitrasa",
       "role": "minister",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_appointment",
       "confidence": 0.622,
-      "person": "Stanisława Gawłowskiego",
+      "person": "Donaldem Tuskiem",
+      "organization": "Ministerstwo Sportu",
+      "role": "dyrektor",
+      "role_domain": "institution_management",
+      "context": "Ministerstwo Sportu"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.622,
+      "person": "Sławomira Nitrasa",
       "organization": "Ministerstwo Sportu",
       "role": "dyrektor",
       "role_domain": "institution_management",
@@ -248,8 +271,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Marcin Posadzy",
-      "object": "Prawo i Sprawiedliwość",
+      "subject": "Sławomir Rybicki",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Sławomir Czwal",
+      "object": "Koalicja Obywatelska",
       "status": "unknown"
     },
     {
@@ -262,8 +292,8 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Sławomir Rybicki",
-      "object": "Platforma Obywatelska",
+      "subject": "Marcin Posadzy",
+      "object": "Prawo i Sprawiedliwość",
       "status": "unknown"
     },
     {
@@ -281,13 +311,6 @@
       "status": "former"
     },
     {
-      "kind": "party_membership",
-      "confidence": 0.563,
-      "subject": "Sławomir Czwal",
-      "object": "Koalicja Obywatelska",
-      "status": "unknown"
-    },
-    {
       "kind": "personal_or_political_tie",
       "confidence": 0.562,
       "subject": "Karol Wilczyński",
@@ -297,14 +320,14 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stanisława Gawłowskiego",
+      "person": "Jacek Karnowski",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Jacek Karnowski",
+      "person": "Sławomira Nitrasa",
       "role": "poseł",
       "role_domain": "political_office"
     },
@@ -350,7 +373,7 @@
       "kind": "kinship_tie",
       "confidence": 0.268,
       "subject": "partner of Donaldem Tuskiem",
-      "object": "Stanisława Gawłowskiego"
+      "object": "Donaldem Tuskiem"
     }
   ]
 }
