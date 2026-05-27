@@ -51,6 +51,13 @@
     },
     {
       "kind": "funding",
+      "confidence": 0.574,
+      "funder": "Fundacja KGHM",
+      "recipient": "Rydzyka",
+      "amount": "200 tys. zł"
+    },
+    {
+      "kind": "funding",
       "confidence": 0.557,
       "funder": "Fundacji Lux Veritatis",
       "recipient": "Jastrzębskie Zakłady Remontowe",

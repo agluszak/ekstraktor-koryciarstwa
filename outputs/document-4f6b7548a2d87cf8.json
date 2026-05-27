@@ -183,15 +183,15 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Szymona Hołowni",
-      "role": "marszałek",
+      "person": "Rafała Kukli",
+      "role": "burmistrz",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Rafała Kukli",
-      "role": "burmistrz",
+      "person": "Szymona Hołowni",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
@@ -207,6 +207,13 @@
       "person": "Filip Curyło",
       "role": "radzio nadzorczy",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "patronage_network_tie",
+      "confidence": 0.524,
+      "subject": "Rafał Komarewicz",
+      "object": "Szymona Hołowni",
+      "institution": "„GP”"
     },
     {
       "kind": "patronage_allegation",

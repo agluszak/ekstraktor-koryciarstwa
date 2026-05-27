@@ -49,9 +49,21 @@
       "context": "mąż"
     },
     {
+      "kind": "public_role_end",
+      "confidence": 0.701,
+      "person": "Agnieszka Bebel",
+      "organization": "MOPS"
+    },
+    {
       "kind": "public_role_appointment",
       "confidence": 0.701,
       "person": "Agnieszka Bebel",
+      "organization": "MOSiR"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.701,
+      "person": "Michała Stawiarskiego",
       "organization": "MOSiR"
     },
     {
@@ -65,18 +77,6 @@
       "confidence": 0.701,
       "person": "Magdaleny Skokowskiej",
       "organization": "MOPS"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.701,
-      "person": "Agnieszka Bebel",
-      "organization": "MOPS"
-    },
-    {
-      "kind": "public_role_appointment",
-      "confidence": 0.701,
-      "person": "Michała Stawiarskiego",
-      "organization": "MOSiR"
     },
     {
       "kind": "patronage_allegation",
@@ -96,14 +96,14 @@
       "kind": "party_membership",
       "confidence": 0.685,
       "subject": "Wojciechem Wilkiem",
-      "object": "Razem",
+      "object": "Platforma Obywatelska",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.685,
       "subject": "Wojciechem Wilkiem",
-      "object": "Platforma Obywatelska",
+      "object": "Razem",
       "status": "unknown"
     },
     {
@@ -178,6 +178,13 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
+      "person": "Wojciechem Wilkiem",
+      "role": "burmistrz",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
       "person": "Piotra Janczarka",
       "role": "radny",
       "role_domain": "political_office"
@@ -190,28 +197,14 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Wojciechem Wilkiem",
-      "role": "burmistrz",
-      "role_domain": "political_office"
-    },
-    {
       "kind": "election_candidacy",
       "confidence": 0.48,
       "person": "Krzysztofa Starucha"
     },
     {
-      "kind": "patronage_network_tie",
-      "confidence": 0.438,
-      "subject": "Agnieszka Bebel",
-      "object": "Krzysztofa Starucha",
-      "context": "burmistrzem"
-    },
-    {
       "kind": "patronage_allegation",
       "confidence": 0.429,
-      "complainant": "Agnieszka Bebel",
+      "complainant": "Krzysztofa Starucha",
       "target": "Krzysztofa Starucha",
       "context": "burmistrzem"
     },

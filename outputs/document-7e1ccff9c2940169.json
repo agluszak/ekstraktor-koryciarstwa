@@ -17,14 +17,6 @@
       "organization": "starostwu"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
-      "person": "Anna Karaś",
-      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.727,
       "person": "Joanna Pszczółkowska",
@@ -37,6 +29,14 @@
       "confidence": 0.727,
       "person": "mąż of Joanna Pszczółkowska",
       "organization": "Powiatowym Centrum Pomocy Rodzinie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Anna Karaś",
+      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
       "role": "sekretarz",
       "role_domain": "administrative_office"
     },
@@ -127,24 +127,25 @@
       "role_domain": "public_company_management"
     },
     {
-      "kind": "patronage_network_tie",
-      "confidence": 0.448,
-      "subject": "Bartosz",
-      "object": "Joanna Pszczółkowska",
+      "kind": "patronage_allegation",
+      "confidence": 0.432,
+      "complainant": "Bartosz",
+      "target": "Joanna Pszczółkowska",
       "context": "konkurs"
     },
     {
-      "kind": "patronage_allegation",
-      "confidence": 0.432,
-      "complainant": "Joanna Pszczółkowska",
-      "target": "Bartosz",
-      "context": "konkurs"
+      "kind": "patronage_network_tie",
+      "confidence": 0.395,
+      "subject": "Joanna Pszczółkowska",
+      "object": "mąż of Joanna Pszczółkowska",
+      "institution": "starostwu",
+      "context": "sekretarzem"
     },
     {
       "kind": "patronage_allegation",
       "confidence": 0.39,
       "complainant": "mąż of Joanna Pszczółkowska",
-      "target": "mąż of Joanna Pszczółkowska",
+      "target": "Joanna Pszczółkowska",
       "institution": "starostwu",
       "context": "sekretarzem"
     }

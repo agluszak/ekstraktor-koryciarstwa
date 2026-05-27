@@ -35,14 +35,14 @@
     {
       "kind": "compensation",
       "confidence": 0.308,
-      "recipient": "prezesa",
-      "amount": "3,33 zł"
+      "recipient": "Henryka Milcarza",
+      "amount": "2,53 zł"
     },
     {
       "kind": "compensation",
       "confidence": 0.308,
-      "recipient": "Henryka Milcarza",
-      "amount": "2,53 zł"
+      "recipient": "prezesa",
+      "amount": "3,33 zł"
     }
   ]
 }

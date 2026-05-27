@@ -172,15 +172,15 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Anna Glijer",
-      "role": "minister",
+      "person": "Stanisława Mazura",
+      "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stanisława Mazura",
-      "role": "radny",
+      "person": "Anna Glijer",
+      "role": "minister",
       "role_domain": "political_office"
     },
     {

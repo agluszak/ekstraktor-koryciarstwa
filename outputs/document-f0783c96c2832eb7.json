@@ -85,6 +85,13 @@
     {
       "kind": "party_membership",
       "confidence": 0.685,
+      "subject": "Jolantę Sobczyk",
+      "object": "Trzecia Droga",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
       "subject": "Andrzeja Grzyba",
       "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
@@ -94,13 +101,6 @@
       "confidence": 0.685,
       "subject": "Jan Grabiec",
       "object": "Platforma Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Jolantę Sobczyk",
-      "object": "Trzecia Droga",
       "status": "unknown"
     },
     {
@@ -252,17 +252,17 @@
     {
       "kind": "public_role_end",
       "confidence": 0.544,
+      "person": "Dariusza Klimczaka"
+    },
+    {
+      "kind": "public_role_end",
+      "confidence": 0.544,
       "person": "Krzysztof Jażdżyk"
     },
     {
       "kind": "public_role_appointment",
       "confidence": 0.544,
       "person": "Wojciechem Brzeskim"
-    },
-    {
-      "kind": "public_role_end",
-      "confidence": 0.544,
-      "person": "Dariusza Klimczaka"
     },
     {
       "kind": "public_role_holding",

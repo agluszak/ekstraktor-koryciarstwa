@@ -113,6 +113,13 @@
     {
       "kind": "party_membership",
       "confidence": 0.685,
+      "subject": "Sławomir Rybicki",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
       "subject": "Stanisława Gawłowskiego",
       "object": "Platforma Obywatelska",
       "status": "unknown"
@@ -136,13 +143,6 @@
       "confidence": 0.685,
       "subject": "Sławomir Czwal",
       "object": "Koalicja Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
-      "subject": "Sławomir Rybicki",
-      "object": "Platforma Obywatelska",
       "status": "unknown"
     },
     {
@@ -210,14 +210,14 @@
       "kind": "public_role_holding",
       "confidence": 0.63,
       "person": "Stanisława Gawłowskiego",
-      "role": "senator",
+      "role": "minister",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.63,
       "person": "Stanisława Gawłowskiego",
-      "role": "minister",
+      "role": "senator",
       "role_domain": "political_office"
     },
     {
@@ -270,14 +270,14 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stanisława Gawłowskiego",
+      "person": "Jacek Karnowski",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Jacek Karnowski",
+      "person": "Stanisława Gawłowskiego",
       "role": "poseł",
       "role_domain": "political_office"
     },

@@ -21,13 +21,6 @@
     {
       "kind": "party_membership",
       "confidence": 0.685,
-      "subject": "Marek Papuga",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.685,
       "subject": "Ewy Patalas",
       "object": "Polska 2050",
       "status": "unknown"
@@ -37,6 +30,13 @@
       "confidence": 0.685,
       "subject": "Marek Papuga",
       "object": "Sojusz Lewicy Demokratycznej",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.685,
+      "subject": "Marek Papuga",
+      "object": "Platforma Obywatelska",
       "status": "unknown"
     },
     {
@@ -73,14 +73,14 @@
       "role_domain": "political_office"
     },
     {
-      "kind": "public_role_appointment",
+      "kind": "public_role_end",
       "confidence": 0.619,
       "person": "Szymon Hołownia",
       "role": "radzio nadzorczy",
       "role_domain": "supervisory_board"
     },
     {
-      "kind": "public_role_end",
+      "kind": "public_role_appointment",
       "confidence": 0.619,
       "person": "Szymon Hołownia",
       "role": "radzio nadzorczy",

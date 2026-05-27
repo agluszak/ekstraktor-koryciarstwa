@@ -30,16 +30,16 @@
     {
       "kind": "party_membership",
       "confidence": 0.685,
-      "subject": "Iwonie Koperskiej",
+      "subject": "Grzegorz Schreiber",
       "object": "Prawo i Sprawiedliwość",
-      "status": "unknown"
+      "status": "former"
     },
     {
       "kind": "party_membership",
       "confidence": 0.685,
-      "subject": "Grzegorz Schreiber",
+      "subject": "Iwonie Koperskiej",
       "object": "Prawo i Sprawiedliwość",
-      "status": "former"
+      "status": "unknown"
     },
     {
       "kind": "public_role_holding",
@@ -167,7 +167,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.549,
-      "person": "Krzysztofa Sobolewskiego",
+      "person": "Sylwii Sobolewskiej",
       "organization": "Lubelskie Koleje",
       "role": "marszałek",
       "role_domain": "administrative_office"
@@ -175,7 +175,7 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.549,
-      "person": "Sylwii Sobolewskiej",
+      "person": "Krzysztofa Sobolewskiego",
       "organization": "Lubelskie Koleje",
       "role": "marszałek",
       "role_domain": "administrative_office"
@@ -183,14 +183,14 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.548,
-      "person": "Sylwii Sobolewskiej",
+      "person": "Krzysztofa Sobolewskiego",
       "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_appointment",
       "confidence": 0.548,
-      "person": "Krzysztofa Sobolewskiego",
+      "person": "Sylwii Sobolewskiej",
       "role": "poseł",
       "role_domain": "political_office"
     },
@@ -204,8 +204,8 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Stawiarski",
-      "role": "marszałek",
+      "person": "Krzysztofa Sobolewskiego",
+      "role": "poseł",
       "role_domain": "political_office"
     },
     {
@@ -218,8 +218,8 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Krzysztofa Sobolewskiego",
-      "role": "poseł",
+      "person": "Stawiarski",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {

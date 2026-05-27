@@ -15,15 +15,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.685,
-      "subject": "Bolesław Piecha",
-      "object": "Prawo i Sprawiedliwość",
+      "subject": "Doroda Połedniok",
+      "object": "Platforma Obywatelska",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.685,
-      "subject": "Doroda Połedniok",
-      "object": "Platforma Obywatelska",
+      "subject": "Bolesław Piecha",
+      "object": "Prawo i Sprawiedliwość",
       "status": "unknown"
     },
     {
