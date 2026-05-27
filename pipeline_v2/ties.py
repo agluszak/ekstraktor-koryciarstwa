@@ -59,6 +59,33 @@ class PersonalTieCandidateStage:
         "teściowa": RelationshipDetail.FAMILY,
         "żona": RelationshipDetail.SPOUSE,
     }
+    _possessive_determiners = frozenset(
+        {
+            "mój",
+            "moja",
+            "moje",
+            "moi",
+            "twój",
+            "twoja",
+            "twoje",
+            "twoi",
+            "jego",
+            "jej",
+            "ich",
+            "nasz",
+            "nasza",
+            "nasze",
+            "nasi",
+            "wasz",
+            "wasza",
+            "wasze",
+            "wasi",
+            "swój",
+            "swoja",
+            "swoje",
+            "swoi",
+        }
+    )
     _patronage_lemmas = frozenset(
         {
             "baron",
@@ -141,7 +168,9 @@ class PersonalTieCandidateStage:
             candidate_people = self._candidate_people(entities, document)
             lemmas = self._sentence_lemmas(document, sentence)
             family_detail = self._family_detail(lemmas)
-            if family_detail is not None:
+            if family_detail is not None and not self._kinship_noun_has_possessive_determiner(
+                document, sentence, lemmas
+            ):
                 people_for_kinship = observed_people
                 if len(people_for_kinship) < 2:
                     people_for_kinship = self._observed_people(
@@ -770,6 +799,26 @@ class PersonalTieCandidateStage:
                 for start, end in person_party_spans:
                     if t.span.start_char < end and t.span.end_char > start:
                         return True
+        return False
+
+    def _kinship_noun_has_possessive_determiner(
+        self,
+        document: ArticleDocument,
+        sentence,
+        lemmas: frozenset[str],
+    ) -> bool:
+        if not (lemmas & self._possessive_determiners):
+            return False
+        kinship_lemmas = frozenset(self._family_details_by_lemma)
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        for i, token in enumerate(tokens):
+            token_lemmas = {a.lemma for a in token.morph}
+            if not (token_lemmas & kinship_lemmas):
+                continue
+            for j in range(max(0, i - 3), i):
+                prev_lemmas = {a.lemma for a in tokens[j].morph}
+                if prev_lemmas & self._possessive_determiners:
+                    return True
         return False
 
     def _family_detail(self, lemmas: frozenset[str]) -> RelationshipDetail | None:

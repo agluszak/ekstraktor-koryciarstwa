@@ -2503,6 +2503,10 @@ class GovernanceCandidateStage:
             token_lemmas = {analysis.lemma for analysis in token.morph}
             if not (token_lemmas & self._person_descriptor_lemmas):
                 continue
+            if any(
+                analysis.number == "pl" for analysis in token.morph if analysis.number is not None
+            ):
+                continue
             lemma = next(iter(token_lemmas & self._person_descriptor_lemmas))
             span = Span(token.span.start_char, token.span.end_char)
             return self._create_proxy_person_candidate(

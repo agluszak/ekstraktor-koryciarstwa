@@ -82,7 +82,6 @@ DEFAULT_RELEVANCE_PROFILE = RelevanceProfile(
         "stanowisk",
         "nominacj",
         "posad",
-        "funkcj",
         "rekrutacj",
         "konkurs",
         "kadrow",

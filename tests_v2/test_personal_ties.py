@@ -385,6 +385,25 @@ def test_personal_tie_stage_emits_kinship_tie_when_second_person_in_adjacent_sen
     assert people == {"Jan Kowalski", "Marii Nowak"}
 
 
+def test_personal_tie_stage_does_not_emit_kinship_tie_for_possessive_pronoun_phrase() -> None:
+    """'Moja żona' is a possessive proxy reference, not a kinship connector between
+    two named people in the window. PersonalTieCandidateStage should skip it."""
+    text = "Moja żona nie pracuje w urzędzie. Jan Kowalski podpisał umowę z Markiem Nowakiem."
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Jan Kowalski"),
+            person_span(text, "Markiem Nowakiem"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    kinship_records = [r for r in fact_records(document) if r.kind is FactKind.KINSHIP_TIE]
+    assert kinship_records == [], "possessive 'moja żona' should not trigger cross-window kinship tie"
+
+
 def test_patronage_complaint_ignores_single_weak_person_without_institution() -> None:
     text = "Bytomski alarmuje o kolesiostwie."
     document, _morphology = build_document(
