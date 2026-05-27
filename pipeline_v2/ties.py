@@ -517,44 +517,6 @@ class PersonalTieCandidateStage:
             in {GroundingKind.OBSERVED, GroundingKind.PROXY}
         )
 
-    def _nearest_window_observed_person(
-        self,
-        *,
-        document: ArticleDocument,
-        sentence,
-        retriever: SentenceEntityRetriever,
-        exclude_ids: frozenset[EntityCandidateId],
-    ) -> SentenceEntity | None:
-        window_people = self._observed_people(
-            retriever.entities_for_sentence_window(sentence, before=1, after=0),
-            document,
-        )
-        candidates: list[tuple[int, SentenceEntity]] = []
-        for person in window_people:
-            if person.id in exclude_ids:
-                continue
-            anchor_index = sentence.sentence_index
-            distances = [
-                abs(document.store.sentences[evidence.sentence_id].sentence_index - anchor_index)
-                for evidence in document.store.evidence_for_entity(person.id)
-                if evidence.sentence_id is not None
-            ]
-            distance = min(distances) if distances else None
-            if distance is None or distance > 1:
-                continue
-            candidates.append((distance, person))
-        if not candidates:
-            return None
-        _, best = min(
-            candidates,
-            key=lambda item: (
-                item[0],
-                abs(item[1].start_char - sentence.span.start_char),
-                item[1].start_char,
-            ),
-        )
-        return best
-
     def _participant_evidence_ids_for_complaint(
         self,
         *,
@@ -828,13 +790,6 @@ class PersonalTieCandidateStage:
         if not matched:
             return None
         return matched[0]
-
-    def _first_lemma_start(self, document: ArticleDocument, sentence, lemma: str) -> int:
-        for token_id in sentence.token_ids:
-            token = document.store.tokens[token_id]
-            if any(analysis.lemma == lemma for analysis in token.morph):
-                return token.span.start_char
-        return sentence.span.start_char
 
     def _should_emit_patronage_complaint(
         self,
