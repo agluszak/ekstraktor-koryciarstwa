@@ -39,6 +39,7 @@ from pipeline_v2.ids import (
 from pipeline_v2.inference.graph_spec import InferenceDiagnostic, StateProbability, VariableMarginal
 from pipeline_v2.nlp import EvidenceSpan, Mention, MorphAnalysis, Sentence, Span, Token
 from pipeline_v2.output import document_to_json, document_to_slim_json
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.types import (
     DependencyObjectSignal,
     DependencyRelation,
@@ -71,6 +72,7 @@ def test_document_output_includes_evidence_and_materialized_facts() -> None:
             id=SentenceId("sentence-1"),
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text="Text.",
             span=Span(0, 5),
         )
@@ -138,7 +140,11 @@ def test_document_output_includes_evidence_and_materialized_facts() -> None:
             "sentence_id": "sentence-1",
             "paragraph_index": 0,
             "source": "test",
-            "scope": None,
+            "scope": {
+                "paragraph_index": 0,
+                "list_block_id": None,
+                "list_item_index": None,
+            },
         }
     ]
     assert rendered["stage_diagnostics"] == [
@@ -235,6 +241,7 @@ def test_slim_output_normalizes_role_entities_to_lemmas() -> None:
             id=sentence_id,
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text="Został prezesem.",
             span=Span(0, 16),
             token_ids=(token_id,),
@@ -310,6 +317,7 @@ def test_slim_output_dedupes_role_variants_by_normalized_content() -> None:
             id=sentence_id,
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text="Był prezesem i później prezesowi zarzucono...",
             span=Span(0, 43),
             token_ids=(TokenId("token-1"), TokenId("token-2")),

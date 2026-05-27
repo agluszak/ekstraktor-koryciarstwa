@@ -1498,6 +1498,7 @@ def test_descriptor_person_resolution_proposes_nearby_named_person() -> None:
             id=SentenceId("sentence-1"),
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text="Jan Kowalski został prezesem.",
             span=Span(0, 28),
         )
@@ -1507,6 +1508,7 @@ def test_descriptor_person_resolution_proposes_nearby_named_person() -> None:
             id=SentenceId("sentence-2"),
             sentence_index=1,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text="Prezes obejmie stanowisko jutro.",
             span=Span(29, len(document.cleaned_text)),
         )
@@ -2481,6 +2483,7 @@ def test_proxy_self_tie_does_not_materialize_when_reference_resolves_to_opposing
             id=sentence_id,
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text=document.cleaned_text,
             span=Span(0, len(document.cleaned_text)),
         )

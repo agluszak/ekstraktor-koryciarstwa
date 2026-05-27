@@ -12,6 +12,7 @@ from pipeline_v2.ids import (
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import EvidenceSpan, Mention, ReferenceMention, Sentence, Span
 from pipeline_v2.producers import SimpleEntityCandidateProducer
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.types import (
     CoreferenceProviderLinkSignal,
     MentionKind,
@@ -34,6 +35,7 @@ def test_resolution_scoring_stage_emits_scored_entity_resolution_claims() -> Non
             id=SentenceId("sentence-1"),
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text="Jan Kowalski. Kowalski.",
             span=Span(0, len(document.cleaned_text)),
         )
@@ -116,6 +118,7 @@ def test_resolution_scoring_stage_emits_scored_reference_resolution_claims() -> 
             id=SentenceId("sentence-1"),
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text="Jan Kowalski. Jego żona.",
             span=Span(0, len(document.cleaned_text)),
         )

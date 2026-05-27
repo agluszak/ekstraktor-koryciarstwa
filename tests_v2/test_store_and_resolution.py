@@ -25,6 +25,7 @@ from pipeline_v2.nlp import (
 )
 from pipeline_v2.producers import EvidenceSignalProducer, SimpleEntityCandidateProducer
 from pipeline_v2.retrieval import EntityCandidateRetriever
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.store import ExtractionStore
 from pipeline_v2.types import (
     CanonicalHintMatchSignal,
@@ -44,6 +45,7 @@ def _add_sentence(store: ExtractionStore, text: str, *, paragraph_index: int = 0
             id=sentence_id,
             sentence_index=len(store.sentences),
             paragraph_index=paragraph_index,
+            scope=EvidenceScope(paragraph_index=paragraph_index),
             text=text,
             span=Span(start_char=0, end_char=len(text)),
         )

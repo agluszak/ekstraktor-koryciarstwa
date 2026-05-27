@@ -98,21 +98,19 @@ class SentenceEntityRetriever:
         max_index: int,
     ) -> SentenceEntity | None:
         spans: list[tuple[int, int]] = []
+        anchor_scope = anchor_sentence.scope
+        if anchor_scope is None:
+            raise ValueError(f"Missing scope for sentence {anchor_sentence.id}")
+        policy = ScopeCompatibilityPolicy()
         for evidence in self.store.evidence_for_entity(candidate.id):
             if evidence.sentence_id is None:
                 continue
             evidence_sentence = self.store.sentences[evidence.sentence_id]
-            idx_dist = abs(evidence_sentence.sentence_index - anchor_sentence.sentence_index)
-            # Use ScopeCompatibilityPolicy to strictly gate paragraph and list boundaries
-            if anchor_sentence.scope and evidence_sentence.scope:
-                policy = ScopeCompatibilityPolicy()
-                if not policy.scope_allows_window(anchor_sentence.scope, evidence_sentence.scope):
-                    continue
-            else:
-                # Fallback to older permissive logic if scopes are missing
-                is_same_para = evidence_sentence.paragraph_index == anchor_sentence.paragraph_index
-                if not (is_same_para or idx_dist <= 1):
-                    continue
+            evidence_scope = evidence_sentence.scope
+            if evidence_scope is None:
+                raise ValueError(f"Missing scope for sentence {evidence_sentence.id}")
+            if not policy.scope_allows_window(anchor_scope, evidence_scope):
+                continue
 
             if min_index <= evidence_sentence.sentence_index <= max_index:
                 spans.append((evidence.span.start_char, evidence.span.end_char))

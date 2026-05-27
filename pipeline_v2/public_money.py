@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from pipeline_v2.binding_emission import EntityBindingGroup, emit_entity_binding_groups
 from pipeline_v2.candidates import (
     EntityCandidate,
 )
@@ -231,22 +232,34 @@ class PublicMoneyCandidateStage:
         target_role = (
             EventRole.CONTRACTOR if kind is FactKind.PUBLIC_CONTRACT else EventRole.RECIPIENT
         )
-        if source_entity_id is not None:
-            emitter.bind_entity(
-                event=event,
-                role=source_role,
-                entity_id=source_entity_id,
-                evidence_ids=(evidence_id,),
-                signals=source_signals,
+        groups = tuple(
+            group
+            for group in (
+                (
+                    EntityBindingGroup(
+                        role=source_role,
+                        bindings=((source_entity_id, source_signals),),
+                    )
+                    if source_entity_id is not None
+                    else None
+                ),
+                (
+                    EntityBindingGroup(
+                        role=target_role,
+                        bindings=((target_entity_id, target_signals),),
+                    )
+                    if target_entity_id is not None
+                    else None
+                ),
             )
-        if target_entity_id is not None:
-            emitter.bind_entity(
-                event=event,
-                role=target_role,
-                entity_id=target_entity_id,
-                evidence_ids=(evidence_id,),
-                signals=target_signals,
-            )
+            if group is not None
+        )
+        emit_entity_binding_groups(
+            emitter=emitter,
+            event=event,
+            evidence_id=evidence_id,
+            groups=groups,
+        )
 
     _scale_pattern = re.compile(r"tys\.?|tysi[eę]cy|mln|milion", re.IGNORECASE)
     _numeric_pattern = re.compile(r"[\d\s\xa0]+(?:[,.]\d+)?")
@@ -1077,12 +1090,11 @@ class PublicMoneyCandidateStage:
                     )
                     self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
                     for person in people:
-                        self._add_entity_binding(
-                            emitter,
-                            event,
-                            EventRole.PERSON,
-                            person.entity.id,
-                            evidence_id,
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.PERSON,
+                            entity_id=person.entity.id,
+                            evidence_ids=(evidence_id,),
                             signals=(LocalSubjectSignal(),),
                         )
                     for other in frame.entities(
@@ -1095,12 +1107,11 @@ class PublicMoneyCandidateStage:
                             }
                         )
                     ):
-                        self._add_entity_binding(
-                            emitter,
-                            event,
-                            EventRole.CONTEXT,
-                            other.entity.id,
-                            evidence_id,
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.CONTEXT,
+                            entity_id=other.entity.id,
+                            evidence_ids=(evidence_id,),
                             signals=(),
                         )
 
@@ -1126,12 +1137,11 @@ class PublicMoneyCandidateStage:
                     )
                     self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
                     for funder in funders:
-                        self._add_entity_binding(
-                            emitter,
-                            event,
-                            EventRole.FUNDER,
-                            funder.entity.id,
-                            evidence_id,
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.FUNDER,
+                            entity_id=funder.entity.id,
+                            evidence_ids=(evidence_id,),
                             signals=self._frame_argument_signals(
                                 base=FunderSignal(),
                                 argument=funder,
@@ -1139,12 +1149,11 @@ class PublicMoneyCandidateStage:
                             ),
                         )
                     for recipient in recipients:
-                        self._add_entity_binding(
-                            emitter,
-                            event,
-                            EventRole.RECIPIENT,
-                            recipient.entity.id,
-                            evidence_id,
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.RECIPIENT,
+                            entity_id=recipient.entity.id,
+                            evidence_ids=(evidence_id,),
                             signals=(RecipientSignal(), DirectPrepositionalAttachmentSignal()),
                         )
 
@@ -1188,12 +1197,11 @@ class PublicMoneyCandidateStage:
                         self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
                     subject_ids = {subject.entity.id for subject in subjects}
                     for subject in subjects:
-                        self._add_entity_binding(
-                            emitter,
-                            event,
-                            EventRole.SUBJECT,
-                            subject.entity.id,
-                            evidence_id,
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.SUBJECT,
+                            entity_id=subject.entity.id,
+                            evidence_ids=(evidence_id,),
                             signals=self._frame_argument_signals(
                                 base=LocalSubjectSignal(),
                                 argument=subject,
@@ -1203,21 +1211,19 @@ class PublicMoneyCandidateStage:
                     for obj in objects:
                         if obj.entity.id in subject_ids:
                             continue
-                        self._add_entity_binding(
-                            emitter,
-                            event,
-                            EventRole.OBJECT,
-                            obj.entity.id,
-                            evidence_id,
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.OBJECT,
+                            entity_id=obj.entity.id,
+                            evidence_ids=(evidence_id,),
                             signals=(LocalObjectSignal(), DirectPrepositionalAttachmentSignal()),
                         )
                     for role in frame.entities(EntityKind.ROLE):
-                        self._add_entity_binding(
-                            emitter,
-                            event,
-                            EventRole.ROLE,
-                            role.entity.id,
-                            evidence_id,
+                        emitter.bind_entity(
+                            event=event,
+                            role=EventRole.ROLE,
+                            entity_id=role.entity.id,
+                            evidence_ids=(evidence_id,),
                             signals=(),
                         )
 
@@ -1257,21 +1263,3 @@ class PublicMoneyCandidateStage:
             signals=signals,
         )
         return emitter, event, evidence.id
-
-    def _add_entity_binding(
-        self,
-        emitter: DomainEventEmitter,
-        event: EmittedEvent,
-        role: EventRole,
-        entity_id: EntityCandidateId,
-        evidence_id: EvidenceId,
-        *,
-        signals: tuple[Signal, ...],
-    ) -> None:
-        emitter.bind_entity(
-            event=event,
-            role=role,
-            entity_id=entity_id,
-            evidence_ids=(evidence_id,),
-            signals=signals,
-        )

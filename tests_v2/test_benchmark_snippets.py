@@ -33,6 +33,7 @@ from pipeline_v2.proxy import FamilyProxyCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.roles import RoleCandidateStage
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import (
@@ -118,6 +119,7 @@ def build_manual_sentence_document(text: str) -> tuple[ArticleDocument, Evidence
             id=SentenceId("sentence-0"),
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text=text,
             span=Span(0, len(text)),
         )

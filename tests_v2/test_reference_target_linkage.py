@@ -20,6 +20,7 @@ from pipeline_v2.ids import (
 )
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.nlp import EvidenceSpan, Mention, Sentence, Span
+from pipeline_v2.scope import EvidenceScope
 from pipeline_v2.types import (
     CoreferenceProviderLinkSignal,
     EntityKind,
@@ -48,6 +49,7 @@ def test_reference_target_probability_propagation() -> None:
             id=sentence_id,
             sentence_index=0,
             paragraph_index=0,
+            scope=EvidenceScope(paragraph_index=0),
             text=document.cleaned_text,
             span=Span(0, len(document.cleaned_text)),
         )
