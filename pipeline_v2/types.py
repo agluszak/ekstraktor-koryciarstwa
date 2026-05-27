@@ -361,6 +361,13 @@ class FullNameReuseMatchSignal(PositiveSignal):
 
 
 @dataclass(frozen=True, slots=True)
+class InitialNameMatchSignal(PositiveSignal):
+    @property
+    def name(self) -> str:
+        return "initial_name_match"
+
+
+@dataclass(frozen=True, slots=True)
 class MoneyAmountSignal(PositiveSignal):
     amount: str
 

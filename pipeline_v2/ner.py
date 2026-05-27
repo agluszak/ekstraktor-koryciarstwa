@@ -54,6 +54,39 @@ class EntityCandidateProducerConfig:
     producer_id: ProducerId = ProducerId("named_entity_candidate_producer_v2")
 
 
+def _merge_initial_person_spans(
+    spans: tuple[NamedEntitySpan, ...], full_text: str
+) -> tuple[NamedEntitySpan, ...]:
+    """Merge adjacent [A-Z]. + surname PERSON spans that NER splits into two tokens."""
+    result: list[NamedEntitySpan] = []
+    i = 0
+    while i < len(spans):
+        span = spans[i]
+        if (
+            i + 1 < len(spans)
+            and span.label == NerLabel.PERSON
+            and spans[i + 1].label == NerLabel.PERSON
+            and len(span.text) == 2
+            and span.text[0].isupper()
+            and span.text[1] == "."
+            and spans[i + 1].span.start_char - span.span.end_char <= 2
+        ):
+            next_span = spans[i + 1]
+            merged_text = full_text[span.span.start_char : next_span.span.end_char]
+            result.append(
+                NamedEntitySpan(
+                    text=merged_text,
+                    label=NerLabel.PERSON,
+                    span=Span(start_char=span.span.start_char, end_char=next_span.span.end_char),
+                )
+            )
+            i += 2
+        else:
+            result.append(span)
+            i += 1
+    return tuple(result)
+
+
 class NamedEntityCandidateStage:
     def __init__(
         self,
@@ -70,7 +103,10 @@ class NamedEntityCandidateStage:
         return "named_entity_candidate_stage_v2"
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
-        for entity_span in self.provider.find_entities(document.cleaned_text):
+        entity_spans = _merge_initial_person_spans(
+            self.provider.find_entities(document.cleaned_text), document.cleaned_text
+        )
+        for entity_span in entity_spans:
             sentence_id = document.store.sentence_id_for_offset(entity_span.span.start_char)
             if sentence_id is None:
                 continue
@@ -293,6 +329,10 @@ def full_person_reuse_key(
     if len(tokens) < 2:
         return None
     given_name = tokens[0].preferred_lemma()
+    if given_name is None:
+        first_text = tokens[0].text
+        if len(first_text) <= 2 and first_text[0].isupper():
+            given_name = first_text[0].lower()
     surname = tokens[-1].preferred_lemma()
     if given_name is None or surname is None:
         return None

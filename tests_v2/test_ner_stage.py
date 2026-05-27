@@ -329,3 +329,46 @@ def test_named_entity_stage_reclassifies_inflected_media_outlet_from_person_labe
     assert len(candidates) == 1
     assert candidates[0].canonical_hint == "Onetowi"
     assert candidates[0].kind is EntityKind.ORGANIZATION
+
+
+def test_named_entity_stage_merges_adjacent_initial_and_surname_person_spans() -> None:
+    """NER sometimes splits 'A. Góralczyk' into two 1-token PERSON spans.
+    The stage should merge them into a single entity with a valid reuse_key."""
+    cleaned_text = "A. Góralczyk awansowała na stanowisko prezesa."
+    document = ArticleDocument(
+        document_id=DocumentId("doc"),
+        source_url=None,
+        title="Title",
+        publication_date=None,
+        cleaned_text=cleaned_text,
+        paragraphs=(cleaned_text,),
+    )
+    ParagraphSentenceSegmenter().run(document)
+    MorfeuszMorphologyStage().run(document)
+    initial_start = cleaned_text.index("A.")
+    surname_start = cleaned_text.index("Góralczyk")
+
+    NamedEntityCandidateStage(
+        provider=StaticEntityProvider(
+            (
+                NamedEntitySpan(
+                    text="A.",
+                    label=NerLabel.PERSON,
+                    span=Span(initial_start, initial_start + len("A.")),
+                ),
+                NamedEntitySpan(
+                    text="Góralczyk",
+                    label=NerLabel.PERSON,
+                    span=Span(surname_start, surname_start + len("Góralczyk")),
+                ),
+            )
+        ),
+        morphology=Morfeusz2MorphologyAdapter(),
+    ).run(document)
+
+    person_candidates = [
+        c for c in document.store.entity_candidates.values() if c.kind is EntityKind.PERSON
+    ]
+    assert len(person_candidates) == 1, "split initial+surname spans should merge into one entity"
+    assert person_candidates[0].reuse_key is not None, "merged entity should have a reuse_key"
+    assert person_candidates[0].canonical_hint == "A. Góralczyk"

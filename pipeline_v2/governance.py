@@ -119,6 +119,7 @@ class GovernanceCandidateStage:
             "powołanie",
             "wejść",  # "wejść do zarządu"
             "zająć",  # "zajął stanowisko/funkcję prezesa"
+            "wskoczyć",  # colloquial: "wskoczyła na fotel wiceprezesa"
         }
     )
     _holding_lemmas = frozenset({"być", "pozostawać", "zasiadać"})
@@ -433,6 +434,16 @@ class GovernanceCandidateStage:
                 before=2,
                 after=0,
             )
+        elif self._sentence_lemmas(
+            document, sentence
+        ) & self._appointment_lemmas and self._sentence_lemmas(document, sentence) & (
+            self._former_descriptor_lemmas | {"dotychczasowy"}
+        ):
+            organization_window_entities = retriever.entities_for_sentence_window(
+                sentence,
+                before=2,
+                after=0,
+            )
 
         raw_people = self._select_entities(
             document,
@@ -610,11 +621,16 @@ class GovernanceCandidateStage:
                 )
                 for org, org_signals in organizations_raw
             )
+        prior_role_org_ids = self._prior_role_org_ids(document, sentence)
         orgs_out: list[tuple[EntityCandidateId, tuple[Signal, ...]]] = []
         for org, org_signals in organizations_raw:
             sigs: list[Signal] = list(org_signals)
             if self._is_party_like_organization(document, org.id):
                 sigs.append(PartyOrganizationSignal())
+            if org.id in prior_role_org_ids:
+                sigs.append(
+                    WeakSyntacticBindingSignal(reason="organization in prior-role descriptor")
+                )
             orgs_out.append((org.id, tuple(sigs)))
 
         roles_out = tuple((role.id, role_signals) for role, role_signals in roles)
@@ -862,6 +878,56 @@ class GovernanceCandidateStage:
                     )
             result.append((role_id, role_signals))
         return tuple(result)
+
+    def _prior_role_org_ids(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> frozenset[EntityCandidateId]:
+        """Return IDs of local orgs that appear directly after a prior-role descriptor.
+
+        Pattern: '[dotychczasowy/były/dawny] [role] ... w [ORG]' — the org is the
+        person's former employer, not the appointment target.  Only fires when the
+        sentence contains an appointment-trigger lemma.
+        """
+        if not (self._sentence_lemmas(document, sentence) & self._appointment_lemmas):
+            return frozenset()
+        prior_descriptor_lemmas = self._former_descriptor_lemmas | {"dotychczasowy"}
+        role_vocab = self._governance_role_lemmas | self._political_role_lemmas
+        local_entity_ids = frozenset(
+            entity.id
+            for entity in SentenceEntityRetriever(document.store).entities_for_sentence(sentence)
+            if entity.kind == EntityKind.ORGANIZATION
+        )
+        tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
+        result: set[EntityCandidateId] = set()
+        for org_id in local_entity_ids:
+            org_evidences = [
+                ev
+                for ev in document.store.evidence_for_entity(org_id)
+                if ev.sentence_id == sentence.id
+            ]
+            if not org_evidences:
+                continue
+            org_start = min(ev.span.start_char for ev in org_evidences)
+            # Find the index of the earliest org token in the sentence token list.
+            org_token_index = next(
+                (i for i, t in enumerate(tokens) if t.span.start_char >= org_start),
+                None,
+            )
+            if org_token_index is None:
+                continue
+            window_start = max(0, org_token_index - 10)
+            window_tokens = tokens[window_start:org_token_index]
+            has_former_descriptor = any(
+                self._token_has_former_descriptor(t)
+                or any(a.lemma in prior_descriptor_lemmas for a in t.morph)
+                for t in window_tokens
+            )
+            has_role_lemma = any(any(a.lemma in role_vocab for a in t.morph) for t in window_tokens)
+            if has_former_descriptor and has_role_lemma:
+                result.add(org_id)
+        return frozenset(result)
 
     def _annotate_orgs_for_person(
         self,

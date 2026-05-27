@@ -141,17 +141,24 @@ class PersonalTieCandidateStage:
             candidate_people = self._candidate_people(entities, document)
             lemmas = self._sentence_lemmas(document, sentence)
             family_detail = self._family_detail(lemmas)
-            if family_detail is not None and len(observed_people) >= 2:
-                self._add_kinship_tie(
-                    document,
-                    subject=observed_people[0],
-                    object_entity=observed_people[1],
-                    sentence=sentence,
-                    sentence_id=sentence.id,
-                    relationship_detail=family_detail,
-                    signal=NamedKinshipLemmaSignal(lemma=family_detail.value),
-                )
-                continue
+            if family_detail is not None:
+                people_for_kinship = observed_people
+                if len(people_for_kinship) < 2:
+                    people_for_kinship = self._observed_people(
+                        retriever.entities_for_sentence_window(sentence, before=1, after=1),
+                        document,
+                    )
+                if len(people_for_kinship) >= 2:
+                    self._add_kinship_tie(
+                        document,
+                        subject=people_for_kinship[0],
+                        object_entity=people_for_kinship[1],
+                        sentence=sentence,
+                        sentence_id=sentence.id,
+                        relationship_detail=family_detail,
+                        signal=NamedKinshipLemmaSignal(lemma=family_detail.value),
+                    )
+                    continue
             collaborator_lemma = self._collaborator_tie_detail(lemmas)
             if collaborator_lemma is None and "człowiek" in lemmas:
                 if self._has_genitive_entity_adjacent(document, sentence, "człowiek", entities):

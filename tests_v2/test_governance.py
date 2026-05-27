@@ -1556,6 +1556,59 @@ def test_governance_stage_succession_does_not_bind_unrelated_window_organization
     assert "organization" not in argument_roles(record)
 
 
+def test_governance_stage_prior_role_org_demoted_in_appointment_sentence() -> None:
+    """'dotychczasowy dyrektor w PKN Orlen Artur Biernat' — PKN Orlen is a prior-role
+    context org and should be demoted.  Inwestycje Miejskie from two sentences back
+    should win as the appointment target."""
+    first = "Zarząd Inwestycji Miejskich podjął decyzję o zmianach."
+    second = "Odwołano dotychczasowego prezesa spółki Marka Kaczmarka."
+    third = "Nowym prezesem został dotychczasowy dyrektor biura zakupów w PKN Orlen Artur Biernat."
+    text = f"{first} {second} {third}"
+    document = run_governance_stage(
+        text,
+        (
+            NamedEntitySpan(
+                text="Inwestycji Miejskich",
+                label=NerLabel.ORGANIZATION,
+                span=span_of(text, "Inwestycji Miejskich"),
+            ),
+            NamedEntitySpan(
+                text="Marka Kaczmarka",
+                label=NerLabel.PERSON,
+                span=span_of(text, "Marka Kaczmarka"),
+            ),
+            NamedEntitySpan(
+                text="PKN Orlen",
+                label=NerLabel.ORGANIZATION,
+                span=span_of(text, "PKN Orlen"),
+            ),
+            NamedEntitySpan(
+                text="Artur Biernat",
+                label=NerLabel.PERSON,
+                span=span_of(text, "Artur Biernat"),
+            ),
+        ),
+    )
+
+    appointment = next(
+        (
+            r
+            for r in fact_records(document)
+            if r.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
+            and _has_entity_hint(document, r, "person", "Artur Biernat")
+        ),
+        None,
+    )
+    assert appointment is not None, "Artur Biernat should have an appointment fact"
+    org = entity_hint_for_role(document, appointment, "organization")
+    assert org != "PKN Orlen", (
+        "PKN Orlen is a prior-role context org and should not be the appointment target"
+    )
+    assert org == "Inwestycji Miejskich", (
+        "appointment should bind to Inwestycje Miejskie from the window, not the prior-role org"
+    )
+
+
 def test_governance_stage_copular_role_holder_produces_holding() -> None:
     """'X jest przewodniczącą rady nadzorczej Y' — copular construction with a
     governance role entity should produce a PUBLIC_ROLE_HOLDING."""

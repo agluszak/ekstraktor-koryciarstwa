@@ -359,6 +359,32 @@ def test_patronage_complaint_uses_adjacent_sentence_people_and_keeps_evidence() 
     assert entity_hint_for_role(document, network, "object") == "Jacka Guzego"
 
 
+def test_personal_tie_stage_emits_kinship_tie_when_second_person_in_adjacent_sentence() -> None:
+    """Kinship trigger in sentence 2 with only one person locally should still produce a
+    tie when the second person is in the adjacent sentence (window fallback)."""
+    first = "Jan Kowalski pracuje w urzędzie."
+    second = "Jest synem Marii Nowak."
+    text = f"{first} {second}"
+    document, _morphology = build_document(
+        text,
+        (
+            person_span(text, "Jan Kowalski"),
+            person_span(text, "Marii Nowak"),
+        ),
+    )
+
+    PersonalTieCandidateStage().run(document)
+    ProbabilisticInferenceStage().run(document)
+
+    kinship_records = [r for r in fact_records(document) if r.kind is FactKind.KINSHIP_TIE]
+    assert kinship_records, "kinship tie should be detected via adjacent-sentence window fallback"
+    people = {
+        entity_hint_for_role(document, kinship_records[0], "subject"),
+        entity_hint_for_role(document, kinship_records[0], "object"),
+    }
+    assert people == {"Jan Kowalski", "Marii Nowak"}
+
+
 def test_patronage_complaint_ignores_single_weak_person_without_institution() -> None:
     text = "Bytomski alarmuje o kolesiostwie."
     document, _morphology = build_document(

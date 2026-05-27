@@ -17,12 +17,17 @@ from pipeline_v2.types import (
     EntityKind,
     FullNameReuseMatchSignal,
     GroundingKind,
+    InitialNameMatchSignal,
     LemmaMatchSignal,
     MentionKind,
     NearbyPersonCandidateSignal,
     Signal,
     SurnameBaseMatchSignal,
 )
+
+
+def _is_initial_of(initial: str, full: str) -> bool:
+    return len(initial) == 1 and full.startswith(initial)
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,11 +156,18 @@ class EntityCandidateRetriever:
                 continue
             candidate_full_name_keys = self._person_full_name_keys(candidate)
 
-            # If both have different full names, do not propose merging them!
+            # If both have different full names, do not propose merging them —
+            # unless one side is a single-char initial that could be a prefix.
             if (
                 reuse_key is not None
                 and candidate.reuse_key is not None
                 and reuse_key.given_name_lemma != candidate.reuse_key.given_name_lemma
+                and not _is_initial_of(
+                    reuse_key.given_name_lemma, candidate.reuse_key.given_name_lemma
+                )
+                and not _is_initial_of(
+                    candidate.reuse_key.given_name_lemma, reuse_key.given_name_lemma
+                )
                 and (
                     not full_name_keys
                     or not candidate_full_name_keys
@@ -184,6 +196,21 @@ class EntityCandidateRetriever:
                         self._build_proposal(entity, candidate, FullNameReuseMatchSignal())
                     )
                     continue
+
+            # 1c. Initial name match: "A. Góralczyk" ↔ "Agnieszka Góralczyk"
+            if (
+                reuse_key is not None
+                and candidate.reuse_key is not None
+                and reuse_key.surname_base == candidate.reuse_key.surname_base
+            ):
+                rg = reuse_key.given_name_lemma
+                cg = candidate.reuse_key.given_name_lemma
+                if _is_initial_of(rg, cg) or _is_initial_of(cg, rg):
+                    proposals.append(
+                        self._build_proposal(entity, candidate, InitialNameMatchSignal())
+                    )
+                    continue
+
             # 2. Surname base match
             # 2. Surname base match
             candidate_surname_bases = self._surname_bases(candidate, candidate_full_name_keys)
