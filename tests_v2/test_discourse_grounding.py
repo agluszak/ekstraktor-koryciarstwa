@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from pipeline_v2.candidates import EntityFactArgument, FactCandidateRecord
-from pipeline_v2.nlp import NerLabel, Span
+from pipeline_v2.nlp import NerLabel
 from pipeline_v2.types import FactArgumentRole, FactKind
-from tests_v2.materialized import entity_argument, fact_records
+from tests_v2.materialized import entity_argument, fact_records, span_of
 from tests_v2.test_governance import (
     NamedEntitySpan,
     run_governance_stage,
@@ -26,12 +26,12 @@ def test_governance_stage_does_not_use_distant_cross_paragraph_fallback_organiza
             NamedEntitySpan(
                 text="PZU",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("PZU"), text.index("PZU") + 3),
+                span=span_of(text, "PZU"),
             ),
             NamedEntitySpan(
                 text="Marcin Kubica",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Marcin Kubica"), text.index("Marcin Kubica") + 13),
+                span=span_of(text, "Marcin Kubica"),
             ),
         ),
         paragraphs=(para0, para1),
@@ -64,20 +64,17 @@ def test_governance_stage_does_not_use_paragraph_lead_for_cross_paragraph_fallba
             NamedEntitySpan(
                 text="Komunalnik",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 10),
+                span=span_of(text, "Komunalnik"),
             ),
             NamedEntitySpan(
                 text="wodociągów miejskich",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("wodociągów miejskich"),
-                    text.index("wodociągów miejskich") + len("wodociągów miejskich"),
-                ),
+                span=span_of(text, "wodociągów miejskich"),
             ),
             NamedEntitySpan(
                 text="Annę Leśną",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Annę Leśną"), text.index("Annę Leśną") + 10),
+                span=span_of(text, "Annę Leśną"),
             ),
         ),
         paragraphs=(para0, para1, para2),

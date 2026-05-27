@@ -7,7 +7,7 @@ from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
-from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.public_money import PublicMoneyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
@@ -32,6 +32,7 @@ from tests_v2.materialized import (
     entity_hint_for_role,
     fact_records,
     first_fact_record,
+    span_of,
     text_argument,
 )
 
@@ -176,12 +177,12 @@ def test_public_money_stage_attaches_sentence_local_parties_as_uncertain_argumen
             NamedEntitySpan(
                 text="Urząd Miasta",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Urząd Miasta"), text.index("Urząd Miasta") + 12),
+                span=span_of(text, "Urząd Miasta"),
             ),
             NamedEntitySpan(
                 text="Alfa",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Alfa"), text.index("Alfa") + 4),
+                span=span_of(text, "Alfa"),
             ),
         ),
     )
@@ -213,7 +214,7 @@ def test_public_money_stage_marks_single_receiving_organization_as_recipient() -
             NamedEntitySpan(
                 text="Fundacja Alfa",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Fundacja Alfa"), text.index("Fundacja Alfa") + 13),
+                span=span_of(text, "Fundacja Alfa"),
             ),
         ),
     )
@@ -233,7 +234,7 @@ def test_public_money_stage_emits_partial_ownership_event_before_inference() -> 
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
         ),
     )
@@ -298,21 +299,17 @@ def test_compensation_scores_controller_organization_below_direct_employer() -> 
             NamedEntitySpan(
                 text="AMW Rewita",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("AMW Rewita"), text.index("AMW Rewita") + 10),
+                span=span_of(text, "AMW Rewita"),
             ),
             NamedEntitySpan(
                 text="Ministerstwu Obrony Narodowej",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Ministerstwu Obrony Narodowej"),
-                    text.index("Ministerstwu Obrony Narodowej")
-                    + len("Ministerstwu Obrony Narodowej"),
-                ),
+                span=span_of(text, "Ministerstwu Obrony Narodowej"),
             ),
             NamedEntitySpan(
                 text="Rząsowskiego",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Rząsowskiego"), text.index("Rząsowskiego") + 11),
+                span=span_of(text, "Rząsowskiego"),
             ),
         ),
     )
@@ -350,10 +347,7 @@ def test_public_money_stage_emits_compensation_for_perfective_salary_verb() -> N
             NamedEntitySpan(
                 text="Totalizatorze Sportowym",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Totalizatorze Sportowym"),
-                    text.index("Totalizatorze Sportowym") + len("Totalizatorze Sportowym"),
-                ),
+                span=span_of(text, "Totalizatorze Sportowym"),
             ),
         ),
     )
@@ -378,7 +372,7 @@ def test_public_money_stage_emits_compensation_for_textual_amount_phrase() -> No
             NamedEntitySpan(
                 text="WFOŚiGW",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("WFOŚiGW"), text.index("WFOŚiGW") + len("WFOŚiGW")),
+                span=span_of(text, "WFOŚiGW"),
             ),
         ),
     )
@@ -400,17 +394,17 @@ def test_public_contract_stage_does_not_materialize_same_surface_on_both_sides()
             NamedEntitySpan(
                 text="Wnuk Consulting",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wnuk Consulting"), text.index("Wnuk Consulting") + 15),
+                span=span_of(text, "Wnuk Consulting"),
             ),
             NamedEntitySpan(
                 text="Wnuk Consulting",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Wnuk Consulting"), text.index("Wnuk Consulting") + 15),
+                span=span_of(text, "Wnuk Consulting"),
             ),
             NamedEntitySpan(
                 text="miastem",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("miastem"), text.index("miastem") + 7),
+                span=span_of(text, "miastem"),
             ),
         ),
     )
@@ -433,10 +427,7 @@ def test_public_money_stage_materializes_amount_backed_delivery_with_person_cont
             NamedEntitySpan(
                 text="Dominik Herberholz",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Dominik Herberholz"),
-                    text.index("Dominik Herberholz") + 18,
-                ),
+                span=span_of(text, "Dominik Herberholz"),
             ),
         ),
     )
@@ -462,18 +453,12 @@ def test_funding_stage_does_not_materialize_same_surface_for_funder_and_recipien
             NamedEntitySpan(
                 text="Fundacja Lux Veritatis",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Fundacja Lux Veritatis"),
-                    text.index("Fundacja Lux Veritatis") + 22,
-                ),
+                span=span_of(text, "Fundacja Lux Veritatis"),
             ),
             NamedEntitySpan(
                 text="Fundacji Lux Veritatis",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Fundacji Lux Veritatis"),
-                    text.index("Fundacji Lux Veritatis") + 22,
-                ),
+                span=span_of(text, "Fundacji Lux Veritatis"),
             ),
         ),
     )
@@ -496,12 +481,12 @@ def test_public_money_stage_does_not_flag_thousands_amount_as_micro() -> None:
             NamedEntitySpan(
                 text="Urząd Miasta",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Urząd Miasta"), text.index("Urząd Miasta") + 12),
+                span=span_of(text, "Urząd Miasta"),
             ),
             NamedEntitySpan(
                 text="Alfa",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Alfa"), text.index("Alfa") + 4),
+                span=span_of(text, "Alfa"),
             ),
         ),
     )

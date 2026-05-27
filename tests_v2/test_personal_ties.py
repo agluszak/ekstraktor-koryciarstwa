@@ -17,6 +17,7 @@ from tests_v2.materialized import (
     entity_hint_for_role,
     fact_records,
     first_fact_record,
+    span_of,
     text_argument,
 )
 
@@ -65,7 +66,7 @@ def person_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.PERSON,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 
@@ -73,7 +74,7 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.ORGANIZATION,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 

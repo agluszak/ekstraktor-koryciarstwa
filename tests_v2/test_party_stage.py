@@ -5,7 +5,7 @@ from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
-from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import (
@@ -15,7 +15,7 @@ from pipeline_v2.types import (
     NerLabel,
     PartyAliasMatchSignal,
 )
-from tests_v2.materialized import entity_hint_for_role, fact_records, first_fact_record
+from tests_v2.materialized import entity_hint_for_role, fact_records, first_fact_record, span_of
 
 
 class StaticEntityProvider:
@@ -52,7 +52,7 @@ def person_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.PERSON,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 

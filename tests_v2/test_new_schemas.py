@@ -19,7 +19,7 @@ from pipeline_v2.ids import (
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
-from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.party import PartyCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
@@ -27,7 +27,7 @@ from pipeline_v2.roles import RoleCandidateStage
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import EntityKind, EventRole, FactKind, GroundingKind, NerLabel
-from tests_v2.materialized import entity_hint_for_role, fact_records, text_argument
+from tests_v2.materialized import entity_hint_for_role, fact_records, span_of, text_argument
 
 
 class StaticEntityProvider:
@@ -42,7 +42,7 @@ def entity_span(text: str, name: str, label: NerLabel) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=label,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 

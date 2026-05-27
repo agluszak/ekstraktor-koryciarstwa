@@ -7,7 +7,7 @@ from pipeline_v2.ids import DocumentId
 from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
-from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.nominal_coreference import NominalKinshipCandidateStage
 from pipeline_v2.public_employment import PublicEmploymentCandidateStage
 from pipeline_v2.public_money import PublicMoneyCandidateStage
@@ -31,6 +31,7 @@ from tests_v2.materialized import (
     entity_hint_for_role,
     fact_records,
     first_fact_record,
+    span_of,
     text_argument,
 )
 
@@ -84,7 +85,7 @@ def person_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.PERSON,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 
@@ -92,7 +93,7 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.ORGANIZATION,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 
@@ -100,7 +101,7 @@ def location_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.LOCATION,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 

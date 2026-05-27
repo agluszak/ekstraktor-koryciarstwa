@@ -46,6 +46,8 @@ from tests_v2.materialized import (
     entity_hint_for_role,
     fact_records,
     first_fact_record,
+    last_span_of,
+    span_of,
     text_argument,
 )
 
@@ -131,12 +133,12 @@ def test_governance_stage_emits_appointment_candidate_with_sentence_local_entiti
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
         ),
     )
@@ -163,12 +165,12 @@ def test_governance_stage_emits_dismissal_candidate_and_fact_score() -> None:
             NamedEntitySpan(
                 text="Anna Nowak",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Anna Nowak"), text.index("Anna Nowak") + 10),
+                span=span_of(text, "Anna Nowak"),
             ),
             NamedEntitySpan(
                 text="Komunalnik",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 9),
+                span=span_of(text, "Komunalnik"),
             ),
         ),
     )
@@ -197,17 +199,17 @@ def test_governance_stage_keeps_generic_appointment_in_separate_dismissal_clause
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
             NamedEntitySpan(
                 text="Annę Nowak",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Annę Nowak"), text.index("Annę Nowak") + 10),
+                span=span_of(text, "Annę Nowak"),
             ),
         ),
     )
@@ -232,7 +234,7 @@ def test_governance_stage_does_not_emit_candidate_without_person_entity() -> Non
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
         ),
     )
@@ -248,7 +250,7 @@ def test_governance_stage_does_not_emit_person_only_appointment() -> None:
             NamedEntitySpan(
                 text="Stanisław Mazur",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Stanisław Mazur"), text.index("Stanisław Mazur") + 15),
+                span=span_of(text, "Stanisław Mazur"),
             ),
         ),
     )
@@ -266,12 +268,12 @@ def test_governance_stage_uses_adjacent_sentence_context_for_split_appointment()
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
         ),
     )
@@ -302,12 +304,12 @@ def test_governance_stage_does_not_use_previous_paragraph_for_missing_person() -
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
         ),
         paragraphs=(first, second),
@@ -331,20 +333,17 @@ def test_governance_stage_emits_holding_for_role_first_persistence_clause() -> N
             NamedEntitySpan(
                 text="Krzysztof Michalski",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Krzysztof Michalski"),
-                    text.index("Krzysztof Michalski") + 19,
-                ),
+                span=span_of(text, "Krzysztof Michalski"),
             ),
             NamedEntitySpan(
                 text="Henryk Wysogląd",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Henryk Wysogląd"), text.index("Henryk Wysogląd") + 15),
+                span=span_of(text, "Henryk Wysogląd"),
             ),
             NamedEntitySpan(
                 text="Aqua",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Aqua"), text.index("Aqua") + 4),
+                span=span_of(text, "Aqua"),
             ),
         ),
     )
@@ -369,20 +368,17 @@ def test_governance_stage_prefers_board_role_in_zasiadac_clause() -> None:
             NamedEntitySpan(
                 text="Krzysztof Michalski",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Krzysztof Michalski"),
-                    text.index("Krzysztof Michalski") + 19,
-                ),
+                span=span_of(text, "Krzysztof Michalski"),
             ),
             NamedEntitySpan(
                 text="GPW Inżynieria",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("GPW Inżynieria"), text.index("GPW Inżynieria") + 14),
+                span=span_of(text, "GPW Inżynieria"),
             ),
             NamedEntitySpan(
                 text="Aqua",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.rindex("Aqua"), text.rindex("Aqua") + 4),
+                span=last_span_of(text, "Aqua"),
             ),
         ),
     )
@@ -407,17 +403,17 @@ def test_governance_stage_prefers_pretrigger_board_role_in_zasiadac_clause() -> 
             NamedEntitySpan(
                 text="Maria Wasiak",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Maria Wasiak"), text.index("Maria Wasiak") + 12),
+                span=span_of(text, "Maria Wasiak"),
             ),
             NamedEntitySpan(
                 text="Aqua",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Aqua"), text.index("Aqua") + 4),
+                span=span_of(text, "Aqua"),
             ),
             NamedEntitySpan(
                 text="Bydgoszczy",
                 label=NerLabel.LOCATION,
-                span=Span(text.index("Bydgoszczy"), text.index("Bydgoszczy") + 10),
+                span=span_of(text, "Bydgoszczy"),
             ),
         ),
     )
@@ -440,12 +436,12 @@ def test_governance_stage_prefers_predicate_role_over_former_political_appositio
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Aqua",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Aqua"), text.index("Aqua") + 4),
+                span=span_of(text, "Aqua"),
             ),
         ),
     )
@@ -471,20 +467,17 @@ def test_governance_stage_prefers_post_trigger_person_over_historical_name_in_ho
             NamedEntitySpan(
                 text="Konrad Mikołajski",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Konrad Mikołajski"),
-                    text.index("Konrad Mikołajski") + 17,
-                ),
+                span=span_of(text, "Konrad Mikołajski"),
             ),
             NamedEntitySpan(
                 text="Zachemu",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Zachemu"), text.index("Zachemu") + 7),
+                span=span_of(text, "Zachemu"),
             ),
             NamedEntitySpan(
                 text="KPEC",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("KPEC"), text.index("KPEC") + 4),
+                span=span_of(text, "KPEC"),
             ),
         ),
     )
@@ -517,12 +510,12 @@ def test_governance_stage_skips_former_political_title_background_holding() -> N
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="ProNaturze",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("ProNaturze"), text.index("ProNaturze") + 10),
+                span=span_of(text, "ProNaturze"),
             ),
         ),
     )
@@ -545,12 +538,12 @@ def test_governance_stage_ignores_following_sentence_background_organization() -
             NamedEntitySpan(
                 text="Olgierd Cieślik",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Olgierd Cieślik"), text.index("Olgierd Cieślik") + 15),
+                span=span_of(text, "Olgierd Cieślik"),
             ),
             NamedEntitySpan(
                 text="Poczcie Polskiej",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Poczcie Polskiej"), text.index("Poczcie Polskiej") + 16),
+                span=span_of(text, "Poczcie Polskiej"),
             ),
         ),
     )
@@ -577,15 +570,12 @@ def test_governance_stage_keeps_party_organization_out_of_primary_facts() -> Non
             NamedEntitySpan(
                 text="Sławomir Czwal",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Sławomir Czwal"), text.index("Sławomir Czwal") + 15),
+                span=span_of(text, "Sławomir Czwal"),
             ),
             NamedEntitySpan(
                 text="Koalicji Obywatelskiej",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Koalicji Obywatelskiej"),
-                    text.index("Koalicji Obywatelskiej") + 22,
-                ),
+                span=span_of(text, "Koalicji Obywatelskiej"),
             ),
         ),
     )
@@ -616,20 +606,17 @@ def test_governance_stage_treats_inflected_ministry_as_context_not_organization(
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Orlenu",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Orlenu"), text.index("Orlenu") + 6),
+                span=span_of(text, "Orlenu"),
             ),
             NamedEntitySpan(
                 text="Ministerstwa Aktywów Państwowych",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Ministerstwa Aktywów Państwowych"),
-                    text.index("Ministerstwa Aktywów Państwowych") + 33,
-                ),
+                span=span_of(text, "Ministerstwa Aktywów Państwowych"),
             ),
         ),
     )
@@ -661,20 +648,17 @@ def test_governance_stage_keeps_generic_owner_on_org_role_for_inference_competit
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Orlenu",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Orlenu"), text.index("Orlenu") + 6),
+                span=span_of(text, "Orlenu"),
             ),
             NamedEntitySpan(
                 text="Ministerstwa Aktywów Państwowych",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Ministerstwa Aktywów Państwowych"),
-                    text.index("Ministerstwa Aktywów Państwowych") + 33,
-                ),
+                span=span_of(text, "Ministerstwa Aktywów Państwowych"),
             ),
         ),
     )
@@ -721,17 +705,17 @@ def test_governance_stage_prefers_one_window_organization_candidate() -> None:
             NamedEntitySpan(
                 text="WFOŚiGW w Lublinie",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("WFOŚiGW w Lublinie"), text.index("WFOŚiGW w Lublinie") + 18),
+                span=span_of(text, "WFOŚiGW w Lublinie"),
             ),
             NamedEntitySpan(
                 text="Poczta Polska",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Poczta Polska"), text.index("Poczta Polska") + 13),
+                span=span_of(text, "Poczta Polska"),
             ),
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
         ),
     )
@@ -752,23 +736,17 @@ def test_governance_window_only_org_and_role_near_public_office_actor_scores_low
             NamedEntitySpan(
                 text="Gminnego Ośrodka Kultury",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Gminnego Ośrodka Kultury"),
-                    text.index("Gminnego Ośrodka Kultury") + len("Gminnego Ośrodka Kultury"),
-                ),
+                span=span_of(text, "Gminnego Ośrodka Kultury"),
             ),
             NamedEntitySpan(
                 text="Szymon Kubit",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Szymon Kubit"), text.index("Szymon Kubit") + 12),
+                span=span_of(text, "Szymon Kubit"),
             ),
             NamedEntitySpan(
                 text="Tomasz Kościelniak",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Tomasz Kościelniak"),
-                    text.index("Tomasz Kościelniak") + len("Tomasz Kościelniak"),
-                ),
+                span=span_of(text, "Tomasz Kościelniak"),
             ),
         ),
     )
@@ -804,23 +782,17 @@ def test_governance_stage_keeps_weak_window_alternatives_before_inference() -> N
             NamedEntitySpan(
                 text="Gminnego Ośrodka Kultury",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Gminnego Ośrodka Kultury"),
-                    text.index("Gminnego Ośrodka Kultury") + len("Gminnego Ośrodka Kultury"),
-                ),
+                span=span_of(text, "Gminnego Ośrodka Kultury"),
             ),
             NamedEntitySpan(
                 text="Szymon Kubit",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Szymon Kubit"), text.index("Szymon Kubit") + 12),
+                span=span_of(text, "Szymon Kubit"),
             ),
             NamedEntitySpan(
                 text="Tomasz Kościelniak",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Tomasz Kościelniak"),
-                    text.index("Tomasz Kościelniak") + len("Tomasz Kościelniak"),
-                ),
+                span=span_of(text, "Tomasz Kościelniak"),
             ),
         ),
     )
@@ -863,12 +835,12 @@ def test_governance_stage_rejects_org_like_person_noise() -> None:
             NamedEntitySpan(
                 text="Allianza OFE",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Allianza OFE"), text.index("Allianza OFE") + 12),
+                span=span_of(text, "Allianza OFE"),
             ),
             NamedEntitySpan(
                 text="PZU",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("PZU"), text.index("PZU") + 3),
+                span=span_of(text, "PZU"),
             ),
         ),
     )
@@ -895,12 +867,12 @@ def test_governance_stage_keeps_implausible_person_candidate_as_suppressed_alter
             NamedEntitySpan(
                 text="PAP Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("PAP Kowalski"), text.index("PAP Kowalski") + 12),
+                span=span_of(text, "PAP Kowalski"),
             ),
             NamedEntitySpan(
                 text="PZU",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("PZU"), text.index("PZU") + 3),
+                span=span_of(text, "PZU"),
             ),
         ),
     )
@@ -953,12 +925,12 @@ def test_governance_stage_emits_dismissal_for_imperfective_odchodzic() -> None:
             NamedEntitySpan(
                 text="Katarzyna Zapał",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Katarzyna Zapał"), text.index("Katarzyna Zapał") + 15),
+                span=span_of(text, "Katarzyna Zapał"),
             ),
             NamedEntitySpan(
                 text="Komunalnik",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 10),
+                span=span_of(text, "Komunalnik"),
             ),
         ),
     )
@@ -977,12 +949,12 @@ def test_governance_stage_emits_dismissal_for_imperfective_rezygnowac() -> None:
             NamedEntitySpan(
                 text="Anna Nowak",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Anna Nowak"), text.index("Anna Nowak") + 10),
+                span=span_of(text, "Anna Nowak"),
             ),
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
         ),
     )
@@ -1002,26 +974,17 @@ def test_governance_stage_prefers_person_attached_roles_in_multi_person_dismissa
             NamedEntitySpan(
                 text="Agnieszkę Kruk",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Agnieszkę Kruk"),
-                    text.index("Agnieszkę Kruk") + len("Agnieszkę Kruk"),
-                ),
+                span=span_of(text, "Agnieszkę Kruk"),
             ),
             NamedEntitySpan(
                 text="Annę Pokwapisz",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Annę Pokwapisz"),
-                    text.index("Annę Pokwapisz") + len("Annę Pokwapisz"),
-                ),
+                span=span_of(text, "Annę Pokwapisz"),
             ),
             NamedEntitySpan(
                 text="WFOŚiGW w Lublinie",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("WFOŚiGW w Lublinie"),
-                    text.index("WFOŚiGW w Lublinie") + len("WFOŚiGW w Lublinie"),
-                ),
+                span=span_of(text, "WFOŚiGW w Lublinie"),
             ),
         ),
     )
@@ -1049,15 +1012,12 @@ def test_governance_stage_ignores_alternative_role_in_resignation_clause() -> No
             NamedEntitySpan(
                 text="WFOŚiGW",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("WFOŚiGW"), text.index("WFOŚiGW") + len("WFOŚiGW")),
+                span=span_of(text, "WFOŚiGW"),
             ),
             NamedEntitySpan(
                 text="Stanisław Mazur",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Stanisław Mazur"),
-                    text.index("Stanisław Mazur") + len("Stanisław Mazur"),
-                ),
+                span=span_of(text, "Stanisław Mazur"),
             ),
         ),
     )
@@ -1084,7 +1044,7 @@ def test_governance_stage_does_not_materialize_first_person_departure_without_sp
             NamedEntitySpan(
                 text="WFOŚiGW",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("WFOŚiGW"), text.index("WFOŚiGW") + len("WFOŚiGW")),
+                span=span_of(text, "WFOŚiGW"),
             ),
         ),
     )
@@ -1115,18 +1075,12 @@ def test_governance_stage_does_not_produce_appointment_from_temporal_objecia() -
                 NamedEntitySpan(
                     text="Katarzyna Zapał",
                     label=NerLabel.PERSON,
-                    span=Span(
-                        text.index("Katarzyna Zapał"),
-                        text.index("Katarzyna Zapał") + 15,
-                    ),
+                    span=span_of(text, "Katarzyna Zapał"),
                 ),
                 NamedEntitySpan(
                     text="Komunalnik",
                     label=NerLabel.ORGANIZATION,
-                    span=Span(
-                        text.index("Komunalnik"),
-                        text.index("Komunalnik") + 10,
-                    ),
+                    span=span_of(text, "Komunalnik"),
                 ),
             )
         ),
@@ -1187,20 +1141,17 @@ def test_governance_stage_assigns_successor_not_predecessor_in_nastepca_pattern(
             NamedEntitySpan(
                 text="Katarzyna Zapał",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Katarzyna Zapał"), text.index("Katarzyna Zapał") + 15),
+                span=span_of(text, "Katarzyna Zapał"),
             ),
             NamedEntitySpan(
                 text="Komunalnik",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 10),
+                span=span_of(text, "Komunalnik"),
             ),
             NamedEntitySpan(
                 text="Agnieszka Paradyż",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Agnieszka Paradyż"),
-                    text.index("Agnieszka Paradyż") + len("Agnieszka Paradyż"),
-                ),
+                span=span_of(text, "Agnieszka Paradyż"),
             ),
         ),
     )
@@ -1226,12 +1177,12 @@ def test_governance_stage_produces_appointment_from_dash_apposition_current_role
             NamedEntitySpan(
                 text="Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jan Kowalski"), text.index("Jan Kowalski") + 12),
+                span=span_of(text, "Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Spółki ABC",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Spółki ABC"), text.index("Spółki ABC") + 10),
+                span=span_of(text, "Spółki ABC"),
             ),
         ),
     )
@@ -1249,7 +1200,7 @@ def test_governance_stage_does_not_dismiss_person_in_exception_clause() -> None:
             NamedEntitySpan(
                 text="Jana Kowalskiego",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jana Kowalskiego"), text.index("Jana Kowalskiego") + 16),
+                span=span_of(text, "Jana Kowalskiego"),
             ),
         ),
     )
@@ -1269,15 +1220,12 @@ def test_governance_stage_dismisses_person_not_in_exception_clause() -> None:
             NamedEntitySpan(
                 text="Piotr Wiśniewski",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Piotr Wiśniewski"),
-                    text.index("Piotr Wiśniewski") + len("Piotr Wiśniewski"),
-                ),
+                span=span_of(text, "Piotr Wiśniewski"),
             ),
             NamedEntitySpan(
                 text="Jana Kowalskiego",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jana Kowalskiego"), text.index("Jana Kowalskiego") + 16),
+                span=span_of(text, "Jana Kowalskiego"),
             ),
         ),
     )
@@ -1300,15 +1248,12 @@ def test_governance_stage_dismisses_person_after_closed_exception_clause() -> No
             NamedEntitySpan(
                 text="Jana Kowalskiego",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Jana Kowalskiego"), text.index("Jana Kowalskiego") + 16),
+                span=span_of(text, "Jana Kowalskiego"),
             ),
             NamedEntitySpan(
                 text="Piotra Wiśniewskiego",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Piotra Wiśniewskiego"),
-                    text.index("Piotra Wiśniewskiego") + len("Piotra Wiśniewskiego"),
-                ),
+                span=span_of(text, "Piotra Wiśniewskiego"),
             ),
         ),
     )
@@ -1327,12 +1272,12 @@ def test_governance_stage_does_not_bind_role_title_person_ner_span_as_governance
             NamedEntitySpan(
                 text="Prezes",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Prezes"), text.index("Prezes") + 6),
+                span=span_of(text, "Prezes"),
             ),
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
         ),
     )
@@ -1360,15 +1305,12 @@ def test_governance_stage_still_binds_named_person_with_role_title() -> None:
             NamedEntitySpan(
                 text="Prezes Jan Kowalski",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.index("Prezes Jan Kowalski"),
-                    text.index("Prezes Jan Kowalski") + len("Prezes Jan Kowalski"),
-                ),
+                span=span_of(text, "Prezes Jan Kowalski"),
             ),
             NamedEntitySpan(
                 text="Wodkan",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Wodkan"), text.index("Wodkan") + 6),
+                span=span_of(text, "Wodkan"),
             ),
         ),
     )
@@ -1555,15 +1497,12 @@ def test_governance_stage_succession_pattern_binds_new_person_to_vacated_role() 
             NamedEntitySpan(
                 text="Barbara Chamiga",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Barbara Chamiga"), text.index("Barbara Chamiga") + 15),
+                span=span_of(text, "Barbara Chamiga"),
             ),
             NamedEntitySpan(
                 text="Marta Tartanus-Oryszczak",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.rindex("Marta Tartanus-Oryszczak"),
-                    text.rindex("Marta Tartanus-Oryszczak") + len("Marta Tartanus-Oryszczak"),
-                ),
+                span=last_span_of(text, "Marta Tartanus-Oryszczak"),
             ),
         ),
     )
@@ -1592,23 +1531,17 @@ def test_governance_stage_succession_does_not_bind_unrelated_window_organization
             NamedEntitySpan(
                 text="Marta Tartanus-Oryszczak",
                 label=NerLabel.PERSON,
-                span=Span(
-                    text.rindex("Marta Tartanus-Oryszczak"),
-                    text.rindex("Marta Tartanus-Oryszczak") + len("Marta Tartanus-Oryszczak"),
-                ),
+                span=last_span_of(text, "Marta Tartanus-Oryszczak"),
             ),
             NamedEntitySpan(
                 text="Biurem Finansowym",
                 label=NerLabel.ORGANIZATION,
-                span=Span(
-                    text.index("Biurem Finansowym"),
-                    text.index("Biurem Finansowym") + len("Biurem Finansowym"),
-                ),
+                span=span_of(text, "Biurem Finansowym"),
             ),
             NamedEntitySpan(
                 text="Barbara Chamiga",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Barbara Chamiga"), text.index("Barbara Chamiga") + 15),
+                span=span_of(text, "Barbara Chamiga"),
             ),
         ),
     )
@@ -1633,12 +1566,12 @@ def test_governance_stage_copular_role_holder_produces_holding() -> None:
             NamedEntitySpan(
                 text="Anna Nowak",
                 label=NerLabel.PERSON,
-                span=Span(text.index("Anna Nowak"), text.index("Anna Nowak") + 10),
+                span=span_of(text, "Anna Nowak"),
             ),
             NamedEntitySpan(
                 text="Komunalnik",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Komunalnik"), text.index("Komunalnik") + 10),
+                span=span_of(text, "Komunalnik"),
             ),
         ),
     )

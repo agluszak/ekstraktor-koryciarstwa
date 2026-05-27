@@ -8,10 +8,11 @@ from pipeline_v2.entity_classification import LexicalEntityContextStage
 from pipeline_v2.ids import DocumentId
 from pipeline_v2.morphology import MorfeuszMorphologyStage
 from pipeline_v2.ner import NamedEntityCandidateStage
-from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan, Span
+from pipeline_v2.nlp import Morfeusz2MorphologyAdapter, NamedEntitySpan
 from pipeline_v2.output import document_to_json
 from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.types import EntityTag, NerLabel
+from tests_v2.materialized import span_of
 
 
 class StaticEntityProvider:
@@ -50,7 +51,7 @@ def organization_span(text: str, organization: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=organization,
         label=NerLabel.ORGANIZATION,
-        span=Span(text.index(organization), text.index(organization) + len(organization)),
+        span=span_of(text, organization),
     )
 
 

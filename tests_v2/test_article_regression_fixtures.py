@@ -24,7 +24,7 @@ from pipeline_v2.segmentation import ParagraphSentenceSegmenter
 from pipeline_v2.stages import V2Pipeline
 from pipeline_v2.ties import PersonalTieCandidateStage
 from pipeline_v2.types import EntityTag, FactKind, GroundingKind, NerLabel
-from tests_v2.materialized import argument_roles, fact_records, text_argument
+from tests_v2.materialized import argument_roles, fact_records, span_of, text_argument
 
 
 @dataclass(slots=True)
@@ -52,7 +52,7 @@ def person_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.PERSON,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 
@@ -60,7 +60,7 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.ORGANIZATION,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 
@@ -296,7 +296,7 @@ def test_article_fixture_recovers_bielsko_board_holdings() -> None:
             NamedEntitySpan(
                 text="Aqua",
                 label=NerLabel.ORGANIZATION,
-                span=Span(text.index("Aqua"), text.index("Aqua") + len("Aqua")),
+                span=span_of(text, "Aqua"),
             ),
             NamedEntitySpan(
                 text="Aqua",

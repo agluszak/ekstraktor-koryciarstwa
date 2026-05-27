@@ -19,6 +19,7 @@ from pipeline_v2.ids import (
     FactCandidateId,
     ProducerId,
 )
+from pipeline_v2.nlp import Span
 from pipeline_v2.types import (
     EntityKind,
     EventRole,
@@ -27,6 +28,16 @@ from pipeline_v2.types import (
     GroundingKind,
     Signal,
 )
+
+
+def span_of(text: str, name: str) -> Span:
+    start = text.index(name)
+    return Span(start, start + len(name))
+
+
+def last_span_of(text: str, name: str) -> Span:
+    start = text.rindex(name)
+    return Span(start, start + len(name))
 
 
 def fact_records(document: ArticleDocument) -> tuple[FactCandidateRecord, ...]:

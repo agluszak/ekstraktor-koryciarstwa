@@ -59,6 +59,7 @@ from tests_v2.materialized import (
     entity_hint_for_role,
     fact_records,
     first_fact_record,
+    span_of,
     text_argument,
 )
 
@@ -108,7 +109,7 @@ def person_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.PERSON,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 
@@ -116,7 +117,7 @@ def organization_span(text: str, name: str) -> NamedEntitySpan:
     return NamedEntitySpan(
         text=name,
         label=NerLabel.ORGANIZATION,
-        span=Span(text.index(name), text.index(name) + len(name)),
+        span=span_of(text, name),
     )
 
 
@@ -403,15 +404,12 @@ def test_benchmark_multiparagraph_surname_only_resolution() -> None:
         NamedEntitySpan(
             text="Jan Kowalski",
             label=NerLabel.PERSON,
-            span=Span(
-                text.index("Jan Kowalski"),
-                text.index("Jan Kowalski") + len("Jan Kowalski"),
-            ),
+            span=span_of(text, "Jan Kowalski"),
         ),
         NamedEntitySpan(
             text="Kowalski",
             label=NerLabel.PERSON,
-            span=Span(text.index("Kowalski"), text.index("Kowalski") + len("Kowalski")),
+            span=span_of(text, "Kowalski"),
         ),
     )
     NamedEntityCandidateStage(
