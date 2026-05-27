@@ -7,7 +7,7 @@ from pipeline_v2.candidates import (
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter, EmittedEvent
-from pipeline_v2.event_frames import EventFrameBuilder, FrameArgumentRole
+from pipeline_v2.event_frames import EventFrameBuilder, FrameArgument, FrameArgumentRole
 from pipeline_v2.governance import GovernanceCandidateStage
 from pipeline_v2.ids import (
     EntityCandidateId,
@@ -45,6 +45,7 @@ from pipeline_v2.types import (
     RecipientSignal,
     ServiceTransactionSignal,
     Signal,
+    WeakSyntacticBindingSignal,
     WindowOrganizationSignal,
     WindowPersonSignal,
 )
@@ -1050,13 +1051,13 @@ class PublicMoneyCandidateStage:
         if (lemmas & donation_lemmas) and amount_texts:
             frame = frame_builder.first_frame_for_lemmas(sentence, donation_lemmas)
             if frame is not None:
-                funder = frame.nearest(
+                funders = frame.entities(
                     EntityKind.PERSON,
                     before_trigger=True,
                     roles=frozenset({FrameArgumentRole.SUBJECT, FrameArgumentRole.OTHER}),
                 )
                 recipients = frame.entities(EntityKind.POLITICAL_PARTY, before_trigger=False)
-                if funder is not None and recipients:
+                if funders and recipients:
                     emitter, event, evidence_id = self._add_sentence_event(
                         document,
                         sentence,
@@ -1064,14 +1065,19 @@ class PublicMoneyCandidateStage:
                         signals=(MoneyAmountSignal(amount=amount_texts[0]),),
                     )
                     self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
-                    self._add_entity_binding(
-                        emitter,
-                        event,
-                        EventRole.FUNDER,
-                        funder.entity.id,
-                        evidence_id,
-                        signals=(FunderSignal(), LocalSubjectSignal()),
-                    )
+                    for funder in funders:
+                        self._add_entity_binding(
+                            emitter,
+                            event,
+                            EventRole.FUNDER,
+                            funder.entity.id,
+                            evidence_id,
+                            signals=self._frame_argument_signals(
+                                base=FunderSignal(),
+                                argument=funder,
+                                preferred_roles=frozenset({FrameArgumentRole.SUBJECT}),
+                            ),
+                        )
                     for recipient in recipients:
                         self._add_entity_binding(
                             emitter,
@@ -1099,10 +1105,10 @@ class PublicMoneyCandidateStage:
         if lemmas & ownership_lemmas:
             frame = frame_builder.first_frame_for_lemmas(sentence, ownership_lemmas)
             if frame is not None:
-                subject = frame.nearest(
+                subjects = frame.entities(
                     frozenset({EntityKind.PERSON, EntityKind.ORGANIZATION}),
                     before_trigger=True,
-                ) or frame.nearest(
+                ) or frame.entities(
                     frozenset({EntityKind.PERSON, EntityKind.ORGANIZATION}),
                     roles=frozenset({FrameArgumentRole.SUBJECT}),
                 )
@@ -1111,7 +1117,7 @@ class PublicMoneyCandidateStage:
                     before_trigger=False,
                     prepositions=frozenset({"w", "we"}),
                 ) or frame.entities(EntityKind.ORGANIZATION, before_trigger=False)
-                if subject is not None and objects:
+                if subjects and objects:
                     emitter, event, evidence_id = self._add_sentence_event(
                         document,
                         sentence,
@@ -1120,16 +1126,22 @@ class PublicMoneyCandidateStage:
                     )
                     if amount_texts:
                         self._add_amount_binding(emitter, event, amount_texts[0], evidence_id)
-                    self._add_entity_binding(
-                        emitter,
-                        event,
-                        EventRole.SUBJECT,
-                        subject.entity.id,
-                        evidence_id,
-                        signals=(LocalSubjectSignal(),),
-                    )
+                    subject_ids = {subject.entity.id for subject in subjects}
+                    for subject in subjects:
+                        self._add_entity_binding(
+                            emitter,
+                            event,
+                            EventRole.SUBJECT,
+                            subject.entity.id,
+                            evidence_id,
+                            signals=self._frame_argument_signals(
+                                base=LocalSubjectSignal(),
+                                argument=subject,
+                                preferred_roles=frozenset({FrameArgumentRole.SUBJECT}),
+                            ),
+                        )
                     for obj in objects:
-                        if obj.entity.id == subject.entity.id:
+                        if obj.entity.id in subject_ids:
                             continue
                         self._add_entity_binding(
                             emitter,
@@ -1148,6 +1160,20 @@ class PublicMoneyCandidateStage:
                             evidence_id,
                             signals=(),
                         )
+
+    def _frame_argument_signals(
+        self,
+        *,
+        base: Signal,
+        argument: FrameArgument,
+        preferred_roles: frozenset[FrameArgumentRole],
+    ) -> tuple[Signal, ...]:
+        if argument.role in preferred_roles or argument.role is FrameArgumentRole.OTHER:
+            return (base,)
+        return (
+            base,
+            WeakSyntacticBindingSignal(reason=f"frame argument role is {argument.role.value}"),
+        )
 
     def _add_sentence_event(
         self,

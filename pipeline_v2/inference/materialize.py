@@ -505,6 +505,7 @@ class FactAssessmentMaterializer:
             event_probability=event_probability,
             selections=selections,
         )
+        score = min(score, self._selection_quality_cap(selections))
         return base_record, score, tuple(alternatives)
 
     def _primary_score(
@@ -519,6 +520,14 @@ class FactAssessmentMaterializer:
         for selection in selections:
             product *= selection.probability
         return min(1.0, product ** (1.0 / (len(selections) + 1)))
+
+    def _selection_quality_cap(self, selections: tuple[_RoleSelection, ...]) -> float:
+        for selection in selections:
+            if any(
+                signal.polarity is SignalPolarity.NEGATIVE for signal in selection.state.signals
+            ):
+                return 0.19
+        return 1.0
 
     def _record_from_selection(
         self,

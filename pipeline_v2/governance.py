@@ -45,6 +45,15 @@ class HoldingTrigger:
     start_char: int
 
 
+@dataclass(frozen=True, slots=True)
+class _GovernanceCandidates:
+    """Role candidates collected for one sentence, shared across all fact kinds."""
+
+    people: tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...]
+    organizations: tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...]
+    roles: tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...]
+
+
 class GovernanceCandidateStage:
     producer_id = ProducerId("governance_candidate_stage_v2")
     _party_like_organization_names = frozenset(
@@ -221,8 +230,8 @@ class GovernanceCandidateStage:
             kinds = self._candidate_kinds(document, sentence)
             if not kinds:
                 continue
-            combinations = self._candidate_combinations(document, sentence)
-            if not combinations:
+            candidates = self._collect_governance_candidates(document, sentence)
+            if not candidates.people:
                 continue
             evidence = EvidenceSpan(
                 id=document.store.next_evidence_id(),
@@ -234,150 +243,137 @@ class GovernanceCandidateStage:
             )
             document.store.add_evidence(evidence)
 
-            for kind, signals in kinds:
-                viable_combinations = [
-                    (person_id, organization_id, role_id, entity_signals)
-                    for person_id, organization_id, role_id, entity_signals in combinations
-                    if not (
-                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
-                        and organization_id is None
-                        and role_id is None
-                    )
-                    and not (
-                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
-                        and self._is_employment_overlap(signals)
-                        and not self._has_governance_role(document, role_id)
-                    )
-                    and not (
-                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
-                        and self._is_generic_appointment_lemma(signals)
-                        and not self._has_governance_role(document, role_id)
-                        # Successor pattern ("następcą zostanie X") makes 'zostać'
-                        # non-generic even without an explicit governance role entity (Bug 3).
-                        and not self._sentence_has_successor_pattern(document, sentence)
-                    )
-                    and not (
-                        kind == FactKind.PUBLIC_ROLE_HOLDING
-                        and self._is_descriptor_role_self_pair(document, person_id, role_id)
-                    )
-                ]
-                # Successor pattern: "Jej następcą zostanie Agnieszka Paradyż" — the
-                # appointee is the person appearing AFTER the 'zostać' trigger, not a
-                # window entity from the previous dismissal sentence (Bug 3).
+            for kind, kind_signals in kinds:
+                # Event-level admissibility: employment-overlap or generic-appointment
+                # lemmas without a governance role entity present should not produce an event.
+                has_any_governance_role = any(
+                    self._has_governance_role(document, role_id) for role_id, _ in candidates.roles
+                )
                 if (
                     kind == FactKind.PUBLIC_ROLE_APPOINTMENT
-                    and self._sentence_has_successor_pattern(document, sentence)
+                    and self._is_employment_overlap(kind_signals)
+                    and not has_any_governance_role
                 ):
-                    zostac_start = next(
-                        (
-                            document.store.tokens[tid].span.start_char
-                            for tid in sentence.token_ids
-                            if "zostać"
-                            in {analysis.lemma for analysis in document.store.tokens[tid].morph}
-                        ),
-                        None,
-                    )
-                    if zostac_start is not None:
-                        viable_combinations = [
-                            (p, o, r, s)
-                            for p, o, r, s in viable_combinations
-                            if self._person_appears_after_trigger_in_sentence(
-                                document=document,
-                                sentence=sentence,
-                                person_id=p,
-                                trigger_start_char=zostac_start,
-                            )
-                        ]
-                if not viable_combinations:
                     continue
-                combos_by_person: dict[EntityCandidateId, list] = {}
-                for person_id, organization_id, role_id, entity_signals in viable_combinations:
-                    if (
-                        kind == FactKind.PUBLIC_ROLE_APPOINTMENT
-                        and self._is_generic_appointment_lemma(signals)
-                        and self._person_starts_after_dismissal_cue(
-                            document=document,
-                            sentence=sentence,
-                            person_id=person_id,
+                if (
+                    kind == FactKind.PUBLIC_ROLE_APPOINTMENT
+                    and self._is_generic_appointment_lemma(kind_signals)
+                    and not has_any_governance_role
+                    and not self._sentence_has_successor_pattern(document, sentence)
+                ):
+                    continue
+
+                admitted_people = self._annotate_people_for_kind(
+                    document, sentence, kind, kind_signals, candidates.people
+                )
+                if not admitted_people:
+                    continue
+
+                if kind == FactKind.PUBLIC_ROLE_HOLDING:
+                    admitted_people = tuple(
+                        (
+                            pid,
+                            self._merge_binding_signals(
+                                sigs,
+                                (
+                                    WeakSyntacticBindingSignal(
+                                        reason="person candidate duplicates role descriptor"
+                                    ),
+                                )
+                                if any(
+                                    self._is_descriptor_role_self_pair(document, pid, role_id)
+                                    for role_id, _ in candidates.roles
+                                )
+                                else (),
+                            ),
                         )
-                    ):
-                        continue
-                    if kind == FactKind.PUBLIC_ROLE_END and self._person_is_in_exception_clause(
-                        document=document, sentence=sentence, person_id=person_id
-                    ):
-                        continue
-                    combos_by_person.setdefault(person_id, []).append(
-                        (organization_id, role_id, entity_signals)
+                        for pid, sigs in admitted_people
                     )
 
-                for person_id, combos in combos_by_person.items():
-                    if kind == FactKind.PUBLIC_ROLE_END and len(combos_by_person) > 1:
-                        non_self_pair_combos = [
-                            combo
-                            for combo in combos
-                            if not self._is_descriptor_role_self_pair(document, person_id, combo[1])
-                        ]
-                        if non_self_pair_combos:
-                            combos = non_self_pair_combos
-                    if kind == FactKind.PUBLIC_ROLE_END:
-                        combos = self._filter_exit_role_combinations(
-                            document=document,
-                            sentence=sentence,
-                            person_id=person_id,
-                            combinations=combos,
+                # Appointment requires at least an org or a role.
+                if (
+                    kind == FactKind.PUBLIC_ROLE_APPOINTMENT
+                    and not candidates.organizations
+                    and not candidates.roles
+                ):
+                    continue
+
+                # Actors (appointers) are shared across all per-person events.
+                actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                for entity_id, p_sigs in admitted_people:
+                    if self._signals_include_active_subject_context(p_sigs):
+                        actor_bindings[entity_id] = self._merge_binding_signals(
+                            actor_bindings.get(entity_id, ()),
+                            self._actor_binding_signals(p_sigs),
                         )
-                    if not combos:
+
+                # One event per non-actor admitted person.
+                for person_id, person_sigs in admitted_people:
+                    if self._signals_include_active_subject_context(person_sigs):
                         continue
-                    person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                    actor_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-                    organization_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+
+                    person_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {
+                        person_id: self._person_binding_signals(person_sigs),
+                    }
+                    if not person_bindings[person_id]:
+                        continue
+
+                    # Organizations filtered per this person.
+                    org_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
                     context_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
+                    for org_id, org_signals in self._annotate_orgs_for_person(
+                        document, sentence, person_id, candidates.organizations
+                    ):
+                        org_sigs = self._organization_binding_signals(org_signals)
+                        if not org_sigs:
+                            continue
+                        org_bindings[org_id] = org_sigs
+                        if entity_has_lexical_context_proposal(
+                            document, org_id, EntityTag.GENERIC_OWNER
+                        ) or entity_has_lexical_context_proposal(
+                            document, org_id, EntityTag.GOVERNING_BODY
+                        ):
+                            context_bindings[org_id] = org_sigs
+
+                    # Roles filtered per this person (and per kind for ROLE_END).
+                    person_compatible_roles = self._annotate_roles_for_person(
+                        document, sentence, person_id, candidates.roles
+                    )
+                    if kind == FactKind.PUBLIC_ROLE_END:
+                        person_compatible_roles = self._annotate_roles_for_exit_kind(
+                            document, sentence, [person_id], person_compatible_roles
+                        )
+                    if kind == FactKind.PUBLIC_ROLE_HOLDING:
+                        person_compatible_roles = tuple(
+                            (
+                                role_id,
+                                self._merge_binding_signals(
+                                    role_signals,
+                                    (
+                                        WeakSyntacticBindingSignal(
+                                            reason="role descriptor overlaps holder mention"
+                                        ),
+                                    )
+                                    if self._is_descriptor_role_self_pair(
+                                        document, person_id, role_id
+                                    )
+                                    else (),
+                                ),
+                            )
+                            for role_id, role_signals in person_compatible_roles
+                        )
                     role_bindings: dict[EntityCandidateId, tuple[Signal, ...]] = {}
-
-                    for organization_id, role_id, entity_signals in combos:
-                        if self._signals_include_active_subject_context(entity_signals):
-                            actor_bindings[person_id] = self._merge_binding_signals(
-                                actor_bindings.get(person_id, ()),
-                                self._actor_binding_signals(entity_signals),
-                            )
-                        else:
-                            person_bindings[person_id] = self._merge_binding_signals(
-                                person_bindings.get(person_id, ()),
-                                self._person_binding_signals(entity_signals),
-                            )
-                        if organization_id is not None:
-                            organization_signals = self._organization_binding_signals(
-                                entity_signals
-                            )
-                            organization_bindings[organization_id] = self._merge_binding_signals(
-                                organization_bindings.get(organization_id, ()),
-                                organization_signals,
-                            )
-                            is_context_org = entity_has_lexical_context_proposal(
-                                document, organization_id, EntityTag.GENERIC_OWNER
-                            ) or entity_has_lexical_context_proposal(
-                                document, organization_id, EntityTag.GOVERNING_BODY
-                            )
-                            if is_context_org:
-                                context_bindings[organization_id] = self._merge_binding_signals(
-                                    context_bindings.get(organization_id, ()),
-                                    organization_signals,
-                                )
-                        if role_id is not None:
-                            role_bindings[role_id] = self._merge_binding_signals(
-                                role_bindings.get(role_id, ()),
-                                self._role_binding_signals(entity_signals),
-                            )
-
-                    if not person_bindings:
-                        continue
+                    for role_id, role_signals in person_compatible_roles:
+                        role_sigs = self._role_binding_signals(role_signals)
+                        if role_sigs:
+                            role_bindings[role_id] = role_sigs
 
                     emitter = DomainEventEmitter(document, self.producer_id)
                     event = emitter.event(
                         kind=kind,
                         trigger_evidence_id=evidence.id,
                         evidence_ids=(evidence.id,),
-                        signals=signals,
+                        signals=kind_signals,
                     )
                     self._add_governance_bindings(
                         document=document,
@@ -400,15 +396,7 @@ class GovernanceCandidateStage:
                         emitter=emitter,
                         event=event,
                         role=EventRole.ORGANIZATION,
-                        bindings=organization_bindings,
-                        evidence_id=evidence.id,
-                    )
-                    self._add_governance_bindings(
-                        document=document,
-                        emitter=emitter,
-                        event=event,
-                        role=EventRole.ROLE,
-                        bindings=role_bindings,
+                        bindings=org_bindings,
                         evidence_id=evidence.id,
                     )
                     self._add_role_domain_bindings(
@@ -426,7 +414,604 @@ class GovernanceCandidateStage:
                         bindings=context_bindings,
                         evidence_id=evidence.id,
                     )
+                    self._add_governance_bindings(
+                        document=document,
+                        emitter=emitter,
+                        event=event,
+                        role=EventRole.ROLE,
+                        bindings=role_bindings,
+                        evidence_id=evidence.id,
+                    )
         return document
+
+    def _collect_governance_candidates(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+    ) -> _GovernanceCandidates:
+        retriever = SentenceEntityRetriever(document.store)
+        entities = retriever.entities_for_sentence(sentence)
+        window_entities = retriever.entities_for_sentence_window(sentence, before=1, after=0)
+        organization_window_entities = window_entities
+        if self._first_holding_trigger(document, sentence) is not None:
+            organization_window_entities = retriever.entities_for_sentence_window(
+                sentence,
+                before=2,
+                after=0,
+            )
+
+        raw_people = self._select_entities(
+            document,
+            sentence,
+            entities,
+            window_entities,
+            EntityKind.PERSON,
+            local_signal=LocalPersonSignal(),
+            window_signal=WindowPersonSignal(),
+        )
+        if not any(entity.kind is EntityKind.PERSON for entity in entities):
+            if self._first_holding_trigger(document, sentence) is not None:
+                seen_ids = {person.id for person, _ in raw_people}
+                previous_people = self._previous_sentence_holding_people(document, sentence)
+                raw_people = raw_people + tuple(
+                    (person, (WindowPersonSignal(),))
+                    for person in previous_people
+                    if person.id not in seen_ids
+                )
+
+        roles = self._select_entities(
+            document,
+            sentence,
+            entities,
+            window_entities,
+            EntityKind.ROLE,
+            local_signal=LocalRoleSignal(),
+            window_signal=WindowRoleSignal(),
+        )
+        if self._sentence_lemmas(document, sentence) & self._dismissal_lemmas or (
+            self._first_holding_trigger(document, sentence) is not None
+        ):
+            roles = self._augment_local_roles_with_person_titles(
+                document=document,
+                sentence=sentence,
+                local_entities=entities,
+                roles=roles,
+            )
+
+        if not raw_people:
+            proxy = None
+            if not self._sentence_is_first_person_departure_report(document, sentence):
+                proxy = self._synthesize_proxy_person(document, sentence, roles)
+            if proxy is not None:
+                raw_people = (proxy,)
+        if not raw_people:
+            return _GovernanceCandidates(people=(), organizations=(), roles=())
+
+        raw_people = self._expand_conjunct_people(document, sentence, raw_people, entities)
+
+        # Apply zasiadać / holding-clause sentence-level role restriction.
+        roles = self._restrict_roles_to_clause(document, sentence, roles)
+
+        local_people_ids = frozenset(e.id for e in entities if e.kind == EntityKind.PERSON)
+        syntax = SyntaxView(document.store)
+
+        holding_trigger = self._first_holding_trigger(document, sentence)
+        holding_clause_end_char = (
+            self._clause_end_after_char(document, sentence, holding_trigger.start_char)
+            if holding_trigger is not None and holding_trigger.lemma in {"być", "pozostawać"}
+            else None
+        )
+        has_clause_local_post_trigger_person = (
+            holding_trigger is not None
+            and holding_clause_end_char is not None
+            and any(
+                self._entity_source_sentence_id(document, person.id) == sentence.id
+                and holding_trigger.start_char < person.start_char < holding_clause_end_char
+                for person, _ in raw_people
+            )
+        )
+        trigger_token = syntax.first_token_with_lemmas(sentence, self._appointment_lemmas)
+
+        # Build per-person signal lists.
+        people_out: list[tuple[EntityCandidateId, tuple[Signal, ...]]] = []
+        for person, p_signals in raw_people:
+            extra: list[Signal] = []
+            if self._is_implausible_person_candidate(document, person.id):
+                extra.append(ImplausiblePersonBindingSignal())
+
+            person_is_window_only = person.id not in local_people_ids
+
+            if (
+                has_clause_local_post_trigger_person
+                and holding_trigger is not None
+                and holding_clause_end_char is not None
+                and (
+                    self._entity_source_sentence_id(document, person.id) != sentence.id
+                    or not (
+                        holding_trigger.start_char < person.start_char < holding_clause_end_char
+                    )
+                )
+            ):
+                extra.append(
+                    WeakSyntacticBindingSignal(
+                        reason="window person competes with clause-local holder"
+                    )
+                )
+
+            if trigger_token is not None and not person_is_window_only:
+                relation = syntax.dependency_relation(
+                    sentence=sentence,
+                    trigger_token_id=trigger_token.id,
+                    entity_id=person.id,
+                )
+                if relation is not None and syntax.is_subject_relation(relation):
+                    trigger_lemmas = {analysis.lemma for analysis in trigger_token.morph}
+                    if not syntax.is_passive_sentence(sentence, trigger_token.id) and not (
+                        trigger_lemmas & self._generic_appointment_lemmas
+                    ):
+                        extra.append(
+                            WeakSyntacticBindingSignal(reason="person is active subject of cue")
+                        )
+                        appointer_role = self._public_office_role_near_person(
+                            document,
+                            sentence,
+                            person.id,
+                        )
+                        if appointer_role is not None:
+                            extra.append(AppointerContextSignal(role_lemma=appointer_role))
+
+                trigger_lemmas = {analysis.lemma for analysis in trigger_token.morph}
+                re_relation = syntax.dependency_relation(
+                    sentence=sentence,
+                    trigger_token_id=trigger_token.id,
+                    entity_id=person.id,
+                )
+                generic_trigger_subject = bool(
+                    trigger_lemmas & self._generic_appointment_lemmas
+                ) and (
+                    re_relation is not None
+                    and syntax.is_subject_relation(re_relation)
+                    or self._person_is_adjacent_before_trigger(
+                        document=document,
+                        sentence=sentence,
+                        person_id=person.id,
+                        trigger_start_char=trigger_token.span.start_char,
+                    )
+                )
+                if not generic_trigger_subject and self._is_background_local_person(
+                    document,
+                    sentence,
+                    person,
+                    entities,
+                    trigger_token.span.start_char,
+                ):
+                    extra.append(
+                        WeakSyntacticBindingSignal(
+                            reason="person appears in background context before cue"
+                        )
+                    )
+
+            people_out.append((person.id, tuple(p_signals) + tuple(extra)))
+
+        # Organizations with signals.
+        organizations_raw = self._select_entities(
+            document,
+            sentence,
+            entities,
+            organization_window_entities,
+            EntityKind.ORGANIZATION,
+            local_signal=LocalOrganizationSignal(),
+            window_signal=WindowOrganizationSignal(),
+            merge_window_with_local=True,
+        )
+        if self._sentence_has_holding_predicate_title(document, sentence) and not any(
+            entity.kind is EntityKind.ORGANIZATION for entity in entities
+        ):
+            organizations_raw = tuple(
+                (
+                    org,
+                    (LocalOrganizationSignal(), WindowOrganizationSignal())
+                    if org_signals == (WindowOrganizationSignal(),)
+                    else org_signals,
+                )
+                for org, org_signals in organizations_raw
+            )
+        orgs_out: list[tuple[EntityCandidateId, tuple[Signal, ...]]] = []
+        for org, org_signals in organizations_raw:
+            sigs: list[Signal] = list(org_signals)
+            if self._is_party_like_organization(document, org.id):
+                sigs.append(PartyOrganizationSignal())
+            orgs_out.append((org.id, tuple(sigs)))
+
+        roles_out = tuple((role.id, role_signals) for role, role_signals in roles)
+
+        return _GovernanceCandidates(
+            people=tuple(people_out),
+            organizations=tuple(orgs_out),
+            roles=roles_out,
+        )
+
+    def _restrict_roles_to_clause(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        roles: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
+    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
+        """Narrow roles to the zasiadać or holding-trigger clause when one is present."""
+        zasiadac_start = self._first_token_start_char_with_lemmas(
+            document,
+            sentence,
+            frozenset({"zasiadać"}),
+        )
+        if zasiadac_start is not None:
+            clause_start = self._clause_start_before_char(document, sentence, zasiadac_start)
+            clause_end = self._clause_end_after_char(document, sentence, zasiadac_start)
+            clause_roles = tuple(
+                (role, sigs) for role, sigs in roles if clause_start <= role.start_char < clause_end
+            )
+            if clause_roles:
+                return clause_roles
+
+        holding_trigger = self._first_holding_trigger(document, sentence)
+        if holding_trigger is not None and holding_trigger.lemma in {"być", "pozostawać"}:
+            clause_start = self._clause_start_before_char(
+                document,
+                sentence,
+                holding_trigger.start_char,
+            )
+            predicate_roles = tuple(
+                (role, sigs)
+                for role, sigs in roles
+                if (
+                    self._entity_source_sentence_id(document, role.id) == sentence.id
+                    and clause_start <= role.start_char < holding_trigger.start_char
+                )
+            )
+            if predicate_roles:
+                return predicate_roles
+
+        return roles
+
+    def _annotate_people_for_kind(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        kind: FactKind,
+        kind_signals: tuple[Signal, ...],
+        people: tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...],
+    ) -> tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...]:
+        if kind == FactKind.PUBLIC_ROLE_APPOINTMENT and self._sentence_has_successor_pattern(
+            document, sentence
+        ):
+            zostac_start = next(
+                (
+                    document.store.tokens[tid].span.start_char
+                    for tid in sentence.token_ids
+                    if "zostać" in {analysis.lemma for analysis in document.store.tokens[tid].morph}
+                ),
+                None,
+            )
+        else:
+            zostac_start = None
+
+        admitted: list[tuple[EntityCandidateId, tuple[Signal, ...]]] = []
+        for person_id, sigs in people:
+            extra: list[Signal] = []
+            if (
+                kind == FactKind.PUBLIC_ROLE_APPOINTMENT
+                and zostac_start is not None
+                and not self._person_appears_after_trigger_in_sentence(
+                    document=document,
+                    sentence=sentence,
+                    person_id=person_id,
+                    trigger_start_char=zostac_start,
+                )
+            ):
+                extra.append(
+                    WeakSyntacticBindingSignal(
+                        reason="person appears before successor appointment trigger"
+                    )
+                )
+            if (
+                kind == FactKind.PUBLIC_ROLE_APPOINTMENT
+                and self._is_generic_appointment_lemma(kind_signals)
+                and self._person_starts_after_dismissal_cue(
+                    document=document,
+                    sentence=sentence,
+                    person_id=person_id,
+                )
+            ):
+                extra.append(
+                    WeakSyntacticBindingSignal(
+                        reason="person follows dismissal cue in generic appointment sentence"
+                    )
+                )
+            if kind == FactKind.PUBLIC_ROLE_END and self._person_is_in_exception_clause(
+                document=document,
+                sentence=sentence,
+                person_id=person_id,
+            ):
+                extra.append(
+                    WeakSyntacticBindingSignal(reason="person appears in exception clause")
+                )
+            admitted.append((person_id, self._merge_binding_signals(sigs, tuple(extra))))
+        return tuple(admitted)
+
+    def _annotate_roles_for_exit_kind(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        admitted_person_ids: list[EntityCandidateId],
+        roles: tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...],
+    ) -> tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...]:
+        if not roles:
+            return roles
+
+        if len(admitted_person_ids) > 1:
+            roles = tuple(
+                (
+                    role_id,
+                    self._merge_binding_signals(
+                        sigs,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason="role descriptor overlaps one dismissal candidate"
+                            ),
+                        )
+                        if any(
+                            self._is_descriptor_role_self_pair(document, person_id, role_id)
+                            for person_id in admitted_person_ids
+                        )
+                        else (),
+                    ),
+                )
+                for role_id, sigs in roles
+            )
+
+        # Prefer roles locally attached to any admitted person.
+        attached_role_ids = frozenset(
+            role_id
+            for role_id, _ in roles
+            if any(
+                self._role_is_locally_attached_to_person(
+                    document=document,
+                    sentence=sentence,
+                    person_id=person_id,
+                    role_id=role_id,
+                )
+                for person_id in admitted_person_ids
+            )
+        )
+        if attached_role_ids:
+            roles = tuple(
+                (
+                    role_id,
+                    sigs
+                    if role_id in attached_role_ids
+                    else self._merge_binding_signals(
+                        sigs,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason="role is not locally attached to dismissed person"
+                            ),
+                        ),
+                    ),
+                )
+                for role_id, sigs in roles
+            )
+
+        # Prefer non-alternative departure targets.
+        non_alternative_role_ids = frozenset(
+            role_id
+            for role_id, _ in roles
+            if not self._role_is_alternative_departure_target(
+                document=document,
+                sentence=sentence,
+                role_id=role_id,
+            )
+        )
+        if non_alternative_role_ids:
+            roles = tuple(
+                (
+                    role_id,
+                    sigs
+                    if role_id in non_alternative_role_ids
+                    else self._merge_binding_signals(
+                        sigs,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason="role appears as alternative departure target"
+                            ),
+                        ),
+                    ),
+                )
+                for role_id, sigs in roles
+            )
+
+        return roles
+
+    def _annotate_roles_for_person(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+        roles: tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...],
+    ) -> tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...]:
+        """Remove window roles whose source sentence has different observed people."""
+        local_role_ids = frozenset(
+            eid
+            for eid, _ in roles
+            if any(
+                evidence.sentence_id == sentence.id
+                for evidence in document.store.evidence_for_entity(eid)
+            )
+        )
+        result: list[tuple[EntityCandidateId, tuple[Signal, ...]]] = []
+        for role_id, role_signals in roles:
+            if role_id in local_role_ids:
+                result.append((role_id, role_signals))
+                continue
+            role_sentence_id = self._entity_source_sentence_id(document, role_id)
+            if role_sentence_id is None:
+                result.append((role_id, role_signals))
+                continue
+            source_people = self._observed_people_in_sentence(document, role_sentence_id)
+            if source_people and person_id not in source_people:
+                if not self._role_sentence_has_departure_context_by_id(document, role_id):
+                    role_signals = self._merge_binding_signals(
+                        role_signals,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason="window role source sentence belongs to another person"
+                            ),
+                        ),
+                    )
+            result.append((role_id, role_signals))
+        return tuple(result)
+
+    def _annotate_orgs_for_person(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+        organizations: tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...],
+    ) -> tuple[tuple[EntityCandidateId, tuple[Signal, ...]], ...]:
+        """Apply org restriction based on person compatibility and holding clauses."""
+        holding_trigger = self._first_holding_trigger(document, sentence)
+
+        if holding_trigger is None:
+            return tuple(
+                (
+                    org_id,
+                    org_sigs
+                    if self._org_source_compatible_with_person(
+                        document, sentence, person_id, org_id
+                    )
+                    else self._merge_binding_signals(
+                        org_sigs,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason=(
+                                    "window organization source sentence belongs to another person"
+                                )
+                            ),
+                        ),
+                    ),
+                )
+                for org_id, org_sigs in organizations
+            )
+        if holding_trigger.lemma not in {"być", "pozostawać"}:
+            return organizations
+        role_id = self._role_id_for_person_in_sentence(document, sentence, person_id)
+        if role_id is None:
+            return organizations
+        role_spans = [
+            evidence.span
+            for evidence in document.store.evidence_for_entity(role_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        if not role_spans:
+            return organizations
+        role_start_char = min(span.start_char for span in role_spans)
+        if role_start_char >= holding_trigger.start_char:
+            return organizations
+        # Predicate role is before the trigger — check if orgs are in the predicate clause.
+        holding_clause_end = self._clause_end_after_char(
+            document, sentence, holding_trigger.start_char
+        )
+        clause_start = self._clause_start_before_char(
+            document, sentence, holding_trigger.start_char
+        )
+        predicate_orgs = tuple(
+            (org_id, org_sigs)
+            for org_id, org_sigs in organizations
+            if self._entity_source_sentence_id(document, org_id) == sentence.id
+            and clause_start
+            <= self._entity_start_char(document, sentence, org_id)
+            < holding_trigger.start_char
+        )
+        if predicate_orgs:
+            predicate_ids = {org_id for org_id, _ in predicate_orgs}
+            return tuple(
+                (
+                    org_id,
+                    org_sigs
+                    if org_id in predicate_ids
+                    else self._merge_binding_signals(
+                        org_sigs,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason="organization is outside holding predicate clause"
+                            ),
+                        ),
+                    ),
+                )
+                for org_id, org_sigs in organizations
+            )
+        window_orgs = tuple(
+            (org_id, org_sigs)
+            for org_id, org_sigs in organizations
+            if self._entity_source_sentence_id(document, org_id) != sentence.id
+        )
+        trailing_local_orgs = tuple(
+            (org_id, org_sigs)
+            for org_id, org_sigs in organizations
+            if self._entity_source_sentence_id(document, org_id) == sentence.id
+            and self._entity_start_char(document, sentence, org_id) >= holding_clause_end
+        )
+        if window_orgs and trailing_local_orgs:
+            window_ids = {org_id for org_id, _ in window_orgs}
+            return tuple(
+                (
+                    org_id,
+                    org_sigs
+                    if org_id in window_ids
+                    else self._merge_binding_signals(
+                        org_sigs,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason="trailing local organization is outside holder clause"
+                            ),
+                        ),
+                    ),
+                )
+                for org_id, org_sigs in organizations
+            )
+        if trailing_local_orgs and self._sentence_has_possessive_holder_pronoun_before_char(
+            document, sentence, role_start_char
+        ):
+            window_ids = {org_id for org_id, _ in window_orgs}
+            return tuple(
+                (
+                    org_id,
+                    org_sigs
+                    if org_id in window_ids
+                    else self._merge_binding_signals(
+                        org_sigs,
+                        (
+                            WeakSyntacticBindingSignal(
+                                reason="trailing local organization follows possessive holder role"
+                            ),
+                        ),
+                    ),
+                )
+                for org_id, org_sigs in organizations
+            )
+        return organizations
+
+    def _org_source_compatible_with_person(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+        org_id: EntityCandidateId,
+    ) -> bool:
+        """True if the org is local or its source sentence does not belong to a different person."""
+        source_sid = self._entity_source_sentence_id(document, org_id)
+        if source_sid is None or source_sid == sentence.id:
+            return True
+        source_people = self._observed_people_in_sentence(document, source_sid)
+        return not source_people or person_id in source_people
 
     def _add_governance_bindings(
         self,
@@ -498,6 +1083,7 @@ class GovernanceCandidateStage:
                     LocalOrganizationSignal()
                     | WindowOrganizationSignal()
                     | PartyOrganizationSignal()
+                    | WeakSyntacticBindingSignal()
                 ):
                     filtered.append(signal)
         return tuple(filtered)
@@ -506,7 +1092,7 @@ class GovernanceCandidateStage:
         filtered: list[Signal] = []
         for signal in signals:
             match signal:
-                case LocalRoleSignal() | WindowRoleSignal():
+                case LocalRoleSignal() | WindowRoleSignal() | WeakSyntacticBindingSignal():
                     filtered.append(signal)
         return tuple(filtered)
 
@@ -1306,368 +1892,6 @@ class GovernanceCandidateStage:
             end_char=end_char,
         )
 
-    def _candidate_combinations(
-        self,
-        document: ArticleDocument,
-        sentence: Sentence,
-    ) -> tuple[
-        tuple[
-            EntityCandidateId,
-            EntityCandidateId | None,
-            EntityCandidateId | None,
-            tuple[Signal, ...],
-        ],
-        ...,
-    ]:
-        retriever = SentenceEntityRetriever(document.store)
-        entities = retriever.entities_for_sentence(sentence)
-        window_entities = retriever.entities_for_sentence_window(sentence, before=1, after=0)
-        organization_window_entities = window_entities
-        if self._first_holding_trigger(document, sentence) is not None:
-            organization_window_entities = retriever.entities_for_sentence_window(
-                sentence,
-                before=2,
-                after=0,
-            )
-
-        people = self._select_entities(
-            document,
-            sentence,
-            entities,
-            window_entities,
-            EntityKind.PERSON,
-            local_signal=LocalPersonSignal(),
-            window_signal=WindowPersonSignal(),
-        )
-        if not any(entity.kind is EntityKind.PERSON for entity in entities) and (
-            self._first_holding_trigger(document, sentence) is not None
-        ):
-            seen_person_ids = {person.id for person, _signals in people}
-            previous_sentence_people = self._previous_sentence_holding_people(document, sentence)
-            people = people + tuple(
-                (person, (WindowPersonSignal(),))
-                for person in previous_sentence_people
-                if person.id not in seen_person_ids
-            )
-        roles = self._select_entities(
-            document,
-            sentence,
-            entities,
-            window_entities,
-            EntityKind.ROLE,
-            local_signal=LocalRoleSignal(),
-            window_signal=WindowRoleSignal(),
-        )
-        # When no named person is available, synthesise a proxy from a local
-        # governance-role entity or a person-descriptor noun (e.g. "polityk").
-        if not people:
-            proxy = None
-            if not self._sentence_is_first_person_departure_report(document, sentence):
-                proxy = self._synthesize_proxy_person(document, sentence, roles)
-            if proxy is not None:
-                people = (proxy,)
-        if not people:
-            return ()
-
-        # Expand conjunct person entities: "powołano m.in. A, B i C" — each
-        # person in a CONJ chain shares the same event trigger and should be
-        # considered as an independent APPOINTEE candidate.
-        people = self._expand_conjunct_people(document, sentence, people, entities)
-
-        organizations = self._select_entities(
-            document,
-            sentence,
-            entities,
-            organization_window_entities,
-            EntityKind.ORGANIZATION,
-            local_signal=LocalOrganizationSignal(),
-            window_signal=WindowOrganizationSignal(),
-            # Always include window organisations so that a previous-sentence
-            # entity (e.g. WFOŚiGW from sentence N-1) competes with local ones
-            # (e.g. PSL) and can win once party/owner signals are applied.
-            merge_window_with_local=True,
-        )
-        if self._sentence_has_holding_predicate_title(document, sentence) and not any(
-            entity.kind is EntityKind.ORGANIZATION for entity in entities
-        ):
-            organizations = tuple(
-                (
-                    organization,
-                    (LocalOrganizationSignal(), WindowOrganizationSignal())
-                    if signals == (WindowOrganizationSignal(),)
-                    else signals,
-                )
-                for organization, signals in organizations
-            )
-        roles = self._select_entities(
-            document,
-            sentence,
-            entities,
-            window_entities,
-            EntityKind.ROLE,
-            local_signal=LocalRoleSignal(),
-            window_signal=WindowRoleSignal(),
-        )
-        if self._sentence_lemmas(document, sentence) & self._dismissal_lemmas or (
-            self._first_holding_trigger(document, sentence) is not None
-        ):
-            roles = self._augment_local_roles_with_person_titles(
-                document=document,
-                sentence=sentence,
-                local_entities=entities,
-                roles=roles,
-            )
-
-        combinations = []
-        # Identify which persons and roles are sentence-local vs window-only
-        local_people_ids = frozenset(e.id for e in entities if e.kind == EntityKind.PERSON)
-        local_role_ids = frozenset(e.id for e in entities if e.kind == EntityKind.ROLE)
-
-        # For each window role/org, find which sentence they belong to and
-        # whether that sentence has its own person entity.
-        def _role_source_sentence_person_ids(
-            entity: SentenceEntity,
-        ) -> frozenset[EntityCandidateId]:
-            """Return observed people from the entity's own source sentence."""
-            role_sentence_id = document.store.sentence_id_for_offset(entity.start_char)
-            if role_sentence_id is None:
-                return frozenset()
-            person_ids: set[EntityCandidateId] = set()
-            for e in document.store.entity_candidates.values():
-                if e.kind != EntityKind.PERSON or e.grounding != GroundingKind.OBSERVED:
-                    continue
-                for mention in document.store.candidate_mentions(e.id):
-                    evidence = document.store.evidence.get(mention.evidence_id)
-                    if evidence is not None and evidence.sentence_id == role_sentence_id:
-                        person_ids.add(e.id)
-            return frozenset(person_ids)
-
-        syntax = SyntaxView(document.store)
-        holding_trigger = self._first_holding_trigger(document, sentence)
-        holding_clause_end_char = (
-            self._clause_end_after_char(document, sentence, holding_trigger.start_char)
-            if holding_trigger is not None and holding_trigger.lemma in {"być", "pozostawać"}
-            else None
-        )
-        has_clause_local_post_trigger_person = (
-            holding_trigger is not None
-            and holding_clause_end_char is not None
-            and any(
-                self._entity_source_sentence_id(document, person.id) == sentence.id
-                and holding_trigger.start_char < person.start_char < holding_clause_end_char
-                for person, _person_signals in people
-            )
-        )
-        for person, p_signals in people:
-            person_negative_signals: list[Signal] = []
-            if self._is_implausible_person_candidate(document, person.id):
-                person_negative_signals.append(ImplausiblePersonBindingSignal())
-            person_is_window_only = person.id not in local_people_ids
-            if (
-                has_clause_local_post_trigger_person
-                and holding_trigger is not None
-                and holding_clause_end_char is not None
-                and (
-                    self._entity_source_sentence_id(document, person.id) != sentence.id
-                    or not (
-                        holding_trigger.start_char < person.start_char < holding_clause_end_char
-                    )
-                )
-            ):
-                continue
-            # Exclude appointer (nominative subject in active sentence with appointment lemma)
-            trigger_token = syntax.first_token_with_lemmas(sentence, self._appointment_lemmas)
-            if trigger_token is not None and not person_is_window_only:
-                relation = syntax.dependency_relation(
-                    sentence=sentence,
-                    trigger_token_id=trigger_token.id,
-                    entity_id=person.id,
-                )
-                if relation is not None and syntax.is_subject_relation(relation):
-                    trigger_lemmas = {analysis.lemma for analysis in trigger_token.morph}
-                    if not syntax.is_passive_sentence(sentence, trigger_token.id) and not (
-                        trigger_lemmas & self._generic_appointment_lemmas
-                    ):
-                        person_negative_signals.append(
-                            WeakSyntacticBindingSignal(reason="person is active subject of cue")
-                        )
-                trigger_lemmas = (
-                    {analysis.lemma for analysis in trigger_token.morph}
-                    if trigger_token is not None
-                    else set()
-                )
-                generic_trigger_subject = bool(
-                    trigger_lemmas & self._generic_appointment_lemmas
-                ) and (
-                    relation is not None
-                    and syntax.is_subject_relation(relation)
-                    or self._person_is_adjacent_before_trigger(
-                        document=document,
-                        sentence=sentence,
-                        person_id=person.id,
-                        trigger_start_char=trigger_token.span.start_char,
-                    )
-                )
-                if not generic_trigger_subject and self._is_background_local_person(
-                    document,
-                    sentence,
-                    person,
-                    entities,
-                    trigger_token.span.start_char,
-                ):
-                    continue
-
-            role_candidates = self._role_candidates_for_person(
-                document=document,
-                sentence=sentence,
-                person=person,
-                roles=roles,
-                local_people_ids=local_people_ids,
-                local_role_ids=local_role_ids,
-                role_source_sentence_person_ids=_role_source_sentence_person_ids,
-                trigger_start_char=(
-                    trigger_token.span.start_char if trigger_token is not None else None
-                ),
-            )
-            if not role_candidates:
-                role_candidates = ((None, ()),)
-
-            for role, r_signals in role_candidates:
-                organization_candidates = self._organization_candidates_for_person(
-                    document=document,
-                    sentence=sentence,
-                    person=person,
-                    role=role,
-                    organizations=organizations,
-                    trigger_start_char=(
-                        trigger_token.span.start_char if trigger_token is not None else None
-                    ),
-                )
-                if not organization_candidates:
-                    organization_candidates = ((None, ()),)
-                for org, o_signals in organization_candidates:
-                    signals = [*p_signals, *person_negative_signals, *o_signals, *r_signals]
-                    appointer_role = self._public_office_role_near_person(
-                        document,
-                        sentence,
-                        person.id,
-                    )
-                    if (
-                        not person_is_window_only
-                        and org is not None
-                        and org.id not in frozenset(e.id for e in entities)
-                        and appointer_role is not None
-                        and (
-                            role is None
-                            or role.id not in local_role_ids
-                            or not self._has_governance_role(document, role.id)
-                        )
-                    ):
-                        signals.append(
-                            WeakSyntacticBindingSignal(reason="public office actor context")
-                        )
-                        signals.append(AppointerContextSignal(role_lemma=appointer_role))
-                    if (
-                        not person_is_window_only
-                        and org is not None
-                        and org.id not in frozenset(e.id for e in entities)
-                        and role is not None
-                        and role.id not in local_role_ids
-                    ):
-                        signals.append(
-                            WeakSyntacticBindingSignal(
-                                reason="local person with only window organization and role"
-                            )
-                        )
-                        if appointer_role is not None:
-                            signals.append(AppointerContextSignal(role_lemma=appointer_role))
-                    if org is not None and self._is_party_like_organization(document, org.id):
-                        signals.append(PartyOrganizationSignal())
-                    combinations.append(
-                        (
-                            person.id,
-                            org.id if org else None,
-                            role.id if role else None,
-                            tuple(signals),
-                        )
-                    )
-        return tuple(combinations)
-
-    def _role_candidates_for_person(
-        self,
-        *,
-        document: ArticleDocument,
-        sentence: Sentence,
-        person: SentenceEntity,
-        roles: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
-        local_people_ids: frozenset[EntityCandidateId],
-        local_role_ids: frozenset[EntityCandidateId],
-        role_source_sentence_person_ids,
-        trigger_start_char: int | None,
-    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
-        compatible_roles: list[tuple[SentenceEntity, tuple[Signal, ...]]] = []
-        for role, role_signals in roles:
-            person_is_window_only = person.id not in local_people_ids
-            if (
-                self._sentence_has_successor_pattern(document, sentence)
-                and role.id in local_role_ids
-                and self._role_has_current_descriptor(document, sentence, role)
-            ):
-                continue
-            if person_is_window_only and local_people_ids and role.id in local_role_ids:
-                continue
-            if (
-                role.id not in local_role_ids
-                and (role_sentence_people := role_source_sentence_person_ids(role))
-                and person.id not in role_sentence_people
-                # Succession pattern: if the role's source sentence has departure
-                # language ("pożegnała się ze stanowiskiem", "odszedł" etc.) the
-                # position is vacated and the current sentence's person may claim it.
-                and not self._role_sentence_has_departure_context(document, role)
-            ):
-                continue
-            compatible_roles.append((role, role_signals))
-        if not compatible_roles:
-            return ()
-        zasiadac_start_char = self._first_token_start_char_with_lemmas(
-            document,
-            sentence,
-            frozenset({"zasiadać"}),
-        )
-        if zasiadac_start_char is not None:
-            clause_start_char = self._clause_start_before_char(
-                document,
-                sentence,
-                zasiadac_start_char,
-            )
-            clause_end_char = self._clause_end_after_char(document, sentence, zasiadac_start_char)
-            zasiadac_roles = [
-                (role, role_signals)
-                for role, role_signals in compatible_roles
-                if clause_start_char <= role.start_char < clause_end_char
-            ]
-            if zasiadac_roles:
-                return tuple(zasiadac_roles)
-        holding_trigger = self._first_holding_trigger(document, sentence)
-        if holding_trigger is not None and holding_trigger.lemma in {"być", "pozostawać"}:
-            clause_start_char = self._clause_start_before_char(
-                document,
-                sentence,
-                holding_trigger.start_char,
-            )
-            predicate_roles = [
-                (role, role_signals)
-                for role, role_signals in compatible_roles
-                if (
-                    self._entity_source_sentence_id(document, role.id) == sentence.id
-                    and clause_start_char <= role.start_char < holding_trigger.start_char
-                )
-            ]
-            if predicate_roles:
-                return tuple(predicate_roles)
-        _ = trigger_start_char
-        return tuple(compatible_roles)
-
     def _role_has_current_descriptor(
         self,
         document: ArticleDocument,
@@ -1687,117 +1911,6 @@ class GovernanceCandidateStage:
             if {analysis.lemma for analysis in token.morph} & self._current_descriptor_lemmas:
                 return True
         return False
-
-    def _organization_candidates_for_person(
-        self,
-        *,
-        document: ArticleDocument,
-        sentence: Sentence,
-        person: SentenceEntity,
-        role: SentenceEntity | None,
-        organizations: tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...],
-        trigger_start_char: int | None,
-    ) -> tuple[tuple[SentenceEntity, tuple[Signal, ...]], ...]:
-        # Tag-derived suppression now lives in the inference graph as constraint
-        # factors coupling EntityContext variables to RoleFiller variables; the
-        # producer no longer attaches per-tag context signals here.
-        _ = (person, trigger_start_char)
-        role_sentence_id = (
-            self._entity_source_sentence_id(document, role.id) if role is not None else None
-        )
-        if self._sentence_has_successor_pattern(
-            document, sentence
-        ) and self._sentence_has_current_descriptor(document, sentence):
-            return ()
-        if (
-            role is not None
-            and role_sentence_id != sentence.id
-            and self._sentence_has_successor_pattern(document, sentence)
-        ):
-            return tuple(
-                (organization, signals)
-                for organization, signals in organizations
-                if self._entity_source_sentence_id(document, organization.id) == role_sentence_id
-            )
-        zasiadac_start_char = self._first_token_start_char_with_lemmas(
-            document,
-            sentence,
-            frozenset({"zasiadać"}),
-        )
-        if role is None:
-            return organizations
-        if zasiadac_start_char is not None:
-            clause_end_char = self._clause_end_after_char(document, sentence, zasiadac_start_char)
-            same_clause_organizations = tuple(
-                (organization, signals)
-                for organization, signals in organizations
-                if role.start_char <= organization.start_char < clause_end_char
-            )
-            if same_clause_organizations:
-                return same_clause_organizations
-        holding_trigger = self._first_holding_trigger(document, sentence)
-        if (
-            holding_trigger is not None
-            and holding_trigger.lemma in {"być", "pozostawać"}
-            and role is not None
-            and role.start_char < holding_trigger.start_char
-        ):
-            holding_clause_end_char = self._clause_end_after_char(
-                document,
-                sentence,
-                holding_trigger.start_char,
-            )
-            clause_start_char = self._clause_start_before_char(
-                document,
-                sentence,
-                holding_trigger.start_char,
-            )
-            predicate_organizations = tuple(
-                (organization, signals)
-                for organization, signals in organizations
-                if (
-                    self._entity_source_sentence_id(document, organization.id) == sentence.id
-                    and clause_start_char <= organization.start_char < holding_trigger.start_char
-                )
-            )
-            if predicate_organizations:
-                return predicate_organizations
-            window_organizations = tuple(
-                (organization, signals)
-                for organization, signals in organizations
-                if self._entity_source_sentence_id(document, organization.id) != sentence.id
-            )
-            trailing_local_organizations = tuple(
-                (organization, signals)
-                for organization, signals in organizations
-                if (
-                    self._entity_source_sentence_id(document, organization.id) == sentence.id
-                    and organization.start_char >= holding_clause_end_char
-                )
-            )
-            if window_organizations and trailing_local_organizations:
-                return window_organizations
-            if trailing_local_organizations and (
-                self._sentence_has_possessive_holder_pronoun_before_char(
-                    document,
-                    sentence,
-                    role.start_char,
-                )
-            ):
-                return window_organizations
-        return organizations
-
-    def _sentence_has_current_descriptor(
-        self,
-        document: ArticleDocument,
-        sentence: Sentence,
-    ) -> bool:
-        if self._sentence_lemmas(document, sentence) & self._current_descriptor_lemmas:
-            return True
-        return any(
-            document.store.tokens[token_id].text.casefold().startswith("dotychczas")
-            for token_id in sentence.token_ids
-        )
 
     def _sentence_has_possessive_holder_pronoun_before_char(
         self,
@@ -2049,6 +2162,77 @@ class GovernanceCandidateStage:
             if evidence.sentence_id is not None:
                 return evidence.sentence_id
         return None
+
+    def _role_sentence_has_departure_context_by_id(
+        self,
+        document: ArticleDocument,
+        role_id: EntityCandidateId,
+    ) -> bool:
+        sentence_id = self._entity_source_sentence_id(document, role_id)
+        if sentence_id is None:
+            return False
+        sentence = document.store.sentences.get(sentence_id)
+        if sentence is None:
+            return False
+        departure_lemmas = self._dismissal_lemmas | {"pożegnać"}
+        return bool(self._sentence_lemmas(document, sentence) & departure_lemmas)
+
+    def _observed_people_in_sentence(
+        self,
+        document: ArticleDocument,
+        sentence_id: SentenceId,
+    ) -> frozenset[EntityCandidateId]:
+        people: set[EntityCandidateId] = set()
+        for candidate in document.store.candidates_by_kind(EntityKind.PERSON):
+            if candidate.grounding is not GroundingKind.OBSERVED:
+                continue
+            for mention in document.store.candidate_mentions(candidate.id):
+                evidence = document.store.evidence.get(mention.evidence_id)
+                if evidence is not None and evidence.sentence_id == sentence_id:
+                    people.add(candidate.id)
+        return frozenset(people)
+
+    def _role_id_for_person_in_sentence(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        person_id: EntityCandidateId,
+    ) -> EntityCandidateId | None:
+        """Return the first role entity locally attached just before this person."""
+        person_spans = [
+            evidence.span
+            for evidence in document.store.evidence_for_entity(person_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        if not person_spans:
+            return None
+        person_start = min(span.start_char for span in person_spans)
+        closest_role_id: EntityCandidateId | None = None
+        closest_end: int = -1
+        for candidate in document.store.candidates_by_kind(EntityKind.ROLE):
+            for evidence in document.store.evidence_for_entity(candidate.id):
+                if evidence.sentence_id != sentence.id:
+                    continue
+                if evidence.span.end_char <= person_start and evidence.span.end_char > closest_end:
+                    closest_end = evidence.span.end_char
+                    closest_role_id = candidate.id
+        return closest_role_id
+
+    def _entity_start_char(
+        self,
+        document: ArticleDocument,
+        sentence: Sentence,
+        entity_id: EntityCandidateId,
+    ) -> int:
+        spans = [
+            evidence.span
+            for evidence in document.store.evidence_for_entity(entity_id)
+            if evidence.sentence_id == sentence.id
+        ]
+        if spans:
+            return min(span.start_char for span in spans)
+        spans = [evidence.span for evidence in document.store.evidence_for_entity(entity_id)]
+        return min((span.start_char for span in spans), default=0)
 
     def _sentence_has_governance_role_entity(
         self,

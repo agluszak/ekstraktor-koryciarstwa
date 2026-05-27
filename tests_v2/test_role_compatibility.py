@@ -3,8 +3,8 @@ from __future__ import annotations
 from pipeline_v2.candidates import (
     ArgumentBindingCandidate,
     EntityCandidate,
+    EntityFactArgument,
     EntityFiller,
-    EventCandidate,
 )
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.ids import (
@@ -12,23 +12,100 @@ from pipeline_v2.ids import (
     DocumentId,
     EntityCandidateId,
     EventCandidateId,
-    InferenceStateId,
     ProducerId,
 )
-from pipeline_v2.inference.factor_builders import FactInferenceGraphBuilder
-from pipeline_v2.inference.graph_spec import InferenceFactorKind
+from pipeline_v2.inference.stage import ProbabilisticInferenceStage
 from pipeline_v2.types import (
     EntityKind,
     EventRole,
+    FactArgumentRole,
     FactKind,
     GroundingKind,
-    Signal,
+    PublicEmploymentLemmaSignal,
     WeakSyntacticBindingSignal,
 )
 
 
-def test_role_compatibility_factor_penalizes_party_in_organization_slot() -> None:
-    document = ArticleDocument(
+def test_inference_prefers_real_organization_over_party_for_governance_target() -> None:
+    document = _document()
+    person_id = _entity(document, "person", EntityKind.PERSON, "Jan Kowalski")
+    organization_id = _entity(
+        document,
+        "organization",
+        EntityKind.ORGANIZATION,
+        "Totalizator Sportowy",
+    )
+    party_id = _entity(document, "party", EntityKind.POLITICAL_PARTY, "PSL")
+    event_id = EventCandidateId("governance-event")
+    document.store.add_event_candidate(_event(event_id, FactKind.PUBLIC_ROLE_APPOINTMENT))
+    _binding(document, event_id, EventRole.PERSON, person_id)
+    _binding(document, event_id, EventRole.ORGANIZATION, organization_id)
+    _binding(document, event_id, EventRole.ORGANIZATION, party_id)
+
+    ProbabilisticInferenceStage().run(document)
+
+    governance_facts = [
+        record
+        for record in document.materialized_fact_records
+        if record.kind is FactKind.PUBLIC_ROLE_APPOINTMENT
+    ]
+    assert governance_facts
+    organization_arguments = set()
+    for record in governance_facts:
+        for argument in record.arguments:
+            match argument:
+                case EntityFactArgument(role=FactArgumentRole.ORGANIZATION, entity_id=entity_id):
+                    organization_arguments.add(entity_id)
+    assert organization_id in organization_arguments
+    assert party_id not in organization_arguments
+
+
+def test_weak_required_role_binding_lowers_materialized_public_employment_score() -> None:
+    strong_document = _employment_document(employee_signals=())
+    weak_document = _employment_document(
+        employee_signals=(WeakSyntacticBindingSignal(reason="test weak binding"),)
+    )
+
+    ProbabilisticInferenceStage().run(strong_document)
+    ProbabilisticInferenceStage().run(weak_document)
+
+    assert _top_fact_score(strong_document, FactKind.PUBLIC_EMPLOYMENT) > _top_fact_score(
+        weak_document,
+        FactKind.PUBLIC_EMPLOYMENT,
+    )
+
+
+def _employment_document(*, employee_signals) -> ArticleDocument:
+    document = _document()
+    employee_id = _entity(document, "employee", EntityKind.PERSON, "Jan Kowalski")
+    workplace_id = _entity(document, "workplace", EntityKind.ORGANIZATION, "Urząd")
+    event_id = EventCandidateId("employment-event")
+    document.store.add_event_candidate(
+        _event(
+            event_id,
+            FactKind.PUBLIC_EMPLOYMENT,
+            signals=(PublicEmploymentLemmaSignal(lemma="zatrudnić"),),
+        )
+    )
+    _binding(document, event_id, EventRole.EMPLOYEE, employee_id, signals=employee_signals)
+    _binding(document, event_id, EventRole.WORKPLACE, workplace_id)
+    return document
+
+
+def _top_fact_score(document: ArticleDocument, kind: FactKind) -> float:
+    scores = [
+        assessment.assessment.score
+        for assessment in document.fact_assessments
+        if any(
+            record.id == assessment.materialized_fact_id and record.kind is kind
+            for record in document.materialized_fact_records
+        )
+    ]
+    return max(scores, default=0.0)
+
+
+def _document() -> ArticleDocument:
+    return ArticleDocument(
         document_id=DocumentId("doc"),
         source_url=None,
         title="Title",
@@ -37,190 +114,55 @@ def test_role_compatibility_factor_penalizes_party_in_organization_slot() -> Non
         paragraphs=("Text.",),
     )
 
-    # 1. Add Person entity (compatible with EventRole.PERSON)
+
+def _entity(
+    document: ArticleDocument,
+    suffix: str,
+    kind: EntityKind,
+    canonical_hint: str,
+) -> EntityCandidateId:
+    entity_id = EntityCandidateId(f"entity-{suffix}")
     document.store.add_entity_candidate(
         EntityCandidate(
-            id=EntityCandidateId("person-1"),
-            kind=EntityKind.PERSON,
+            id=entity_id,
+            kind=kind,
             mention_ids=(),
-            canonical_hint="Jan Kowalski",
+            canonical_hint=canonical_hint,
             grounding=GroundingKind.OBSERVED,
             source=ProducerId("test"),
         )
     )
+    return entity_id
 
-    # 2. Add Organization entity (compatible with EventRole.ORGANIZATION)
-    document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("org-1"),
-            kind=EntityKind.ORGANIZATION,
-            mention_ids=(),
-            canonical_hint="Totalizator Sportowy",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("test"),
-        )
+
+def _event(event_id: EventCandidateId, kind: FactKind, *, signals=()):
+    from pipeline_v2.candidates import EventCandidate
+
+    return EventCandidate(
+        id=event_id,
+        kind=kind,
+        trigger_evidence_id=None,
+        evidence_ids=(),
+        source=ProducerId("test"),
+        signals=signals,
     )
 
-    # 3. Add Party entity (incompatible with EventRole.ORGANIZATION)
-    document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("party-1"),
-            kind=EntityKind.POLITICAL_PARTY,
-            mention_ids=(),
-            canonical_hint="PSL",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("test"),
-        )
-    )
 
-    # 4. Add PUBLIC_ROLE_APPOINTMENT event candidate
-    event_id = EventCandidateId("event-1")
-    document.store.add_event_candidate(
-        EventCandidate(
-            id=event_id,
-            kind=FactKind.PUBLIC_ROLE_APPOINTMENT,
-            trigger_evidence_id=None,
-            evidence_ids=(),
-            source=ProducerId("test"),
-        )
-    )
-
-    # 5. Add bindings
+def _binding(
+    document: ArticleDocument,
+    event_id: EventCandidateId,
+    role: EventRole,
+    entity_id: EntityCandidateId,
+    *,
+    signals=(),
+) -> None:
     document.store.add_argument_binding(
         ArgumentBindingCandidate(
-            id=ArgumentBindingCandidateId("binding-person"),
+            id=ArgumentBindingCandidateId(f"binding-{event_id}-{role.value}-{entity_id}"),
             event_id=event_id,
-            role=EventRole.PERSON,
-            filler=EntityFiller(EntityCandidateId("person-1")),
+            role=role,
+            filler=EntityFiller(entity_id),
             evidence_ids=(),
+            signals=signals,
         )
     )
-    document.store.add_argument_binding(
-        ArgumentBindingCandidate(
-            id=ArgumentBindingCandidateId("binding-org"),
-            event_id=event_id,
-            role=EventRole.ORGANIZATION,
-            filler=EntityFiller(EntityCandidateId("org-1")),
-            evidence_ids=(),
-        )
-    )
-    document.store.add_argument_binding(
-        ArgumentBindingCandidate(
-            id=ArgumentBindingCandidateId("binding-party"),
-            event_id=event_id,
-            role=EventRole.ORGANIZATION,
-            filler=EntityFiller(EntityCandidateId("party-1")),
-            evidence_ids=(),
-        )
-    )
-
-    fact_graph = FactInferenceGraphBuilder().build(document)
-
-    variable_id = fact_graph.index.role_variable_id_by_event_role[
-        (event_id, EventRole.ORGANIZATION)
-    ]
-    factor = next(
-        f
-        for f in fact_graph.spec.factors
-        if f.kind is InferenceFactorKind.ROLE_COMPATIBILITY and f.variable_ids == (variable_id,)
-    )
-    variable = next((v for v in fact_graph.spec.variables if v.id == variable_id), None)
-    assert variable is not None
-
-    state_ids = [state.id for state in variable.states]
-    assert state_ids[0] == "unknown"
-    assert "entity:org-1" in state_ids
-    assert "entity:party-1" in state_ids
-
-    org_index = state_ids.index(InferenceStateId("entity:org-1"))
-    party_index = state_ids.index(InferenceStateId("entity:party-1"))
-
-    assert factor.potentials[0] == 1.0  # UNKNOWN is allowed (1.0)
-    assert factor.potentials[org_index] == 1.0
-    assert factor.potentials[party_index] == 0.02
-
-
-def test_role_pair_factor_penalizes_weak_required_role_binding() -> None:
-    document = ArticleDocument(
-        document_id=DocumentId("doc"),
-        source_url=None,
-        title="Title",
-        publication_date=None,
-        cleaned_text="Text.",
-        paragraphs=("Text.",),
-    )
-    document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("person-under-test"),
-            kind=EntityKind.PERSON,
-            mention_ids=(),
-            canonical_hint="Jan Kowalski",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("test"),
-        )
-    )
-    document.store.add_entity_candidate(
-        EntityCandidate(
-            id=EntityCandidateId("workplace-under-test"),
-            kind=EntityKind.ORGANIZATION,
-            mention_ids=(),
-            canonical_hint="Urząd",
-            grounding=GroundingKind.OBSERVED,
-            source=ProducerId("test"),
-        )
-    )
-    event_id = EventCandidateId("event-under-test")
-    document.store.add_event_candidate(
-        EventCandidate(
-            id=event_id,
-            kind=FactKind.PUBLIC_EMPLOYMENT,
-            trigger_evidence_id=None,
-            evidence_ids=(),
-            source=ProducerId("test"),
-        )
-    )
-    document.store.add_argument_binding(
-        ArgumentBindingCandidate(
-            id=ArgumentBindingCandidateId("weak-employee"),
-            event_id=event_id,
-            role=EventRole.EMPLOYEE,
-            filler=EntityFiller(EntityCandidateId("person-under-test")),
-            evidence_ids=(),
-            signals=(WeakSyntacticBindingSignal(reason="test weak binding"),),
-        )
-    )
-    document.store.add_argument_binding(
-        ArgumentBindingCandidate(
-            id=ArgumentBindingCandidateId("workplace"),
-            event_id=event_id,
-            role=EventRole.WORKPLACE,
-            filler=EntityFiller(EntityCandidateId("workplace-under-test")),
-            evidence_ids=(),
-        )
-    )
-
-    fact_graph = FactInferenceGraphBuilder().build(document)
-
-    employee_variable_id = fact_graph.index.role_variable_id_by_event_role[
-        (event_id, EventRole.EMPLOYEE)
-    ]
-    workplace_variable_id = fact_graph.index.role_variable_id_by_event_role[
-        (event_id, EventRole.WORKPLACE)
-    ]
-    role_pair_factor = next(
-        factor
-        for factor in fact_graph.spec.factors
-        if factor.kind is InferenceFactorKind.CONSTRAINT
-        and set(factor.variable_ids) == {employee_variable_id, workplace_variable_id}
-        and any(_is_weak_binding_signal(signal) for signal in factor.signals)
-    )
-
-    assert min(role_pair_factor.potentials) < 1.0
-
-
-def _is_weak_binding_signal(signal: Signal) -> bool:
-    match signal:
-        case WeakSyntacticBindingSignal():
-            return True
-        case _:
-            return False

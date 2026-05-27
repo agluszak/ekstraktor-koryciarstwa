@@ -168,7 +168,7 @@ class PublicEmploymentCandidateStage:
             workplace_candidates = self._organization_candidates(
                 document, sentence, retriever, cue.anchor_char
             )
-            if not employee_candidates or not workplace_candidates:
+            if not employee_candidates:
                 continue
 
             role_candidates = self._role_candidates(

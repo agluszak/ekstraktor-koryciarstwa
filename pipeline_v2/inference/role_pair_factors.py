@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from pipeline_v2.candidates import EntityFiller
 from pipeline_v2.document import ArticleDocument
+from pipeline_v2.ids import EntityCandidateId
 from pipeline_v2.types import (
     DomainOverlapSuppressionSignal,
     EventRole,
@@ -125,6 +126,11 @@ class ResolvedSameEntityRolePairPolicy:
             case (EntityFiller(entity_id=left_id), EntityFiller(entity_id=right_id)):
                 if left_id == right_id:
                     return 0.03
+                if _resolved_entity_id(document, left_id) == _resolved_entity_id(
+                    document,
+                    right_id,
+                ):
+                    return 0.03
                 left = document.store.entity_candidates.get(left_id)
                 right = document.store.entity_candidates.get(right_id)
                 if (
@@ -137,6 +143,15 @@ class ResolvedSameEntityRolePairPolicy:
             case _:
                 return None
         return None
+
+
+def _resolved_entity_id(
+    document: ArticleDocument,
+    entity_id: EntityCandidateId,
+) -> EntityCandidateId:
+    from pipeline_v2.inference.factor_builders import resolve_entity_id
+
+    return resolve_entity_id(document.store, entity_id)
 
 
 class RolePairFactorRegistry:

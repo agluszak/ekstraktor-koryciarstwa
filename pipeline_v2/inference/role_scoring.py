@@ -3,17 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from pipeline_v2.public_money_scoring import PublicMoneyRoleSignalPolicy
 from pipeline_v2.types import (
     AppointerContextSignal,
-    CompensationRecipientSignal,
-    CompensationSourceSignal,
-    ContractCounterpartySignal,
-    ContractorSignal,
     ControllerContextSignal,
-    DirectPrepositionalAttachmentSignal,
     EventRole,
     FactKind,
-    FunderSignal,
     ImplausiblePersonBindingSignal,
     LocalActorSignal,
     LocalObjectSignal,
@@ -25,7 +20,6 @@ from pipeline_v2.types import (
     PartyOrganizationSignal,
     PossessiveKinshipSignal,
     ProxyFamilyEntitySignal,
-    RecipientSignal,
     SelfTieContradictionSignal,
     Signal,
     SignalPolarity,
@@ -118,32 +112,6 @@ class NegativeContextRoleSignalPolicy:
                 | SelfTieContradictionSignal()
             ):
                 return -0.85
-            case _:
-                return None
-
-
-@dataclass(frozen=True, slots=True)
-class PublicMoneyRoleSignalPolicy:
-    def applies_to(self, fact_kind: FactKind | None) -> bool:
-        return fact_kind in {
-            FactKind.FUNDING,
-            FactKind.PUBLIC_CONTRACT,
-            FactKind.COMPENSATION,
-        }
-
-    def contribution(self, signal: Signal, *, role: EventRole | None) -> float | None:
-        match signal:
-            case (
-                ContractCounterpartySignal()
-                | ContractorSignal()
-                | FunderSignal()
-                | RecipientSignal()
-                | CompensationSourceSignal()
-                | CompensationRecipientSignal()
-            ):
-                return 0.34
-            case DirectPrepositionalAttachmentSignal():
-                return 0.42
             case _:
                 return None
 

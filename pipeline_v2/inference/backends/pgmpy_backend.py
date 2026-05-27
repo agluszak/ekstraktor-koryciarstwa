@@ -110,7 +110,7 @@ class PgmpyInferenceBackend(InferenceBackend):
         variable_names = {variable.id: str(variable.id) for variable in variables}
         model = FactorGraph()
         model.add_nodes_from(variable_names.values())
-        for factor in factors:
+        for factor in self._combine_same_scope_factors(factors):
             variable_name_list = [
                 variable_names[variable_id] for variable_id in factor.variable_ids
             ]
@@ -165,6 +165,36 @@ class PgmpyInferenceBackend(InferenceBackend):
             for value in potentials
         ]
         return tuple(sanitized)
+
+    def _combine_same_scope_factors(
+        self,
+        factors: tuple[InferenceFactor, ...],
+    ) -> tuple[InferenceFactor, ...]:
+        combined: dict[tuple[InferenceVariableId, ...], InferenceFactor] = {}
+        order: list[tuple[InferenceVariableId, ...]] = []
+        for factor in factors:
+            key = factor.variable_ids
+            existing = combined.get(key)
+            if existing is None:
+                combined[key] = factor
+                order.append(key)
+                continue
+            combined[key] = InferenceFactor(
+                id=existing.id,
+                kind=existing.kind,
+                variable_ids=existing.variable_ids,
+                potentials=tuple(
+                    left * right
+                    for left, right in zip(
+                        existing.potentials,
+                        factor.potentials,
+                        strict=True,
+                    )
+                ),
+                evidence_ids=tuple(dict.fromkeys((*existing.evidence_ids, *factor.evidence_ids))),
+                signals=tuple(dict.fromkeys((*existing.signals, *factor.signals))),
+            )
+        return tuple(combined[key] for key in order)
 
     def _validate_factor_shape(
         self,
