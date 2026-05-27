@@ -187,14 +187,14 @@ class BaseFactPriorPolicy:
     def negative_delta(self, signal: Signal, kind: FactKind) -> float:
         match signal:
             case WeakPossessorSignal():
-                return -0.35
+                return -0.40
             case NegativePossessorSignal():
                 return -0.85
             case ExplicitNonPartyContextSignal():
                 return -1.0
             case MicroAmountSignal():
-                if kind == FactKind.COMPENSATION:
-                    return -0.6
+                if kind in {FactKind.COMPENSATION, FactKind.PUBLIC_CONTRACT, FactKind.FUNDING}:
+                    return -0.95
             case PartyOrganizationSignal():
                 return -0.6
             case DiscourseOrganizationSignal():
@@ -202,7 +202,7 @@ class BaseFactPriorPolicy:
             case EmbeddedInOrganizationNameSignal():
                 return -0.6
             case WeakSyntacticBindingSignal():
-                return -0.35
+                return -0.40
             case AppointerContextSignal():
                 return -0.6
             case ControllerContextSignal():
@@ -213,13 +213,13 @@ class BaseFactPriorPolicy:
                 return -0.95
             case ServiceTransactionSignal():
                 if kind is FactKind.FUNDING:
-                    return -0.35
+                    return -0.40
             case ContractDocumentSignal():
                 if kind is FactKind.FUNDING:
                     return -0.25
             case GrantTransactionSignal():
                 if kind is FactKind.PUBLIC_CONTRACT:
-                    return -0.35
+                    return -0.40
         return 0.0
 
 

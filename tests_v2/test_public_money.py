@@ -21,6 +21,7 @@ from pipeline_v2.types import (
     FundingLemmaSignal,
     GrantTransactionSignal,
     LocalPhraseRecipientSignal,
+    MicroAmountSignal,
     MoneyAmountSignal,
     NerLabel,
     PublicContractLemmaSignal,
@@ -485,3 +486,28 @@ def test_funding_stage_does_not_materialize_same_surface_for_funder_and_recipien
             assert entity_hint_for_role(document, record, "funder") != entity_hint_for_role(
                 document, record, "recipient"
             )
+
+
+def test_public_money_stage_does_not_flag_thousands_amount_as_micro() -> None:
+    text = "Urząd Miasta podpisał umowę z firmą Alfa za 253 tys. zł."
+    document = run_public_money_stage_with_entities(
+        text,
+        (
+            NamedEntitySpan(
+                text="Urząd Miasta",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Urząd Miasta"), text.index("Urząd Miasta") + 12),
+            ),
+            NamedEntitySpan(
+                text="Alfa",
+                label=NerLabel.ORGANIZATION,
+                span=Span(text.index("Alfa"), text.index("Alfa") + 4),
+            ),
+        ),
+    )
+
+    record = first_fact_record(document)
+
+    assert record.kind is FactKind.PUBLIC_CONTRACT
+    assert text_argument(record, "amount") == "253 tys. zł"
+    assert not any(isinstance(s, MicroAmountSignal) for s in record.signals)

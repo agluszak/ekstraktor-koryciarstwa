@@ -491,6 +491,34 @@ class FactAssessmentMaterializer:
                         document.store, right_id
                     ):
                         return None
+                    left_entity = document.store.entity_candidates.get(left_id)
+                    right_entity = document.store.entity_candidates.get(right_id)
+                    if left_entity is not None and right_entity is not None:
+                        left_hint = (left_entity.canonical_hint or "").casefold()
+                        if not left_hint and left_entity.mention_ids:
+                            left_mention = document.store.mentions.get(left_entity.mention_ids[0])
+                            if left_mention is not None:
+                                left_hint = left_mention.text.casefold()
+                        right_hint = (right_entity.canonical_hint or "").casefold()
+                        if not right_hint and right_entity.mention_ids:
+                            right_mention = document.store.mentions.get(right_entity.mention_ids[0])
+                            if right_mention is not None:
+                                right_hint = right_mention.text.casefold()
+                        if left_hint and left_hint == right_hint and constraint.same_canonical_hint_penalty is not None:
+                            return None
+                case (TextFiller(value=left_val), TextFiller(value=right_val)):
+                    if left_val.casefold() == right_val.casefold():
+                        return None
+                case (EntityFiller(entity_id=ent_id), TextFiller(value=text_val)) | (TextFiller(value=text_val), EntityFiller(entity_id=ent_id)):
+                    entity = document.store.entity_candidates.get(ent_id)
+                    if entity is not None:
+                        ent_hint = (entity.canonical_hint or "").casefold()
+                        if not ent_hint and entity.mention_ids:
+                            ent_mention = document.store.mentions.get(entity.mention_ids[0])
+                            if ent_mention is not None:
+                                ent_hint = ent_mention.text.casefold()
+                        if ent_hint == text_val.casefold() and constraint.same_canonical_hint_penalty is not None:
+                            return None
         base_record = self._record_from_selection(
             store=document.store,
             event=event,

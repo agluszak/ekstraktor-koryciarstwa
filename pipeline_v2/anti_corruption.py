@@ -121,15 +121,22 @@ class AntiCorruptionCandidateStage:
             referral_emitted = False
             if matched_referral_lemmas:
                 for institution in institutions:
-                    if not self._has_referral_preposition(
-                        document,
-                        sentence.token_ids,
-                        institution.index,
-                    ):
-                        continue
                     referral_emitted = True
-                    actors, targets = self._select_actors_and_targets(entities, institution)
                     institution_id = self._institution_entity_id(document, sentence, institution)
+
+                    actors = tuple(
+                        entity
+                        for entity in entities
+                        if entity.kind
+                        in {EntityKind.POLITICAL_PARTY, EntityKind.PERSON, EntityKind.ORGANIZATION}
+                        and entity.id != institution_id
+                    )
+                    targets = tuple(
+                        entity
+                        for entity in entities
+                        if entity.kind in {EntityKind.PERSON, EntityKind.ORGANIZATION}
+                        and entity.id != institution_id
+                    )
                     signals: list[Signal] = [
                         AntiCorruptionReferralLemmaSignal(
                             lemma=matched_referral_lemmas[0],
@@ -205,12 +212,13 @@ class AntiCorruptionCandidateStage:
                         if institution.text
                         else None
                     )
-                    target = self._select_investigation_target(
-                        entities,
-                        institution if institution.text else None,
-                        institution_id,
+                    targets = tuple(
+                        entity
+                        for entity in entities
+                        if entity.kind in {EntityKind.PERSON, EntityKind.ORGANIZATION}
+                        and entity.id != institution_id
                     )
-                    if target is None and institution_id is None:
+                    if not targets and institution_id is None:
                         continue
                     signals = [
                         AntiCorruptionInvestigationLemmaSignal(
@@ -223,7 +231,7 @@ class AntiCorruptionCandidateStage:
                     ]
                     if institution.text:
                         signals.append(OversightInstitutionSignal())
-                    if target is not None:
+                    if targets:
                         signals.append(LocalTargetSignal())
                     if institution_id is not None:
                         signals.append(LocalInstitutionSignal())
@@ -233,7 +241,7 @@ class AntiCorruptionCandidateStage:
                         evidence_ids=(evidence.id,),
                         signals=tuple(signals),
                     )
-                    if target is not None:
+                    for target in targets:
                         emitter.bind_entity(
                             event=event,
                             role=EventRole.TARGET,
@@ -325,80 +333,7 @@ class AntiCorruptionCandidateStage:
     def _has_reporting_lemma(self, lemmas: frozenset[str]) -> bool:
         return bool(lemmas & self._reporting_lemmas)
 
-    def _select_actors_and_targets(
-        self,
-        entities: tuple[SentenceEntity, ...],
-        institution: InstitutionMatch,
-    ) -> tuple[tuple[SentenceEntity, ...], tuple[SentenceEntity, ...]]:
-        actors: list[SentenceEntity] = []
-        party_actor = self._nearest_preceding_entity(
-            entities,
-            institution.span.start_char,
-            kinds=frozenset({EntityKind.POLITICAL_PARTY}),
-        )
-        if party_actor is not None:
-            actors.append(party_actor)
-        named_actor = self._nearest_preceding_entity(
-            entities,
-            institution.span.start_char,
-            kinds=frozenset({EntityKind.PERSON, EntityKind.ORGANIZATION}),
-        )
-        if named_actor is not None and all(actor.id != named_actor.id for actor in actors):
-            actors.append(named_actor)
-        actor_ids = frozenset(actor.id for actor in actors)
-        targets = tuple(
-            entity
-            for entity in entities
-            if entity.kind in {EntityKind.PERSON, EntityKind.ORGANIZATION}
-            and entity.start_char >= institution.span.end_char
-            and entity.id not in actor_ids
-        )
-        return tuple(actors), targets
 
-    def _select_investigation_target(
-        self,
-        entities: tuple[SentenceEntity, ...],
-        institution: InstitutionMatch | None,
-        institution_id: EntityCandidateId | None,
-    ) -> SentenceEntity | None:
-        candidates = [
-            entity
-            for entity in entities
-            if entity.kind in {EntityKind.PERSON, EntityKind.ORGANIZATION}
-            and entity.id != institution_id
-        ]
-        if not candidates:
-            return None
-        if institution is None:
-            return min(candidates, key=lambda entity: entity.start_char)
-        return min(
-            candidates,
-            key=lambda entity: abs(entity.start_char - institution.span.start_char),
-        )
-
-    def _nearest_preceding_entity(
-        self,
-        entities: tuple[SentenceEntity, ...],
-        boundary: int,
-        *,
-        kinds: frozenset[EntityKind],
-    ) -> SentenceEntity | None:
-        for entity in reversed(entities):
-            if entity.kind in kinds and entity.start_char < boundary:
-                return entity
-        return None
-
-    def _nearest_following_entity(
-        self,
-        entities: tuple[SentenceEntity, ...],
-        boundary: int,
-        *,
-        kinds: frozenset[EntityKind],
-    ) -> SentenceEntity | None:
-        for entity in entities:
-            if entity.kind in kinds and entity.start_char >= boundary:
-                return entity
-        return None
 
     def _institution_entity_id(
         self,

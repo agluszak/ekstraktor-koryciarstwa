@@ -766,24 +766,24 @@ class FactInferenceGraphBuilder:
             case (EntityFiller(entity_id=left_entity_id), EntityFiller(entity_id=right_entity_id)):
                 if left_entity_id == right_entity_id:
                     return constraint.same_candidate_penalty
+                if resolve_entity_id(document.store, left_entity_id) == resolve_entity_id(
+                    document.store,
+                    right_entity_id,
+                ):
+                    return constraint.resolution_penalty
+                if constraint.same_canonical_hint_penalty is None:
+                    return 1.0
+                left = document.store.entity_candidates.get(left_entity_id)
+                right = document.store.entity_candidates.get(right_entity_id)
+                if left is None or right is None:
+                    return 1.0
+                left_hint = (left.canonical_hint or "").casefold()
+                right_hint = (right.canonical_hint or "").casefold()
+                if left_hint and left_hint == right_hint:
+                    return constraint.same_canonical_hint_penalty
+                return 1.0
             case _:
                 return 1.0
-        if resolve_entity_id(document.store, left_entity_id) == resolve_entity_id(
-            document.store,
-            right_entity_id,
-        ):
-            return constraint.resolution_penalty
-        if constraint.same_canonical_hint_penalty is None:
-            return 1.0
-        left = document.store.entity_candidates.get(left_entity_id)
-        right = document.store.entity_candidates.get(right_entity_id)
-        if left is None or right is None:
-            return 1.0
-        left_hint = (left.canonical_hint or "").casefold()
-        right_hint = (right.canonical_hint or "").casefold()
-        if left_hint and left_hint == right_hint:
-            return constraint.same_canonical_hint_penalty
-        return 1.0
 
     def _semantic_role_support_factor(
         self,

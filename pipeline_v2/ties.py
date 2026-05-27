@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pipeline_v2.binding_emission import (
+    EntityBindingGroup,
+    emit_entity_binding_groups,
+)
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
-from pipeline_v2.ids import EntityCandidateId, ProducerId
+from pipeline_v2.ids import EntityCandidateId, EvidenceId, ProducerId
 from pipeline_v2.nlp import EvidenceSpan
 from pipeline_v2.retrieval import SentenceEntity, SentenceEntityRetriever
 from pipeline_v2.types import (
@@ -153,17 +157,15 @@ class PersonalTieCandidateStage:
                 continue
             collaborator_lemma = self._collaborator_tie_detail(lemmas)
             if collaborator_lemma is not None:
-                collaborator_pair = self._explicit_tie_participants(
+                collaborator_participants = self._explicit_tie_participants(
                     document=document,
                     sentence=sentence,
                     retriever=retriever,
-                    cue_lemma=collaborator_lemma,
                 )
-                if collaborator_pair is not None:
+                if len(collaborator_participants) >= 2:
                     self._add_explicit_tie(
                         document,
-                        subject=collaborator_pair[0],
-                        object_entity=collaborator_pair[1],
+                        participants=collaborator_participants,
                         sentence=sentence,
                         sentence_id=sentence.id,
                         relationship_detail=None,
@@ -178,8 +180,7 @@ class PersonalTieCandidateStage:
             ):
                 self._add_explicit_tie(
                     document,
-                    subject=candidate_people[0],
-                    object_entity=candidate_people[1],
+                    participants=candidate_people,
                     sentence=sentence,
                     sentence_id=sentence.id,
                     relationship_detail=None,
@@ -220,103 +221,116 @@ class PersonalTieCandidateStage:
         document: ArticleDocument,
         sentence,
         retriever: SentenceEntityRetriever,
-        cue_lemma: str,
-    ) -> tuple[SentenceEntity, SentenceEntity] | None:
+    ) -> tuple[SentenceEntity, ...]:
         local_people = self._observed_people(
             retriever.entities_for_sentence(sentence),
             document,
         )
-        if not local_people:
-            return None
-        cue_start = self._first_lemma_start(document, sentence, cue_lemma)
-        preceding = tuple(person for person in local_people if person.end_char <= cue_start)
-        following = tuple(person for person in local_people if person.start_char >= cue_start)
-        if preceding and following:
-            return (preceding[-1], following[0])
         if len(local_people) >= 2:
-            ordered = sorted(
-                local_people,
-                key=lambda person: (
-                    abs(person.start_char - cue_start),
-                    person.start_char,
-                ),
-            )
-            return (ordered[0], ordered[1])
-        fallback = self._nearest_window_observed_person(
-            document=document,
-            sentence=sentence,
-            retriever=retriever,
-            exclude_ids=frozenset({local_people[0].id}),
+            return local_people
+
+        window_people = self._observed_people(
+            retriever.entities_for_sentence_window(sentence, before=1, after=1),
+            document,
         )
-        if fallback is None:
-            return None
-        local_person = local_people[0]
-        if local_person.start_char < cue_start:
-            return (fallback, local_person)
-        return (local_person, fallback)
+        return window_people
 
     def _add_explicit_tie(
         self,
         document: ArticleDocument,
         *,
-        subject: SentenceEntity,
-        object_entity: SentenceEntity,
+        participants: tuple[SentenceEntity, ...],
         sentence,
         sentence_id,
         relationship_detail: RelationshipDetail | None,
         signal: Signal,
         context_text: str | None = None,
     ) -> None:
+        if len(participants) < 2:
+            return
+
         signals: list[Signal] = [
             signal,
             LocalSubjectSignal(),
             LocalObjectSignal(),
         ]
-        pseudonymous_signal = self._pseudonymous_source_signal(document, sentence, subject)
-        if pseudonymous_signal is not None:
-            signals.append(pseudonymous_signal)
-        evidence_ids = tuple(
-            evidence.id
-            for evidence in document.store.evidence_for_entity(subject.id)
-            if evidence.sentence_id == sentence_id
-        ) or tuple(
-            evidence.id
-            for evidence in document.store.evidence_for_entity(object_entity.id)
-            if evidence.sentence_id == sentence_id
-        )
+
+        # We grab evidence from any participant in the sentence for the trigger
+        evidence_ids = ()
+        for p in participants:
+            evs = tuple(
+                evidence.id
+                for evidence in document.store.evidence_for_entity(p.id)
+                if evidence.sentence_id == sentence_id
+            )
+            if evs:
+                evidence_ids = evs
+                break
+
+        if not evidence_ids:
+            sentence_evidence = EvidenceSpan(
+                id=document.store.next_evidence_id(),
+                text=sentence.text,
+                span=sentence.span,
+                sentence_id=sentence.id,
+                paragraph_index=sentence.paragraph_index,
+                source=self.producer_id,
+            )
+            document.store.add_evidence(sentence_evidence)
+            evidence_ids = (sentence_evidence.id,)
+
+
         emitter = DomainEventEmitter(document, self.producer_id)
-        event = emitter.event(
-            kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
-            trigger_evidence_id=evidence_ids[0] if evidence_ids else None,
-            evidence_ids=evidence_ids,
-            signals=tuple(signals),
-        )
-        emitter.bind_entity(
-            event=event,
-            role=EventRole.SUBJECT,
-            entity_id=subject.id,
-            evidence_ids=evidence_ids,
-        )
-        emitter.bind_entity(
-            event=event,
-            role=EventRole.OBJECT,
-            entity_id=object_entity.id,
-            evidence_ids=evidence_ids,
-        )
-        if relationship_detail is not None:
-            emitter.bind_text(
-                event=event,
-                role=EventRole.RELATIONSHIP_DETAIL,
-                value=relationship_detail.value,
-                evidence_ids=evidence_ids,
-            )
-        if context_text is not None:
-            emitter.bind_text(
-                event=event,
-                role=EventRole.CONTEXT,
-                value=context_text,
-                evidence_ids=evidence_ids,
-            )
+
+        for i in range(len(participants)):
+            for j in range(i + 1, len(participants)):
+                subject = participants[i]
+                object_entity = participants[j]
+
+                event = emitter.event(
+                    kind=FactKind.PERSONAL_OR_POLITICAL_TIE,
+                    trigger_evidence_id=evidence_ids[0] if evidence_ids else None,
+                    evidence_ids=evidence_ids,
+                    signals=tuple(signals),
+                )
+
+                subj_signals: list[Signal] = [LocalSubjectSignal()]
+                obj_signals: list[Signal] = [LocalObjectSignal()]
+
+                subj_pseudo = self._pseudonymous_source_signal(document, sentence, subject)
+                if subj_pseudo is not None:
+                    subj_signals.append(subj_pseudo)
+
+                obj_pseudo = self._pseudonymous_source_signal(document, sentence, object_entity)
+                if obj_pseudo is not None:
+                    obj_signals.append(obj_pseudo)
+
+                emit_entity_binding_groups(
+                    emitter=emitter,
+                    event=event,
+                    evidence_id=evidence_ids[0],
+                    groups=(
+                        EntityBindingGroup(EventRole.SUBJECT, ((subject.id, tuple(subj_signals)),)),
+                        EntityBindingGroup(
+                            EventRole.OBJECT, ((object_entity.id, tuple(obj_signals)),)
+                        ),
+                    ),
+                )
+
+                if relationship_detail is not None:
+                    emitter.bind_text(
+                        event=event,
+                        role=EventRole.RELATIONSHIP_DETAIL,
+                        value=relationship_detail.value,
+                        evidence_ids=evidence_ids,
+                    )
+                if context_text is not None:
+                    emitter.bind_text(
+                        event=event,
+                        role=EventRole.CONTEXT,
+                        value=context_text,
+                        evidence_ids=evidence_ids,
+                    )
 
     def _add_patronage_complaint(
         self,
@@ -632,7 +646,7 @@ class PersonalTieCandidateStage:
             for token_id in sentence.token_ids
             for token in [document.store.tokens[token_id]]
             if any(
-                analysis.lemma in {"oskarżyć", "zarzucić", "zarzucać"} for analysis in token.morph
+                analysis.lemma in self._complaint_verbs or analysis.lemma == "pisać" for analysis in token.morph
             )
         ]
         if not cue_spans:
@@ -803,15 +817,28 @@ class PersonalTieCandidateStage:
             LocalSubjectSignal(),
             LocalObjectSignal(),
         ]
-        evidence_ids = tuple(
-            evidence.id
-            for evidence in document.store.evidence_for_entity(subject.id)
-            if evidence.sentence_id == sentence_id
-        ) or tuple(
-            evidence.id
-            for evidence in document.store.evidence_for_entity(object_entity.id)
-            if evidence.sentence_id == sentence_id
-        )
+        evidence_ids = ()
+        for p in (subject, object_entity):
+            evs = tuple(
+                evidence.id
+                for evidence in document.store.evidence_for_entity(p.id)
+                if evidence.sentence_id == sentence_id
+            )
+            if evs:
+                evidence_ids = evs
+                break
+
+        if not evidence_ids:
+            sentence_evidence = EvidenceSpan(
+                id=document.store.next_evidence_id(),
+                text=sentence.text,
+                span=sentence.span,
+                sentence_id=sentence.id,
+                paragraph_index=sentence.paragraph_index,
+                source=self.producer_id,
+            )
+            document.store.add_evidence(sentence_evidence)
+            evidence_ids = (sentence_evidence.id,)
         emitter = DomainEventEmitter(document, self.producer_id)
         event = emitter.event(
             kind=FactKind.KINSHIP_TIE,

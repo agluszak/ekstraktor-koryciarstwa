@@ -163,7 +163,7 @@ class PublicMoneyCandidateStage:
                             *signals,
                         ]
 
-                        if kind == FactKind.COMPENSATION:
+                        if kind in {FactKind.COMPENSATION, FactKind.PUBLIC_CONTRACT, FactKind.FUNDING}:
                             micro = self._micro_amount_signal(amount_texts[0])
                             if micro is not None:
                                 event_signals.append(micro)

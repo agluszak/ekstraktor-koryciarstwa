@@ -30,6 +30,8 @@ from pipeline_v2.types import (
     PartyMembershipStatusSignal,
     PartyProfileLemmaSignal,
     Signal,
+    WeakSyntacticBindingSignal,
+    WindowFallbackSignal,
 )
 
 
@@ -64,7 +66,7 @@ class PartyCandidateStage:
                 PartyAlias("Lewicy", "Lewica"),
                 PartyAlias("Nowa Lewica", "Nowa Lewica"),
                 PartyAlias("Polska 2050", "Polska 2050"),
-                PartyAlias("Razem", "Razem"),
+                PartyAlias("Razem", "Razem", case_sensitive=True),
                 PartyAlias("SLD", "Sojusz Lewicy Demokratycznej", case_sensitive=True),
                 PartyAlias("Sojusz Lewicy Demokratycznej", "Sojusz Lewicy Demokratycznej"),
                 PartyAlias("TD", "Trzecia Droga", case_sensitive=True),
@@ -207,53 +209,85 @@ class PartyCandidateStage:
             paragraph_index=sentence.paragraph_index,
             source=self.producer_id,
         )
-        entities = SentenceEntityRetriever(document.store).entities_for_sentence(sentence)
-        person = self._direct_affiliation_person(document, sentence, entities, match)
-        if person is not None:
+        retriever = SentenceEntityRetriever(document.store)
+        people = tuple(
+            entity for entity in retriever.entities_for_sentence_window(
+                sentence, before=1, after=0
+            ) 
+            if entity.kind == EntityKind.PERSON
+        )
+        
+        if not self._has_support_context(document, sentence, match):
             document.store.add_evidence(evidence)
-            status = (
-                PartyMembershipStatus.FORMER
-                if self._has_former_context(
-                    document=document,
-                    sentence=sentence,
-                    person=person,
-                    match=match,
+            for person in people:
+                status = (
+                    PartyMembershipStatus.FORMER
+                    if self._has_former_context(
+                        document=document,
+                        sentence=sentence,
+                        person=person,
+                        match=match,
+                    )
+                    else PartyMembershipStatus.UNKNOWN
                 )
-                else PartyMembershipStatus.UNKNOWN
-            )
-            emitter = DomainEventEmitter(document, self.producer_id)
-            event = emitter.event(
-                kind=FactKind.PARTY_MEMBERSHIP,
-                trigger_evidence_id=evidence.id,
-                evidence_ids=(evidence.id,),
-                signals=(
-                    *self._party_membership_signals(document, sentence, match),
-                    PartyMembershipStatusSignal(status=status),
-                ),
-            )
-            emitter.bind_entity(
-                event=event,
-                role=EventRole.SUBJECT,
-                entity_id=person.id,
-                evidence_ids=(evidence.id,),
-            )
-            emitter.bind_entity(
-                event=event,
-                role=EventRole.OBJECT,
-                entity_id=party_id,
-                evidence_ids=(evidence.id,),
-            )
-            emitter.bind_text(
-                event=event,
-                role=EventRole.STATUS,
-                value=status.value,
-                evidence_ids=(evidence.id,),
-                signals=(PartyMembershipStatusSignal(status=status),),
-            )
+                emitter = DomainEventEmitter(document, self.producer_id)
+                event = emitter.event(
+                    kind=FactKind.PARTY_MEMBERSHIP,
+                    trigger_evidence_id=evidence.id,
+                    evidence_ids=(evidence.id,),
+                    signals=(PartyAliasMatchSignal(), PartyMembershipStatusSignal(status=status)),
+                )
+
+                person_signals: list[Signal] = []
+                
+                if match.is_embedded:
+                    person_signals.append(EmbeddedInOrganizationNameSignal())
+                    
+                has_strong_link = False
+                if self._has_profile_context(document, sentence, match):
+                    attached = self._attached_profile_person(document, sentence, people, match)
+                    if attached == person:
+                        person_signals.append(PartyProfileLemmaSignal(lemma=match.alias.alias))
+                        has_strong_link = True
+                elif self._is_directly_attached(document, sentence, person, match):
+                    person_signals.append(DirectPrepositionalAttachmentSignal())
+                    has_strong_link = True
+                    
+                if not has_strong_link:
+                    person_signals.append(WeakSyntacticBindingSignal(reason="no direct attachment"))
+                
+                evidence_for_person = document.store.evidence_for_entity(person.id)
+                distance = 0
+                if evidence_for_person and evidence_for_person[0].sentence_id is not None:
+                    p_sent = document.store.sentences[evidence_for_person[0].sentence_id]
+                    distance = abs(p_sent.sentence_index - sentence.sentence_index)
+                if distance > 0:
+                    person_signals.append(WindowFallbackSignal(distance=distance))
+
+                emitter.bind_entity(
+                    event=event,
+                    role=EventRole.SUBJECT,
+                    entity_id=person.id,
+                    evidence_ids=(evidence.id,),
+                    signals=tuple(person_signals),
+                )
+                emitter.bind_entity(
+                    event=event,
+                    role=EventRole.OBJECT,
+                    entity_id=party_id,
+                    evidence_ids=(evidence.id,),
+                )
+                emitter.bind_text(
+                    event=event,
+                    role=EventRole.STATUS,
+                    value=status.value,
+                    evidence_ids=(evidence.id,),
+                    signals=(PartyMembershipStatusSignal(status=status),),
+                )
+
             return
 
         if self._has_support_context(document, sentence, match):
-            people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
             supported = self._nearest_person(people, match.span.start_char)
             if supported is None:
                 return
@@ -283,46 +317,34 @@ class PartyCandidateStage:
                 evidence_ids=(evidence.id,),
             )
 
-    def _direct_affiliation_person(
+    def _is_directly_attached(
         self,
         document: ArticleDocument,
         sentence: Sentence,
-        entities: tuple[SentenceEntity, ...],
+        person: SentenceEntity,
         match: "PartyAliasMatch",
-    ) -> SentenceEntity | None:
-        people = tuple(entity for entity in entities if entity.kind == EntityKind.PERSON)
-        if self._has_support_context(document, sentence, match):
-            return None
-        previous_person = self._nearest_previous_person(people, match.span.start_char)
-        if previous_person is not None:
+    ) -> bool:
+        if person.start_char < match.span.start_char:
             token_ids = self._tokens_between(
-                document,
-                sentence,
-                previous_person.end_char,
-                match.span.start_char,
+                document, sentence, person.end_char, match.span.start_char
             )
             if len(token_ids) <= 3:
-                between = document.cleaned_text[previous_person.end_char : match.span.start_char]
+                between = document.cleaned_text[person.end_char : match.span.start_char]
                 if re.search(r"\bz\s*$", between.casefold()):
-                    return previous_person
-        if self._has_profile_context(document, sentence, match):
-            p = self._attached_profile_person(document, sentence, people, match)
-            if p is not None:
-                return p
-        following_person = self._nearest_following_person(people, match.span.end_char)
-        if following_person is not None:
+                    return True
+        else:
             token_ids = self._tokens_between(
-                document,
-                sentence,
-                match.span.end_char,
-                following_person.start_char,
+                document, sentence, match.span.end_char, person.start_char
             )
             if len(token_ids) <= 3 and not any(
                 document.store.tokens[token_id].text in {",", ".", ";", ":"}
                 for token_id in token_ids
+            ) and not any(
+                document.store.tokens[token_id].text.casefold() in {"i", "oraz"}
+                for token_id in token_ids
             ):
-                return following_person
-        return None
+                return True
+        return False
 
     def _attached_profile_person(
         self,
@@ -365,29 +387,20 @@ class PartyCandidateStage:
                 previous_person.end_char,
                 match.span.start_char,
             )
-            if not token_ids:
+            if len(token_ids) > 5:
                 return None
-            if not any(document.store.tokens[token_id].text == "," for token_id in token_ids):
+            if any(
+                document.store.tokens[token_id].text in {".", ";", ":"}
+                for token_id in token_ids
+            ):
+                return None
+            if any(
+                document.store.tokens[token_id].text.casefold() in {"i", "oraz"}
+                for token_id in token_ids
+            ):
                 return None
             return previous_person
         return None
-
-    def _party_membership_signals(
-        self,
-        document: ArticleDocument,
-        sentence: Sentence,
-        match: "PartyAliasMatch",
-    ) -> tuple[Signal, ...]:
-        signals: list[Signal] = [PartyAliasMatchSignal()]
-        if self._has_profile_context(document, sentence, match):
-            signals.append(PartyProfileLemmaSignal(lemma=match.alias.alias))
-        else:
-            signals.append(DirectPrepositionalAttachmentSignal())
-
-        if match.is_embedded:
-            signals.append(EmbeddedInOrganizationNameSignal())
-
-        return tuple(signals)
 
     def _has_profile_context(
         self,

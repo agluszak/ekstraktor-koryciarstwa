@@ -149,6 +149,20 @@ def test_party_stage_ignores_lowercase_preposition_po() -> None:
     )
 
 
+def test_party_stage_ignores_lowercase_razem_as_adverb() -> None:
+    text = "Jan Kowalski działał razem z innymi politykami."
+    document = run_party_stage(text, (person_span(text, "Jan Kowalski"),))
+
+    assert (
+        tuple(
+            entity
+            for entity in document.store.entity_candidates.values()
+            if entity.kind == EntityKind.POLITICAL_PARTY
+        )
+        == ()
+    )
+
+
 def test_party_stage_emits_weaker_political_support_for_candidacy_context() -> None:
     text = "Kandydatka PSL Anna Nowak wystartowała w wyborach."
     document = run_party_stage(text, (person_span(text, "Anna Nowak"),))
