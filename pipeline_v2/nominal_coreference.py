@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pipeline_v2.candidates import (
     EntityCandidate,
 )
-from pipeline_v2.catalogues import FAMILY_RELATION_DETAILS
+from pipeline_v2.catalogues import FAMILY_RELATION_DETAILS, SOCIAL_RELATION_DETAILS
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, ProducerId, TokenId
@@ -25,6 +25,7 @@ from pipeline_v2.types import (
     StrongPossessorSignal,
     SyntaxPossessorSignal,
     WeakPossessorSignal,
+    RelationshipDetail,
 )
 
 
@@ -44,17 +45,23 @@ class NominalKinshipCandidateStage:
 
     def run(self, document: ArticleDocument) -> ArticleDocument:
         retriever = SentenceEntityRetriever(document.store)
+        # Łączymy oba słowniki, aby łapać zarówno rodzinę, jak i znajomych
+        combined_relations = {**FAMILY_RELATION_DETAILS, **SOCIAL_RELATION_DETAILS}
+        
         for sentence in document.store.sentences.values():
             for token_id in sentence.token_ids:
                 token = document.store.tokens[token_id]
                 for analysis in token.morph:
-                    if analysis.lemma in FAMILY_RELATION_DETAILS:
+                    if analysis.lemma in combined_relations:
+                        is_social = analysis.lemma in SOCIAL_RELATION_DETAILS
                         self._process_kinship_token(
-                            document,
-                            sentence,
-                            token_id,
-                            analysis.lemma,
-                            retriever,
+                            document=document,
+                            sentence=sentence,
+                            token_id=token_id,
+                            lemma=analysis.lemma,
+                            retriever=retriever,
+                            relationship_detail=combined_relations[analysis.lemma],
+                            is_social=is_social,
                         )
                         break
         return document
@@ -66,6 +73,8 @@ class NominalKinshipCandidateStage:
         token_id: TokenId,
         lemma: str,
         retriever: SentenceEntityRetriever,
+        relationship_detail: RelationshipDetail,
+        is_social: bool,
     ) -> None:
         token = document.store.tokens[token_id]
 
@@ -96,8 +105,6 @@ class NominalKinshipCandidateStage:
                 retriever,
             )
 
-        relationship_detail = FAMILY_RELATION_DETAILS[lemma]
-
         evidence = EvidenceSpan(
             id=document.store.next_evidence_id(),
             text=sentence.text,
@@ -109,18 +116,18 @@ class NominalKinshipCandidateStage:
         document.store.add_evidence(evidence)
 
         if referent_id is None:
-            # Create a proxy entity for the unnamed family member!
-            possessor = document.store.entity_candidates[possessor_id]
-            possessor_name = possessor.canonical_hint or str(possessor_id)
+            # Tworzymy encję-słupa (proxy) dla nienazwanego z imienia członka rodziny/znajomego
+            possessor_entity = document.store.entity_candidates[possessor_id]
+            possessor_name = possessor_entity.canonical_hint or str(possessor_id)
             canonical_hint = f"{lemma} of {possessor_name}"
 
-            # We can create a reference mention for the kinship token
             reference_id = document.store.next_reference_id()
             document.store.add_reference(
                 ReferenceMention(
                     id=reference_id,
                     text=token.text,
-                    kind=ReferenceKind.PROXY_FAMILY_PHRASE,
+                    # Zostawiamy PROXY_FAMILY_PHRASE jako identyfikator referencji dla obu typów
+                    kind=ReferenceKind.PROXY_FAMILY_PHRASE, 
                     evidence_id=evidence.id,
                     sentence_id=sentence.id,
                     token_ids=(token.id,),
@@ -142,8 +149,12 @@ class NominalKinshipCandidateStage:
             )
 
         emitter = DomainEventEmitter(document, self.producer_id)
+        
+        # Emitujemy poprawne zdarzenie w zależności od typu słowa kluczowego
+        fact_kind = FactKind.PERSONAL_OR_POLITICAL_TIE if is_social else FactKind.KINSHIP_TIE
+        
         event = emitter.event(
-            kind=FactKind.KINSHIP_TIE,
+            kind=fact_kind,
             trigger_evidence_id=evidence.id,
             evidence_ids=(evidence.id,),
             signals=tuple(signals),

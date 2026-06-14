@@ -6,7 +6,7 @@ from pipeline_v2.binding_emission import (
     EntityBindingGroup,
     emit_entity_binding_groups,
 )
-from pipeline_v2.catalogues import FAMILY_RELATION_DETAILS
+from pipeline_v2.catalogues import FAMILY_RELATION_DETAILS, SOCIAL_RELATION_DETAILS
 from pipeline_v2.document import ArticleDocument
 from pipeline_v2.domain_emitter import DomainEventEmitter
 from pipeline_v2.ids import EntityCandidateId, ProducerId
@@ -149,10 +149,13 @@ class PersonalTieCandidateStage:
             observed_people = self._observed_people(entities, document)
             candidate_people = self._candidate_people(entities, document)
             lemmas = self._sentence_lemmas(document, sentence)
-            family_detail = self._family_detail(lemmas)
-            if family_detail is not None and not self._kinship_noun_has_possessive_determiner(
+            
+            has_possessive = self._kinship_or_social_noun_has_possessive_determiner(
                 document, sentence, lemmas
-            ):
+            )
+
+            family_detail = self._family_detail(lemmas)
+            if family_detail is not None and not has_possessive:
                 people_for_kinship = observed_people
                 if len(people_for_kinship) < 2:
                     people_for_kinship = self._observed_people(
@@ -170,6 +173,27 @@ class PersonalTieCandidateStage:
                         signal=NamedKinshipLemmaSignal(lemma=family_detail.value),
                     )
                     continue
+
+            social_match = self._social_detail(lemmas)
+            if social_match is not None and not has_possessive:
+                soc_lemma, soc_detail = social_match
+                collaborator_participants = self._explicit_tie_participants(
+                    document=document,
+                    sentence=sentence,
+                    retriever=retriever,
+                )
+                if len(collaborator_participants) >= 2:
+                    self._add_explicit_tie(
+                        document,
+                        participants=collaborator_participants,
+                        sentence=sentence,
+                        sentence_id=sentence.id,
+                        relationship_detail=soc_detail,
+                        signal=ExplicitPatronageLemmaSignal(lemma=soc_lemma),
+                        context_text=soc_lemma,
+                    )
+                    continue
+
             collaborator_lemma = self._collaborator_tie_detail(lemmas)
             if collaborator_lemma is None and "człowiek" in lemmas:
                 if self._has_genitive_entity_adjacent(document, sentence, "człowiek", entities):
@@ -190,6 +214,7 @@ class PersonalTieCandidateStage:
                         signal=ExplicitPatronageLemmaSignal(lemma=collaborator_lemma),
                         context_text=collaborator_lemma,
                     )
+            
             patronage_lemma = self._patronage_detail(lemmas)
             if (
                 patronage_lemma is not None
@@ -205,6 +230,7 @@ class PersonalTieCandidateStage:
                     signal=ExplicitPatronageLemmaSignal(lemma=patronage_lemma),
                     context_text=patronage_lemma,
                 )
+            
             complaint_lemma = self._patronage_complaint_detail(lemmas)
             if complaint_lemma is not None:
                 participants = self._complaint_participant_candidates(
@@ -777,7 +803,7 @@ class PersonalTieCandidateStage:
                         return True
         return False
 
-    def _kinship_noun_has_possessive_determiner(
+    def _kinship_or_social_noun_has_possessive_determiner(
         self,
         document: ArticleDocument,
         sentence,
@@ -785,11 +811,12 @@ class PersonalTieCandidateStage:
     ) -> bool:
         if not (lemmas & self._possessive_determiners):
             return False
-        kinship_lemmas = frozenset(FAMILY_RELATION_DETAILS)
+        # Połączone katalogi rodziny i powiązań społecznych
+        target_lemmas = frozenset(FAMILY_RELATION_DETAILS) | frozenset(SOCIAL_RELATION_DETAILS)
         tokens = [document.store.tokens[tid] for tid in sentence.token_ids]
         for i, token in enumerate(tokens):
             token_lemmas = {a.lemma for a in token.morph}
-            if not (token_lemmas & kinship_lemmas):
+            if not (token_lemmas & target_lemmas):
                 continue
             for j in range(max(0, i - 3), i):
                 prev_lemmas = {a.lemma for a in tokens[j].morph}
@@ -801,6 +828,12 @@ class PersonalTieCandidateStage:
         for lemma, relationship_detail in FAMILY_RELATION_DETAILS.items():
             if lemma in lemmas:
                 return relationship_detail
+        return None
+
+    def _social_detail(self, lemmas: frozenset[str]) -> tuple[str, RelationshipDetail] | None:
+        for lemma, relationship_detail in SOCIAL_RELATION_DETAILS.items():
+            if lemma in lemmas:
+                return lemma, relationship_detail
         return None
 
     def _patronage_detail(self, lemmas: frozenset[str]) -> str | None:

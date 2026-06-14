@@ -27,3 +27,6 @@ Desktop.ini
 
 scratch
 
+*.ipynb
+data_json/
+pipeline_v2/**/*.md
