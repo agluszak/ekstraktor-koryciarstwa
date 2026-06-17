@@ -11,8 +11,8 @@ A convenient, high-level Python wrapper for the `pipeline_v2` NLP extraction eng
 * `coreference_mode` *(str, default: "off")*: Controls the coreference resolution engine. Options: `"off"`, `"light"`, `"stanza"`. *(Note: "stanza" requires significant RAM).*
 * `spacy_model` *(str, default: "pl_core_news_lg")*: The spaCy model used for Named Entity Recognition (NER).
 * `sentence_transformer_model` *(str | None, default: None)*: Optional embeddings model for semantic search enrichment.
-* `exclude_fact_kinds` *(list[str] | None, default: None)*: A blacklist of main fact categories (e.g., `["public_contract", "funding"]`). Facts matching these kinds will not appear in the final output. List of possible values in types.py.
-* `exclude_relationships` *(list[str] | None, default: None)*: A blacklist of specific relationship details (e.g., `["friend", "associate"]`). Any tie fact containing these specific relationship subtypes will be excluded. List of possible values in catalogues.py.
+* `exclude_fact_kinds` *(list[str] | None, default: None)*: A blacklist of main fact categories (e.g., `["public_contract", "funding"]`). Facts matching these kinds will not appear in the final output. List of possible values in pipeline_v2/types.py.
+* `exclude_relationships` *(list[str] | None, default: None)*: A blacklist of specific relationship details (e.g., `["friend", "associate"]`). Any tie fact containing these specific relationship subtypes will be excluded. List of possible values in pipeline_v2/catalogues.py.
 
 ## Usage Example
 
