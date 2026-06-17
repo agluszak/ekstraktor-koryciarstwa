@@ -12,14 +12,14 @@ class ExtractorWrapper:
         coreference_mode: str = "off",
         spacy_model: str = "pl_core_news_lg",
         sentence_transformer_model: str | None = None,
-        target_fact_kinds: list[str] | None = None,
+        exclude_fact_kinds: list[str] | None = None,
         exclude_relationships: list[str] | None = None 
     ) -> None:
         
         self.min_confidence = min_confidence
         self.debug_mode = debug_mode
-        self.target_fact_kinds = target_fact_kinds
-        self.exclude_relationships = exclude_relationships or []
+        self.exclude_fact_kinds = exclude_fact_kinds or [] 
+        self.exclude_relationships = exclude_relationships or [] 
         
         coref_enum = CoreferenceMode(coreference_mode)
         provider = None
@@ -48,13 +48,15 @@ class ExtractorWrapper:
         
         filtered_facts = []
         for fact in raw_json.get("facts", []):
+            # 1. Filtrowanie po pewności (Confidence filter)
             if fact.get("confidence", 0.0) < self.min_confidence:
                 continue
                 
-            if self.target_fact_kinds is not None:
-                if fact.get("kind") not in self.target_fact_kinds:
-                    continue
+            # 2. Wykluczanie typów faktów (Fact kinds blacklist)
+            if fact.get("kind") in self.exclude_fact_kinds:
+                continue
             
+            # 3. Wykluczanie detali relacji (Relationships blacklist)
             if self.exclude_relationships:
                 rel_detail = fact.get("relationship_detail")
                 if rel_detail and rel_detail in self.exclude_relationships:

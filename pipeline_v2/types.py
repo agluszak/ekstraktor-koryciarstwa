@@ -183,6 +183,8 @@ class RelationshipDetail(StrEnum):
     SIBLING = "sibling"
     FAMILY = "family"
     ASSOCIATE = "associate"
+    FRIEND = "friend"
+    BUSINESS_PARTNER = "business_partner"
 
 
 class DependencyRelation(StrEnum):
