@@ -110,23 +110,23 @@ POLITICAL_PARTY_NAMES: Final[frozenset[str]] = frozenset(
 )
 
 FAMILY_RELATION_DETAILS: Final[dict[str, RelationshipDetail]] = {
-    "brat": RelationshipDetail.SIBLING,
-    "córka": RelationshipDetail.CHILD,
-    "dziewczyna": RelationshipDetail.SPOUSE,
+    "brat": RelationshipDetail.FAMILY, # SIBLING
+    "córka": RelationshipDetail.FAMILY, # CHILD
+    "dziewczyna": RelationshipDetail.FAMILY, # SPOUSE
     "kuzyn": RelationshipDetail.FAMILY,
     "kuzynka": RelationshipDetail.FAMILY,
-    "matka": RelationshipDetail.PARENT,
-    "mąż": RelationshipDetail.SPOUSE,
-    "narzeczona": RelationshipDetail.SPOUSE,
-    "narzeczony": RelationshipDetail.SPOUSE,
-    "ojciec": RelationshipDetail.PARENT,
-    "partner": RelationshipDetail.SPOUSE,
-    "partnerka": RelationshipDetail.SPOUSE,
-    "siostra": RelationshipDetail.SIBLING,
-    "syn": RelationshipDetail.CHILD,
+    "matka": RelationshipDetail.FAMILY, # PARENT
+    "mąż": RelationshipDetail.FAMILY, # SPOUSE
+    "narzeczona": RelationshipDetail.FAMILY, # SPOUSE
+    "narzeczony": RelationshipDetail.FAMILY, # SPOUSE
+    "ojciec": RelationshipDetail.FAMILY, # PARENT
+    "partner": RelationshipDetail.FAMILY, # SPOUSE
+    "partnerka": RelationshipDetail.FAMILY, # SPOUSE
+    "siostra": RelationshipDetail.FAMILY, # SIBLING
+    "syn": RelationshipDetail.FAMILY, # CHILD
     "teść": RelationshipDetail.FAMILY,
     "teściowa": RelationshipDetail.FAMILY,
-    "żona": RelationshipDetail.SPOUSE,
+    "żona": RelationshipDetail.FAMILY, # SPOUSE
 }
 
 
@@ -143,24 +143,24 @@ SOCIAL_RELATION_DETAILS: Final[dict[str, RelationshipDetail]] = {
     "kompanka": RelationshipDetail.FRIEND,
     "kumpel": RelationshipDetail.FRIEND,
     "kumpela": RelationshipDetail.FRIEND,
-    "współwłaściciel": RelationshipDetail.BUSINESS_PARTNER,
-    "współwłaścicielka": RelationshipDetail.BUSINESS_PARTNER,
-    "akcjonariusz": RelationshipDetail.BUSINESS_PARTNER,
-    "akcjonariuszka": RelationshipDetail.BUSINESS_PARTNER,
-    "kooperant": RelationshipDetail.BUSINESS_PARTNER,
-    "kooperantka": RelationshipDetail.BUSINESS_PARTNER,
-    "kontrahent": RelationshipDetail.BUSINESS_PARTNER,
-    "kontrahentka": RelationshipDetail.BUSINESS_PARTNER,
-    "współposiadacz": RelationshipDetail.BUSINESS_PARTNER,
-    "współposiadaczka": RelationshipDetail.BUSINESS_PARTNER,
-    "udziałowiec": RelationshipDetail.BUSINESS_PARTNER,
-    "udziałowczyni": RelationshipDetail.BUSINESS_PARTNER,
-    "towarzysz": RelationshipDetail.ASSOCIATE,
-    "towarzyszka": RelationshipDetail.ASSOCIATE,
-    "współuczestnik": RelationshipDetail.ASSOCIATE,
-    "współuczestniczka": RelationshipDetail.ASSOCIATE,
-    "partycypant": RelationshipDetail.ASSOCIATE,
-    "partycypantka": RelationshipDetail.ASSOCIATE,
-    "powiernik": RelationshipDetail.ASSOCIATE,
-    "powierniczka": RelationshipDetail.ASSOCIATE,
+    "współwłaściciel": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "współwłaścicielka": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "akcjonariusz": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "akcjonariuszka": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "kooperant": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "kooperantka": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "kontrahent": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "kontrahentka": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "współposiadacz": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "współposiadaczka": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "udziałowiec": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "udziałowczyni": RelationshipDetail.FRIEND, # BUSINESS_PARTNER
+    "towarzysz": RelationshipDetail.FRIEND, # ASSOCIATE
+    "towarzyszka": RelationshipDetail.FRIEND, # ASSOCIATE
+    "współuczestnik": RelationshipDetail.FRIEND, # ASSOCIATE
+    "współuczestniczka": RelationshipDetail.FRIEND, # ASSOCIATE
+    "partycypant": RelationshipDetail.FRIEND, # ASSOCIATE
+    "partycypantka": RelationshipDetail.FRIEND, # ASSOCIATE
+    "powiernik": RelationshipDetail.FRIEND, # ASSOCIATE
+    "powierniczka": RelationshipDetail.FRIEND, # ASSOCIATE
 }

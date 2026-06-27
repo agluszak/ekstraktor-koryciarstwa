@@ -5,6 +5,7 @@ from typing import List, Optional
 from pipeline_v2.runtime import V2PipelineConfig, build_v2_pipeline, CoreferenceMode
 from pipeline_v2.document import PipelineInput
 from pipeline_v2.output import document_to_slim_json, document_to_json
+from pipeline_v2.types import RelationshipDetail
 
 
 @dataclass
@@ -40,13 +41,16 @@ class ExtractorWrapper:
         spacy_model: str = "pl_core_news_lg",
         sentence_transformer_model: str | None = None,
         exclude_fact_kinds: list[str] | None = None,
-        exclude_relationships: list[str] | None = None 
+        exclude_relationships: list[RelationshipDetail | str] | None = None
     ) -> None:
         
         self.min_confidence = min_confidence
         self.debug_mode = debug_mode
         self.exclude_fact_kinds = exclude_fact_kinds or [] 
-        self.exclude_relationships = exclude_relationships or [] 
+        if exclude_relationships:
+            self.exclude_relationships = [str(rel) for rel in exclude_relationships]
+        else:
+            self.exclude_relationships = []
         
         coref_enum = CoreferenceMode(coreference_mode)
         provider = None
@@ -64,19 +68,15 @@ class ExtractorWrapper:
         
         self._engine = build_v2_pipeline(config)
 
-    # ZMIANA TUTAJ: Zwracamy ExtractorOutput lub dict (w zależności od debug_mode)
     def process_html(self, raw_html: str, source_url: str = "") -> ExtractorOutput | dict:
         pipeline_input = PipelineInput(raw_html=raw_html, source_url=source_url)
         document = self._engine.run_document(pipeline_input)
         
-        # W trybie debug oddajemy surowego JSONa z grafem, bo jest zbyt potężny na proste dataclassy
         if self.debug_mode:
             return document_to_json(document)
             
-        # Pobieramy bazowy słownik z output.py
         raw_json = document_to_slim_json(document)
         
-        # 1. Filtrowanie faktów i pakowanie ich do obiektów PoliticalFact
         fact_objects: List[PoliticalFact] = []
         for fact_dict in raw_json.get("facts", []):
             if fact_dict.get("confidence", 0.0) < self.min_confidence:
@@ -89,12 +89,10 @@ class ExtractorWrapper:
             if self.exclude_relationships and rel_detail and rel_detail in self.exclude_relationships:
                 continue
             
-            # Wypakowujemy słownik do dataclassy za pomocą operatora **
-            # Ignorujemy ewentualne nadmiarowe klucze, których nie ma w naszej klasie
+
             filtered_fact_dict = {k: v for k, v in fact_dict.items() if k in PoliticalFact.__dataclass_fields__}
             fact_objects.append(PoliticalFact(**filtered_fact_dict))
         
-        # 2. Pakowanie całości do finalnego obiektu ExtractorOutput
         output_object = ExtractorOutput(
             url=raw_json.get("url", source_url),
             relevant=raw_json.get("relevant", False),
