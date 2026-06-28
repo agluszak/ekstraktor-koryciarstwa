@@ -76,40 +76,58 @@ class ExtractorWrapper:
     def process_html(self, raw_html: str, source_url: str = "") -> ExtractorOutput | dict:
         pipeline_input = PipelineInput(raw_html=raw_html, source_url=source_url)
         document = self._engine.run_document(pipeline_input)
-
+        
+        # W trybie debug oddajemy surowego JSONa z grafem
         if self.debug_mode:
             return document_to_json(document)
-
+            
         raw_json = document_to_slim_json(document)
-
+        
         fact_objects: List[PoliticalFact] = []
-        for fact_dict in raw_json.get("facts", []):
-            if fact_dict.get("confidence", 0.0) < self.min_confidence:
-                continue
-
-            if fact_dict.get("kind") in self.exclude_fact_kinds:
-                continue
-
-            rel_detail = fact_dict.get("relationship_detail")
-            if (
-                self.exclude_relationships
-                and rel_detail
-                and rel_detail in self.exclude_relationships
-            ):
-                continue
-
-            filtered_fact_dict = {
-                k: v for k, v in fact_dict.items() if k in PoliticalFact.__dataclass_fields__
-            }
-            fact_objects.append(PoliticalFact(**filtered_fact_dict))
+        raw_facts = raw_json.get("facts", [])
+        
+        # 1. Sprawdzamy typ (Type Narrowing) - to uspokaja type checker
+        if isinstance(raw_facts, list):
+            for fact_dict in raw_facts:
+                # Upewniamy się, że pojedynczy fakt jest na 100% słownikiem
+                if not isinstance(fact_dict, dict):
+                    continue
+                
+                confidence = fact_dict.get("confidence", 0.0)
+                # Upewniamy się, że to liczba, a nie np. None
+                if not isinstance(confidence, (int, float)) or confidence < self.min_confidence:
+                    continue
+                    
+                kind = fact_dict.get("kind")
+                if self.exclude_fact_kinds and kind in self.exclude_fact_kinds:
+                    continue
+                
+                rel_detail = fact_dict.get("relationship_detail")
+                if self.exclude_relationships and rel_detail in self.exclude_relationships:
+                    continue
+                
+                # Zabezpieczamy klucze przed byciem np. liczbami w JSON-ie
+                filtered_fact_dict = {
+                    str(k): v for k, v in fact_dict.items() 
+                    if isinstance(k, str) and k in PoliticalFact.__dataclass_fields__
+                }
+                fact_objects.append(PoliticalFact(**filtered_fact_dict))
+        
+        # 2. Bezpieczne przypisanie (Jawne rzutowanie dla dataclassy)
+        url_val = raw_json.get("url", source_url)
+        relevant_val = raw_json.get("relevant", False)
+        score_val = raw_json.get("relevance_score", 0.0)
+        title_val = raw_json.get("title")
+        date_val = raw_json.get("publication_date")
 
         output_object = ExtractorOutput(
-            url=raw_json.get("url", source_url),
-            relevant=raw_json.get("relevant", False),
-            relevance_score=raw_json.get("relevance_score", 0.0),
-            title=raw_json.get("title"),
-            publication_date=raw_json.get("publication_date"),
-            facts=fact_objects,
+            # Wymuszamy konkretne typy przy przypisywaniu wartości
+            url=str(url_val) if url_val is not None else source_url,
+            relevant=bool(relevant_val),
+            relevance_score=float(score_val) if isinstance(score_val, (int, float)) else 0.0,
+            title=str(title_val) if title_val is not None else None,
+            publication_date=str(date_val) if date_val is not None else None,
+            facts=fact_objects
         )
-
+        
         return output_object
