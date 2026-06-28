@@ -328,6 +328,7 @@ def test_benchmark_same_name_party_contrast_scenario() -> None:
         (evidence_id,),
     )
 
+
 @pytest.mark.skip
 def test_benchmark_family_name_overlap_tie_scenario() -> None:
     text = "Marek Kowalski, syn Jana Kowalskiego, pracuje w urzędzie."

@@ -51,6 +51,7 @@ def entity_argument_id(record: FactCandidateRecord, role: str) -> EntityCandidat
     )
     return EntityCandidateId(argument["entity_id"])
 
+
 @pytest.mark.skip
 def test_nominal_kinship_within_40_chars_links_named_referent() -> None:
     text = "Marek Kowalski zatrudnił swoją żonę Annę Nowak w urzędzie."
@@ -95,6 +96,7 @@ def test_nominal_kinship_beyond_40_chars_creates_proxy_instead() -> None:
     subject_entity = document.store.entity_candidates[subject_id]
     assert subject_entity.grounding == GroundingKind.PROXY
     assert subject_entity.canonical_hint == "żona of Marek Kowalski"
+
 
 @pytest.mark.skip
 def test_nominal_kinship_copular_clause_uses_discourse_subject() -> None:
