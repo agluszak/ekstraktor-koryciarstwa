@@ -149,7 +149,7 @@ class PersonalTieCandidateStage:
             observed_people = self._observed_people(entities, document)
             candidate_people = self._candidate_people(entities, document)
             lemmas = self._sentence_lemmas(document, sentence)
-            
+
             has_possessive = self._kinship_or_social_noun_has_possessive_determiner(
                 document, sentence, lemmas
             )
@@ -214,7 +214,7 @@ class PersonalTieCandidateStage:
                         signal=ExplicitPatronageLemmaSignal(lemma=collaborator_lemma),
                         context_text=collaborator_lemma,
                     )
-            
+
             patronage_lemma = self._patronage_detail(lemmas)
             if (
                 patronage_lemma is not None
@@ -230,7 +230,7 @@ class PersonalTieCandidateStage:
                     signal=ExplicitPatronageLemmaSignal(lemma=patronage_lemma),
                     context_text=patronage_lemma,
                 )
-            
+
             complaint_lemma = self._patronage_complaint_detail(lemmas)
             if complaint_lemma is not None:
                 participants = self._complaint_participant_candidates(

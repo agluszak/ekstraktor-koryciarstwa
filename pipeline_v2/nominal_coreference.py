@@ -21,11 +21,11 @@ from pipeline_v2.types import (
     NegativePossessorSignal,
     NominalKinshipSignal,
     ReferenceKind,
+    RelationshipDetail,
     Signal,
     StrongPossessorSignal,
     SyntaxPossessorSignal,
     WeakPossessorSignal,
-    RelationshipDetail,
 )
 
 
@@ -47,7 +47,7 @@ class NominalKinshipCandidateStage:
         retriever = SentenceEntityRetriever(document.store)
         # Łączymy oba słowniki, aby łapać zarówno rodzinę, jak i znajomych
         combined_relations = {**FAMILY_RELATION_DETAILS, **SOCIAL_RELATION_DETAILS}
-        
+
         for sentence in document.store.sentences.values():
             for token_id in sentence.token_ids:
                 token = document.store.tokens[token_id]
@@ -127,7 +127,7 @@ class NominalKinshipCandidateStage:
                     id=reference_id,
                     text=token.text,
                     # Zostawiamy PROXY_FAMILY_PHRASE jako identyfikator referencji dla obu typów
-                    kind=ReferenceKind.PROXY_FAMILY_PHRASE, 
+                    kind=ReferenceKind.PROXY_FAMILY_PHRASE,
                     evidence_id=evidence.id,
                     sentence_id=sentence.id,
                     token_ids=(token.id,),
@@ -149,10 +149,10 @@ class NominalKinshipCandidateStage:
             )
 
         emitter = DomainEventEmitter(document, self.producer_id)
-        
+
         # Emitujemy poprawne zdarzenie w zależności od typu słowa kluczowego
         fact_kind = FactKind.PERSONAL_OR_POLITICAL_TIE if is_social else FactKind.KINSHIP_TIE
-        
+
         event = emitter.event(
             kind=fact_kind,
             trigger_evidence_id=evidence.id,
