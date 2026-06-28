@@ -77,7 +77,7 @@ class ExtractorWrapper:
         pipeline_input = PipelineInput(raw_html=raw_html, source_url=source_url)
         document = self._engine.run_document(pipeline_input)
         
-        # W trybie debug oddajemy surowego JSONa z grafem
+        
         if self.debug_mode:
             return document_to_json(document)
             
@@ -86,15 +86,15 @@ class ExtractorWrapper:
         fact_objects: List[PoliticalFact] = []
         raw_facts = raw_json.get("facts", [])
         
-        # 1. Sprawdzamy typ (Type Narrowing) - to uspokaja type checker
+        
         if isinstance(raw_facts, list):
             for fact_dict in raw_facts:
-                # Upewniamy się, że pojedynczy fakt jest na 100% słownikiem
+                
                 if not isinstance(fact_dict, dict):
                     continue
                 
                 confidence = fact_dict.get("confidence", 0.0)
-                # Upewniamy się, że to liczba, a nie np. None
+                
                 if not isinstance(confidence, (int, float)) or confidence < self.min_confidence:
                     continue
                     
@@ -106,14 +106,14 @@ class ExtractorWrapper:
                 if self.exclude_relationships and rel_detail in self.exclude_relationships:
                     continue
                 
-                # Zabezpieczamy klucze przed byciem np. liczbami w JSON-ie
+               
                 filtered_fact_dict = {
                     str(k): v for k, v in fact_dict.items() 
                     if isinstance(k, str) and k in PoliticalFact.__dataclass_fields__
                 }
                 fact_objects.append(PoliticalFact(**filtered_fact_dict))
         
-        # 2. Bezpieczne przypisanie (Jawne rzutowanie dla dataclassy)
+       
         url_val = raw_json.get("url", source_url)
         relevant_val = raw_json.get("relevant", False)
         score_val = raw_json.get("relevance_score", 0.0)
@@ -121,7 +121,6 @@ class ExtractorWrapper:
         date_val = raw_json.get("publication_date")
 
         output_object = ExtractorOutput(
-            # Wymuszamy konkretne typy przy przypisywaniu wartości
             url=str(url_val) if url_val is not None else source_url,
             relevant=bool(relevant_val),
             relevance_score=float(score_val) if isinstance(score_val, (int, float)) else 0.0,
