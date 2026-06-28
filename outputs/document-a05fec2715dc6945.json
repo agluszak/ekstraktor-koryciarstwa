@@ -45,7 +45,7 @@
       "confidence": 0.708,
       "subject": "Łukasza Skokowskiego",
       "object": "Magdaleny Skokowskiej",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "mąż"
     },
     {
@@ -138,7 +138,7 @@
       "confidence": 0.647,
       "subject": "Piotra Janczarka",
       "object": "Wojciechem Wilkiem",
-      "relationship_detail": "spouse"
+      "relationship_detail": "family"
     },
     {
       "kind": "public_employment",
@@ -185,14 +185,14 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Michała Stawiarskiego",
+      "person": "Jarosław Stawiarski",
       "role": "marszałek",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Jarosław Stawiarski",
+      "person": "Michała Stawiarskiego",
       "role": "marszałek",
       "role_domain": "political_office"
     },
@@ -204,8 +204,15 @@
     {
       "kind": "patronage_network_tie",
       "confidence": 0.438,
-      "subject": "Agnieszka Bebel",
-      "object": "Krzysztofa Starucha",
+      "subject": "Krzysztofa Starucha",
+      "object": "Agnieszka Bebel",
+      "context": "burmistrzem"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.429,
+      "complainant": "Krzysztofa Starucha",
+      "target": "Agnieszka Bebel",
       "context": "burmistrzem"
     }
   ]

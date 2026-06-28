@@ -19,6 +19,13 @@
       "role": "pracownik gospodarczy"
     },
     {
+      "kind": "kinship_tie",
+      "confidence": 0.739,
+      "subject": "Jan Kowalski",
+      "object": "Tomasza Kościelniaka",
+      "relationship_detail": "family"
+    },
+    {
       "kind": "public_role_holding",
       "confidence": 0.737,
       "person": "Jan Kowalski",
@@ -48,22 +55,6 @@
       "person": "Tomasza Kościelniaka",
       "role": "wójt",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "kinship_tie",
-      "confidence": 0.708,
-      "subject": "dziewczyna of Tomasz Kościelniak",
-      "object": "Tomasza Kościelniaka",
-      "relationship_detail": "spouse",
-      "context": "dziewczyna"
-    },
-    {
-      "kind": "kinship_tie",
-      "confidence": 0.697,
-      "subject": "teść of Tomasz Kościelniak",
-      "object": "Tomasza Kościelniaka",
-      "relationship_detail": "family",
-      "context": "teść"
     },
     {
       "kind": "public_role_holding",

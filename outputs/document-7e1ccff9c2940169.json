@@ -17,14 +17,6 @@
       "organization": "starostwu"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
-      "person": "Anna Karaś",
-      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
-      "role": "sekretarz",
-      "role_domain": "administrative_office"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.727,
       "person": "Joanna Pszczółkowska",
@@ -37,6 +29,14 @@
       "confidence": 0.727,
       "person": "mąż of Joanna Pszczółkowska",
       "organization": "Powiatowym Centrum Pomocy Rodzinie",
+      "role": "sekretarz",
+      "role_domain": "administrative_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Anna Karaś",
+      "organization": "Powiatowego Centrum Pomocy Rodzinie w Ciechanowie",
       "role": "sekretarz",
       "role_domain": "administrative_office"
     },
@@ -57,9 +57,17 @@
     {
       "kind": "kinship_tie",
       "confidence": 0.697,
+      "subject": "Bartosz",
+      "object": "Joanna Pszczółkowska",
+      "relationship_detail": "family",
+      "context": "syn"
+    },
+    {
+      "kind": "kinship_tie",
+      "confidence": 0.697,
       "subject": "mąż of Joanna Pszczółkowska",
       "object": "Joanna Pszczółkowska",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "mąż"
     },
     {
@@ -67,7 +75,7 @@
       "confidence": 0.697,
       "subject": "syn of Roman",
       "object": "Roman",
-      "relationship_detail": "child",
+      "relationship_detail": "family",
       "context": "syn"
     },
     {
@@ -112,14 +120,6 @@
       "organization": "starostwo"
     },
     {
-      "kind": "kinship_tie",
-      "confidence": 0.623,
-      "subject": "Bartosz",
-      "object": "Joanna Pszczółkowska",
-      "relationship_detail": "child",
-      "context": "syn"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.561,
       "person": "Józef Borkowski",
@@ -132,14 +132,6 @@
       "complainant": "Joanna Pszczółkowska",
       "target": "Bartosz",
       "context": "konkurs"
-    },
-    {
-      "kind": "patronage_allegation",
-      "confidence": 0.39,
-      "complainant": "mąż of Joanna Pszczółkowska",
-      "target": "Joanna Pszczółkowska",
-      "institution": "starostwu",
-      "context": "sekretarzem"
     }
   ]
 }

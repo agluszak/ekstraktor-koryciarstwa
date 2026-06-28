@@ -13,18 +13,17 @@
     },
     {
       "kind": "kinship_tie",
-      "confidence": 0.708,
+      "confidence": 0.738,
       "subject": "Eugeniusza Kłopotka",
       "object": "Stanisława Żelichowskiego",
-      "relationship_detail": "child",
-      "context": "syn"
+      "relationship_detail": "family"
     },
     {
       "kind": "kinship_tie",
       "confidence": 0.708,
       "subject": "Urszula Bury",
       "object": "Jana Burego",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "żona"
     },
     {
@@ -37,17 +36,9 @@
     {
       "kind": "kinship_tie",
       "confidence": 0.697,
-      "subject": "Stanisława Żelichowskiego",
-      "object": "Eugeniusza Kłopotka",
-      "relationship_detail": "sibling",
-      "context": "brat"
-    },
-    {
-      "kind": "kinship_tie",
-      "confidence": 0.697,
       "subject": "brat of Jarosława Kalinowskiego",
       "object": "Jarosława Kalinowskiego",
-      "relationship_detail": "sibling",
+      "relationship_detail": "family",
       "context": "brat"
     },
     {
@@ -103,14 +94,14 @@
     {
       "kind": "public_role_appointment",
       "confidence": 0.618,
-      "person": "Mariusz Suchecki",
+      "person": "Lucjan Ograsiński",
       "role": "rad nadzorczy",
       "role_domain": "supervisory_board"
     },
     {
       "kind": "public_role_appointment",
       "confidence": 0.618,
-      "person": "Lucjan Ograsiński",
+      "person": "Mariusz Suchecki",
       "role": "rad nadzorczy",
       "role_domain": "supervisory_board"
     },

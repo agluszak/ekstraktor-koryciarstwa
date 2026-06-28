@@ -13,11 +13,371 @@
       "role_domain": "public_company_management"
     },
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Małgorzata Kurzynoga",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Filip Gorczyca",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Filip Gorczyca",
+      "object": "Małgorzata Kurzynoga",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Anita Elżanowska",
+      "object": "Andrzej Kaleta",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Adam Uszpolewicz",
+      "object": "Małgorzata Kurzynoga",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Adam Uszpolewicz",
+      "object": "Michał Bernaczyk",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Jonczynski",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Jonczynski",
+      "object": "Michał Bernaczyk",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Jonczynski",
+      "object": "Adam Uszpolewicz",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Małgorzata Kurzynoga",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Andrzej Kaleta",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Michał Bernaczyk",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Anita Elżanowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Andrzej Kaleta",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Andrzej Kaleta",
+      "object": "Małgorzata Kurzynoga",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Bernaczyk",
+      "object": "Małgorzata Kurzynoga",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Bernaczyk",
+      "object": "Filip Gorczyca",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Anita Elżanowska",
+      "object": "Małgorzata Kurzynoga",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Adam Uszpolewicz",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Adam Uszpolewicz",
+      "object": "Andrzej Kaleta",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Adam Uszpolewicz",
+      "object": "Filip Gorczyca",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Jonczynski",
+      "object": "Małgorzata Kurzynoga",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Adam Uszpolewicz",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Michał Jonczynski",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Filip Gorczyca",
+      "object": "Andrzej Kaleta",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Bernaczyk",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Bernaczyk",
+      "object": "Andrzej Kaleta",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Anita Elżanowska",
+      "object": "Anna Machnikowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Anita Elżanowska",
+      "object": "Filip Gorczyca",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Anita Elżanowska",
+      "object": "Michał Bernaczyk",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Adam Uszpolewicz",
+      "object": "Anita Elżanowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Jonczynski",
+      "object": "Andrzej Kaleta",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Jonczynski",
+      "object": "Filip Gorczyca",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Michał Jonczynski",
+      "object": "Anita Elżanowska",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.698,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Filip Gorczyca",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
       "kind": "party_membership",
       "confidence": 0.666,
       "subject": "Wojciecha Olejniczaka",
       "object": "Sojusz Lewicy Demokratycznej",
       "status": "former"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Anna Machnikowska",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Małgorzata Kurzynoga",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Andrzej Kaleta",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Filip Gorczyca",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Michał Bernaczyk",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Anita Elżanowska",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Adam Uszpolewicz",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Michał Jonczynski",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Wojciecha Olejniczaka",
+      "object": "Andrzeja Jarczyka",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
     },
     {
       "kind": "public_role_appointment",

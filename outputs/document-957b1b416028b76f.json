@@ -24,18 +24,19 @@
       "organization": "Sejmu"
     },
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Mariusza Bidzińskiego",
+      "object": "Jacka Zaleśnego",
+      "relationship_detail": "friend",
+      "context": "udziałowiec"
+    },
+    {
       "kind": "party_membership",
       "confidence": 0.563,
       "subject": "Anna-Maria Żukowska",
       "object": "Lewica",
       "status": "unknown"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
-      "person": "Lubczyk",
-      "role": "poseł",
-      "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
@@ -47,15 +48,22 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Szymon Hołownia",
-      "role": "marszałek",
+      "person": "Radosławie Lubczyku",
+      "role": "poseł",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Radosławie Lubczyku",
+      "person": "Lubczyk",
       "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Szymon Hołownia",
+      "role": "marszałek",
       "role_domain": "political_office"
     }
   ]

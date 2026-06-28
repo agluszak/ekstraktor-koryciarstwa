@@ -48,15 +48,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.691,
-      "subject": "Stanisława Mazura",
-      "object": "Lewica",
+      "subject": "Andrzeja Kloca",
+      "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.691,
-      "subject": "Andrzeja Kloca",
-      "object": "Polskie Stronnictwo Ludowe",
+      "subject": "Stanisława Mazura",
+      "object": "Lewica",
       "status": "unknown"
     },
     {

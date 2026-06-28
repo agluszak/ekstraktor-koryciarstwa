@@ -19,16 +19,25 @@
     {
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
-      "subject": "Waldemar Buda",
-      "object": "Gabriela Sowa",
-      "context": "związany"
+      "subject": "znajomy of Bałajewicza",
+      "object": "Bałajewicza",
+      "relationship_detail": "friend",
+      "context": "znajomy"
     },
     {
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
-      "subject": "Bałajewicza",
-      "object": "Rafała Kukli",
-      "context": "znajomy"
+      "subject": "kolega of Bałajewicza",
+      "object": "Łukasz Bałajewicz",
+      "relationship_detail": "friend",
+      "context": "kolega"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
+      "subject": "Waldemar Buda",
+      "object": "Gabriela Sowa",
+      "context": "związany"
     },
     {
       "kind": "personal_or_political_tie",
@@ -108,11 +117,19 @@
       "amount": "31 tys. zł"
     },
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Bałajewicza",
+      "object": "Rafała Kukli",
+      "relationship_detail": "friend",
+      "context": "znajomy"
+    },
+    {
       "kind": "kinship_tie",
       "confidence": 0.647,
       "subject": "Pawła Śliza",
       "object": "Filip Curyło",
-      "relationship_detail": "spouse"
+      "relationship_detail": "family"
     },
     {
       "kind": "public_role_holding",
@@ -246,13 +263,6 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Rafała Kukli",
-      "role": "burmistrz",
-      "role_domain": "political_office"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.544,
       "person": "Szymona Hołowni",
       "role": "marszałek",
       "role_domain": "political_office"
@@ -262,6 +272,13 @@
       "confidence": 0.544,
       "person": "Rafał Komarewicz",
       "role": "poseł",
+      "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.544,
+      "person": "Rafała Kukli",
+      "role": "burmistrz",
       "role_domain": "political_office"
     },
     {
@@ -277,13 +294,6 @@
       "person": "Filip Curyło",
       "role": "radzio nadzorczy",
       "role_domain": "political_office"
-    },
-    {
-      "kind": "patronage_network_tie",
-      "confidence": 0.524,
-      "subject": "Rafał Komarewicz",
-      "object": "Szymona Hołowni",
-      "institution": "„GP”"
     },
     {
       "kind": "public_role_appointment",

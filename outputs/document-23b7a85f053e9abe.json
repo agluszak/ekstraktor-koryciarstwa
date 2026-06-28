@@ -30,8 +30,8 @@
     {
       "kind": "patronage_allegation",
       "confidence": 0.404,
-      "complainant": "Stanisław Mazur",
-      "target": "Andrzej Kloc",
+      "complainant": "Andrzej Kloc",
+      "target": "Stanisław Mazur",
       "context": "radę nadzorczą"
     }
   ]

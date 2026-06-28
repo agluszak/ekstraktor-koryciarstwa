@@ -23,7 +23,7 @@
       "confidence": 0.708,
       "subject": "Przemysław Czarnek",
       "object": "Krzysztofa Sobolewskiego",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "żona"
     },
     {
@@ -31,7 +31,7 @@
       "confidence": 0.708,
       "subject": "Sylwii Sobolewskiej",
       "object": "Krzysztofa Sobolewskiego",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "żona"
     },
     {
@@ -64,6 +64,14 @@
       "role_domain": "administrative_office"
     },
     {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Piotr Breś",
+      "object": "Jarosława Kaczyńskiego",
+      "relationship_detail": "friend",
+      "context": "akcjonariusz"
+    },
+    {
       "kind": "compensation",
       "confidence": 0.657,
       "funder": "Przedsiębiorstwie Gospodarki Komunalnej w Kamieniu Pomorskim",
@@ -82,14 +90,14 @@
       "confidence": 0.647,
       "subject": "Sylwii Sobolewskiej",
       "object": "Mariolę Duraj-Majdę",
-      "relationship_detail": "child"
+      "relationship_detail": "family"
     },
     {
       "kind": "kinship_tie",
       "confidence": 0.647,
       "subject": "Krzysztofa Sobolewskiego",
       "object": "Jarosława Kaczyńskiego",
-      "relationship_detail": "spouse"
+      "relationship_detail": "family"
     },
     {
       "kind": "public_role_end",

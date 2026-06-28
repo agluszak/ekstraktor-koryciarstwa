@@ -29,32 +29,25 @@
     },
     {
       "kind": "kinship_tie",
-      "confidence": 0.697,
+      "confidence": 0.708,
       "subject": "córka of Zbigniewa Ziobro",
       "object": "Zbigniewa Ziobro",
-      "relationship_detail": "child",
+      "relationship_detail": "family",
       "context": "córka"
-    },
-    {
-      "kind": "kinship_tie",
-      "confidence": 0.647,
-      "subject": "Ireneusz Stachowiak",
-      "object": "Zbigniewa Ziobro",
-      "relationship_detail": "parent"
     },
     {
       "kind": "kinship_tie",
       "confidence": 0.647,
       "subject": "Rydzykowi",
       "object": "Mateusz Morawiecki",
-      "relationship_detail": "parent"
+      "relationship_detail": "family"
     },
     {
       "kind": "kinship_tie",
       "confidence": 0.647,
       "subject": "Yad Vashem",
       "object": "Rydzykowi",
-      "relationship_detail": "parent"
+      "relationship_detail": "family"
     },
     {
       "kind": "funding",
@@ -69,13 +62,6 @@
       "counterparty": "Wojewódzki Fundusz Ochrony Środowiska i Gospodarki Wodnej w Toruniu",
       "contractor": "Lux Veritatis",
       "amount": "300 tys. zł"
-    },
-    {
-      "kind": "funding",
-      "confidence": 0.574,
-      "funder": "Fundacja KGHM",
-      "recipient": "Rydzyka",
-      "amount": "200 tys. zł"
     },
     {
       "kind": "funding",

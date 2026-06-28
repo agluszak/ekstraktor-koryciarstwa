@@ -27,6 +27,14 @@
     {
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
+      "subject": "kolega of Mariusza Wołosza",
+      "object": "Mariuszem Wołoszem",
+      "relationship_detail": "friend",
+      "context": "kolega"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.697,
       "subject": "Macieja Bartkowa",
       "object": "Mariuszem Wołoszem",
       "context": "związany"
@@ -36,19 +44,19 @@
       "confidence": 0.647,
       "subject": "Mariuszem Wołoszem",
       "object": "Macieja Bartkowa",
-      "relationship_detail": "spouse"
+      "relationship_detail": "family"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.618,
-      "person": "Bartłomieja Wnuka",
+      "person": "Wnuk Consulting",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.618,
-      "person": "Wnuk Consulting",
+      "person": "Bartłomieja Wnuka",
       "role": "radny",
       "role_domain": "political_office"
     },

@@ -7,29 +7,15 @@
     {
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
-      "subject": "Bogdana Klicha",
-      "object": "Jarosław Hodura",
+      "subject": "Jarosław Hodura",
+      "object": "Bogdana Klicha",
       "context": "współpracownik"
     },
     {
       "kind": "personal_or_political_tie",
       "confidence": 0.697,
-      "subject": "Krzysztof Kuczmański",
-      "object": "Bogdana Klicha",
-      "context": "znajomy"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Marcin Dulian",
-      "object": "Bogdana Klicha",
-      "context": "przyjaciel"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Jarosław Hodura",
-      "object": "Bogdana Klicha",
+      "subject": "Bogdana Klicha",
+      "object": "Jarosław Hodura",
       "context": "współpracownik"
     },
     {
@@ -39,6 +25,22 @@
       "organization": "Grupy Hoteli",
       "role": "prezes",
       "role_domain": "public_company_management"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Krzysztof Kuczmański",
+      "object": "Bogdana Klicha",
+      "relationship_detail": "friend",
+      "context": "znajomy"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Marcin Dulian",
+      "object": "Bogdana Klicha",
+      "relationship_detail": "friend",
+      "context": "przyjaciel"
     },
     {
       "kind": "public_role_holding",

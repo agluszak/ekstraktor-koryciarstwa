@@ -48,7 +48,7 @@
       "confidence": 0.721,
       "subject": "Dariusz Jurek",
       "object": "Monika Jurek",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "mąż"
     },
     {
@@ -56,7 +56,7 @@
       "confidence": 0.697,
       "subject": "Agnieszki Królikowskiej",
       "object": "Szymona Ogłazy",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "partnerka"
     },
     {
@@ -72,7 +72,7 @@
       "confidence": 0.647,
       "subject": "Szymona Ogłazy",
       "object": "Dariusz Jurek",
-      "relationship_detail": "spouse"
+      "relationship_detail": "family"
     },
     {
       "kind": "public_employment",

@@ -11,20 +11,20 @@
       "amount": "53 mln zł"
     },
     {
-      "kind": "public_role_appointment",
-      "confidence": 0.727,
-      "person": "Miłosz Wojnarowski",
-      "organization": "Natura Tour",
-      "role": "rad nadzorczy",
-      "role_domain": "supervisory_board"
-    },
-    {
       "kind": "public_role_holding",
       "confidence": 0.727,
       "person": "Dariusza Klimczaka",
       "organization": "PKP",
       "role": "minister",
       "role_domain": "political_office"
+    },
+    {
+      "kind": "public_role_appointment",
+      "confidence": 0.727,
+      "person": "Miłosz Wojnarowski",
+      "organization": "Natura Tour",
+      "role": "rad nadzorczy",
+      "role_domain": "supervisory_board"
     },
     {
       "kind": "public_role_holding",
@@ -39,15 +39,23 @@
       "confidence": 0.721,
       "subject": "narzeczony of Dariusza Klimczaka",
       "object": "Dariusza Klimczaka",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "narzeczony"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.709,
+      "subject": "Jolantę Sobczyk",
+      "object": "Dariusza Klimczaka",
+      "relationship_detail": "friend",
+      "context": "znajoma"
     },
     {
       "kind": "kinship_tie",
       "confidence": 0.708,
       "subject": "Miłosz Wojnarowski",
       "object": "Konrada Wojnarowskiego",
-      "relationship_detail": "sibling",
+      "relationship_detail": "family",
       "context": "brat"
     },
     {
@@ -55,7 +63,7 @@
       "confidence": 0.708,
       "subject": "Mikołajowi Grzybowi",
       "object": "Andrzeja Grzyba",
-      "relationship_detail": "child",
+      "relationship_detail": "family",
       "context": "syn"
     },
     {
@@ -63,7 +71,7 @@
       "confidence": 0.708,
       "subject": "Piotra Smogorzewskiego",
       "object": "Romana Smogorzewskiego",
-      "relationship_detail": "sibling",
+      "relationship_detail": "family",
       "context": "brat"
     },
     {
@@ -79,7 +87,7 @@
       "confidence": 0.697,
       "subject": "Marta Giermasińska",
       "object": "Dariusza Klimczaka",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "narzeczony"
     },
     {
@@ -95,13 +103,6 @@
       "subject": "Andrzej Melon",
       "object": "Krzysztof Jażdżyk",
       "context": "związany"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Jolantę Sobczyk",
-      "object": "Dariusza Klimczaka",
-      "context": "znajomy"
     },
     {
       "kind": "public_role_holding",
@@ -196,14 +197,14 @@
       "confidence": 0.647,
       "subject": "Jażdżyku",
       "object": "Dariusza Klimczaka",
-      "relationship_detail": "spouse"
+      "relationship_detail": "family"
     },
     {
       "kind": "kinship_tie",
       "confidence": 0.647,
       "subject": "Jażdżyku",
       "object": "Marta Giermasińska",
-      "relationship_detail": "spouse"
+      "relationship_detail": "family"
     },
     {
       "kind": "public_role_appointment",
@@ -244,15 +245,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Jolantę Sobczyk",
-      "object": "Trzecia Droga",
+      "subject": "Andrzeja Grzyba",
+      "object": "Polskie Stronnictwo Ludowe",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Andrzeja Grzyba",
-      "object": "Polskie Stronnictwo Ludowe",
+      "subject": "Jolantę Sobczyk",
+      "object": "Trzecia Droga",
       "status": "unknown"
     },
     {

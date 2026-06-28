@@ -25,15 +25,8 @@
       "confidence": 0.708,
       "subject": "Renata Stefaniuk",
       "object": "Dariusza Stefaniuka",
-      "relationship_detail": "spouse",
+      "relationship_detail": "family",
       "context": "żona"
-    },
-    {
-      "kind": "personal_or_political_tie",
-      "confidence": 0.697,
-      "subject": "Renata Stefaniuk",
-      "object": "Dariusza Stefaniuka",
-      "context": "znajomy"
     },
     {
       "kind": "public_role_holding",
@@ -65,6 +58,14 @@
       "organization": "Enea Połaniec",
       "role": "rada nadzorczy",
       "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "personal_or_political_tie",
+      "confidence": 0.661,
+      "subject": "Renata Stefaniuk",
+      "object": "Dariusza Stefaniuka",
+      "relationship_detail": "friend",
+      "context": "znajomy"
     },
     {
       "kind": "public_role_appointment",
