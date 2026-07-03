@@ -171,15 +171,15 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Wojciechem Wilkiem",
-      "role": "burmistrz",
+      "person": "Piotra Janczarka",
+      "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Piotra Janczarka",
-      "role": "radny",
+      "person": "Michała Stawiarskiego",
+      "role": "marszałek",
       "role_domain": "political_office"
     },
     {
@@ -192,21 +192,14 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Michała Stawiarskiego",
-      "role": "marszałek",
+      "person": "Wojciechem Wilkiem",
+      "role": "burmistrz",
       "role_domain": "political_office"
     },
     {
       "kind": "election_candidacy",
       "confidence": 0.48,
       "person": "Krzysztofa Starucha"
-    },
-    {
-      "kind": "patronage_network_tie",
-      "confidence": 0.438,
-      "subject": "Krzysztofa Starucha",
-      "object": "Agnieszka Bebel",
-      "context": "burmistrzem"
     },
     {
       "kind": "patronage_allegation",

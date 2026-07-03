@@ -117,15 +117,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Marek Papuga",
-      "object": "Sojusz Lewicy Demokratycznej",
+      "subject": "Ewy Patalas",
+      "object": "Polska 2050",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Ewy Patalas",
-      "object": "Polska 2050",
+      "subject": "Marek Papuga",
+      "object": "Sojusz Lewicy Demokratycznej",
       "status": "unknown"
     },
     {

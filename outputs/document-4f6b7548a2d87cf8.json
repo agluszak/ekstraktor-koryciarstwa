@@ -296,6 +296,20 @@
       "role_domain": "political_office"
     },
     {
+      "kind": "patronage_network_tie",
+      "confidence": 0.524,
+      "subject": "Rafał Komarewicz",
+      "object": "Szymona Hołowni",
+      "institution": "„GP”"
+    },
+    {
+      "kind": "patronage_allegation",
+      "confidence": 0.515,
+      "complainant": "Rafał Komarewicz",
+      "target": "Szymona Hołowni",
+      "institution": "„GP”"
+    },
+    {
       "kind": "public_role_appointment",
       "confidence": 0.513,
       "person": "Szymona Hołowni",

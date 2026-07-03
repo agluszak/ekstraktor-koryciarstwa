@@ -49,14 +49,14 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.618,
-      "person": "Wnuk Consulting",
+      "person": "Bartłomieja Wnuka",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.618,
-      "person": "Bartłomieja Wnuka",
+      "person": "Wnuk Consulting",
       "role": "radny",
       "role_domain": "political_office"
     },
@@ -70,24 +70,24 @@
     {
       "kind": "public_role_end",
       "confidence": 0.545,
-      "person": "Mariuszem Wołoszem"
+      "person": "Waldemar Gawron"
     },
     {
       "kind": "public_role_end",
       "confidence": 0.545,
-      "person": "Waldemar Gawron"
+      "person": "Mariuszem Wołoszem"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Mariusz Janas",
+      "person": "Robert Rabus",
       "role": "radny",
       "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
       "confidence": 0.544,
-      "person": "Robert Rabus",
+      "person": "Mariusz Janas",
       "role": "radny",
       "role_domain": "political_office"
     },

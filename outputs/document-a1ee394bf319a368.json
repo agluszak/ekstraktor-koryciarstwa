@@ -20,26 +20,10 @@
     {
       "kind": "public_role_holding",
       "confidence": 0.727,
-      "person": "Szymon Osowski",
-      "organization": "Sieci Obywatelskiej Watchdog Polska",
-      "role": "prezes",
-      "role_domain": "public_company_management"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
       "person": "Bartosz Piech",
       "organization": "Totalizatora Sportowego w Lublinie",
       "role": "szef",
       "role_domain": "institution_management"
-    },
-    {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
-      "person": "Magdalena Sekuła",
-      "organization": "Ergo Areną",
-      "role": "prezes",
-      "role_domain": "public_company_management"
     },
     {
       "kind": "public_role_appointment",
@@ -48,6 +32,22 @@
       "organization": "Totalizatora",
       "role": "dyrektor",
       "role_domain": "institution_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Szymon Osowski",
+      "organization": "Sieci Obywatelskiej Watchdog Polska",
+      "role": "prezes",
+      "role_domain": "public_company_management"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Magdalena Sekuła",
+      "organization": "Ergo Areną",
+      "role": "prezes",
+      "role_domain": "public_company_management"
     },
     {
       "kind": "public_role_holding",
@@ -279,8 +279,22 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
+      "subject": "Sławomir Rybicki",
+      "object": "Platforma Obywatelska",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
       "subject": "Marcin Posadzy",
       "object": "Prawo i Sprawiedliwość",
+      "status": "unknown"
+    },
+    {
+      "kind": "party_membership",
+      "confidence": 0.563,
+      "subject": "Karol Wilczyński",
+      "object": "Koalicja Obywatelska",
       "status": "unknown"
     },
     {
@@ -296,20 +310,6 @@
       "subject": "Tomasz Lutak",
       "object": "Prawo i Sprawiedliwość",
       "status": "former"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.563,
-      "subject": "Karol Wilczyński",
-      "object": "Koalicja Obywatelska",
-      "status": "unknown"
-    },
-    {
-      "kind": "party_membership",
-      "confidence": 0.563,
-      "subject": "Sławomir Rybicki",
-      "object": "Platforma Obywatelska",
-      "status": "unknown"
     },
     {
       "kind": "party_membership",

@@ -11,20 +11,20 @@
       "amount": "53 mln zł"
     },
     {
-      "kind": "public_role_holding",
-      "confidence": 0.727,
-      "person": "Dariusza Klimczaka",
-      "organization": "PKP",
-      "role": "minister",
-      "role_domain": "political_office"
-    },
-    {
       "kind": "public_role_appointment",
       "confidence": 0.727,
       "person": "Miłosz Wojnarowski",
       "organization": "Natura Tour",
       "role": "rad nadzorczy",
       "role_domain": "supervisory_board"
+    },
+    {
+      "kind": "public_role_holding",
+      "confidence": 0.727,
+      "person": "Dariusza Klimczaka",
+      "organization": "PKP",
+      "role": "minister",
+      "role_domain": "political_office"
     },
     {
       "kind": "public_role_holding",
@@ -252,15 +252,15 @@
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Jolantę Sobczyk",
-      "object": "Trzecia Droga",
+      "subject": "Jan Grabiec",
+      "object": "Platforma Obywatelska",
       "status": "unknown"
     },
     {
       "kind": "party_membership",
       "confidence": 0.563,
-      "subject": "Jan Grabiec",
-      "object": "Platforma Obywatelska",
+      "subject": "Jolantę Sobczyk",
+      "object": "Trzecia Droga",
       "status": "unknown"
     },
     {
