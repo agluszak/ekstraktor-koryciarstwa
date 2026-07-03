@@ -43,14 +43,17 @@ class ExtractorWrapper:
         spacy_model: str = "pl_core_news_lg",
         sentence_transformer_model: str | None = None,
         exclude_fact_kinds: list[str] | None = None,
-        exclude_relationships: list[RelationshipDetail | str] | None = None,
+        exclude_relationships: list[RelationshipDetail | str | None] | None = None,
     ) -> None:
 
         self.min_confidence = min_confidence
         self.debug_mode = debug_mode
         self.exclude_fact_kinds = exclude_fact_kinds or []
+
         if exclude_relationships:
-            self.exclude_relationships = [str(rel) for rel in exclude_relationships]
+            self.exclude_relationships = [
+                str(rel) if rel is not None else None for rel in exclude_relationships
+            ]
         else:
             self.exclude_relationships = []
 
@@ -100,8 +103,11 @@ class ExtractorWrapper:
                     continue
 
                 rel_detail = fact_dict.get("relationship_detail")
-                if self.exclude_relationships and rel_detail in self.exclude_relationships:
-                    continue
+
+                if self.exclude_relationships:
+                    filter_val = str(rel_detail) if rel_detail is not None else None
+                    if filter_val in self.exclude_relationships:
+                        continue
 
                 filtered_fact_dict = {
                     str(k): v
