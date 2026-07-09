@@ -12,7 +12,6 @@ from pipeline_v2.candidates import (
     EventCandidate,
     FactResolutionClaim,
     FullPersonNameKey,
-    OrganizationAcronymKey,
     ReferenceResolutionClaim,
 )
 from pipeline_v2.ids import (
@@ -184,9 +183,6 @@ class ExtractionStore:
         self.fact_resolution_claims = {}
         self.fact_resolution_ids_by_fact_id = defaultdict(set)
 
-    def entity_ids_for_blocking_key(self, key: EntityBlockingKey) -> set[EntityCandidateId]:
-        return set(self.entity_ids_by_blocking_key.get(key, set()))
-
     def entity_ids_for_mention(self, mention_id: MentionId) -> frozenset[EntityCandidateId]:
         return frozenset(self.entity_ids_by_mention_id.get(mention_id, set()))
 
@@ -270,15 +266,6 @@ class ExtractionStore:
             for claim_id in self.reference_resolution_ids_by_reference_id.get(reference_id, set())
         )
 
-    def fact_resolution_claims_for_fact(
-        self,
-        fact_id: FactCandidateId,
-    ) -> tuple[FactResolutionClaim, ...]:
-        return tuple(
-            self.fact_resolution_claims[claim_id]
-            for claim_id in self.fact_resolution_ids_by_fact_id.get(fact_id, set())
-        )
-
     def next_sentence_id(self) -> SentenceId:
         return SentenceId(f"sentence-{len(self.sentences)}")
 
@@ -328,7 +315,3 @@ class ExtractionStore:
         if key is None:
             return ()
         return (key,)
-
-
-def org_blocking_keys(key: OrganizationAcronymKey) -> tuple[EntityBlockingKey, ...]:
-    return (key,)
