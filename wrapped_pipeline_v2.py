@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 from pipeline_v2.document import PipelineInput
@@ -10,7 +10,7 @@ from pipeline_v2.types import RelationshipDetail
 
 
 @dataclass
-class PoliticalFact:
+class PoliticalFact(dict):
     kind: str
     confidence: float
     person: Optional[str] = None
@@ -23,15 +23,21 @@ class PoliticalFact:
     contractor: Optional[str] = None
     amount: Optional[str] = None
 
+    def __post_init__(self):
+        dict.__init__(self, **asdict(self))
+
 
 @dataclass
-class ExtractorOutput:
+class ExtractorOutput(dict):
     url: str
     relevant: bool
     relevance_score: float
     facts: List[PoliticalFact]
     title: Optional[str] = None
     publication_date: Optional[str] = None
+
+    def __post_init__(self):
+        dict.__init__(self, **asdict(self))
 
 
 class ExtractorWrapper:
