@@ -1,6 +1,9 @@
 import json
 
+from pipeline_v2.cli import fetch_html
 from wrapped_pipeline_v2 import ExtractorWrapper
+
+URL = "https://tvn24.pl/tvnwarszawa/srodmiescie/warszawa-zmiany-w-radach-nadzorczych-miejskich-szpitali-kto-stracil-stanowisko-lista-st9108816"
 
 # 1. Initialize the pipeline once (this loads the heavy models)
 # We decide to exclude public contracts, public employment and loose friendships.
@@ -11,12 +14,12 @@ pipeline = ExtractorWrapper(
 )
 
 # 2. Read your raw HTML
-raw_html_content = "<html>...wójt zatrudnił brata...</html>"
+raw_html_content = fetch_html(URL)
 
 # 3. Process the text
 result_json = pipeline.process_html(
     raw_html=raw_html_content,
-    source_url="[https://example.com/article](https://example.com/article)",
+    source_url=URL,
 )
 
 # 4. Print or save the filtered results
